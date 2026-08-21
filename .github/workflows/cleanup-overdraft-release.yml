@@ -1,0 +1,43 @@
+name: Cleanup superseded overdraft release
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - '.github/workflows/cleanup-overdraft-release.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    env:
+      DOCKERHUB_USERNAME: mienvirtuoso
+      DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+    steps:
+      - name: Delete Docker Hub v0.1.179-overdraft.1 tags
+        run: |
+          LOGIN_RESPONSE=$(curl --fail-with-body --silent --show-error \
+            --request POST 'https://hub.docker.com/v2/users/login' \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg username "$DOCKERHUB_USERNAME" --arg password "$DOCKERHUB_TOKEN" '{username: $username, password: $password}')")
+          HUB_JWT=$(jq -r '.token // empty' <<<"$LOGIN_RESPONSE")
+          if [ -z "$HUB_JWT" ]; then
+            echo 'Docker Hub login did not return a JWT'
+            exit 1
+          fi
+
+          for TAG in 0.1.179-overdraft.1 0.1.179-overdraft.1-amd64 0.1.179-overdraft.1-arm64; do
+            STATUS=$(curl --silent --show-error --output response.txt --write-out '%{http_code}' \
+              --request DELETE \
+              --header "Authorization: JWT ${HUB_JWT}" \
+              "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/sub2api/tags/${TAG}/")
+            if [ "$STATUS" != '202' ] && [ "$STATUS" != '204' ] && [ "$STATUS" != '404' ]; then
+              echo "Failed to delete ${TAG}: HTTP ${STATUS}"
+              cat response.txt
+              exit 1
+            fi
+            echo "Deleted ${TAG} (HTTP ${STATUS})"
+          done
