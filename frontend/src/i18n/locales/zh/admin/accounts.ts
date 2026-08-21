@@ -321,6 +321,10 @@ export default {
         },
         apiProtocol: {
           title: 'API 协议',
+          adaptive: '自适应',
+          adaptiveDesc: '按入站协议优先使用供应商原生端点，仅在没有对应端点时转换。',
+          endpoints: '协议端点',
+          responsesFallbackDesc: '该供应商没有原生 Responses 端点，Responses 请求将转换为 Chat Completions。',
           chatCompletions: 'Chat Completions',
           chatCompletionsDesc: '标准 OpenAI 兼容端点，其他格式请求将被转换。',
           anthropic: 'Anthropic',
@@ -623,6 +627,9 @@ export default {
         oauthPassthrough: '自动透传（仅替换认证）',
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',
+        modelNormalization: '规范化 Codex 模型名称',
+        modelNormalizationDesc:
+          '默认开启，将已知别名和带后缀的模型名称转换为 Codex 上游支持的标准名称。关闭后，账号映射得到的自定义模型名称（如 gpt-5.6-sol-wm）将原样发送。',
         flattenNamespaces: '摊平 Codex namespace 工具（兼容）',
         flattenNamespacesDesc:
           '默认关闭：/responses 上的 namespace 工具声明原样转发，这正是 ChatGPT Codex 后端期望的形态。仅当该 OAuth 账号指向不认识 namespace 的兼容上游时才开启——摊平会把工具改名为 namespace__tool，使按 functions.<命名空间>.<工具> 寻址的模型（如 gpt-5.6 多智能体）无法调用。压缩（compact）请求不受该开关影响，始终摊平。',

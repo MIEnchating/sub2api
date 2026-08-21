@@ -118,6 +118,10 @@ export default {
         },
         apiProtocol: {
           title: 'API Protocol',
+          adaptive: 'Adaptive',
+          adaptiveDesc: 'Uses the matching native provider endpoint for each inbound protocol, converting only when unavailable.',
+          endpoints: 'Protocol endpoints',
+          responsesFallbackDesc: 'Responses requests are converted to Chat Completions because this provider has no native Responses endpoint.',
           chatCompletions: 'Chat Completions',
           chatCompletionsDesc: 'Standard OpenAI-compatible endpoint; requests in other formats are converted.',
           anthropic: 'Anthropic',
@@ -546,6 +550,9 @@ export default {
         oauthPassthrough: 'Auto passthrough (auth only)',
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',
+        modelNormalization: 'Normalize Codex model names',
+        modelNormalizationDesc:
+          'Enabled by default. Known aliases and suffixed model names are converted to names supported by the Codex upstream. Disable to forward custom mapped names such as gpt-5.6-sol-wm unchanged.',
         flattenNamespaces: 'Flatten Codex namespace tools (compatibility)',
         flattenNamespacesDesc:
           'Disabled by default: Codex namespace tool declarations are forwarded as-is on /responses, which is what the ChatGPT Codex backend expects. Enable only when this OAuth account is routed to a relay that rejects namespace tools — flattening renames them to namespace__tool, which breaks models that address collaboration tools as functions.<namespace>.<tool>. Compaction requests always flatten regardless of this switch.',

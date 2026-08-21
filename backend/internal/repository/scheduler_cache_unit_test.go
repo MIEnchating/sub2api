@@ -306,6 +306,7 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 		Extra: map[string]any{
 			"openai_oauth_responses_websockets_v2_enabled": true,
 			"openai_oauth_responses_websockets_v2_mode":    service.OpenAIWSIngressModePassthrough,
+			service.OpenAIModelNormalizationEnabledExtraKey: false,
 			"openai_ws_force_http":                         true,
 			"openai_responses_mode":                        "force_chat_completions",
 			"openai_responses_supported":                   false,
@@ -320,6 +321,7 @@ func TestBuildSchedulerMetadataAccount_KeepsOpenAIWSFlags(t *testing.T) {
 
 	require.Equal(t, true, got.Extra["openai_oauth_responses_websockets_v2_enabled"])
 	require.Equal(t, service.OpenAIWSIngressModePassthrough, got.Extra["openai_oauth_responses_websockets_v2_mode"])
+	require.Equal(t, false, got.Extra[service.OpenAIModelNormalizationEnabledExtraKey])
 	require.Equal(t, true, got.Extra["openai_ws_force_http"])
 	require.Equal(t, "force_chat_completions", got.Extra["openai_responses_mode"])
 	require.Equal(t, false, got.Extra["openai_responses_supported"])

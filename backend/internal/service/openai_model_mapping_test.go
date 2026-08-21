@@ -292,6 +292,24 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 			want:    "codex-auto-review",
 		},
 		{
+			name:    "oauth normalizes custom GPT-5.6 Sol suffix by default",
+			account: &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth},
+			model:   "gpt-5.6-sol-wm",
+			want:    "gpt-5.6-sol",
+		},
+		{
+			name: "oauth preserves custom GPT-5.6 Sol suffix when normalization is disabled",
+			account: &Account{
+				Platform: PlatformOpenAI,
+				Type:     AccountTypeOAuth,
+				Extra: map[string]any{
+					OpenAIModelNormalizationEnabledExtraKey: false,
+				},
+			},
+			model: "gpt-5.6-sol-wm",
+			want:  "gpt-5.6-sol-wm",
+		},
+		{
 			name:    "apikey preserves official bare GPT-5.6 alias",
 			account: &Account{Type: AccountTypeAPIKey},
 			model:   "gpt-5.6",
@@ -317,6 +335,29 @@ func TestNormalizeOpenAIModelForUpstream(t *testing.T) {
 				t.Fatalf("normalizeOpenAIModelForUpstream(...) = %q, want %q", got, tt.want)
 			}
 		})
+	}
+}
+
+func TestOpenAIModelMappingPreservesCustomTargetWhenNormalizationDisabled(t *testing.T) {
+	account := &Account{
+		Platform: PlatformOpenAI,
+		Type:     AccountTypeOAuth,
+		Credentials: map[string]any{
+			"model_mapping": map[string]any{
+				"gpt-5.6-sol": "gpt-5.6-sol-wm",
+			},
+		},
+		Extra: map[string]any{
+			OpenAIModelNormalizationEnabledExtraKey: false,
+		},
+	}
+
+	mappedModel := resolveOpenAIForwardModel(account, "gpt-5.6-sol", "")
+	if mappedModel != "gpt-5.6-sol-wm" {
+		t.Fatalf("resolveOpenAIForwardModel(...) = %q, want %q", mappedModel, "gpt-5.6-sol-wm")
+	}
+	if upstreamModel := normalizeOpenAIModelForUpstream(account, mappedModel); upstreamModel != "gpt-5.6-sol-wm" {
+		t.Fatalf("normalizeOpenAIModelForUpstream(...) = %q, want %q", upstreamModel, "gpt-5.6-sol-wm")
 	}
 }
 

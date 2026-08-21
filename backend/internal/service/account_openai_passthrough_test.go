@@ -49,6 +49,28 @@ func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {
 	})
 }
 
+func TestAccount_IsOpenAIModelNormalizationEnabled(t *testing.T) {
+	tests := []struct {
+		name    string
+		account *Account
+		want    bool
+	}{
+		{name: "nil account defaults enabled", account: nil, want: true},
+		{name: "missing extra defaults enabled", account: &Account{Platform: PlatformOpenAI}, want: true},
+		{name: "missing key defaults enabled", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{}}, want: true},
+		{name: "explicit true enables", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{OpenAIModelNormalizationEnabledExtraKey: true}}, want: true},
+		{name: "explicit false disables", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{OpenAIModelNormalizationEnabledExtraKey: false}}, want: false},
+		{name: "malformed value defaults enabled", account: &Account{Platform: PlatformOpenAI, Extra: map[string]any{OpenAIModelNormalizationEnabledExtraKey: "false"}}, want: true},
+		{name: "other platforms stay enabled", account: &Account{Platform: PlatformGrok, Extra: map[string]any{OpenAIModelNormalizationEnabledExtraKey: false}}, want: true},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			require.Equal(t, tt.want, tt.account.IsOpenAIModelNormalizationEnabled())
+		})
+	}
+}
+
 func TestAccount_IsOpenAIOAuthPassthroughEnabled(t *testing.T) {
 	t.Run("仅OAuth类型允许返回开启", func(t *testing.T) {
 		oauthAccount := &Account{
