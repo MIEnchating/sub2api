@@ -197,6 +197,32 @@ jobs:
           short-description: "Sub2API - AI API Gateway Platform"
           readme-filepath: ./deploy/DOCKER.md
 
+      # One-time cleanup after the replacement release is fully published.
+      - name: Remove superseded v0.1.179-overdraft.1 release
+        if: ${{ env.SIMPLE_RELEASE != 'true' && env.DOCKERHUB_TOKEN != '' && (github.event.inputs.tag == 'v0.1.179-overdraft.2' || github.ref == 'refs/tags/v0.1.179-overdraft.2') }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          OLD_TAG=v0.1.179-overdraft.1
+          OLD_VERSION=${OLD_TAG#v}
+
+          RELEASE_ID=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${OLD_TAG}" --jq .id 2>/dev/null || true)
+          if [ -n "$RELEASE_ID" ]; then
+            gh api --method DELETE "repos/${GITHUB_REPOSITORY}/releases/${RELEASE_ID}"
+          fi
+
+          HUB_TOKEN=$(curl --fail-with-body --silent --show-error \
+            --request POST 'https://hub.docker.com/v2/auth/token' \
+            --header 'Content-Type: application/json' \
+            --data "$(jq -n --arg identifier "$DOCKERHUB_USERNAME" --arg secret "$DOCKERHUB_TOKEN" '{identifier: $identifier, secret: $secret}')" \
+            | jq -r .access_token)
+          for TAG in "$OLD_VERSION" "$OLD_VERSION-amd64" "$OLD_VERSION-arm64"; do
+            curl --fail-with-body --silent --show-error \
+              --request DELETE \
+              --header "Authorization: Bearer ${HUB_TOKEN}" \
+              "https://hub.docker.com/v2/repositories/${DOCKERHUB_USERNAME}/sub2api/tags/${TAG}/"
+          done
+
       # Send Telegram notification
       - name: Send Telegram Notification
         if: ${{ env.SIMPLE_RELEASE != 'true' }}

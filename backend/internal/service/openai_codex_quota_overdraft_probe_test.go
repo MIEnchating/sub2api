@@ -452,6 +452,46 @@ func TestCodexQuotaOverdraftRecoveryClearsWindowState(t *testing.T) {
 	require.Zero(t, repo.tempPauseCalls)
 }
 
+func TestCodexQuotaOverdraftRecoveryKeepsCycleForTransientPartialSnapshot(t *testing.T) {
+	now := time.Date(2026, time.August, 13, 14, 0, 0, 0, time.UTC)
+	account := newCodexOverdraftProbeTestAccount(now)
+	account.Extra["codex_5h_used_percent"] = 99
+	started := now.Add(-time.Hour)
+	recoverAt := now.Add(4 * time.Hour)
+	state := &CodexQuotaOverdraftProbeState{
+		Status:             codexQuotaOverdraftProbePassed,
+		QuotaWindow:        "5h",
+		CycleKey:           "5h:" + formatCodexOverdraftUnix(recoverAt),
+		RecoverAt:          codexQuotaOverdraftTimePtr(recoverAt),
+		FiveHourRecoverAt:  codexQuotaOverdraftTimePtr(recoverAt),
+		OverdraftStartedAt: codexQuotaOverdraftTimePtr(started),
+		FiveHourStartedAt:  codexQuotaOverdraftTimePtr(started),
+	}
+
+	changed := clearRecoveredCodexQuotaOverdraftWindows(state, account, now)
+
+	require.False(t, changed)
+	require.NotNil(t, state.FiveHourStartedAt)
+	require.Equal(t, started, *state.FiveHourStartedAt)
+	require.NotNil(t, state.FiveHourRecoverAt)
+
+	signal, exhausted := codexQuotaOverdraftSignalFromAccount(account, state, now)
+	require.True(t, exhausted)
+	require.Equal(t, "5h", signal.Window)
+	require.Equal(t, recoverAt, signal.RecoverAt)
+}
+
+func TestCodexQuotaOverdraftResetUsesFrozenRecoveryTime(t *testing.T) {
+	now := time.Date(2026, time.August, 13, 14, 0, 0, 0, time.UTC)
+	persisted := now.Add(4 * time.Hour)
+	current := now.Add(24 * time.Hour)
+
+	reset := stabilizeCodexQuotaOverdraftReset(&current, &persisted, now)
+
+	require.NotNil(t, reset)
+	require.Equal(t, persisted, *reset)
+}
+
 func TestCodexQuotaOverdraftAvailableStateClearsMismatchedStaleRateLimit(t *testing.T) {
 	now := time.Date(2026, time.August, 14, 10, 0, 0, 0, time.UTC)
 	for _, status := range []string{codexQuotaOverdraftProbePassed, codexQuotaOverdraftProbeRecovered} {

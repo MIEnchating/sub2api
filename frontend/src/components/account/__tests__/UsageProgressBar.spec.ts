@@ -168,4 +168,18 @@ describe('UsageProgressBar', () => {
     expect(wrapper.text()).toContain('3.5K')
     expect(wrapper.text()).toContain('$1.23')
   })
+
+  it('透支期会显示小额账号费用而不是四舍五入为零', () => {
+    const wrapper = mount(UsageProgressBar, {
+      props: {
+        label: '5h',
+        utilization: 100,
+        color: 'indigo',
+        overdraftActive: true,
+        overdraftStats: { requests: 1, tokens: 2, cost: 0.0012 }
+      }
+    })
+
+    expect(wrapper.text()).toContain('$0.0012')
+  })
 })

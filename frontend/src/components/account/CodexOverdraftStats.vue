@@ -40,7 +40,10 @@ const tokens = computed(() => {
 
 const cost = computed(() => {
   if (!props.stats) return '0.00'
-  return props.stats.cost.toFixed(2)
+  const value = Number(props.stats.cost || 0)
+  if (value === 0) return '0.00'
+  // Keep tiny but real charges visible instead of rounding them to $0.00.
+  return Math.abs(value) < 0.01 ? value.toFixed(4) : value.toFixed(2)
 })
 
 const title = computed(() => {

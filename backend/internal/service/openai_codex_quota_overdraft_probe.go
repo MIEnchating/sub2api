@@ -1039,16 +1039,22 @@ func codexQuotaOverdraftSignalFromAccount(account *Account, state *CodexQuotaOve
 	if account == nil || len(account.Extra) == 0 {
 		return codexQuotaOverdraftSignal{}, false
 	}
-	fiveUsed := parseExtraFloat64(account.Extra["codex_5h_used_percent"])
-	sevenUsed := parseExtraFloat64(account.Extra["codex_7d_used_percent"])
+	fiveRaw, fiveObserved := account.Extra["codex_5h_used_percent"]
+	sevenRaw, sevenObserved := account.Extra["codex_7d_used_percent"]
+	fiveUsed := parseExtraFloat64(fiveRaw)
+	sevenUsed := parseExtraFloat64(sevenRaw)
 	fiveReset := codexQuotaOverdraftResetAt(account.Extra["codex_5h_reset_at"], now)
 	sevenReset := codexQuotaOverdraftResetAt(account.Extra["codex_7d_reset_at"], now)
 	if state != nil {
 		fiveReset = stabilizeCodexQuotaOverdraftReset(fiveReset, state.FiveHourRecoverAt, now)
 		sevenReset = stabilizeCodexQuotaOverdraftReset(sevenReset, state.SevenDayRecoverAt, now)
 	}
-	fiveExhausted := fiveUsed >= 100 && (fiveReset == nil || fiveReset.After(now))
-	sevenExhausted := sevenUsed >= 100 && (sevenReset == nil || sevenReset.After(now))
+	fiveCycleActive := state != nil && state.FiveHourStartedAt != nil && state.FiveHourRecoverAt != nil &&
+		state.FiveHourRecoverAt.After(now) && (!fiveObserved || fiveUsed > 0)
+	sevenCycleActive := state != nil && state.SevenDayStartedAt != nil && state.SevenDayRecoverAt != nil &&
+		state.SevenDayRecoverAt.After(now) && (!sevenObserved || sevenUsed > 0)
+	fiveExhausted := fiveCycleActive || fiveUsed >= 100 && (fiveReset == nil || fiveReset.After(now))
+	sevenExhausted := sevenCycleActive || sevenUsed >= 100 && (sevenReset == nil || sevenReset.After(now))
 	if !fiveExhausted && !sevenExhausted {
 		return codexQuotaOverdraftSignal{}, false
 	}
@@ -1092,14 +1098,19 @@ func clearRecoveredCodexQuotaOverdraftWindows(state *CodexQuotaOverdraftProbeSta
 		return false
 	}
 	changed := false
-	fiveUsed := parseExtraFloat64(account.Extra["codex_5h_used_percent"])
-	sevenUsed := parseExtraFloat64(account.Extra["codex_7d_used_percent"])
-	if state.FiveHourStartedAt != nil && (fiveUsed < 100 || state.FiveHourRecoverAt == nil || !state.FiveHourRecoverAt.After(now)) {
+	fiveRaw, fiveObserved := account.Extra["codex_5h_used_percent"]
+	sevenRaw, sevenObserved := account.Extra["codex_7d_used_percent"]
+	fiveUsed := parseExtraFloat64(fiveRaw)
+	sevenUsed := parseExtraFloat64(sevenRaw)
+	// A transient snapshot below 100% is not proof that the upstream window
+	// reset. Keep the cycle baseline until the frozen recovery time arrives or
+	// the provider explicitly reports a zeroed window.
+	if state.FiveHourStartedAt != nil && (fiveObserved && fiveUsed <= 0 || state.FiveHourRecoverAt == nil || !state.FiveHourRecoverAt.After(now)) {
 		state.FiveHourStartedAt = nil
 		state.FiveHourRecoverAt = nil
 		changed = true
 	}
-	if state.SevenDayStartedAt != nil && (sevenUsed < 100 || state.SevenDayRecoverAt == nil || !state.SevenDayRecoverAt.After(now)) {
+	if state.SevenDayStartedAt != nil && (sevenObserved && sevenUsed <= 0 || state.SevenDayRecoverAt == nil || !state.SevenDayRecoverAt.After(now)) {
 		state.SevenDayStartedAt = nil
 		state.SevenDayRecoverAt = nil
 		changed = true
@@ -1182,7 +1193,7 @@ func applyCodexQuotaOverdraftUsage(
 		return
 	}
 	apply := func(progress *UsageProgress, startedAt, recoverAt *time.Time) {
-		if progress == nil || progress.Utilization < 100 || startedAt == nil || recoverAt == nil || !recoverAt.After(now) {
+		if progress == nil || startedAt == nil || recoverAt == nil || !recoverAt.After(now) {
 			return
 		}
 		stats, err := repo.GetAccountWindowStats(ctx, account.ID, *startedAt)
@@ -1200,17 +1211,13 @@ func applyCodexQuotaOverdraftUsage(
 }
 
 func stabilizeCodexQuotaOverdraftReset(current, persisted *time.Time, now time.Time) *time.Time {
-	if current == nil || persisted == nil || !persisted.After(now) {
+	if persisted == nil || !persisted.After(now) {
 		return current
 	}
-	delta := current.Sub(*persisted)
-	if delta < 0 {
-		delta = -delta
-	}
-	if delta <= 2*time.Minute {
-		return cloneTimePtr(persisted)
-	}
-	return current
+	// Once a cycle has started, the first observed reset is its baseline. Later
+	// upstream snapshots can drift substantially while the account is in
+	// overdraft; using them would move the accounting window and recovery time.
+	return cloneTimePtr(persisted)
 }
 
 func codexQuotaOverdraftStateCoversSignal(state *CodexQuotaOverdraftProbeState, signal codexQuotaOverdraftSignal) bool {
