@@ -17,7 +17,7 @@
 </div>
 
 > [!IMPORTANT]
-> 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。官方安装脚本和 `weishaw/sub2api:latest` 镜像不包含本项目的透支功能，请按本仓库的源码构建文档部署。
+> 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。请使用本仓库安装脚本或 `mienvirtuoso/sub2api:latest`，官方镜像不包含本项目定制功能。
 
 ## 本 Fork 增加的功能
 
@@ -60,7 +60,7 @@ gateway:
 
 公开的 `docker-compose.overdraft.yml` 已通过环境变量默认开启该功能。
 
-源码镜像会把根目录的 `FORK_VERSION` 写入版本信息。管理后台检测到 Fork 新版本后只提示使用 `git pull` 更新源码，不会下载官方二进制覆盖透支功能。完整更新命令见部署指南的“日常升级本 Fork”。
+源码镜像会把 `backend/cmd/server/VERSION` 写入当前版本。管理后台同时展示官方与功能上游版本；Release 构建只从 `MIEnchating/sub2api` 更新，源码构建仍提示使用 `git pull`。完整更新命令见部署指南的“日常升级本 Fork”。
 
 ## 如何确认透支成功
 
@@ -294,7 +294,7 @@ Nginx 默认会丢弃名称中含下划线的请求头（如 `session_id`），�
 #### 安装步骤
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 脚本会自动：
@@ -324,7 +324,7 @@ sudo systemctl enable sub2api
 
 #### 升级
 
-官方发行版可以直接在管理后台进行二进制在线升级。本 Fork 使用源码构建，管理后台会读取 `DeanZFC/sub2api-overdraft` 的 `FORK_VERSION` 检测新版本，并提示使用 `git pull` 后重新构建；不会在线替换二进制。
+Release 构建可以在管理后台从 `MIEnchating/sub2api` 在线升级；源码构建提示使用 `git pull` 后重新构建。版本弹窗会同时显示当前日期版本、官方上游版本和功能上游版本。
 
 本 Fork 的升级命令见 [日常升级本 Fork](CODEX_OVERDRAFT_DEPLOYMENT_CN.md#日常升级本-fork)。源码构建不支持页面内一键升级和在线回退，避免误装官方二进制而丢失透支功能。
 
@@ -341,7 +341,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # 卸载
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -364,7 +364,7 @@ curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # 下载并运行部署准备脚本
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
 
 # 启动服务
 docker compose up -d

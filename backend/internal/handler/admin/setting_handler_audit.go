@@ -2,6 +2,7 @@ package admin
 
 import (
 	"log/slog"
+	"maps"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
@@ -452,6 +453,33 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableFingerprintUnification != after.EnableFingerprintUnification {
 		changed = append(changed, "enable_fingerprint_unification")
 	}
+	if before.CodexQuotaOverdraftEnabled != after.CodexQuotaOverdraftEnabled {
+		changed = append(changed, "codex_quota_overdraft_enabled")
+	}
+	if before.OpenAIAccountUniqueFingerprintEnabled != after.OpenAIAccountUniqueFingerprintEnabled {
+		changed = append(changed, "openai_account_unique_fingerprint_enabled")
+	}
+	if before.GatewayStreamDataIntervalTimeoutSeconds != after.GatewayStreamDataIntervalTimeoutSeconds {
+		changed = append(changed, "gateway_stream_data_interval_timeout_seconds")
+	}
+	if before.OpenAIFirstOutputTimeoutSeconds != after.OpenAIFirstOutputTimeoutSeconds {
+		changed = append(changed, "openai_first_output_timeout_seconds")
+	}
+	if before.OpenAIHighEffortFirstOutputTimeoutSeconds != after.OpenAIHighEffortFirstOutputTimeoutSeconds {
+		changed = append(changed, "openai_high_effort_first_output_timeout_seconds")
+	}
+	if before.OpenAIStickyEscapeEnabled != after.OpenAIStickyEscapeEnabled {
+		changed = append(changed, "openai_sticky_escape_enabled")
+	}
+	if before.OpenAIStickyEscapeTTFTMs != after.OpenAIStickyEscapeTTFTMs {
+		changed = append(changed, "openai_sticky_escape_ttft_ms")
+	}
+	if before.OpenAIStickyEscapeErrorRate != after.OpenAIStickyEscapeErrorRate {
+		changed = append(changed, "openai_sticky_escape_error_rate")
+	}
+	if !maps.Equal(before.GatewayPlatformEnabled, after.GatewayPlatformEnabled) {
+		changed = append(changed, "gateway_platform_enabled")
+	}
 	if before.EnableMetadataPassthrough != after.EnableMetadataPassthrough {
 		changed = append(changed, "enable_metadata_passthrough")
 	}
@@ -575,6 +603,15 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	}
 	if before.AvailableChannelsEnabled != after.AvailableChannelsEnabled {
 		changed = append(changed, "available_channels_enabled")
+	}
+	if !maps.Equal(before.NavigationItemVisibility, after.NavigationItemVisibility) {
+		changed = append(changed, "navigation_item_visibility")
+	}
+	if before.UserSubscriptionsPageEnabled != after.UserSubscriptionsPageEnabled {
+		changed = append(changed, "user_subscriptions_page_enabled")
+	}
+	if before.AdminSubscriptionsPageEnabled != after.AdminSubscriptionsPageEnabled {
+		changed = append(changed, "admin_subscriptions_page_enabled")
 	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
@@ -723,6 +760,20 @@ func defaultSubscriptionsValueOrDefault(input *[]dto.DefaultSubscriptionSetting,
 // 注意：JSON null 与字段省略等价——两者均反序列化为 nil map，因此都保留旧值；
 // 若要清空某 source 的所有 quota 配置，须显式发空对象 {}。
 func platformQuotasValueOrDefault(value, fallback map[string]*service.DefaultPlatformQuotaSetting) map[string]*service.DefaultPlatformQuotaSetting {
+	if value == nil {
+		return fallback
+	}
+	return value
+}
+
+func gatewayPlatformEnabledValueOrDefault(value, fallback map[string]bool) map[string]bool {
+	if value == nil {
+		return fallback
+	}
+	return value
+}
+
+func navigationItemVisibilityValueOrDefault(value, fallback map[string]bool) map[string]bool {
 	if value == nil {
 		return fallback
 	}

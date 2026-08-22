@@ -1120,6 +1120,26 @@ func (_u *GroupUpdate) SetNillableProfitControlEnabled(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (_u *GroupUpdate) SetCodexQuotaOverdraftEnabled(v bool) *GroupUpdate {
+	_u.mutation.SetCodexQuotaOverdraftEnabled(v)
+	return _u
+}
+
+// SetNillableCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableCodexQuotaOverdraftEnabled(v *bool) *GroupUpdate {
+	if v != nil {
+		_u.SetCodexQuotaOverdraftEnabled(*v)
+	}
+	return _u
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (_u *GroupUpdate) ClearCodexQuotaOverdraftEnabled() *GroupUpdate {
+	_u.mutation.ClearCodexQuotaOverdraftEnabled()
+	return _u
+}
+
 // SetProfitMinMargin sets the "profit_min_margin" field.
 func (_u *GroupUpdate) SetProfitMinMargin(v float64) *GroupUpdate {
 	_u.mutation.ResetProfitMinMargin()
@@ -1831,6 +1851,12 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CodexQuotaOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexQuotaOverdraftEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.CodexQuotaOverdraftEnabledCleared() {
+		_spec.ClearField(group.FieldCodexQuotaOverdraftEnabled, field.TypeBool)
 	}
 	if value, ok := _u.mutation.ProfitMinMargin(); ok {
 		_spec.SetField(group.FieldProfitMinMargin, field.TypeFloat64, value)
@@ -3241,6 +3267,26 @@ func (_u *GroupUpdateOne) SetNillableProfitControlEnabled(v *bool) *GroupUpdateO
 	return _u
 }
 
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (_u *GroupUpdateOne) SetCodexQuotaOverdraftEnabled(v bool) *GroupUpdateOne {
+	_u.mutation.SetCodexQuotaOverdraftEnabled(v)
+	return _u
+}
+
+// SetNillableCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableCodexQuotaOverdraftEnabled(v *bool) *GroupUpdateOne {
+	if v != nil {
+		_u.SetCodexQuotaOverdraftEnabled(*v)
+	}
+	return _u
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (_u *GroupUpdateOne) ClearCodexQuotaOverdraftEnabled() *GroupUpdateOne {
+	_u.mutation.ClearCodexQuotaOverdraftEnabled()
+	return _u
+}
+
 // SetProfitMinMargin sets the "profit_min_margin" field.
 func (_u *GroupUpdateOne) SetProfitMinMargin(v float64) *GroupUpdateOne {
 	_u.mutation.ResetProfitMinMargin()
@@ -3982,6 +4028,12 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.CodexQuotaOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexQuotaOverdraftEnabled, field.TypeBool, value)
+	}
+	if _u.mutation.CodexQuotaOverdraftEnabledCleared() {
+		_spec.ClearField(group.FieldCodexQuotaOverdraftEnabled, field.TypeBool)
 	}
 	if value, ok := _u.mutation.ProfitMinMargin(); ok {
 		_spec.SetField(group.FieldProfitMinMargin, field.TypeFloat64, value)

@@ -243,19 +243,28 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
-	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
-	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
-	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
-	ClaudeOAuthSystemPrompt                *string `json:"claude_oauth_system_prompt"`
-	ClaudeOAuthSystemPromptBlocks          *string `json:"claude_oauth_system_prompt_blocks"`
-	EnableAnthropicCacheTTL1hInjection     *bool   `json:"enable_anthropic_cache_ttl_1h_injection"`
-	RewriteMessageCacheControl             *bool   `json:"rewrite_message_cache_control"`
-	EnableClientDatelineNormalization      *bool   `json:"enable_client_dateline_normalization"`
-	AntigravityUserAgentVersion            *string `json:"antigravity_user_agent_version"`
-	OpenAICodexUserAgent                   *string `json:"openai_codex_user_agent"`
-	OpenAICodexClientVersion               *string `json:"openai_codex_client_version"`
-	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
+	EnableFingerprintUnification              *bool           `json:"enable_fingerprint_unification"`
+	CodexQuotaOverdraftEnabled                *bool           `json:"codex_quota_overdraft_enabled"`
+	OpenAIAccountUniqueFingerprintEnabled     *bool           `json:"openai_account_unique_fingerprint_enabled"`
+	GatewayStreamDataIntervalTimeoutSeconds   *int            `json:"gateway_stream_data_interval_timeout_seconds"`
+	OpenAIFirstOutputTimeoutSeconds           *int            `json:"openai_first_output_timeout_seconds"`
+	OpenAIHighEffortFirstOutputTimeoutSeconds *int            `json:"openai_high_effort_first_output_timeout_seconds"`
+	OpenAIStickyEscapeEnabled                 *bool           `json:"openai_sticky_escape_enabled"`
+	OpenAIStickyEscapeTTFTMs                  *int            `json:"openai_sticky_escape_ttft_ms"`
+	OpenAIStickyEscapeErrorRate               *float64        `json:"openai_sticky_escape_error_rate"`
+	GatewayPlatformEnabled                    map[string]bool `json:"gateway_platform_enabled"`
+	EnableMetadataPassthrough                 *bool           `json:"enable_metadata_passthrough"`
+	EnableCCHSigning                          *bool           `json:"enable_cch_signing"`
+	EnableClaudeOAuthSystemPromptInjection    *bool           `json:"enable_claude_oauth_system_prompt_injection"`
+	ClaudeOAuthSystemPrompt                   *string         `json:"claude_oauth_system_prompt"`
+	ClaudeOAuthSystemPromptBlocks             *string         `json:"claude_oauth_system_prompt_blocks"`
+	EnableAnthropicCacheTTL1hInjection        *bool           `json:"enable_anthropic_cache_ttl_1h_injection"`
+	RewriteMessageCacheControl                *bool           `json:"rewrite_message_cache_control"`
+	EnableClientDatelineNormalization         *bool           `json:"enable_client_dateline_normalization"`
+	AntigravityUserAgentVersion               *string         `json:"antigravity_user_agent_version"`
+	OpenAICodexUserAgent                      *string         `json:"openai_codex_user_agent"`
+	OpenAICodexClientVersion                  *string         `json:"openai_codex_client_version"`
+	OpenAICodexVersionAutoSyncEnabled         *bool           `json:"openai_codex_version_auto_sync_enabled"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -340,7 +349,10 @@ type UpdateSettingsRequest struct {
 	GrokDefaultBaseURLMode         *string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature switch (user-facing)
-	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
+	AvailableChannelsEnabled      *bool           `json:"available_channels_enabled"`
+	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
+	UserSubscriptionsPageEnabled  *bool           `json:"user_subscriptions_page_enabled"`
+	AdminSubscriptionsPageEnabled *bool           `json:"admin_subscriptions_page_enabled"`
 
 	// Model Plaza feature switches + description
 	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
@@ -1680,6 +1692,25 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableFingerprintUnification
 		}(),
+		CodexQuotaOverdraftEnabled: func() bool {
+			if req.CodexQuotaOverdraftEnabled != nil {
+				return *req.CodexQuotaOverdraftEnabled
+			}
+			return previousSettings.CodexQuotaOverdraftEnabled
+		}(),
+		OpenAIAccountUniqueFingerprintEnabled: func() bool {
+			if req.OpenAIAccountUniqueFingerprintEnabled != nil {
+				return *req.OpenAIAccountUniqueFingerprintEnabled
+			}
+			return previousSettings.OpenAIAccountUniqueFingerprintEnabled
+		}(),
+		GatewayStreamDataIntervalTimeoutSeconds:   intValueOrDefault(req.GatewayStreamDataIntervalTimeoutSeconds, previousSettings.GatewayStreamDataIntervalTimeoutSeconds),
+		OpenAIFirstOutputTimeoutSeconds:           intValueOrDefault(req.OpenAIFirstOutputTimeoutSeconds, previousSettings.OpenAIFirstOutputTimeoutSeconds),
+		OpenAIHighEffortFirstOutputTimeoutSeconds: intValueOrDefault(req.OpenAIHighEffortFirstOutputTimeoutSeconds, previousSettings.OpenAIHighEffortFirstOutputTimeoutSeconds),
+		OpenAIStickyEscapeEnabled:                 boolValueOrDefault(req.OpenAIStickyEscapeEnabled, previousSettings.OpenAIStickyEscapeEnabled),
+		OpenAIStickyEscapeTTFTMs:                  intValueOrDefault(req.OpenAIStickyEscapeTTFTMs, previousSettings.OpenAIStickyEscapeTTFTMs),
+		OpenAIStickyEscapeErrorRate:               float64ValueOrDefault(req.OpenAIStickyEscapeErrorRate, previousSettings.OpenAIStickyEscapeErrorRate),
+		GatewayPlatformEnabled:                    gatewayPlatformEnabledValueOrDefault(req.GatewayPlatformEnabled, previousSettings.GatewayPlatformEnabled),
 		EnableMetadataPassthrough: func() bool {
 			if req.EnableMetadataPassthrough != nil {
 				return *req.EnableMetadataPassthrough
@@ -1919,6 +1950,22 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AvailableChannelsEnabled
 			}
 			return previousSettings.AvailableChannelsEnabled
+		}(),
+		NavigationItemVisibility: navigationItemVisibilityValueOrDefault(
+			req.NavigationItemVisibility,
+			previousSettings.NavigationItemVisibility,
+		),
+		UserSubscriptionsPageEnabled: func() bool {
+			if req.UserSubscriptionsPageEnabled != nil {
+				return *req.UserSubscriptionsPageEnabled
+			}
+			return previousSettings.UserSubscriptionsPageEnabled
+		}(),
+		AdminSubscriptionsPageEnabled: func() bool {
+			if req.AdminSubscriptionsPageEnabled != nil {
+				return *req.AdminSubscriptionsPageEnabled
+			}
+			return previousSettings.AdminSubscriptionsPageEnabled
 		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
@@ -2265,6 +2312,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
+		CodexQuotaOverdraftEnabled:                             updatedSettings.CodexQuotaOverdraftEnabled,
+		OpenAIAccountUniqueFingerprintEnabled:                  updatedSettings.OpenAIAccountUniqueFingerprintEnabled,
+		GatewayStreamDataIntervalTimeoutSeconds:                updatedSettings.GatewayStreamDataIntervalTimeoutSeconds,
+		OpenAIFirstOutputTimeoutSeconds:                        updatedSettings.OpenAIFirstOutputTimeoutSeconds,
+		OpenAIHighEffortFirstOutputTimeoutSeconds:              updatedSettings.OpenAIHighEffortFirstOutputTimeoutSeconds,
+		OpenAIStickyEscapeEnabled:                              updatedSettings.OpenAIStickyEscapeEnabled,
+		OpenAIStickyEscapeTTFTMs:                               updatedSettings.OpenAIStickyEscapeTTFTMs,
+		OpenAIStickyEscapeErrorRate:                            updatedSettings.OpenAIStickyEscapeErrorRate,
+		GatewayPlatformEnabled:                                 updatedSettings.GatewayPlatformEnabled,
 		EnableMetadataPassthrough:                              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                                       updatedSettings.EnableCCHSigning,
 		EnableClaudeOAuthSystemPromptInjection:                 updatedSettings.EnableClaudeOAuthSystemPromptInjection,
@@ -2355,7 +2411,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
 		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
+		AvailableChannelsEnabled:      updatedSettings.AvailableChannelsEnabled,
+		NavigationItemVisibility:      updatedSettings.NavigationItemVisibility,
+		UserSubscriptionsPageEnabled:  updatedSettings.UserSubscriptionsPageEnabled,
+		AdminSubscriptionsPageEnabled: updatedSettings.AdminSubscriptionsPageEnabled,
 
 		ModelPlazaEnabled:     updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth: updatedSettings.ModelPlazaRequireAuth,

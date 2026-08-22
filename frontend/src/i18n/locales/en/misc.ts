@@ -19,8 +19,16 @@ export default {
 
   // Version Badge
   version: {
+    versionOverview: 'Version Overview',
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
+    officialUpstream: 'Official Upstream',
+    overdraftUpstream: 'Feature Upstream',
+    upstreamUnavailable: 'Unavailable',
+    upstreamUpdate: 'Update available',
+    upstreamCurrent: 'Up to date',
+    upstreamCheckFailed: 'Check failed',
+    compareChanges: 'Compare',
     upToDate: "You're running the latest version.",
     updateAvailable: 'A new version is available!',
     releaseNotes: 'Release Notes',

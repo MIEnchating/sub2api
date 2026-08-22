@@ -80,17 +80,15 @@ RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
 
 # Copy backend source first
 COPY backend/ ./
-COPY FORK_VERSION /app/FORK_VERSION
 
 # Copy frontend dist from previous stage (must be after backend copy to avoid being overwritten)
 COPY --from=frontend-builder /app/backend/internal/web/dist ./internal/web/dist
 
-# Build the binary and embed the frontend. Fork source builds read FORK_VERSION;
+# Build the binary and embed the frontend. Source builds read our VERSION file;
 # CI release builds still override VERSION and BUILD_TYPE explicitly.
 RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
     --mount=type=cache,id=sub2api-gobuild,target=/root/.cache/go-build \
     VERSION_VALUE="${VERSION}" && \
-    if [ -z "${VERSION_VALUE}" ] && [ -s /app/FORK_VERSION ]; then VERSION_VALUE="$(tr -d '\r\n' < /app/FORK_VERSION)"; fi && \
     if [ -z "${VERSION_VALUE}" ]; then VERSION_VALUE="$(./scripts/resolve-version.sh)"; fi && \
     DATE_VALUE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \

@@ -362,7 +362,7 @@ sudo systemctl reload nginx
 
 ## 日常升级本 Fork
 
-源码镜像的当前版本来自仓库根目录的 `FORK_VERSION`。后台检查更新时读取 GitHub 上 `codex-overdraft` 分支的同名文件：远端版本更高时显示更新提示，版本一致时显示最新。源码构建不会执行二进制在线更新或在线回退，以免官方程序覆盖 Fork 功能。
+源码镜像的当前版本来自 `backend/cmd/server/VERSION`，使用 `YYYY.M.D` 日期版本。后台同时显示官方上游与功能上游版本；源码构建不会执行二进制在线更新或在线回退。Release 构建只从 `MIEnchating/sub2api` 安装更新。
 
 运行数据均位于被 Git 忽略的目录中，正常 `git pull` 不会覆盖：
 
@@ -390,13 +390,13 @@ docker compose \
 
 如果服务器目录是 `/opt/sub2api`，只需替换第一条路径。升级完成后重新执行“判断功能是否生效”中的镜像、环境变量和日志检查。
 
-更新后可在管理后台点击刷新，版本应显示为类似 `v0.1.179-overdraft.2`，更新方式应提示源码构建使用 `git pull`。也可以直接检查容器内二进制版本：
+更新后可在管理后台点击刷新，当前版本应显示为类似 `sub2api:2026.8.22`，并同时列出两个上游版本。也可以直接检查容器内二进制版本：
 
 ```bash
 docker exec sub2api /app/sub2api -version
 ```
 
-维护者发布新的源码版本时必须递增 `FORK_VERSION`，例如从 `0.1.177-overdraft.3` 改为 `0.1.177-overdraft.4`。同步到新的上游 Sub2API 版本时，使用 `0.1.179-overdraft.2` 这样的版本号。
+维护者发布时创建日期标签，例如 `v2026.8.22`；工作流会生成 `mienvirtuoso/sub2api:2026.8.22` 并同步 `backend/cmd/server/VERSION`。
 
 ## 合并 Sub2API 官方更新
 

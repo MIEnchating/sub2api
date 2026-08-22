@@ -9,14 +9,14 @@
 - 参考实现：<https://github.com/Mxucc/cpa-account-config-manager>
 - 功能开关：`gateway.codex_quota_overdraft_enabled`
 - 代码默认值：关闭；`deploy/config.example.yaml` 部署示例默认开启
-- Fork 版本文件：`FORK_VERSION`（当前为 `0.1.179-overdraft.2`）
-- 更新源：`DeanZFC/sub2api-overdraft` 的 `codex-overdraft` 分支
+- 当前发行版本文件：`backend/cmd/server/VERSION`（使用 `YYYY.M.D` 日期版本）
+- 功能上游版本文件：`DeanZFC/sub2api-overdraft` 的 `codex-overdraft` 分支下 `FORK_VERSION`
 
 ## Fork 更新检查
 
-源码 Docker 构建会读取根目录的 `FORK_VERSION`，并以 `BuildType=source` 写入二进制。后台更新服务通过 GitHub Contents API 读取 Fork 分支上的同名文件，使用语义化版本比较判断是否有新版本。Redis 缓存同时记录仓库和构建类型，因此旧的官方更新缓存不会继续生效。
+源码 Docker 构建读取 `backend/cmd/server/VERSION` 作为当前版本。后台同时展示官方上游 `Wei-Shaw/sub2api` 的最新 Release 和功能上游 `DeanZFC/sub2api-overdraft` 的 `FORK_VERSION`；这两个上游只用于版本参考，不会被当作可安装更新。
 
-源码构建仅显示 `git pull` 更新提示，`PerformUpdate`、指定版本回退和在线回退列表均被禁用，防止官方二进制覆盖透支功能。维护者每次发布 Fork 更新都必须递增 `FORK_VERSION`；当前版本为 `0.1.179-overdraft.2`。
+源码构建仅显示 `git pull` 更新提示，`PerformUpdate`、指定版本回退和在线回退列表均被禁用。Release 构建只从 `MIEnchating/sub2api` 更新和回退，防止上游二进制覆盖本仓库定制功能。
 
 ## 0.1.179-overdraft.2 更新
 

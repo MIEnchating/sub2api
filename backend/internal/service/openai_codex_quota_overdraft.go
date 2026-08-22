@@ -20,6 +20,10 @@ const (
 	codexQuotaOverdraftPrearmPercent = 95
 )
 
+// CodexQuotaOverdraftEnabledExtraKey is an optional per-account override.
+// Missing/null means inherit the group/global setting.
+const CodexQuotaOverdraftEnabledExtraKey = "codex_quota_overdraft_enabled"
+
 var codexQuotaOverdraftEnabled atomic.Bool
 
 // SetCodexQuotaOverdraftEnabled publishes the process-wide scheduling switch.
@@ -41,6 +45,7 @@ func isCodexQuotaOverdraftAccount(account *Account) bool {
 }
 
 type codexQuotaOverdraftSchedulingCtxKey struct{}
+type codexQuotaOverdraftGroupOverrideCtxKey struct{}
 
 type codexQuotaOverdraftRequestState struct {
 	injectedAccounts sync.Map
@@ -57,6 +62,61 @@ func WithCodexQuotaOverdraftScheduling(ctx context.Context) context.Context {
 		return ctx
 	}
 	return context.WithValue(ctx, codexQuotaOverdraftSchedulingCtxKey{}, &codexQuotaOverdraftRequestState{})
+}
+
+// WithCodexQuotaOverdraftGroupOverride carries the nullable group policy into
+// account selection and forwarding. A nil value means the group inherits the
+// global policy.
+func WithCodexQuotaOverdraftGroupOverride(ctx context.Context, enabled *bool) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return context.WithValue(ctx, codexQuotaOverdraftGroupOverrideCtxKey{}, enabled)
+}
+
+func codexQuotaOverdraftGroupOverride(ctx context.Context) (*bool, bool) {
+	if ctx == nil {
+		return nil, false
+	}
+	v, ok := ctx.Value(codexQuotaOverdraftGroupOverrideCtxKey{}).(*bool)
+	return v, ok
+}
+
+func codexQuotaOverdraftAccountOverride(account *Account) (*bool, bool) {
+	if account == nil || account.Extra == nil {
+		return nil, false
+	}
+	raw, ok := account.Extra[CodexQuotaOverdraftEnabledExtraKey]
+	if !ok || raw == nil {
+		return nil, false
+	}
+	switch v := raw.(type) {
+	case bool:
+		return &v, true
+	case string:
+		if strings.EqualFold(strings.TrimSpace(v), "true") {
+			b := true
+			return &b, true
+		}
+		if strings.EqualFold(strings.TrimSpace(v), "false") {
+			b := false
+			return &b, true
+		}
+	}
+	return nil, false
+}
+
+func codexQuotaOverdraftEnabledForAccount(ctx context.Context, account *Account) bool {
+	if !CodexQuotaOverdraftEnabled() || !isCodexQuotaOverdraftAccount(account) {
+		return false
+	}
+	if value, ok := codexQuotaOverdraftAccountOverride(account); ok {
+		return value != nil && *value
+	}
+	if value, ok := codexQuotaOverdraftGroupOverride(ctx); ok {
+		return value != nil && *value
+	}
+	return true
 }
 
 // CodexQuotaOverdraftSchedulingEnabled reports whether the global switch and
@@ -127,7 +187,8 @@ func codexQuotaOverdraftInjectionEligible(account *Account, now time.Time) bool 
 
 func (s *OpenAIGatewayService) shouldInjectCodexQuotaOverdraft(ctx context.Context, account *Account, compact bool) bool {
 	return codexQuotaOverdraftSchedulingEnabled(ctx) && !compact &&
-		s != nil && s.cfg != nil && s.cfg.Gateway.CodexQuotaOverdraftEnabled &&
+		s != nil &&
+		codexQuotaOverdraftEnabledForAccount(ctx, account) &&
 		codexQuotaOverdraftInjectionEligible(account, time.Now().UTC())
 }
 
@@ -265,7 +326,7 @@ func injectCodexQuotaOverdraft(body []byte) ([]byte, bool, error) {
 }
 
 func normalizeCodexQuotaOverdraftAccountForScheduling(ctx context.Context, account *Account) *Account {
-	if !codexQuotaOverdraftSchedulingEnabled(ctx) || !isCodexQuotaOverdraftAccount(account) ||
+	if !codexQuotaOverdraftSchedulingEnabled(ctx) || !codexQuotaOverdraftEnabledForAccount(ctx, account) ||
 		!codexQuotaOverdraftSchedulingAllowed(account, time.Now().UTC()) ||
 		account.TempUnschedulableUntil == nil || !time.Now().Before(*account.TempUnschedulableUntil) ||
 		!IsAccountSchedulingThresholdReason(account.TempUnschedulableReason) {

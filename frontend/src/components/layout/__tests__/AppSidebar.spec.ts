@@ -53,3 +53,12 @@ describe('AppSidebar header styles', () => {
     expect(sidebarBrandBlockMatch?.[0]).not.toContain('overflow: hidden;')
   })
 })
+
+describe('AppSidebar navigation visibility', () => {
+  it('applies the generic visibility map to navigation items and nested children', () => {
+    expect(componentSource).toContain('isNavigationItemVisible(appStore.cachedPublicSettings, item.path)')
+    expect(componentSource).toContain('const children = applyFeatureFlags(item.children)')
+    expect(componentSource).toContain("path: '/subscriptions'")
+    expect(componentSource).toContain("path: '/admin/subscriptions'")
+  })
+})

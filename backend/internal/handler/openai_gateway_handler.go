@@ -548,6 +548,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	requestCtx := c.Request.Context()
 	if shouldEnableCodexQuotaOverdraftForResponses(legacyCompact, nativeV2, imageIntent) {
 		requestCtx = service.WithCodexQuotaOverdraftScheduling(requestCtx)
+		if apiKey.Group != nil {
+			requestCtx = service.WithCodexQuotaOverdraftGroupOverride(requestCtx, apiKey.Group.CodexQuotaOverdraftEnabled)
+		}
 	}
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(requestCtx, apiKey.GroupID)
 	c.Request = c.Request.WithContext(pricingCtx)
@@ -1153,6 +1156,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	// 分组利润控制：Messages 文本入口同样请求级装门并固定 pricingAt。
 	msgPricingCtx := service.WithCodexQuotaOverdraftScheduling(c.Request.Context())
+	if apiKey.Group != nil {
+		msgPricingCtx = service.WithCodexQuotaOverdraftGroupOverride(msgPricingCtx, apiKey.Group.CodexQuotaOverdraftEnabled)
+	}
 	msgPricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(msgPricingCtx, apiKey.GroupID)
 	c.Request = c.Request.WithContext(msgPricingCtx)
 
@@ -1922,6 +1928,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 	if !imageIntent {
 		ctx = service.WithCodexQuotaOverdraftScheduling(ctx)
+		if apiKey.Group != nil {
+			ctx = service.WithCodexQuotaOverdraftGroupOverride(ctx, apiKey.Group.CodexQuotaOverdraftEnabled)
+		}
 		c.Request = c.Request.WithContext(ctx)
 	}
 

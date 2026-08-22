@@ -503,6 +503,13 @@ const (
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
 	SettingKeyAvailableChannelsEnabled = "available_channels_enabled"
 
+	// Navigation visibility. The JSON object maps stable frontend route paths to
+	// booleans. Missing paths remain visible. The two subscription keys are kept
+	// for backward-compatible reads from deployments that used the old switches.
+	SettingKeyNavigationItemVisibility      = "navigation_item_visibility"
+	SettingKeyUserSubscriptionsPageEnabled  = "user_subscriptions_page_enabled"
+	SettingKeyAdminSubscriptionsPageEnabled = "admin_subscriptions_page_enabled"
+
 	// SettingKeyModelPlazaEnabled is a DB-backed soft switch for the Model Plaza page
 	// (public group/model pricing showcase). When false: the plaza endpoint returns 404
 	// and the header entry is hidden. Defaults to false (opt-in feature).
@@ -654,7 +661,18 @@ const (
 	// SettingKeyOpenAICodexClientVersion。
 	SettingKeyOpenAICodexClientVersionSynced = "openai_codex_client_version_synced"
 	// SettingKeyOpenAICodexVersionAutoSyncEnabled 是否启用 Codex 客户端版本号自动同步（默认 true）。
-	SettingKeyOpenAICodexVersionAutoSyncEnabled = "openai_codex_version_auto_sync_enabled"
+	SettingKeyOpenAICodexVersionAutoSyncEnabled     = "openai_codex_version_auto_sync_enabled"
+	SettingKeyCodexQuotaOverdraftEnabled            = "codex_quota_overdraft_enabled"
+	SettingKeyOpenAIAccountUniqueFingerprintEnabled = "openai_account_unique_fingerprint_enabled"
+	// Gateway runtime policy. These values can be changed from the admin panel
+	// and take precedence over YAML/environment configuration without a restart.
+	SettingKeyGatewayStreamDataIntervalTimeoutSeconds   = "gateway_stream_data_interval_timeout_seconds"
+	SettingKeyOpenAIFirstOutputTimeoutSeconds           = "openai_first_output_timeout_seconds"
+	SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds = "openai_high_effort_first_output_timeout_seconds"
+	SettingKeyOpenAIStickyEscapeEnabled                 = "openai_sticky_escape_enabled"
+	SettingKeyOpenAIStickyEscapeTTFTMs                  = "openai_sticky_escape_ttft_ms"
+	SettingKeyOpenAIStickyEscapeErrorRate               = "openai_sticky_escape_error_rate"
+	SettingKeyGatewayPlatformEnabled                    = "gateway_platform_enabled"
 	// SettingKeyOpenAIAllowClaudeCodeCodexPlugin 已废弃：历史全局开关只作为升级迁移输入读取。
 	// 迁移后等价规则写入 SettingKeyCodexCLIOnlyWhitelist，不再参与运行时判定。
 	SettingKeyOpenAIAllowClaudeCodeCodexPlugin = "openai_allow_claude_code_codex_plugin"

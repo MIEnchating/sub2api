@@ -1615,6 +1615,24 @@
         </div>
       </div>
 
+      <!-- Codex 额度超刷账号级覆盖（仅 OAuth） -->
+      <div
+        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div>
+          <label class="input-label mb-0">{{ t('admin.accounts.openai.codexQuotaOverdraft') }}</label>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.openai.codexQuotaOverdraftDesc') }}
+          </p>
+          <select v-model="codexQuotaOverdraftMode" class="input mt-2">
+            <option value="inherit">{{ t('admin.accounts.openai.codexQuotaOverdraftInherit') }}</option>
+            <option value="enabled">{{ t('admin.accounts.openai.codexQuotaOverdraftEnabled') }}</option>
+            <option value="disabled">{{ t('admin.accounts.openai.codexQuotaOverdraftDisabled') }}</option>
+          </select>
+        </div>
+      </div>
+
       <!-- OpenAI OAuth 模型名称归一化 -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
@@ -3177,6 +3195,7 @@ const customBaseUrl = ref('')
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
 const openAIModelNormalizationEnabled = ref(true)
+const codexQuotaOverdraftMode = ref<'inherit' | 'enabled' | 'disabled'>('inherit')
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -3655,6 +3674,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
   openAIModelNormalizationEnabled.value = true
+  codexQuotaOverdraftMode.value = 'inherit'
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -3674,6 +3694,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAIModelNormalizationEnabled.value = extra?.openai_model_normalization_enabled !== false
+    const overdraftValue = extra?.codex_quota_overdraft_enabled
+    codexQuotaOverdraftMode.value = overdraftValue === true
+      ? 'enabled'
+      : overdraftValue === false
+        ? 'disabled'
+        : 'inherit'
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -5067,6 +5093,13 @@ const handleSubmit = async () => {
         newExtra.openai_model_normalization_enabled = false
       } else {
         delete newExtra.openai_model_normalization_enabled
+      }
+      if (codexQuotaOverdraftMode.value === 'enabled') {
+        newExtra.codex_quota_overdraft_enabled = true
+      } else if (codexQuotaOverdraftMode.value === 'disabled') {
+        newExtra.codex_quota_overdraft_enabled = false
+      } else {
+        delete newExtra.codex_quota_overdraft_enabled
       }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {

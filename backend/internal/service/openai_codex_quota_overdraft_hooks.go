@@ -10,7 +10,7 @@ import (
 )
 
 func codexQuotaOverdraftBypassesSchedulingThreshold(ctx context.Context, account *Account) bool {
-	return codexQuotaOverdraftSchedulingEnabled(ctx) && isCodexQuotaOverdraftAccount(account) &&
+	return codexQuotaOverdraftSchedulingEnabled(ctx) && codexQuotaOverdraftEnabledForAccount(ctx, account) &&
 		codexQuotaOverdraftSchedulingAllowed(account, time.Now().UTC())
 }
 

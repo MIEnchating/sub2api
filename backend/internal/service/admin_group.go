@@ -480,6 +480,7 @@ func (s *adminServiceImpl) CreateGroup(ctx context.Context, input *CreateGroupIn
 		ProfitControlEnabled:            profitControlEnabled,
 		ProfitMinMargin:                 profitMinMargin,
 		ProfitSafetyBuffer:              profitSafetyBuffer,
+		CodexQuotaOverdraftEnabled:      input.CodexQuotaOverdraftEnabled,
 		ImagePrice1K:                    imagePrice1K,
 		ImagePrice2K:                    imagePrice2K,
 		ImagePrice4K:                    imagePrice4K,
@@ -758,6 +759,9 @@ func (s *adminServiceImpl) UpdateGroup(ctx context.Context, id int64, input *Upd
 	}
 	if input.ProfitSafetyBuffer != nil {
 		group.ProfitSafetyBuffer = *input.ProfitSafetyBuffer
+	}
+	if input.CodexQuotaOverdraftEnabled != nil {
+		group.CodexQuotaOverdraftEnabled = input.CodexQuotaOverdraftEnabled
 	}
 	// 利润控制与高峰同一收口：按合并后的最终平台归一化（转到不支持平台时静默重置），
 	// 再对合并后的最终配置统一校验，防止部分字段更新拼出非法组合入库。

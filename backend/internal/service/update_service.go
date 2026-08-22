@@ -17,6 +17,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -30,11 +31,21 @@ var (
 )
 
 const (
-	updateCacheTTL        = 1200 // 20 minutes
-	githubRepo            = "DeanZFC/sub2api-overdraft"
-	githubSourceBranch    = "codex-overdraft"
-	githubForkVersionFile = "FORK_VERSION"
-	githubSourceUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/codex-overdraft"
+	updateCacheTTL = 1200 // 20 minutes
+
+	releaseRepo            = "MIEnchating/sub2api"
+	releaseSourceBranch    = "main"
+	releaseSourceVersion   = "backend/cmd/server/VERSION"
+	releaseSourceUpdateURL = "https://github.com/MIEnchating/sub2api/commits/main"
+
+	officialUpstreamRepo       = "Wei-Shaw/sub2api"
+	officialUpstreamBaseline   = "d45135d87df16d48637f04ccd245727bc955ba54"
+	overdraftUpstreamRepo      = "DeanZFC/sub2api-overdraft"
+	overdraftUpstreamBranch    = "codex-overdraft"
+	overdraftUpstreamBaseline  = "6d3b5c0b1b9627d5f756911b79b3812f98f8d674"
+	overdraftUpstreamVersion   = "FORK_VERSION"
+	overdraftUpstreamUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/codex-overdraft"
+	upstreamBaselineSignature  = officialUpstreamBaseline + ":" + overdraftUpstreamBaseline
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -60,8 +71,19 @@ type GitHubReleaseClient interface {
 	FetchLatestRelease(ctx context.Context, repo string) (*GitHubRelease, error)
 	FetchRecentReleases(ctx context.Context, repo string, perPage int) ([]*GitHubRelease, error)
 	FetchRepositoryFile(ctx context.Context, repo, ref, filePath string) ([]byte, error)
+	FetchComparison(ctx context.Context, baseRepo, baseRef, headRepo, headRef string) (*GitHubComparison, error)
 	DownloadFile(ctx context.Context, url, dest string, maxSize int64) error
 	FetchChecksumFile(ctx context.Context, url string) ([]byte, error)
+}
+
+// GitHubComparison describes commits present in an upstream ref but not in
+// the running fork ref.
+type GitHubComparison struct {
+	Status   string `json:"status"`
+	AheadBy  int    `json:"ahead_by"`
+	BehindBy int    `json:"behind_by"`
+	Total    int    `json:"total_commits"`
+	HTMLURL  string `json:"html_url"`
 }
 
 // UpdateService handles software updates
@@ -84,13 +106,29 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 
 // UpdateInfo contains update information
 type UpdateInfo struct {
-	CurrentVersion string       `json:"current_version"`
-	LatestVersion  string       `json:"latest_version"`
-	HasUpdate      bool         `json:"has_update"`
-	ReleaseInfo    *ReleaseInfo `json:"release_info,omitempty"`
-	Cached         bool         `json:"cached"`
-	Warning        string       `json:"warning,omitempty"`
-	BuildType      string       `json:"build_type"` // "source" or "release"
+	CurrentVersion string                `json:"current_version"`
+	LatestVersion  string                `json:"latest_version"`
+	HasUpdate      bool                  `json:"has_update"`
+	ReleaseInfo    *ReleaseInfo          `json:"release_info,omitempty"`
+	Upstreams      []UpstreamVersionInfo `json:"upstreams"`
+	Cached         bool                  `json:"cached"`
+	Warning        string                `json:"warning,omitempty"`
+	BuildType      string                `json:"build_type"` // "source" or "release"
+}
+
+// UpstreamVersionInfo reports the live version of a source repository without
+// making that repository eligible for in-place binary updates.
+type UpstreamVersionInfo struct {
+	ID             string `json:"id"`
+	Repository     string `json:"repository"`
+	Version        string `json:"version,omitempty"`
+	HTMLURL        string `json:"html_url"`
+	CompareURL     string `json:"compare_url,omitempty"`
+	CompareChecked bool   `json:"compare_checked"`
+	HasUpdate      bool   `json:"has_update"`
+	AheadBy        int    `json:"ahead_by,omitempty"`
+	BehindBy       int    `json:"behind_by,omitempty"`
+	Warning        string `json:"warning,omitempty"`
 }
 
 // ReleaseInfo contains GitHub release details
@@ -143,8 +181,8 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 		}
 	}
 
-	// Source builds track the Fork branch version file. Release builds track the
-	// Fork's GitHub Releases and remain eligible for binary replacement.
+	// Source builds track this fork's main-branch version file. Release builds
+	// track this fork's GitHub Releases and remain eligible for binary replacement.
 	var info *UpdateInfo
 	var err error
 	if s.isSourceBuild() {
@@ -158,17 +196,20 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 			cached.Warning = "Using cached data: " + err.Error()
 			return cached, nil
 		}
-		return &UpdateInfo{
+		info = &UpdateInfo{
 			CurrentVersion: s.currentVersion,
 			LatestVersion:  s.currentVersion,
 			HasUpdate:      false,
 			Warning:        err.Error(),
 			BuildType:      s.buildType,
-		}, nil
+		}
 	}
+	info.Upstreams = s.fetchUpstreamVersions(ctx)
 
-	// Cache result
-	s.saveToCache(ctx, info)
+	// Do not cache a synthesized fallback after the primary release source fails.
+	if err == nil {
+		s.saveToCache(ctx, info)
+	}
 	return info, nil
 }
 
@@ -384,7 +425,7 @@ func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) e
 // fetchRollbackCandidates fetches recent releases and keeps the newest
 // maxRollbackVersions entries strictly older than the current version.
 func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubRelease, error) {
-	releases, err := s.githubClient.FetchRecentReleases(ctx, githubRepo, rollbackFetchPageSize)
+	releases, err := s.githubClient.FetchRecentReleases(ctx, releaseRepo, rollbackFetchPageSize)
 	if err != nil {
 		return nil, err
 	}
@@ -421,9 +462,12 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 }
 
 func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, githubRepo)
+	release, err := s.githubClient.FetchLatestRelease(ctx, releaseRepo)
 	if err != nil {
 		return nil, err
+	}
+	if release == nil {
+		return nil, fmt.Errorf("latest release for %s is empty", releaseRepo)
 	}
 
 	latestVersion := strings.TrimPrefix(release.TagName, "v")
@@ -454,13 +498,13 @@ func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, er
 }
 
 func (s *UpdateService) fetchLatestSourceVersion(ctx context.Context) (*UpdateInfo, error) {
-	raw, err := s.githubClient.FetchRepositoryFile(ctx, githubRepo, githubSourceBranch, githubForkVersionFile)
+	raw, err := s.githubClient.FetchRepositoryFile(ctx, releaseRepo, releaseSourceBranch, releaseSourceVersion)
 	if err != nil {
 		return nil, err
 	}
 	latestVersion := strings.TrimSpace(string(raw))
 	if canonicalVersion(latestVersion) == "" {
-		return nil, fmt.Errorf("fork version file contains invalid semantic version %q", latestVersion)
+		return nil, fmt.Errorf("source version file contains invalid semantic version %q", latestVersion)
 	}
 
 	return &UpdateInfo{
@@ -468,12 +512,98 @@ func (s *UpdateService) fetchLatestSourceVersion(ctx context.Context) (*UpdateIn
 		LatestVersion:  latestVersion,
 		HasUpdate:      compareVersions(s.currentVersion, latestVersion) < 0,
 		ReleaseInfo: &ReleaseInfo{
-			Name:    "sub2api-overdraft " + latestVersion,
-			HTMLURL: githubSourceUpdateURL,
+			Name:    "sub2api " + latestVersion,
+			HTMLURL: releaseSourceUpdateURL,
 		},
 		Cached:    false,
 		BuildType: s.buildType,
 	}, nil
+}
+
+func (s *UpdateService) fetchUpstreamVersions(ctx context.Context) []UpstreamVersionInfo {
+	official := UpstreamVersionInfo{
+		ID:         "official",
+		Repository: officialUpstreamRepo,
+		HTMLURL:    "https://github.com/" + officialUpstreamRepo + "/releases",
+	}
+	overdraft := UpstreamVersionInfo{
+		ID:         "overdraft",
+		Repository: overdraftUpstreamRepo,
+		HTMLURL:    overdraftUpstreamUpdateURL,
+	}
+
+	var wg sync.WaitGroup
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		release, err := s.githubClient.FetchLatestRelease(ctx, officialUpstreamRepo)
+		if err != nil {
+			official.Warning = err.Error()
+			return
+		}
+		if release == nil {
+			official.Warning = "latest release is empty"
+			return
+		}
+		official.Version = strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
+		if strings.TrimSpace(release.HTMLURL) != "" {
+			official.HTMLURL = release.HTMLURL
+		}
+		comparison, err := s.githubClient.FetchComparison(ctx, officialUpstreamRepo, officialUpstreamBaseline, officialUpstreamRepo, "main")
+		if err != nil {
+			official.Warning = appendUpdateWarning(official.Warning, "compare failed: "+err.Error())
+			return
+		}
+		applyUpstreamComparison(&official, comparison)
+	}()
+	go func() {
+		defer wg.Done()
+		raw, err := s.githubClient.FetchRepositoryFile(
+			ctx,
+			overdraftUpstreamRepo,
+			overdraftUpstreamBranch,
+			overdraftUpstreamVersion,
+		)
+		if err != nil {
+			overdraft.Warning = err.Error()
+			return
+		}
+		overdraft.Version = strings.TrimPrefix(strings.TrimSpace(string(raw)), "v")
+		if overdraft.Version == "" {
+			overdraft.Warning = "version file is empty"
+		}
+		comparison, err := s.githubClient.FetchComparison(ctx, overdraftUpstreamRepo, overdraftUpstreamBaseline, overdraftUpstreamRepo, overdraftUpstreamBranch)
+		if err != nil {
+			overdraft.Warning = appendUpdateWarning(overdraft.Warning, "compare failed: "+err.Error())
+			return
+		}
+		applyUpstreamComparison(&overdraft, comparison)
+	}()
+	wg.Wait()
+
+	return []UpstreamVersionInfo{official, overdraft}
+}
+
+func applyUpstreamComparison(upstream *UpstreamVersionInfo, comparison *GitHubComparison) {
+	if upstream == nil || comparison == nil {
+		return
+	}
+	upstream.CompareChecked = true
+	upstream.HasUpdate = comparison.AheadBy > 0
+	upstream.AheadBy = comparison.AheadBy
+	upstream.BehindBy = comparison.BehindBy
+	upstream.CompareURL = strings.TrimSpace(comparison.HTMLURL)
+}
+
+func appendUpdateWarning(existing, addition string) string {
+	addition = strings.TrimSpace(addition)
+	if addition == "" {
+		return existing
+	}
+	if strings.TrimSpace(existing) == "" {
+		return addition
+	}
+	return existing + "; " + addition
 }
 
 func (s *UpdateService) isSourceBuild() bool {
@@ -648,11 +778,13 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	}
 
 	var cached struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
-		Repository  string       `json:"repository"`
-		BuildType   string       `json:"build_type"`
+		Latest            string                `json:"latest"`
+		ReleaseInfo       *ReleaseInfo          `json:"release_info"`
+		Upstreams         []UpstreamVersionInfo `json:"upstreams"`
+		UpstreamBaselines string                `json:"upstream_baselines"`
+		Timestamp         int64                 `json:"timestamp"`
+		Repository        string                `json:"repository"`
+		BuildType         string                `json:"build_type"`
 	}
 	if err := json.Unmarshal([]byte(data), &cached); err != nil {
 		return nil, err
@@ -661,8 +793,19 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
-	if cached.Repository != githubRepo || cached.BuildType != s.buildType {
+	if cached.Repository != releaseRepo || cached.BuildType != s.buildType {
 		return nil, fmt.Errorf("cache belongs to a different update source")
+	}
+	if cached.UpstreamBaselines != upstreamBaselineSignature {
+		return nil, fmt.Errorf("cache belongs to different upstream baselines")
+	}
+	if len(cached.Upstreams) != 2 {
+		return nil, fmt.Errorf("cache does not contain both upstream versions")
+	}
+	for _, upstream := range cached.Upstreams {
+		if !upstream.CompareChecked {
+			return nil, fmt.Errorf("cache does not contain upstream comparison data")
+		}
 	}
 
 	return &UpdateInfo{
@@ -670,6 +813,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		LatestVersion:  cached.Latest,
 		HasUpdate:      compareVersions(s.currentVersion, cached.Latest) < 0,
 		ReleaseInfo:    cached.ReleaseInfo,
+		Upstreams:      cached.Upstreams,
 		Cached:         true,
 		BuildType:      s.buildType,
 	}, nil
@@ -677,17 +821,21 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 	cacheData := struct {
-		Latest      string       `json:"latest"`
-		ReleaseInfo *ReleaseInfo `json:"release_info"`
-		Timestamp   int64        `json:"timestamp"`
-		Repository  string       `json:"repository"`
-		BuildType   string       `json:"build_type"`
+		Latest            string                `json:"latest"`
+		ReleaseInfo       *ReleaseInfo          `json:"release_info"`
+		Upstreams         []UpstreamVersionInfo `json:"upstreams"`
+		UpstreamBaselines string                `json:"upstream_baselines"`
+		Timestamp         int64                 `json:"timestamp"`
+		Repository        string                `json:"repository"`
+		BuildType         string                `json:"build_type"`
 	}{
-		Latest:      info.LatestVersion,
-		ReleaseInfo: info.ReleaseInfo,
-		Timestamp:   time.Now().Unix(),
-		Repository:  githubRepo,
-		BuildType:   s.buildType,
+		Latest:            info.LatestVersion,
+		ReleaseInfo:       info.ReleaseInfo,
+		Upstreams:         info.Upstreams,
+		UpstreamBaselines: upstreamBaselineSignature,
+		Timestamp:         time.Now().Unix(),
+		Repository:        releaseRepo,
+		BuildType:         s.buildType,
 	}
 
 	data, _ := json.Marshal(cacheData)

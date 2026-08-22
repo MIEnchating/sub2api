@@ -553,6 +553,11 @@ export default {
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',
         modelNormalization: 'Normalize Codex model names',
+        codexQuotaOverdraft: 'Codex quota overdraft',
+        codexQuotaOverdraftDesc: 'Account setting takes precedence over its group. Inherit to use the group or global setting; a global off always disables it.',
+        codexQuotaOverdraftInherit: 'Inherit group setting',
+        codexQuotaOverdraftEnabled: 'Enabled',
+        codexQuotaOverdraftDisabled: 'Disabled',
         modelNormalizationDesc:
           'Enabled by default. Known aliases and suffixed model names are converted to names supported by the Codex upstream. Disable to forward custom mapped names such as gpt-5.6-sol-wm unchanged.',
         flattenNamespaces: 'Flatten Codex namespace tools (compatibility)',

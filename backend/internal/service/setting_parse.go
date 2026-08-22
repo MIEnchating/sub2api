@@ -52,6 +52,11 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("marshal default forwarded client IP headers: %w", err)
 	}
+	gatewayPolicyDefaults := gatewayRuntimePolicyFromConfig(s.cfg)
+	gatewayPlatformEnabledJSON, err := json.Marshal(gatewayPolicyDefaults.PlatformEnabled)
+	if err != nil {
+		return fmt.Errorf("marshal default gateway platform switches: %w", err)
+	}
 
 	// 初始化默认设置
 	defaults := map[string]string{
@@ -200,6 +205,11 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		// Available channels feature (default disabled; opt-in)
 		SettingKeyAvailableChannelsEnabled: "false",
 
+		// Navigation visibility defaults (opt-out: visible unless explicitly disabled)
+		SettingKeyNavigationItemVisibility:      "{}",
+		SettingKeyUserSubscriptionsPageEnabled:  "true",
+		SettingKeyAdminSubscriptionsPageEnabled: "true",
+
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
 		SettingKeyModelPlazaEnabled:     "false",
 		SettingKeyModelPlazaRequireAuth: "false",
@@ -240,6 +250,15 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAICodexClientVersion:                           "",
 		SettingKeyOpenAICodexClientVersionSynced:                     "",
 		SettingKeyOpenAICodexVersionAutoSyncEnabled:                  "true",
+		SettingKeyCodexQuotaOverdraftEnabled:                         strconv.FormatBool(s.cfg != nil && s.cfg.Gateway.CodexQuotaOverdraftEnabled),
+		SettingKeyOpenAIAccountUniqueFingerprintEnabled:              strconv.FormatBool(gatewayPolicyDefaults.OpenAIAccountUniqueFingerprintEnabled),
+		SettingKeyGatewayStreamDataIntervalTimeoutSeconds:            strconv.Itoa(gatewayPolicyDefaults.StreamDataIntervalTimeoutSeconds),
+		SettingKeyOpenAIFirstOutputTimeoutSeconds:                    strconv.Itoa(gatewayPolicyDefaults.OpenAIFirstOutputTimeoutSeconds),
+		SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds:          strconv.Itoa(gatewayPolicyDefaults.OpenAIHighEffortFirstOutputTimeoutSeconds),
+		SettingKeyOpenAIStickyEscapeEnabled:                          strconv.FormatBool(gatewayPolicyDefaults.StickyEscapeEnabled),
+		SettingKeyOpenAIStickyEscapeTTFTMs:                           strconv.Itoa(gatewayPolicyDefaults.StickyEscapeTTFTMs),
+		SettingKeyOpenAIStickyEscapeErrorRate:                        strconv.FormatFloat(gatewayPolicyDefaults.StickyEscapeErrorRate, 'f', -1, 64),
+		SettingKeyGatewayPlatformEnabled:                             string(gatewayPlatformEnabledJSON),
 		SettingPaymentVisibleMethodAlipaySource:                      "",
 		SettingPaymentVisibleMethodWxpaySource:                       "",
 		SettingPaymentVisibleMethodAlipayEnabled:                     "false",
@@ -308,61 +327,74 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 			forwardedClientIPHeaders = parsed
 		}
 	}
+	gatewayPolicy, err := parseGatewayRuntimePolicySettings(settings, gatewayRuntimePolicyFromConfig(s.cfg))
+	if err != nil {
+		slog.Error("invalid persisted gateway runtime policy; using deployment defaults", "error", err)
+		gatewayPolicy = gatewayRuntimePolicyFromConfig(s.cfg)
+	}
 	result := &SystemSettings{
-		RegistrationEnabled:                    settings[SettingKeyRegistrationEnabled] == "true",
-		EmailVerifyEnabled:                     emailVerifyEnabled,
-		RegistrationEmailSuffixWhitelist:       ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
-		RegistrationEmailDomainQuotaEnabled:    settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
-		PromoCodeEnabled:                       settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
-		PasswordResetEnabled:                   emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
-		FrontendURL:                            settings[SettingKeyFrontendURL],
-		InvitationCodeEnabled:                  settings[SettingKeyInvitationCodeEnabled] == "true",
-		TotpEnabled:                            settings[SettingKeyTotpEnabled] == "true",
-		PasskeyEnabled:                         s.passkeySettingEnabled(settings),
-		SessionBindingEnabled:                  settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
-		StepUpEnabled:                          settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
-		AuditLogRetentionDays:                  parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
-		LoginAgreementEnabled:                  settings[SettingKeyLoginAgreementEnabled] == "true",
-		LoginAgreementMode:                     normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
-		LoginAgreementUpdatedAt:                loginAgreementUpdatedAt,
-		LoginAgreementDocuments:                loginAgreementDocuments,
-		SMTPHost:                               settings[SettingKeySMTPHost],
-		SMTPUsername:                           settings[SettingKeySMTPUsername],
-		SMTPFrom:                               settings[SettingKeySMTPFrom],
-		SMTPFromName:                           settings[SettingKeySMTPFromName],
-		SMTPUseTLS:                             settings[SettingKeySMTPUseTLS] == "true",
-		SMTPPasswordConfigured:                 settings[SettingKeySMTPPassword] != "",
-		TurnstileEnabled:                       settings[SettingKeyTurnstileEnabled] == "true",
-		TurnstileSiteKey:                       settings[SettingKeyTurnstileSiteKey],
-		TurnstileSecretKeyConfigured:           settings[SettingKeyTurnstileSecretKey] != "",
-		TencentCaptchaEnabled:                  settings[SettingKeyTencentCaptchaEnabled] == "true",
-		TencentCaptchaAppID:                    settings[SettingKeyTencentCaptchaAppID],
-		TencentCaptchaAppSecretKeyConfigured:   settings[SettingKeyTencentCaptchaAppSecretKey] != "",
-		TencentCaptchaCloudSecretIDConfigured:  settings[SettingKeyTencentCaptchaCloudSecretID] != "",
-		TencentCaptchaCloudSecretKeyConfigured: settings[SettingKeyTencentCaptchaCloudSecretKey] != "",
-		TencentCaptchaRegion:                   normalizeTencentCaptchaRegion(settings[SettingKeyTencentCaptchaRegion]),
-		AliyunCaptchaEnabled:                   settings[SettingKeyAliyunCaptchaEnabled] == "true",
-		AliyunCaptchaAccessKeyID:               settings[SettingKeyAliyunCaptchaAccessKeyID],
-		AliyunCaptchaAccessKeySecretConfigured: settings[SettingKeyAliyunCaptchaAccessKeySecret] != "",
-		AliyunCaptchaSceneID:                   settings[SettingKeyAliyunCaptchaSceneID],
-		AliyunCaptchaPrefix:                    settings[SettingKeyAliyunCaptchaPrefix],
-		AliyunCaptchaRegion:                    normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
-		APIKeyACLTrustForwardedIP:              apiKeyACLTrustForwardedIP,
-		ForwardedClientIPHeaders:               forwardedClientIPHeaders,
-		SiteName:                               s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
-		SiteLogo:                               settings[SettingKeySiteLogo],
-		SiteSubtitle:                           s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
-		APIBaseURL:                             settings[SettingKeyAPIBaseURL],
-		ContactInfo:                            settings[SettingKeyContactInfo],
-		DocURL:                                 settings[SettingKeyDocURL],
-		HomeContent:                            settings[SettingKeyHomeContent],
-		CompactHomeEnabled:                     settings[SettingKeyCompactHomeEnabled] == "true",
-		HideCcsImportButton:                    settings[SettingKeyHideCcsImportButton] == "true",
-		PurchaseSubscriptionEnabled:            settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
-		PurchaseSubscriptionURL:                strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
-		CustomMenuItems:                        settings[SettingKeyCustomMenuItems],
-		CustomEndpoints:                        settings[SettingKeyCustomEndpoints],
-		BackendModeEnabled:                     settings[SettingKeyBackendModeEnabled] == "true",
+		RegistrationEnabled:                       settings[SettingKeyRegistrationEnabled] == "true",
+		EmailVerifyEnabled:                        emailVerifyEnabled,
+		RegistrationEmailSuffixWhitelist:          ParseRegistrationEmailSuffixWhitelist(settings[SettingKeyRegistrationEmailSuffixWhitelist]),
+		RegistrationEmailDomainQuotaEnabled:       settings[SettingKeyRegistrationEmailDomainQuotaEnabled] == "true",
+		PromoCodeEnabled:                          settings[SettingKeyPromoCodeEnabled] != "false", // 默认启用
+		PasswordResetEnabled:                      emailVerifyEnabled && settings[SettingKeyPasswordResetEnabled] == "true",
+		FrontendURL:                               settings[SettingKeyFrontendURL],
+		InvitationCodeEnabled:                     settings[SettingKeyInvitationCodeEnabled] == "true",
+		TotpEnabled:                               settings[SettingKeyTotpEnabled] == "true",
+		PasskeyEnabled:                            s.passkeySettingEnabled(settings),
+		SessionBindingEnabled:                     settings[SettingKeySessionBindingEnabled] == "true", // 默认关闭
+		StepUpEnabled:                             settings[SettingKeyStepUpEnabled] == "true",         // 默认关闭
+		AuditLogRetentionDays:                     parseAuditLogRetentionDays(settings[SettingKeyAuditLogRetentionDays]),
+		LoginAgreementEnabled:                     settings[SettingKeyLoginAgreementEnabled] == "true",
+		LoginAgreementMode:                        normalizeLoginAgreementMode(settings[SettingKeyLoginAgreementMode]),
+		LoginAgreementUpdatedAt:                   loginAgreementUpdatedAt,
+		LoginAgreementDocuments:                   loginAgreementDocuments,
+		SMTPHost:                                  settings[SettingKeySMTPHost],
+		SMTPUsername:                              settings[SettingKeySMTPUsername],
+		SMTPFrom:                                  settings[SettingKeySMTPFrom],
+		SMTPFromName:                              settings[SettingKeySMTPFromName],
+		SMTPUseTLS:                                settings[SettingKeySMTPUseTLS] == "true",
+		SMTPPasswordConfigured:                    settings[SettingKeySMTPPassword] != "",
+		TurnstileEnabled:                          settings[SettingKeyTurnstileEnabled] == "true",
+		TurnstileSiteKey:                          settings[SettingKeyTurnstileSiteKey],
+		TurnstileSecretKeyConfigured:              settings[SettingKeyTurnstileSecretKey] != "",
+		TencentCaptchaEnabled:                     settings[SettingKeyTencentCaptchaEnabled] == "true",
+		TencentCaptchaAppID:                       settings[SettingKeyTencentCaptchaAppID],
+		TencentCaptchaAppSecretKeyConfigured:      settings[SettingKeyTencentCaptchaAppSecretKey] != "",
+		TencentCaptchaCloudSecretIDConfigured:     settings[SettingKeyTencentCaptchaCloudSecretID] != "",
+		TencentCaptchaCloudSecretKeyConfigured:    settings[SettingKeyTencentCaptchaCloudSecretKey] != "",
+		TencentCaptchaRegion:                      normalizeTencentCaptchaRegion(settings[SettingKeyTencentCaptchaRegion]),
+		AliyunCaptchaEnabled:                      settings[SettingKeyAliyunCaptchaEnabled] == "true",
+		AliyunCaptchaAccessKeyID:                  settings[SettingKeyAliyunCaptchaAccessKeyID],
+		AliyunCaptchaAccessKeySecretConfigured:    settings[SettingKeyAliyunCaptchaAccessKeySecret] != "",
+		AliyunCaptchaSceneID:                      settings[SettingKeyAliyunCaptchaSceneID],
+		AliyunCaptchaPrefix:                       settings[SettingKeyAliyunCaptchaPrefix],
+		AliyunCaptchaRegion:                       normalizeAliyunCaptchaRegion(settings[SettingKeyAliyunCaptchaRegion]),
+		APIKeyACLTrustForwardedIP:                 apiKeyACLTrustForwardedIP,
+		ForwardedClientIPHeaders:                  forwardedClientIPHeaders,
+		GatewayStreamDataIntervalTimeoutSeconds:   gatewayPolicy.StreamDataIntervalTimeoutSeconds,
+		OpenAIFirstOutputTimeoutSeconds:           gatewayPolicy.OpenAIFirstOutputTimeoutSeconds,
+		OpenAIHighEffortFirstOutputTimeoutSeconds: gatewayPolicy.OpenAIHighEffortFirstOutputTimeoutSeconds,
+		OpenAIAccountUniqueFingerprintEnabled:     gatewayPolicy.OpenAIAccountUniqueFingerprintEnabled,
+		OpenAIStickyEscapeEnabled:                 gatewayPolicy.StickyEscapeEnabled,
+		OpenAIStickyEscapeTTFTMs:                  gatewayPolicy.StickyEscapeTTFTMs,
+		OpenAIStickyEscapeErrorRate:               gatewayPolicy.StickyEscapeErrorRate,
+		GatewayPlatformEnabled:                    gatewayPolicy.PlatformEnabled,
+		SiteName:                                  s.getStringOrDefault(settings, SettingKeySiteName, "Sub2API"),
+		SiteLogo:                                  settings[SettingKeySiteLogo],
+		SiteSubtitle:                              s.getStringOrDefault(settings, SettingKeySiteSubtitle, "Subscription to API Conversion Platform"),
+		APIBaseURL:                                settings[SettingKeyAPIBaseURL],
+		ContactInfo:                               settings[SettingKeyContactInfo],
+		DocURL:                                    settings[SettingKeyDocURL],
+		HomeContent:                               settings[SettingKeyHomeContent],
+		CompactHomeEnabled:                        settings[SettingKeyCompactHomeEnabled] == "true",
+		HideCcsImportButton:                       settings[SettingKeyHideCcsImportButton] == "true",
+		PurchaseSubscriptionEnabled:               settings[SettingKeyPurchaseSubscriptionEnabled] == "true",
+		PurchaseSubscriptionURL:                   strings.TrimSpace(settings[SettingKeyPurchaseSubscriptionURL]),
+		CustomMenuItems:                           settings[SettingKeyCustomMenuItems],
+		CustomEndpoints:                           settings[SettingKeyCustomEndpoints],
+		BackendModeEnabled:                        settings[SettingKeyBackendModeEnabled] == "true",
 	}
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],
@@ -815,6 +847,13 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 
 	// Available channels feature (default: disabled; strict true)
 	result.AvailableChannelsEnabled = settings[SettingKeyAvailableChannelsEnabled] == "true"
+	result.NavigationItemVisibility = parseNavigationItemVisibility(
+		settings[SettingKeyNavigationItemVisibility],
+		settings[SettingKeyUserSubscriptionsPageEnabled],
+		settings[SettingKeyAdminSubscriptionsPageEnabled],
+	)
+	result.UserSubscriptionsPageEnabled = !isFalseSettingValue(settings[SettingKeyUserSubscriptionsPageEnabled])
+	result.AdminSubscriptionsPageEnabled = !isFalseSettingValue(settings[SettingKeyAdminSubscriptionsPageEnabled])
 
 	// Model plaza feature (default: disabled; strict true)
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
@@ -871,6 +910,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
+	result.CodexQuotaOverdraftEnabled = settings[SettingKeyCodexQuotaOverdraftEnabled] == "true"
 	result.OpenAICodexClientVersion = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersion])
 	result.OpenAICodexClientVersionSynced = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersionSynced])
 	// 自动同步默认开启：缺失/空值一律视为开启，与 enable_client_dateline_normalization 同一惯例。

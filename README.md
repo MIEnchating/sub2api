@@ -17,7 +17,7 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 </div>
 
 > [!IMPORTANT]
-> This is an unofficial fork of [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), not an official Sub2API release. The upstream install script and `weishaw/sub2api:latest` image do not contain the overdraft feature. Build this fork from source as documented below.
+> This is an unofficial fork of [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), not an official Sub2API release. Use this repository's installer or `mienvirtuoso/sub2api:latest`; the official image does not contain these custom features.
 
 ## Fork Features
 
@@ -260,7 +260,7 @@ One-click installation script that downloads pre-built binaries from GitHub Rele
 #### Installation Steps
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 The script will:
@@ -310,7 +310,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # Uninstall
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -333,7 +333,7 @@ Use the automated deployment script for easy setup:
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # Download and run deployment preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
 
 # Start services
 docker compose up -d

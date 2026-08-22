@@ -976,7 +976,7 @@ type GatewayConfig struct {
 	// 包括请求注入、五次真实复核、调度门控和透支期用量统计；默认关闭。
 	CodexQuotaOverdraftEnabled bool `mapstructure:"codex_quota_overdraft_enabled"`
 	// OpenAIAccountUniqueFingerprintEnabled: 是否为每个 OpenAI OAuth 账号固定唯一的
-	// Codex 设备指纹。默认开启；显式设置账号 extra.codex_fingerprint_mode=off 可对单个账号关闭。
+	// Codex 设备指纹。默认开启；系统设置可在运行时覆盖此部署默认值，账号级模式的优先级最高。
 	OpenAIAccountUniqueFingerprintEnabled bool `mapstructure:"openai_account_unique_fingerprint_enabled"`
 	// ForcedCodexInstructionsTemplateFile: 服务端强制附加到 Codex 顶层 instructions 的模板文件路径。
 	// 模板渲染后会直接覆盖最终 instructions；若需要保留客户端 system 转换结果，请在模板中显式引用 {{ .ExistingInstructions }}。

@@ -630,6 +630,11 @@ export default {
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',
         modelNormalization: '规范化 Codex 模型名称',
+        codexQuotaOverdraft: 'Codex 额度超刷',
+        codexQuotaOverdraftDesc: '账号级设置优先于所属分组；继承时使用分组或全局设置。全局关闭时不会启用。',
+        codexQuotaOverdraftInherit: '继承分组设置',
+        codexQuotaOverdraftEnabled: '开启',
+        codexQuotaOverdraftDisabled: '关闭',
         modelNormalizationDesc:
           '默认开启，将已知别名和带后缀的模型名称转换为 Codex 上游支持的标准名称。关闭后，账号映射得到的自定义模型名称（如 gpt-5.6-sol-wm）将原样发送。',
         flattenNamespaces: '摊平 Codex namespace 工具（兼容）',

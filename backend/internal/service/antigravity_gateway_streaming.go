@@ -178,10 +178,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamingResponse(c *gin.Context
 	defer close(done)
 
 	// 上游数据间隔超时保护（防止上游挂起长期占用连接）
-	streamInterval := time.Duration(0)
-	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.settingService.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.gatewayStreamDataIntervalTimeout()
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)
@@ -375,10 +372,7 @@ func (s *AntigravityGatewayService) handleGeminiStreamToNonStreaming(c *gin.Cont
 	defer close(done)
 
 	// 上游数据间隔超时保护（防止上游挂起长期占用连接）
-	streamInterval := time.Duration(0)
-	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.settingService.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.gatewayStreamDataIntervalTimeout()
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)
@@ -846,10 +840,7 @@ func (s *AntigravityGatewayService) collectClaudeStreamResponse(c *gin.Context, 
 	defer close(done)
 
 	// 上游数据间隔超时保护（防止上游挂起长期占用连接）
-	streamInterval := time.Duration(0)
-	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.settingService.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.gatewayStreamDataIntervalTimeout()
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)
@@ -1069,10 +1060,7 @@ func (s *AntigravityGatewayService) handleClaudeStreamingResponse(c *gin.Context
 	}(scanBuf)
 	defer close(done)
 
-	streamInterval := time.Duration(0)
-	if s.settingService.cfg != nil && s.settingService.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.settingService.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.gatewayStreamDataIntervalTimeout()
 	var intervalTicker *time.Ticker
 	if streamInterval > 0 {
 		intervalTicker = time.NewTicker(streamInterval)

@@ -17,7 +17,7 @@
 </div>
 
 > [!IMPORTANT]
-> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork のオーバードラフト機能は含まれていません。
+> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork です。このリポジトリのインストーラーまたは `mienvirtuoso/sub2api:latest` を使用してください。公式イメージには本プロジェクトのカスタム機能は含まれていません。
 
 ## Fork の追加機能
 
@@ -255,7 +255,7 @@ GitHub Releases からビルド済みバイナリをダウンロードするワ�
 #### インストール手順
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 スクリプトは以下を実行します:
@@ -305,7 +305,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # アンインストール
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -328,7 +328,7 @@ PostgreSQL と Redis のコンテナを含む Docker Compose でデプロイし�
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # デプロイ準備スクリプトをダウンロードして実行
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
 
 # サービスを起動
 docker compose up -d

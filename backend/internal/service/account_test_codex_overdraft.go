@@ -62,6 +62,6 @@ func (s *AccountTestService) observeCodexQuotaOverdraftTestResult(
 }
 
 func (s *AccountTestService) codexQuotaOverdraftTestEnabled(account *Account) bool {
-	return s != nil && s.cfg != nil && s.cfg.Gateway.CodexQuotaOverdraftEnabled &&
+	return s != nil && CodexQuotaOverdraftEnabled() &&
 		isCodexQuotaOverdraftAccount(account)
 }

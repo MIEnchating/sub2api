@@ -11,11 +11,25 @@ export interface ReleaseInfo {
   html_url: string
 }
 
+export interface UpstreamVersionInfo {
+  id: 'official' | 'overdraft'
+  repository: string
+  version?: string
+  html_url: string
+  compare_url?: string
+  compare_checked?: boolean
+  has_update?: boolean
+  ahead_by?: number
+  behind_by?: number
+  warning?: string
+}
+
 export interface VersionInfo {
   current_version: string
   latest_version: string
   has_update: boolean
   release_info?: ReleaseInfo
+  upstreams: UpstreamVersionInfo[]
   cached: boolean
   warning?: string
   build_type: string // "source" for manual builds, "release" for CI builds

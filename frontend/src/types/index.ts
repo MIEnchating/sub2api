@@ -271,6 +271,11 @@ export interface PublicSettings {
   /** When true, user monitor shows account quota/balance snapshots (default off). */
   channel_monitor_show_quota?: boolean
   available_channels_enabled: boolean
+  navigation_item_visibility: Record<string, boolean>
+  /** @deprecated Compatibility with public-settings payloads from older servers. */
+  user_subscriptions_page_enabled?: boolean
+  /** @deprecated Compatibility with public-settings payloads from older servers. */
+  admin_subscriptions_page_enabled?: boolean
   model_plaza_enabled: boolean
   model_plaza_require_auth: boolean
   service_quota_enabled: boolean
@@ -602,6 +607,8 @@ export interface Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   require_oauth_only: boolean
   require_privacy_set: boolean
+  /** Codex quota overdraft override; null inherits the global setting. */
+  codex_quota_overdraft_enabled?: boolean | null
   created_at: string
   updated_at: string
 }
@@ -817,6 +824,7 @@ export interface CreateGroupRequest {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  codex_quota_overdraft_enabled?: boolean | null
   // 从指定分组复制账号
   copy_accounts_from_group_ids?: number[]
 }
@@ -879,6 +887,7 @@ export interface UpdateGroupRequest {
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
   require_privacy_set?: boolean
+  codex_quota_overdraft_enabled?: boolean | null
   copy_accounts_from_group_ids?: number[]
 }
 

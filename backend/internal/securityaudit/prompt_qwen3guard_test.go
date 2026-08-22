@@ -96,6 +96,29 @@ func TestExtractOpenAIContentSupportsStringAndTextBlocks(t *testing.T) {
 	}
 }
 
+func TestParseGeneralPromptAuditUsesSamePolicy(t *testing.T) {
+	result, err := ParseGeneralPromptAudit(`{"safety":"Unsafe","categories":["jailbreak","pii"]}`, AllScannerIDs)
+	require.NoError(t, err)
+	require.Equal(t, EventCritical, result.Decision)
+	require.Equal(t, ActionBlock, result.Action)
+	require.Equal(t, []string{"pii", "jailbreak"}, result.MatchedScanners)
+	require.Equal(t, "general-openai", result.ScannerBackend)
+
+	disabled, err := ParseGeneralPromptAudit("```json\n{\"safety\":\"Unsafe\",\"categories\":[\"violent\"]}\n```", []string{"pii"})
+	require.NoError(t, err)
+	require.Equal(t, EventFlag, disabled.Decision)
+	require.Equal(t, ActionWarn, disabled.Action)
+
+	for _, content := range []string{
+		`{"safety":"Maybe","categories":[]}`,
+		`{"safety":"Safe"}`,
+		`{"safety":"Safe","categories":[],"extra":true}`,
+	} {
+		_, err := ParseGeneralPromptAudit(content, AllScannerIDs)
+		require.Error(t, err)
+	}
+}
+
 func TestAggregateRequiresEveryResult(t *testing.T) {
 	_, err := AggregateResults([]*NormalizedResult{{Decision: EventPass, Action: ActionAllow}, nil}, 0)
 	require.Error(t, err)
@@ -122,6 +145,15 @@ func TestAggregateDeduplicatesFactsAndUsesMostSevereEndpointMetadata(t *testing.
 	require.Equal(t, "block-version", result.ScannerVersion)
 	require.Equal(t, 2, result.PolicyVersion)
 	require.Equal(t, 7, result.LatencyMS)
+}
+
+func TestAggregatePreservesGeneralScannerBackend(t *testing.T) {
+	result, err := AggregateResults([]*NormalizedResult{{
+		Decision: EventPass, RiskLevel: RiskLow, Action: ActionAllow,
+		ScannerBackend: "general-openai", GuardEndpointID: "general", ScannerVersion: "gpt-5.5",
+	}}, 0)
+	require.NoError(t, err)
+	require.Equal(t, "general-openai", result.ScannerBackend)
 }
 
 func TestIssueSummariesAreDeterministicRedactedDerivedDTOs(t *testing.T) {

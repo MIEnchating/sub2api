@@ -1018,6 +1018,7 @@ func groupEntityToService(g *dbent.Group) *service.Group {
 		PeakEnd:                         g.PeakEnd,
 		PeakRateMultiplier:              g.PeakRateMultiplier,
 		ProfitControlEnabled:            g.ProfitControlEnabled,
+		CodexQuotaOverdraftEnabled:      g.CodexQuotaOverdraftEnabled,
 		ProfitMinMargin:                 g.ProfitMinMargin,
 		ProfitSafetyBuffer:              g.ProfitSafetyBuffer,
 		CreatedAt:                       g.CreatedAt,

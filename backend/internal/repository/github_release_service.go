@@ -117,6 +117,10 @@ func (c *githubReleaseClientError) FetchRepositoryFile(ctx context.Context, repo
 	return nil, c.err
 }
 
+func (c *githubReleaseClientError) FetchComparison(ctx context.Context, baseRepo, baseRef, headRepo, headRef string) (*service.GitHubComparison, error) {
+	return nil, c.err
+}
+
 func (c *githubReleaseClientError) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {
 	return c.err
 }
@@ -231,6 +235,102 @@ func (c *githubReleaseClient) FetchRepositoryFile(ctx context.Context, repo, ref
 		return nil, fmt.Errorf("GitHub repository file is too large")
 	}
 	return decoded, nil
+}
+
+func (c *githubReleaseClient) FetchComparison(ctx context.Context, baseRepo, baseRef, headRepo, headRef string) (*service.GitHubComparison, error) {
+	baseRepo = strings.Trim(strings.TrimSpace(baseRepo), "/")
+	headRepo = strings.Trim(strings.TrimSpace(headRepo), "/")
+	baseRef = strings.TrimSpace(baseRef)
+	headRef = strings.TrimSpace(headRef)
+	if baseRepo == "" || headRepo == "" || baseRef == "" || headRef == "" {
+		return nil, fmt.Errorf("invalid GitHub comparison reference")
+	}
+	baseOwner, baseName, baseOK := strings.Cut(baseRepo, "/")
+	headOwner, headName, headOK := strings.Cut(headRepo, "/")
+	if !baseOK || !headOK || baseOwner == "" || baseName == "" || headOwner == "" || headName == "" ||
+		strings.Contains(baseName, "/") || strings.Contains(headName, "/") {
+		return nil, fmt.Errorf("invalid GitHub comparison repository")
+	}
+
+	// GitHub's cross-repository compare syntax is owner:branch. Including the
+	// repository name (owner/repository:branch) makes the API return 404.
+	endpoint := fmt.Sprintf("https://api.github.com/repos/%s/compare/%s...%s:%s", baseRepo, url.PathEscape(baseRef), headOwner, url.PathEscape(headRef))
+	req, err := c.newAPIRequest(ctx, endpoint)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.httpClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
+	}
+	comparison, err := decodeGitHubComparisonSummary(io.LimitReader(resp.Body, 256<<10))
+	if err != nil {
+		return nil, err
+	}
+	if comparison.HTMLURL == "" {
+		comparison.HTMLURL = endpoint
+	}
+	return comparison, nil
+}
+
+// GitHub compare responses can exceed a megabyte because they include commit
+// and file arrays. The summary fields precede those arrays, so stop decoding as
+// soon as all fields needed by the update checker have been read.
+func decodeGitHubComparisonSummary(reader io.Reader) (*service.GitHubComparison, error) {
+	decoder := json.NewDecoder(reader)
+	opening, err := decoder.Token()
+	if err != nil {
+		return nil, err
+	}
+	if delimiter, ok := opening.(json.Delim); !ok || delimiter != '{' {
+		return nil, fmt.Errorf("invalid GitHub comparison response")
+	}
+
+	var comparison service.GitHubComparison
+	var hasStatus, hasAheadBy, hasBehindBy, hasTotal, hasHTMLURL bool
+	for decoder.More() {
+		keyToken, err := decoder.Token()
+		if err != nil {
+			return nil, err
+		}
+		key, ok := keyToken.(string)
+		if !ok {
+			return nil, fmt.Errorf("invalid GitHub comparison field")
+		}
+
+		switch key {
+		case "status":
+			err = decoder.Decode(&comparison.Status)
+			hasStatus = err == nil
+		case "ahead_by":
+			err = decoder.Decode(&comparison.AheadBy)
+			hasAheadBy = err == nil
+		case "behind_by":
+			err = decoder.Decode(&comparison.BehindBy)
+			hasBehindBy = err == nil
+		case "total_commits":
+			err = decoder.Decode(&comparison.Total)
+			hasTotal = err == nil
+		case "html_url":
+			err = decoder.Decode(&comparison.HTMLURL)
+			hasHTMLURL = err == nil
+		default:
+			var ignored json.RawMessage
+			err = decoder.Decode(&ignored)
+		}
+		if err != nil {
+			return nil, err
+		}
+		if hasStatus && hasAheadBy && hasBehindBy && hasTotal && hasHTMLURL {
+			return &comparison, nil
+		}
+	}
+
+	return nil, fmt.Errorf("GitHub comparison response is missing summary fields")
 }
 
 func (c *githubReleaseClient) DownloadFile(ctx context.Context, url, dest string, maxSize int64) error {

@@ -174,6 +174,8 @@ func TestAccountTestService_OpenAISuccessPersistsSnapshotFromHeaders(t *testing.
 }
 
 func TestAccountTestService_OpenAIOAuthOverdraftTestInjectsAndObservesSnapshot(t *testing.T) {
+	SetCodexQuotaOverdraftEnabled(true)
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusOK, "")
@@ -485,6 +487,8 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testin
 }
 
 func TestAccountTestService_OpenAIQuota429UsesOverdraftCoordinatorWithoutRateLimitWrite(t *testing.T) {
+	SetCodexQuotaOverdraftEnabled(true)
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"usage_limit_reached","message":"limit reached","resets_at":1777283883}}`)
@@ -521,6 +525,8 @@ func TestAccountTestService_OpenAIQuota429UsesOverdraftCoordinatorWithoutRateLim
 }
 
 func TestAccountTestService_OpenAI429FallsBackWhenOverdraftDoesNotHandle(t *testing.T) {
+	SetCodexQuotaOverdraftEnabled(true)
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
 	ctx, _ := newTestContext()
 
 	resp := newJSONResponse(http.StatusTooManyRequests, `{"error":{"type":"rate_limit_exceeded","message":"too many requests","resets_in_seconds":60}}`)

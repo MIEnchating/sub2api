@@ -320,6 +320,11 @@ func ProfitControlEnabled(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitControlEnabled, v))
 }
 
+// CodexQuotaOverdraftEnabled applies equality check predicate on the "codex_quota_overdraft_enabled" field. It's identical to CodexQuotaOverdraftEnabledEQ.
+func CodexQuotaOverdraftEnabled(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexQuotaOverdraftEnabled, v))
+}
+
 // ProfitMinMargin applies equality check predicate on the "profit_min_margin" field. It's identical to ProfitMinMarginEQ.
 func ProfitMinMargin(v float64) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldProfitMinMargin, v))
@@ -2468,6 +2473,26 @@ func ProfitControlEnabledEQ(v bool) predicate.Group {
 // ProfitControlEnabledNEQ applies the NEQ predicate on the "profit_control_enabled" field.
 func ProfitControlEnabledNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldProfitControlEnabled, v))
+}
+
+// CodexQuotaOverdraftEnabledEQ applies the EQ predicate on the "codex_quota_overdraft_enabled" field.
+func CodexQuotaOverdraftEnabledEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldCodexQuotaOverdraftEnabled, v))
+}
+
+// CodexQuotaOverdraftEnabledNEQ applies the NEQ predicate on the "codex_quota_overdraft_enabled" field.
+func CodexQuotaOverdraftEnabledNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldCodexQuotaOverdraftEnabled, v))
+}
+
+// CodexQuotaOverdraftEnabledIsNil applies the IsNil predicate on the "codex_quota_overdraft_enabled" field.
+func CodexQuotaOverdraftEnabledIsNil() predicate.Group {
+	return predicate.Group(sql.FieldIsNull(FieldCodexQuotaOverdraftEnabled))
+}
+
+// CodexQuotaOverdraftEnabledNotNil applies the NotNil predicate on the "codex_quota_overdraft_enabled" field.
+func CodexQuotaOverdraftEnabledNotNil() predicate.Group {
+	return predicate.Group(sql.FieldNotNull(FieldCodexQuotaOverdraftEnabled))
 }
 
 // ProfitMinMarginEQ applies the EQ predicate on the "profit_min_margin" field.

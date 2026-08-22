@@ -132,6 +132,7 @@ type SettingService struct {
 	openAICodexVersionSF        singleflight.Group
 	codexRestrictionPolicyCache atomic.Value // *cachedCodexRestrictionPolicy
 	codexRestrictionPolicySF    singleflight.Group
+	gatewayRuntimePolicy        atomic.Value // *GatewayRuntimePolicy
 
 	cyberSessionBlockRuntimeCache atomic.Value // *cachedCyberSessionBlockRuntime
 	cyberSessionBlockRuntimeSF    singleflight.Group
@@ -283,10 +284,12 @@ const (
 
 // NewSettingService 创建系统设置服务实例
 func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *SettingService {
-	return &SettingService{
+	svc := &SettingService{
 		settingRepo: settingRepo,
 		cfg:         cfg,
 	}
+	svc.gatewayRuntimePolicy.Store(gatewayRuntimePolicyFromConfig(cfg))
+	return svc
 }
 
 // SetDefaultSubscriptionGroupReader injects an optional group reader for default subscription validation.
@@ -368,7 +371,10 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 		return nil, fmt.Errorf("get all settings: %w", err)
 	}
 
-	return s.parseSettings(settings), nil
+	parsed := s.parseSettings(settings)
+	SetCodexQuotaOverdraftEnabled(parsed.CodexQuotaOverdraftEnabled)
+	s.storeGatewayRuntimePolicy(parsed)
+	return parsed, nil
 }
 
 // SetOnUpdateCallback sets a callback function to be called when settings are updated

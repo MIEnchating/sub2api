@@ -5,6 +5,7 @@ package service
 import (
 	"context"
 	"errors"
+	"sync"
 	"testing"
 	"time"
 
@@ -28,20 +29,38 @@ func (s *updateServiceCacheStub) SetUpdateInfo(_ context.Context, data string, _
 }
 
 type updateServiceGitHubClientStub struct {
+	mu                sync.Mutex
 	release           *GitHubRelease
+	releases          map[string]*GitHubRelease
 	recentReleases    []*GitHubRelease
 	recentErr         error
 	repositoryFile    []byte
+	repositoryFiles   map[string][]byte
 	repositoryFileErr error
 	latestRepo        string
+	latestRepos       []string
 	fileRepo          string
 	fileRef           string
 	filePath          string
 	fileCalls         int
+	comparisonCalls   []updateServiceComparisonCall
+}
+
+type updateServiceComparisonCall struct {
+	baseRepo string
+	baseRef  string
+	headRepo string
+	headRef  string
 }
 
 func (s *updateServiceGitHubClientStub) FetchLatestRelease(_ context.Context, repo string) (*GitHubRelease, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.latestRepo = repo
+	s.latestRepos = append(s.latestRepos, repo)
+	if release, ok := s.releases[repo]; ok {
+		return release, nil
+	}
 	return s.release, nil
 }
 
@@ -50,11 +69,28 @@ func (s *updateServiceGitHubClientStub) FetchRecentReleases(context.Context, str
 }
 
 func (s *updateServiceGitHubClientStub) FetchRepositoryFile(_ context.Context, repo, ref, filePath string) ([]byte, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.fileCalls++
 	s.fileRepo = repo
 	s.fileRef = ref
 	s.filePath = filePath
+	if value, ok := s.repositoryFiles[repo+"\x00"+ref+"\x00"+filePath]; ok {
+		return value, nil
+	}
 	return s.repositoryFile, s.repositoryFileErr
+}
+
+func (s *updateServiceGitHubClientStub) FetchComparison(_ context.Context, baseRepo, baseRef, headRepo, headRef string) (*GitHubComparison, error) {
+	s.mu.Lock()
+	s.comparisonCalls = append(s.comparisonCalls, updateServiceComparisonCall{
+		baseRepo: baseRepo,
+		baseRef:  baseRef,
+		headRepo: headRepo,
+		headRef:  headRef,
+	})
+	s.mu.Unlock()
+	return &GitHubComparison{Status: "identical", HTMLURL: "https://github.com/compare"}, nil
 }
 
 func (s *updateServiceGitHubClientStub) DownloadFile(context.Context, string, string, int64) error {
@@ -85,7 +121,7 @@ func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
 }
 
-func TestUpdateServiceSourceBuildTracksForkVersionFile(t *testing.T) {
+func TestUpdateServiceSourceBuildTracksOwnVersionFile(t *testing.T) {
 	client := &updateServiceGitHubClientStub{repositoryFile: []byte("0.1.176-overdraft.2\n")}
 	svc := NewUpdateService(
 		&updateServiceCacheStub{},
@@ -101,11 +137,9 @@ func TestUpdateServiceSourceBuildTracksForkVersionFile(t *testing.T) {
 	require.Equal(t, "0.1.176-overdraft.2", info.LatestVersion)
 	require.True(t, info.HasUpdate)
 	require.Equal(t, "source", info.BuildType)
-	require.Equal(t, githubSourceUpdateURL, info.ReleaseInfo.HTMLURL)
-	require.Equal(t, githubRepo, client.fileRepo)
-	require.Equal(t, githubSourceBranch, client.fileRef)
-	require.Equal(t, githubForkVersionFile, client.filePath)
-	require.Empty(t, client.latestRepo, "源码构建不能查询官方或 Fork 的二进制 Release")
+	require.Equal(t, releaseSourceUpdateURL, info.ReleaseInfo.HTMLURL)
+	require.Contains(t, client.latestRepos, officialUpstreamRepo)
+	require.NotContains(t, client.latestRepos, releaseRepo, "源码构建不能查询自身的二进制 Release")
 }
 
 func TestUpdateServiceSourceBuildIgnoresLegacyOfficialCache(t *testing.T) {
@@ -118,7 +152,7 @@ func TestUpdateServiceSourceBuildIgnoresLegacyOfficialCache(t *testing.T) {
 	require.NoError(t, err)
 	require.False(t, info.HasUpdate)
 	require.Equal(t, "0.1.176-overdraft.1", info.LatestVersion)
-	require.Equal(t, 1, client.fileCalls)
+	require.Equal(t, 2, client.fileCalls)
 }
 
 func TestUpdateServiceSourceBuildRejectsBinaryUpdate(t *testing.T) {
@@ -134,7 +168,7 @@ func TestUpdateServiceSourceBuildRejectsBinaryUpdate(t *testing.T) {
 	require.ErrorIs(t, err, ErrSourceBuildUpdateRequired)
 }
 
-func TestUpdateServiceReleaseBuildUsesForkRepository(t *testing.T) {
+func TestUpdateServiceReleaseBuildUsesOwnRepository(t *testing.T) {
 	client := &updateServiceGitHubClientStub{release: &GitHubRelease{TagName: "v0.1.177-overdraft.1"}}
 	svc := NewUpdateService(&updateServiceCacheStub{}, client, "0.1.176-overdraft.1", "release")
 
@@ -142,7 +176,64 @@ func TestUpdateServiceReleaseBuildUsesForkRepository(t *testing.T) {
 
 	require.NoError(t, err)
 	require.True(t, info.HasUpdate)
-	require.Equal(t, githubRepo, client.latestRepo)
+	require.Contains(t, client.latestRepos, releaseRepo)
+}
+
+func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
+	client := &updateServiceGitHubClientStub{
+		releases: map[string]*GitHubRelease{
+			releaseRepo: {
+				TagName: "v2026.8.22",
+				HTMLURL: "https://github.com/MIEnchating/sub2api/releases/tag/v2026.8.22",
+			},
+			officialUpstreamRepo: {
+				TagName: "v0.1.179",
+				HTMLURL: "https://github.com/Wei-Shaw/sub2api/releases/tag/v0.1.179",
+			},
+		},
+		repositoryFiles: map[string][]byte{
+			overdraftUpstreamRepo + "\x00" + overdraftUpstreamBranch + "\x00" + overdraftUpstreamVersion: []byte("0.1.179-overdraft.2\n"),
+		},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, client, "2026.8.22", "release")
+
+	info, err := svc.CheckUpdate(context.Background(), true)
+
+	require.NoError(t, err)
+	require.Equal(t, "2026.8.22", info.CurrentVersion)
+	require.False(t, info.HasUpdate)
+	require.Equal(t, []UpstreamVersionInfo{
+		{
+			ID:             "official",
+			Repository:     officialUpstreamRepo,
+			Version:        "0.1.179",
+			HTMLURL:        "https://github.com/Wei-Shaw/sub2api/releases/tag/v0.1.179",
+			CompareURL:     "https://github.com/compare",
+			CompareChecked: true,
+		},
+		{
+			ID:             "overdraft",
+			Repository:     overdraftUpstreamRepo,
+			Version:        "0.1.179-overdraft.2",
+			HTMLURL:        overdraftUpstreamUpdateURL,
+			CompareURL:     "https://github.com/compare",
+			CompareChecked: true,
+		},
+	}, info.Upstreams)
+	require.ElementsMatch(t, []updateServiceComparisonCall{
+		{
+			baseRepo: officialUpstreamRepo,
+			baseRef:  officialUpstreamBaseline,
+			headRepo: officialUpstreamRepo,
+			headRef:  "main",
+		},
+		{
+			baseRepo: overdraftUpstreamRepo,
+			baseRef:  overdraftUpstreamBaseline,
+			headRepo: overdraftUpstreamRepo,
+			headRef:  overdraftUpstreamBranch,
+		},
+	}, client.comparisonCalls)
 }
 
 func TestCompareVersionsSupportsForkPrereleaseRevisions(t *testing.T) {

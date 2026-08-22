@@ -196,6 +196,7 @@ import VersionBadge from '@/components/common/VersionBadge.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
+import { isNavigationItemVisible } from '@/utils/navigationVisibility'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 
 interface NavItem {
@@ -219,14 +220,16 @@ interface NavItem {
   featureFlag?: () => boolean | undefined
 }
 
-// applyFeatureFlags 递归过滤掉 featureFlag() === false 的节点（含子节点）。
-// 使用 `!== false` 宽容语义：undefined（设置未加载）或 true 都视为显示。
+// Recursively combine runtime feature switches with operator-configured page
+// visibility. Empty expandable groups disappear after their children are filtered.
 function applyFeatureFlags(items: NavItem[]): NavItem[] {
   const out: NavItem[] = []
   for (const item of items) {
     if (item.featureFlag && item.featureFlag() === false) continue
+    if (!item.expandOnly && !isNavigationItemVisible(appStore.cachedPublicSettings, item.path)) continue
     if (item.children) {
-      out.push({ ...item, children: applyFeatureFlags(item.children) })
+      const children = applyFeatureFlags(item.children)
+      if (children.length > 0) out.push({ ...item, children })
     } else {
       out.push(item)
     }
@@ -822,14 +825,20 @@ const adminNavItems = computed((): NavItem[] => {
     filtered.push({ path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon })
     filtered.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
     for (const cm of customMenuItemsForAdmin.value) {
-      filtered.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+      const path = `/custom/${cm.id}`
+      if (isNavigationItemVisible(appStore.cachedPublicSettings, path)) {
+        filtered.push({ path, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+      }
     }
     return filtered
   }
 
   visible.push({ path: '/admin/settings', label: t('nav.settings'), icon: CogIcon })
   for (const cm of customMenuItemsForAdmin.value) {
-    visible.push({ path: `/custom/${cm.id}`, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+    const path = `/custom/${cm.id}`
+    if (isNavigationItemVisible(appStore.cachedPublicSettings, path)) {
+      visible.push({ path, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+    }
   }
   return visible
 })

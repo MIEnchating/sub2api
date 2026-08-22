@@ -209,7 +209,10 @@ type SystemSettings struct {
 	GrokDefaultBaseURLMode         string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature (user-facing aggregate view)
-	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+	AvailableChannelsEnabled      bool            `json:"available_channels_enabled"`
+	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
+	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
+	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled     bool   `json:"model_plaza_enabled"`
@@ -227,26 +230,35 @@ type SystemSettings struct {
 	BackendModeEnabled bool
 
 	// Gateway forwarding behavior
-	EnableFingerprintUnification           bool   // 是否统一 OAuth 账号的指纹头（默认 true）
-	EnableMetadataPassthrough              bool   // 是否透传客户端原始 metadata（默认 false）
-	EnableCCHSigning                       bool   // 已废弃 no-op：新版 CLI 取消 cch 签名后网关不再注入/签名 cch，开关无效果
-	EnableClaudeOAuthSystemPromptInjection bool   // 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
-	ClaudeOAuthSystemPrompt                string // Claude OAuth mimic 路径注入的通用扩展 system prompt；空值使用内置默认
-	ClaudeOAuthSystemPromptBlocks          string // Claude OAuth mimic 路径注入的 system blocks JSON 配置；空值使用内置默认
-	EnableAnthropicCacheTTL1hInjection     bool   // 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
-	EnableClientDatelineNormalization      bool   // 是否对 Anthropic OAuth/SetupToken 请求体做客户端 dateline 归一化（默认 true）
-	RewriteMessageCacheControl             bool   // 是否改写 messages[*].content[*].cache_control（默认 false）
-	AntigravityUserAgentVersion            string // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
-	OpenAICodexUserAgent                   string // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
-	OpenAICodexClientVersion               string // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值
-	OpenAICodexClientVersionSynced         string // 自动同步到的官方最新稳定版版本号（只读展示）
-	OpenAICodexVersionAutoSyncEnabled      bool   // 是否启用 Codex 客户端版本号自动同步（默认 true）
-	MinCodexVersion                        string // codex_cli_only 最低 Codex 引擎版本；空=不检查
-	MaxCodexVersion                        string // codex_cli_only 最高 Codex 引擎版本；空=不检查
-	CodexCLIOnlyBlacklist                  string // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
-	CodexCLIOnlyWhitelist                  string // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
-	CodexCLIOnlyAllowAppServerClients      bool   // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
-	CodexCLIOnlyEngineFingerprintSignals   string // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
+	EnableFingerprintUnification              bool            // 是否统一 OAuth 账号的指纹头（默认 true）
+	CodexQuotaOverdraftEnabled                bool            // Codex 额度透支全局总开关
+	OpenAIAccountUniqueFingerprintEnabled     bool            // 是否为每个 OpenAI OAuth 账号使用唯一且稳定的 Codex 设备指纹
+	EnableMetadataPassthrough                 bool            // 是否透传客户端原始 metadata（默认 false）
+	EnableCCHSigning                          bool            // 已废弃 no-op：新版 CLI 取消 cch 签名后网关不再注入/签名 cch，开关无效果
+	EnableClaudeOAuthSystemPromptInjection    bool            // 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）
+	ClaudeOAuthSystemPrompt                   string          // Claude OAuth mimic 路径注入的通用扩展 system prompt；空值使用内置默认
+	ClaudeOAuthSystemPromptBlocks             string          // Claude OAuth mimic 路径注入的 system blocks JSON 配置；空值使用内置默认
+	EnableAnthropicCacheTTL1hInjection        bool            // 是否对 Anthropic OAuth/SetupToken 请求体注入 1h cache_control ttl（默认 false）
+	EnableClientDatelineNormalization         bool            // 是否对 Anthropic OAuth/SetupToken 请求体做客户端 dateline 归一化（默认 true）
+	RewriteMessageCacheControl                bool            // 是否改写 messages[*].content[*].cache_control（默认 false）
+	AntigravityUserAgentVersion               string          // Antigravity 上游 User-Agent 版本号；空值使用配置/默认值
+	OpenAICodexUserAgent                      string          // OpenAI Codex 上游完整 User-Agent；空值由 Codex 客户端版本号拼出标准 TUI UA
+	OpenAICodexClientVersion                  string          // 出站声明的 Codex 客户端版本号（管理员覆写）；空值跟随自动同步值
+	OpenAICodexClientVersionSynced            string          // 自动同步到的官方最新稳定版版本号（只读展示）
+	OpenAICodexVersionAutoSyncEnabled         bool            // 是否启用 Codex 客户端版本号自动同步（默认 true）
+	GatewayStreamDataIntervalTimeoutSeconds   int             // 流式响应连续无数据超时；0=禁用
+	OpenAIFirstOutputTimeoutSeconds           int             // OpenAI 首次输出超时；0=禁用
+	OpenAIHighEffortFirstOutputTimeoutSeconds int             // 高推理强度首次输出超时；0=继承普通值
+	OpenAIStickyEscapeEnabled                 bool            // 粘性账号异常时允许临时换号
+	OpenAIStickyEscapeTTFTMs                  int             // 粘性账号 TTFT 异常阈值（毫秒）
+	OpenAIStickyEscapeErrorRate               float64         // 粘性账号错误率阈值（0..1）
+	GatewayPlatformEnabled                    map[string]bool // 平台网关总开关；缺省平台默认启用
+	MinCodexVersion                           string          // codex_cli_only 最低 Codex 引擎版本；空=不检查
+	MaxCodexVersion                           string          // codex_cli_only 最高 Codex 引擎版本；空=不检查
+	CodexCLIOnlyBlacklist                     string          // codex_cli_only 全局黑名单 JSON（[]AllowedClientEntry，OR deny）
+	CodexCLIOnlyWhitelist                     string          // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
+	CodexCLIOnlyAllowAppServerClients         bool            // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
+	CodexCLIOnlyEngineFingerprintSignals      string          // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
@@ -387,7 +399,10 @@ type PublicSettings struct {
 	GrokDefaultBaseURLMode         string `json:"grok_default_base_url_mode"`
 
 	// Available Channels feature (user-facing aggregate view)
-	AvailableChannelsEnabled bool `json:"available_channels_enabled"`
+	AvailableChannelsEnabled      bool            `json:"available_channels_enabled"`
+	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
+	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
+	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
 	ModelPlazaEnabled     bool `json:"model_plaza_enabled"`

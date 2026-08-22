@@ -136,6 +136,8 @@ const (
 	FieldReasoningEffortMappings = "reasoning_effort_mappings"
 	// FieldProfitControlEnabled holds the string denoting the profit_control_enabled field in the database.
 	FieldProfitControlEnabled = "profit_control_enabled"
+	// FieldCodexQuotaOverdraftEnabled holds the string denoting the codex_quota_overdraft_enabled field in the database.
+	FieldCodexQuotaOverdraftEnabled = "codex_quota_overdraft_enabled"
 	// FieldProfitMinMargin holds the string denoting the profit_min_margin field in the database.
 	FieldProfitMinMargin = "profit_min_margin"
 	// FieldProfitSafetyBuffer holds the string denoting the profit_safety_buffer field in the database.
@@ -275,6 +277,7 @@ var Columns = []string{
 	FieldMaxReasoningEffort,
 	FieldReasoningEffortMappings,
 	FieldProfitControlEnabled,
+	FieldCodexQuotaOverdraftEnabled,
 	FieldProfitMinMargin,
 	FieldProfitSafetyBuffer,
 }
@@ -685,6 +688,11 @@ func ByMaxReasoningEffort(opts ...sql.OrderTermOption) OrderOption {
 // ByProfitControlEnabled orders the results by the profit_control_enabled field.
 func ByProfitControlEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldProfitControlEnabled, opts...).ToFunc()
+}
+
+// ByCodexQuotaOverdraftEnabled orders the results by the codex_quota_overdraft_enabled field.
+func ByCodexQuotaOverdraftEnabled(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCodexQuotaOverdraftEnabled, opts...).ToFunc()
 }
 
 // ByProfitMinMargin orders the results by the profit_min_margin field.

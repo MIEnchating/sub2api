@@ -822,6 +822,20 @@ func (_c *GroupCreate) SetNillableProfitControlEnabled(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (_c *GroupCreate) SetCodexQuotaOverdraftEnabled(v bool) *GroupCreate {
+	_c.mutation.SetCodexQuotaOverdraftEnabled(v)
+	return _c
+}
+
+// SetNillableCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCodexQuotaOverdraftEnabled(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetCodexQuotaOverdraftEnabled(*v)
+	}
+	return _c
+}
+
 // SetProfitMinMargin sets the "profit_min_margin" field.
 func (_c *GroupCreate) SetProfitMinMargin(v float64) *GroupCreate {
 	_c.mutation.SetProfitMinMargin(v)
@@ -1595,6 +1609,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ProfitControlEnabled(); ok {
 		_spec.SetField(group.FieldProfitControlEnabled, field.TypeBool, value)
 		_node.ProfitControlEnabled = value
+	}
+	if value, ok := _c.mutation.CodexQuotaOverdraftEnabled(); ok {
+		_spec.SetField(group.FieldCodexQuotaOverdraftEnabled, field.TypeBool, value)
+		_node.CodexQuotaOverdraftEnabled = &value
 	}
 	if value, ok := _c.mutation.ProfitMinMargin(); ok {
 		_spec.SetField(group.FieldProfitMinMargin, field.TypeFloat64, value)
@@ -2729,6 +2747,24 @@ func (u *GroupUpsert) SetProfitControlEnabled(v bool) *GroupUpsert {
 // UpdateProfitControlEnabled sets the "profit_control_enabled" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateProfitControlEnabled() *GroupUpsert {
 	u.SetExcluded(group.FieldProfitControlEnabled)
+	return u
+}
+
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsert) SetCodexQuotaOverdraftEnabled(v bool) *GroupUpsert {
+	u.Set(group.FieldCodexQuotaOverdraftEnabled, v)
+	return u
+}
+
+// UpdateCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCodexQuotaOverdraftEnabled() *GroupUpsert {
+	u.SetExcluded(group.FieldCodexQuotaOverdraftEnabled)
+	return u
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsert) ClearCodexQuotaOverdraftEnabled() *GroupUpsert {
+	u.SetNull(group.FieldCodexQuotaOverdraftEnabled)
 	return u
 }
 
@@ -3947,6 +3983,27 @@ func (u *GroupUpsertOne) SetProfitControlEnabled(v bool) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateProfitControlEnabled() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitControlEnabled()
+	})
+}
+
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsertOne) SetCodexQuotaOverdraftEnabled(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexQuotaOverdraftEnabled(v)
+	})
+}
+
+// UpdateCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCodexQuotaOverdraftEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexQuotaOverdraftEnabled()
+	})
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsertOne) ClearCodexQuotaOverdraftEnabled() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCodexQuotaOverdraftEnabled()
 	})
 }
 
@@ -5337,6 +5394,27 @@ func (u *GroupUpsertBulk) SetProfitControlEnabled(v bool) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateProfitControlEnabled() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateProfitControlEnabled()
+	})
+}
+
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsertBulk) SetCodexQuotaOverdraftEnabled(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexQuotaOverdraftEnabled(v)
+	})
+}
+
+// UpdateCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCodexQuotaOverdraftEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexQuotaOverdraftEnabled()
+	})
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (u *GroupUpsertBulk) ClearCodexQuotaOverdraftEnabled() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.ClearCodexQuotaOverdraftEnabled()
 	})
 }
 

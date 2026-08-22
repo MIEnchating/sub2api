@@ -14,6 +14,13 @@ export default {
         payment: '支付设置',
       },
       features: {
+        navigation: {
+          title: '导航与页面',
+          description: '控制内置页面是否出现在侧边栏，并阻止用户直接访问已隐藏的页面。',
+          userPages: '用户端页面',
+          adminPages: '管理端页面',
+          protectedHint: '用户仪表盘、管理仪表盘和系统设置是安全入口，始终保持显示。关闭其他页面后，侧边栏入口和直接 URL 访问会同时禁用。'
+        },
         channelMonitor: {
           title: '渠道监控',
           description: '启用后在 V1 主动探测与 V2 被动用量监控中二选一。关闭后两种模式的后台任务均停止，用户端入口隐藏。',
@@ -445,6 +452,37 @@ export default {
         debounceHint: '范围 1–60 分钟。最后一次模型请求安静满此时长后再抓取用量。',
         saved: 'Ollama Cloud 用量刷新设置已保存',
         saveFailed: '保存 Ollama Cloud 用量刷新设置失败'
+      },
+      codexQuotaOverdraft: {
+        title: 'Codex 额度透支',
+        description: '全局总开关。分组和账号可以单独覆盖；全局关闭时所有覆盖都不会生效。',
+        enabled: '启用全局额度透支',
+        hint: '开启后，达到额度阈值的 OpenAI OAuth Codex 账号可继续处理普通文本请求。'
+      },
+      openAIAccountFingerprint: {
+        title: 'OpenAI 账号唯一指纹',
+        description: '控制未单独指定指纹模式的 OpenAI OAuth 账号；账号级配置优先于此全局开关。',
+        enabled: '启用账号唯一设备指纹',
+        hint: '开启后，每个账号使用固定且唯一的 Codex installation ID。保存后立即生效，无需重启。'
+      },
+      gatewayRuntime: {
+        title: '网关运行策略',
+        description: '这些设置保存后立即生效，不需要修改配置文件或重启服务。',
+        timeoutsTitle: '响应超时',
+        streamIdleTimeout: '流式响应无数据超时',
+        streamIdleTimeoutHint: '连续未收到上游数据的最长时间。0 为禁用，启用时范围 30–300 秒。',
+        firstOutputTimeout: 'OpenAI 首次输出超时',
+        firstOutputTimeoutHint: 'OpenAI 请求等待首个可见输出的最长时间。0 为禁用，启用时范围 30–600 秒。',
+        highEffortTimeout: '高推理首次输出超时',
+        highEffortTimeoutHint: '用于 high、xhigh、max 推理强度。0 表示沿用普通首次输出超时。',
+        platformsTitle: '平台全局开关',
+        platformsHint: '关闭后拒绝该平台的新网关请求；管理后台不受影响。Composite 分组按模型实际路由的平台判断。',
+        stickyEscape: '粘性账号异常时允许临时换号',
+        stickyEscapeHint: '响应过慢、错误率过高或并发已满时临时选择健康账号，不会永久解除会话绑定。',
+        stickyTTFT: '响应过慢阈值',
+        stickyErrorRate: '错误率阈值',
+        timeoutRangeError: '流式无数据超时必须为 0 或 30–300 秒；OpenAI 首次输出超时必须为 0 或 30–600 秒。',
+        stickyRangeError: '粘性账号响应阈值必须大于 0 毫秒，错误率必须在 0%–100% 之间。'
       },
       gatewayForwarding: {
         title: '请求转发行为',

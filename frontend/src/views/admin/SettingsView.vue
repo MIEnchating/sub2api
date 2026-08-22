@@ -4439,6 +4439,48 @@
 
         <!-- Tab: Gateway — Claude Code, Scheduling -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.codexQuotaOverdraft.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.codexQuotaOverdraft.description') }}
+              </p>
+            </div>
+            <div class="flex items-center justify-between p-6">
+              <div>
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.codexQuotaOverdraft.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.codexQuotaOverdraft.hint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.codex_quota_overdraft_enabled" />
+            </div>
+          </div>
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.openAIAccountFingerprint.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.openAIAccountFingerprint.description') }}
+              </p>
+            </div>
+            <div class="flex items-center justify-between gap-6 p-6">
+              <div class="min-w-0">
+                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                  {{ t('admin.settings.openAIAccountFingerprint.enabled') }}
+                </label>
+                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.openAIAccountFingerprint.hint') }}
+                </p>
+              </div>
+              <Toggle v-model="form.openai_account_unique_fingerprint_enabled" />
+            </div>
+          </div>
           <!-- Claude Code Settings -->
           <div class="card">
             <div
@@ -4909,6 +4951,105 @@
             </div>
           </div>
 
+          <!-- Gateway Runtime Policy -->
+          <div class="card">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t("admin.settings.gatewayRuntime.title") }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t("admin.settings.gatewayRuntime.description") }}
+              </p>
+            </div>
+            <div class="space-y-6 p-6">
+              <div>
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.settings.gatewayRuntime.timeoutsTitle") }}
+                </h3>
+                <div class="mt-3 grid grid-cols-1 gap-4 md:grid-cols-3">
+                  <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.gatewayRuntime.streamIdleTimeout") }}
+                    </span>
+                    <div class="relative mt-1">
+                      <input
+                        v-model.number="form.gateway_stream_data_interval_timeout_seconds"
+                        type="number"
+                        min="0"
+                        max="300"
+                        step="1"
+                        class="input pr-12"
+                      />
+                      <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
+                    </div>
+                    <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.streamIdleTimeoutHint") }}
+                    </span>
+                  </label>
+                  <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.gatewayRuntime.firstOutputTimeout") }}
+                    </span>
+                    <div class="relative mt-1">
+                      <input
+                        v-model.number="form.openai_first_output_timeout_seconds"
+                        type="number"
+                        min="0"
+                        max="600"
+                        step="1"
+                        class="input pr-12"
+                      />
+                      <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
+                    </div>
+                    <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.firstOutputTimeoutHint") }}
+                    </span>
+                  </label>
+                  <label class="block">
+                    <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.gatewayRuntime.highEffortTimeout") }}
+                    </span>
+                    <div class="relative mt-1">
+                      <input
+                        v-model.number="form.openai_high_effort_first_output_timeout_seconds"
+                        type="number"
+                        min="0"
+                        max="600"
+                        step="1"
+                        class="input pr-12"
+                      />
+                      <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
+                    </div>
+                    <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.highEffortTimeoutHint") }}
+                    </span>
+                  </label>
+                </div>
+              </div>
+
+              <div class="border-t border-gray-100 pt-5 dark:border-dark-700">
+                <h3 class="text-sm font-medium text-gray-900 dark:text-white">
+                  {{ t("admin.settings.gatewayRuntime.platformsTitle") }}
+                </h3>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                  {{ t("admin.settings.gatewayRuntime.platformsHint") }}
+                </p>
+                <div class="mt-3 grid grid-cols-1 gap-x-8 gap-y-4 sm:grid-cols-2 lg:grid-cols-4">
+                  <div
+                    v-for="platform in gatewayPlatforms"
+                    :key="platform"
+                    class="flex min-w-0 items-center justify-between gap-3 border-b border-gray-100 pb-3 dark:border-dark-700"
+                  >
+                    <span class="truncate font-mono text-sm font-medium text-gray-800 dark:text-gray-200">
+                      {{ platform }}
+                    </span>
+                    <Toggle v-model="form.gateway_platform_enabled[platform]" />
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
           <!-- Gateway Scheduling Settings -->
           <div class="card">
             <div
@@ -4934,6 +5075,56 @@
                   </p>
                 </div>
                 <Toggle v-model="form.allow_ungrouped_key_scheduling" />
+              </div>
+
+              <div class="border-t border-gray-100 pt-5 dark:border-dark-700">
+                <div class="flex items-center justify-between gap-4">
+                  <div>
+                    <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t("admin.settings.gatewayRuntime.stickyEscape") }}
+                    </label>
+                    <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.stickyEscapeHint") }}
+                    </p>
+                  </div>
+                  <Toggle v-model="form.openai_sticky_escape_enabled" />
+                </div>
+                <div
+                  v-if="form.openai_sticky_escape_enabled"
+                  class="mt-4 grid grid-cols-1 gap-4 sm:grid-cols-2"
+                >
+                  <label class="block">
+                    <span class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.stickyTTFT") }}
+                    </span>
+                    <div class="relative mt-1">
+                      <input
+                        v-model.number="form.openai_sticky_escape_ttft_ms"
+                        class="input pr-12"
+                        min="1"
+                        step="1"
+                        type="number"
+                      />
+                      <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">ms</span>
+                    </div>
+                  </label>
+                  <label class="block">
+                    <span class="text-xs font-medium text-gray-600 dark:text-gray-400">
+                      {{ t("admin.settings.gatewayRuntime.stickyErrorRate") }}
+                    </span>
+                    <div class="relative mt-1">
+                      <input
+                        v-model.number="stickyEscapeErrorRatePercent"
+                        class="input pr-10"
+                        min="0"
+                        max="100"
+                        step="0.1"
+                        type="number"
+                      />
+                      <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">%</span>
+                    </div>
+                  </label>
+                </div>
               </div>
 
               <div class="border-t border-gray-100 pt-4 dark:border-dark-700">
@@ -6984,8 +7175,44 @@
         </div>
         <!-- /Tab: Login Agreement -->
 
-	        <!-- Tab: Features (功能开关) -->
+        <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
+
+        <div class="card">
+          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+              {{ t('admin.settings.features.navigation.title') }}
+            </h2>
+            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+              {{ t('admin.settings.features.navigation.description') }}
+            </p>
+          </div>
+          <div class="grid gap-6 p-6 lg:grid-cols-2">
+            <section v-for="section in navigationVisibilitySections" :key="section.key">
+              <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
+                {{ t(`admin.settings.features.navigation.${section.key}`) }}
+              </h3>
+              <div class="divide-y divide-gray-100 rounded border border-gray-200 px-4 dark:divide-dark-700 dark:border-dark-600">
+                <div
+                  v-for="item in section.items"
+                  :key="item.path"
+                  class="flex min-h-14 items-center justify-between gap-4 py-3"
+                >
+                  <div class="min-w-0">
+                    <label class="block truncate text-sm font-medium text-gray-700 dark:text-gray-300">
+                      {{ t(item.labelKey) }}
+                    </label>
+                    <code class="block truncate text-xs text-gray-400 dark:text-gray-500">{{ item.path }}</code>
+                  </div>
+                  <Toggle v-model="form.navigation_item_visibility[item.path]" />
+                </div>
+              </div>
+            </section>
+            <p class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-2">
+              {{ t('admin.settings.features.navigation.protectedHint') }}
+            </p>
+          </div>
+        </div>
 
         <div class="card">
           <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
@@ -8788,6 +9015,11 @@ import {
   defaultFingerprintSignalRows,
   type FingerprintSignalRow,
 } from "./codexFingerprintSignals";
+import {
+  ADMIN_NAVIGATION_PAGES,
+  USER_NAVIGATION_PAGES,
+  normalizeNavigationItemVisibility,
+} from "@/utils/navigationVisibility";
 
 const { t, locale } = useI18n();
 const appStore = useAppStore();
@@ -8795,6 +9027,11 @@ const appStore = useAppStore();
 const settingsStepUp = useStepUp();
 const adminSettingsStore = useAdminSettingsStore();
 const isZhLocale = computed(() => locale.value.startsWith("zh"));
+
+const navigationVisibilitySections = [
+  { key: "userPages", items: USER_NAVIGATION_PAGES },
+  { key: "adminPages", items: ADMIN_NAVIGATION_PAGES },
+] as const;
 
 function localText(zh: string, en: string): string {
   return isZhLocale.value ? zh : en;
@@ -9474,6 +9711,24 @@ type SettingsForm = Omit<
 };
 
 const schedulingThresholdPlatforms = SCHEDULING_THRESHOLD_PLATFORMS;
+const gatewayPlatforms = [
+  "anthropic",
+  "openai",
+  "gemini",
+  "antigravity",
+  "grok",
+  "kimi",
+  "zhipu",
+  "deepseek",
+] as const;
+
+function normalizeGatewayPlatformEnabled(
+  value?: Record<string, boolean> | null,
+): Record<string, boolean> {
+  return Object.fromEntries(
+    gatewayPlatforms.map((platform) => [platform, value?.[platform] !== false]),
+  );
+}
 
 const form = reactive<SettingsForm>({
   registration_enabled: true,
@@ -9712,6 +9967,15 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
   enable_fingerprint_unification: true,
+  codex_quota_overdraft_enabled: false,
+  openai_account_unique_fingerprint_enabled: true,
+  gateway_stream_data_interval_timeout_seconds: 180,
+  openai_first_output_timeout_seconds: 0,
+  openai_high_effort_first_output_timeout_seconds: 0,
+  openai_sticky_escape_enabled: true,
+  openai_sticky_escape_ttft_ms: 15000,
+  openai_sticky_escape_error_rate: 0.5,
+  gateway_platform_enabled: normalizeGatewayPlatformEnabled(),
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
   enable_claude_oauth_system_prompt_injection: true,
@@ -9748,6 +10012,7 @@ const form = reactive<SettingsForm>({
   channel_monitor_show_quota: false,
   // Available Channels feature switch
   available_channels_enabled: false,
+  navigation_item_visibility: normalizeNavigationItemVisibility(undefined),
   // Model Plaza feature switches + description
   model_plaza_enabled: false,
   model_plaza_require_auth: false,
@@ -10708,6 +10973,13 @@ const codexSyncedVersionLabel = computed(() => {
   });
 });
 
+const stickyEscapeErrorRatePercent = computed({
+  get: () => Number((form.openai_sticky_escape_error_rate * 100).toFixed(2)),
+  set: (value: number) => {
+    form.openai_sticky_escape_error_rate = Number(value) / 100;
+  },
+});
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -10765,6 +11037,13 @@ async function loadSettings() {
     form.default_platform_quotas = normalizePlatformQuotasMap(settings.default_platform_quotas);
     form.account_scheduling_thresholds = normalizeAccountSchedulingThresholdsMap(
       settings.account_scheduling_thresholds,
+    );
+    form.gateway_platform_enabled = normalizeGatewayPlatformEnabled(
+      settings.gateway_platform_enabled,
+    );
+    form.navigation_item_visibility = normalizeNavigationItemVisibility(
+      settings.navigation_item_visibility,
+      settings,
     );
     form.backend_mode_enabled = settings.backend_mode_enabled;
     form.default_subscriptions = normalizeDefaultSubscriptionSettings(
@@ -10953,6 +11232,31 @@ function findDuplicateDefaultSubscription(
 async function saveSettings() {
   saving.value = true;
   try {
+    const timeoutFields = [
+      form.gateway_stream_data_interval_timeout_seconds,
+      form.openai_first_output_timeout_seconds,
+      form.openai_high_effort_first_output_timeout_seconds,
+    ];
+    const timeoutRangesValid = timeoutFields.every((value, index) => {
+      const maximum = index === 0 ? 300 : 600;
+      return (
+        Number.isInteger(value) &&
+        (value === 0 || (value >= 30 && value <= maximum))
+      );
+    });
+    if (!timeoutRangesValid) {
+      appStore.showError(t("admin.settings.gatewayRuntime.timeoutRangeError"));
+      return;
+    }
+    if (
+      !Number.isInteger(form.openai_sticky_escape_ttft_ms) ||
+      form.openai_sticky_escape_ttft_ms <= 0 ||
+      form.openai_sticky_escape_error_rate < 0 ||
+      form.openai_sticky_escape_error_rate > 1
+    ) {
+      appStore.showError(t("admin.settings.gatewayRuntime.stickyRangeError"));
+      return;
+    }
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );
@@ -11283,6 +11587,21 @@ async function saveSettings() {
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       enable_fingerprint_unification: form.enable_fingerprint_unification,
+      codex_quota_overdraft_enabled: form.codex_quota_overdraft_enabled,
+      openai_account_unique_fingerprint_enabled:
+        form.openai_account_unique_fingerprint_enabled,
+      gateway_stream_data_interval_timeout_seconds:
+        form.gateway_stream_data_interval_timeout_seconds,
+      openai_first_output_timeout_seconds:
+        form.openai_first_output_timeout_seconds,
+      openai_high_effort_first_output_timeout_seconds:
+        form.openai_high_effort_first_output_timeout_seconds,
+      openai_sticky_escape_enabled: form.openai_sticky_escape_enabled,
+      openai_sticky_escape_ttft_ms: form.openai_sticky_escape_ttft_ms,
+      openai_sticky_escape_error_rate: form.openai_sticky_escape_error_rate,
+      gateway_platform_enabled: normalizeGatewayPlatformEnabled(
+        form.gateway_platform_enabled,
+      ),
       enable_metadata_passthrough: form.enable_metadata_passthrough,
       enable_cch_signing: form.enable_cch_signing,
       enable_claude_oauth_system_prompt_injection:
@@ -11404,6 +11723,7 @@ async function saveSettings() {
       channel_monitor_show_quota: Boolean(form.channel_monitor_show_quota),
       // Available Channels feature switch
       available_channels_enabled: form.available_channels_enabled,
+      navigation_item_visibility: { ...form.navigation_item_visibility },
       // Model Plaza feature switches + description
       model_plaza_enabled: form.model_plaza_enabled,
       model_plaza_require_auth: form.model_plaza_require_auth,

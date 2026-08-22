@@ -47,6 +47,7 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	SetCodexQuotaOverdraftEnabled(settings.CodexQuotaOverdraftEnabled)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -77,6 +78,7 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	SetCodexQuotaOverdraftEnabled(settings.CodexQuotaOverdraftEnabled)
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -115,6 +117,11 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, infraerrors.BadRequest("INVALID_FORWARDED_CLIENT_IP_HEADERS", err.Error())
 	}
 	settings.ForwardedClientIPHeaders = normalizedForwardedClientIPHeaders
+	navigationVisibility, err := normalizeNavigationItemVisibility(settings.NavigationItemVisibility)
+	if err != nil {
+		return nil, err
+	}
+	settings.NavigationItemVisibility = navigationVisibility
 	alipaySource, err := normalizeVisibleMethodSettingSource("alipay", settings.PaymentVisibleMethodAlipaySource, settings.PaymentVisibleMethodAlipayEnabled)
 	if err != nil {
 		return nil, err
@@ -124,6 +131,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 		return nil, err
 	}
 	if err := s.normalizeOpenAIAdvancedSchedulerOverrides(settings); err != nil {
+		return nil, err
+	}
+	if err := validateGatewayRuntimePolicy(settings); err != nil {
 		return nil, err
 	}
 	settings.PaymentVisibleMethodAlipaySource = alipaySource
@@ -430,6 +440,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
+	navigationVisibilityJSON, err := json.Marshal(settings.NavigationItemVisibility)
+	if err != nil {
+		return nil, fmt.Errorf("marshal navigation item visibility: %w", err)
+	}
+	updates[SettingKeyNavigationItemVisibility] = string(navigationVisibilityJSON)
+	updates[SettingKeyUserSubscriptionsPageEnabled] = strconv.FormatBool(settings.UserSubscriptionsPageEnabled)
+	updates[SettingKeyAdminSubscriptionsPageEnabled] = strconv.FormatBool(settings.AdminSubscriptionsPageEnabled)
 
 	// Model plaza feature switches + description
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
@@ -473,8 +490,21 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableClientDatelineNormalization] = strconv.FormatBool(settings.EnableClientDatelineNormalization)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
+	updates[SettingKeyCodexQuotaOverdraftEnabled] = strconv.FormatBool(settings.CodexQuotaOverdraftEnabled)
+	updates[SettingKeyOpenAIAccountUniqueFingerprintEnabled] = strconv.FormatBool(settings.OpenAIAccountUniqueFingerprintEnabled)
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
+	updates[SettingKeyGatewayStreamDataIntervalTimeoutSeconds] = strconv.Itoa(settings.GatewayStreamDataIntervalTimeoutSeconds)
+	updates[SettingKeyOpenAIFirstOutputTimeoutSeconds] = strconv.Itoa(settings.OpenAIFirstOutputTimeoutSeconds)
+	updates[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds] = strconv.Itoa(settings.OpenAIHighEffortFirstOutputTimeoutSeconds)
+	updates[SettingKeyOpenAIStickyEscapeEnabled] = strconv.FormatBool(settings.OpenAIStickyEscapeEnabled)
+	updates[SettingKeyOpenAIStickyEscapeTTFTMs] = strconv.Itoa(settings.OpenAIStickyEscapeTTFTMs)
+	updates[SettingKeyOpenAIStickyEscapeErrorRate] = strconv.FormatFloat(settings.OpenAIStickyEscapeErrorRate, 'f', -1, 64)
+	gatewayPlatformEnabledJSON, err := json.Marshal(settings.GatewayPlatformEnabled)
+	if err != nil {
+		return nil, fmt.Errorf("marshal gateway platform switches: %w", err)
+	}
+	updates[SettingKeyGatewayPlatformEnabled] = string(gatewayPlatformEnabledJSON)
 	// SettingKeyOpenAICodexClientVersionSynced 由自动同步任务独占写入，此处不得覆盖，
 	// 否则面板保存会把同步结果清空。
 	// codex_cli_only 加固
@@ -681,6 +711,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	if settings == nil {
 		return
 	}
+	s.storeGatewayRuntimePolicy(settings)
 
 	// 先使 inflight singleflight 失效，再刷新缓存，缩小旧值覆盖新值的竞态窗口
 	versionBoundsSF.Forget("version_bounds")

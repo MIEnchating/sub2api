@@ -230,7 +230,13 @@ func (s *openAIFirstOutputStage) Close() error {
 }
 
 func (s *OpenAIGatewayService) openAIFirstOutputTimeout(reasoningEffort string) time.Duration {
-	if s == nil || s.cfg == nil || s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds <= 0 {
+	if s == nil {
+		return 0
+	}
+	if s.settingService != nil {
+		return s.settingService.GatewayOpenAIFirstOutputTimeout(reasoningEffort)
+	}
+	if s.cfg == nil || s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds <= 0 {
 		return 0
 	}
 	seconds := s.cfg.Gateway.OpenAIFirstOutputTimeoutSeconds

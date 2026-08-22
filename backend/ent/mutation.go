@@ -22169,6 +22169,7 @@ type GroupMutation struct {
 	reasoning_effort_mappings               *[]domain.ReasoningEffortMapping
 	appendreasoning_effort_mappings         []domain.ReasoningEffortMapping
 	profit_control_enabled                  *bool
+	codex_quota_overdraft_enabled           *bool
 	profit_min_margin                       *float64
 	addprofit_min_margin                    *float64
 	profit_safety_buffer                    *float64
@@ -25303,6 +25304,55 @@ func (m *GroupMutation) ResetProfitControlEnabled() {
 	m.profit_control_enabled = nil
 }
 
+// SetCodexQuotaOverdraftEnabled sets the "codex_quota_overdraft_enabled" field.
+func (m *GroupMutation) SetCodexQuotaOverdraftEnabled(b bool) {
+	m.codex_quota_overdraft_enabled = &b
+}
+
+// CodexQuotaOverdraftEnabled returns the value of the "codex_quota_overdraft_enabled" field in the mutation.
+func (m *GroupMutation) CodexQuotaOverdraftEnabled() (r bool, exists bool) {
+	v := m.codex_quota_overdraft_enabled
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// OldCodexQuotaOverdraftEnabled returns the old "codex_quota_overdraft_enabled" field's value of the Group entity.
+// If the Group object wasn't provided to the builder, the object is fetched from the database.
+// An error is returned if the mutation operation is not UpdateOne, or the database query fails.
+func (m *GroupMutation) OldCodexQuotaOverdraftEnabled(ctx context.Context) (v *bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldCodexQuotaOverdraftEnabled is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldCodexQuotaOverdraftEnabled requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldCodexQuotaOverdraftEnabled: %w", err)
+	}
+	return oldValue.CodexQuotaOverdraftEnabled, nil
+}
+
+// ClearCodexQuotaOverdraftEnabled clears the value of the "codex_quota_overdraft_enabled" field.
+func (m *GroupMutation) ClearCodexQuotaOverdraftEnabled() {
+	m.codex_quota_overdraft_enabled = nil
+	m.clearedFields[group.FieldCodexQuotaOverdraftEnabled] = struct{}{}
+}
+
+// CodexQuotaOverdraftEnabledCleared returns if the "codex_quota_overdraft_enabled" field was cleared in this mutation.
+func (m *GroupMutation) CodexQuotaOverdraftEnabledCleared() bool {
+	_, ok := m.clearedFields[group.FieldCodexQuotaOverdraftEnabled]
+	return ok
+}
+
+// ResetCodexQuotaOverdraftEnabled resets all changes to the "codex_quota_overdraft_enabled" field.
+func (m *GroupMutation) ResetCodexQuotaOverdraftEnabled() {
+	m.codex_quota_overdraft_enabled = nil
+	delete(m.clearedFields, group.FieldCodexQuotaOverdraftEnabled)
+}
+
 // SetProfitMinMargin sets the "profit_min_margin" field.
 func (m *GroupMutation) SetProfitMinMargin(f float64) {
 	m.profit_min_margin = &f
@@ -25773,7 +25823,7 @@ func (m *GroupMutation) Type() string {
 // order to get all numeric fields that were incremented/decremented, call
 // AddedFields().
 func (m *GroupMutation) Fields() []string {
-	fields := make([]string, 0, 62)
+	fields := make([]string, 0, 63)
 	if m.created_at != nil {
 		fields = append(fields, group.FieldCreatedAt)
 	}
@@ -25954,6 +26004,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.profit_control_enabled != nil {
 		fields = append(fields, group.FieldProfitControlEnabled)
 	}
+	if m.codex_quota_overdraft_enabled != nil {
+		fields = append(fields, group.FieldCodexQuotaOverdraftEnabled)
+	}
 	if m.profit_min_margin != nil {
 		fields = append(fields, group.FieldProfitMinMargin)
 	}
@@ -26088,6 +26141,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.ReasoningEffortMappings()
 	case group.FieldProfitControlEnabled:
 		return m.ProfitControlEnabled()
+	case group.FieldCodexQuotaOverdraftEnabled:
+		return m.CodexQuotaOverdraftEnabled()
 	case group.FieldProfitMinMargin:
 		return m.ProfitMinMargin()
 	case group.FieldProfitSafetyBuffer:
@@ -26221,6 +26276,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldReasoningEffortMappings(ctx)
 	case group.FieldProfitControlEnabled:
 		return m.OldProfitControlEnabled(ctx)
+	case group.FieldCodexQuotaOverdraftEnabled:
+		return m.OldCodexQuotaOverdraftEnabled(ctx)
 	case group.FieldProfitMinMargin:
 		return m.OldProfitMinMargin(ctx)
 	case group.FieldProfitSafetyBuffer:
@@ -26653,6 +26710,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetProfitControlEnabled(v)
+		return nil
+	case group.FieldCodexQuotaOverdraftEnabled:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetCodexQuotaOverdraftEnabled(v)
 		return nil
 	case group.FieldProfitMinMargin:
 		v, ok := value.(float64)
@@ -27091,6 +27155,9 @@ func (m *GroupMutation) ClearedFields() []string {
 	if m.FieldCleared(group.FieldModelRouting) {
 		fields = append(fields, group.FieldModelRouting)
 	}
+	if m.FieldCleared(group.FieldCodexQuotaOverdraftEnabled) {
+		fields = append(fields, group.FieldCodexQuotaOverdraftEnabled)
+	}
 	return fields
 }
 
@@ -27170,6 +27237,9 @@ func (m *GroupMutation) ClearField(name string) error {
 		return nil
 	case group.FieldModelRouting:
 		m.ClearModelRouting()
+		return nil
+	case group.FieldCodexQuotaOverdraftEnabled:
+		m.ClearCodexQuotaOverdraftEnabled()
 		return nil
 	}
 	return fmt.Errorf("unknown Group nullable field %s", name)
@@ -27358,6 +27428,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldProfitControlEnabled:
 		m.ResetProfitControlEnabled()
+		return nil
+	case group.FieldCodexQuotaOverdraftEnabled:
+		m.ResetCodexQuotaOverdraftEnabled()
 		return nil
 	case group.FieldProfitMinMargin:
 		m.ResetProfitMinMargin()

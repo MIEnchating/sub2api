@@ -101,6 +101,38 @@ func TestSettingService_GetPublicSettings_ExposesCompactHomeEnabled(t *testing.T
 	require.False(t, missingSettings.CompactHomeEnabled)
 }
 
+func TestSettingService_SubscriptionPagesDefaultVisibleAndCanBeHidden(t *testing.T) {
+	defaults, err := NewSettingService(
+		&settingPublicRepoStub{values: map[string]string{}},
+		&config.Config{},
+	).GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.True(t, defaults.UserSubscriptionsPageEnabled)
+	require.True(t, defaults.AdminSubscriptionsPageEnabled)
+
+	hidden, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyUserSubscriptionsPageEnabled:  "false",
+		SettingKeyAdminSubscriptionsPageEnabled: "false",
+	}}, &config.Config{}).GetPublicSettings(context.Background())
+	require.NoError(t, err)
+	require.False(t, hidden.UserSubscriptionsPageEnabled)
+	require.False(t, hidden.AdminSubscriptionsPageEnabled)
+	require.False(t, hidden.NavigationItemVisibility["/subscriptions"])
+	require.False(t, hidden.NavigationItemVisibility["/admin/subscriptions"])
+}
+
+func TestSettingService_GetPublicSettings_ExposesGenericNavigationVisibility(t *testing.T) {
+	settings, err := NewSettingService(&settingPublicRepoStub{values: map[string]string{
+		SettingKeyNavigationItemVisibility: `{"/usage":false,"/admin/users":false,"/admin/settings":false}`,
+	}}, &config.Config{}).GetPublicSettings(context.Background())
+
+	require.NoError(t, err)
+	require.Equal(t, false, settings.NavigationItemVisibility["/usage"])
+	require.Equal(t, false, settings.NavigationItemVisibility["/admin/users"])
+	require.NotContains(t, settings.NavigationItemVisibility, "/admin/settings")
+	require.True(t, settings.NavigationItemVisibility["/subscriptions"])
+}
+
 func TestSettingService_ChannelMonitorHideThroughputDefaultsToPrivate(t *testing.T) {
 	missing := NewSettingService(&settingPublicRepoStub{values: map[string]string{}}, &config.Config{}).GetChannelMonitorRuntime(context.Background())
 	require.True(t, missing.HideThroughput)

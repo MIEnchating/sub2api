@@ -19,8 +19,16 @@ export default {
 
   // Version Badge
   version: {
+    versionOverview: '版本信息',
     currentVersion: '当前版本',
     latestVersion: '最新版本',
+    officialUpstream: '官方上游',
+    overdraftUpstream: '功能上游',
+    upstreamUnavailable: '获取失败',
+    upstreamUpdate: '有更新',
+    upstreamCurrent: '已同步',
+    upstreamCheckFailed: '检查失败',
+    compareChanges: '查看差异',
     upToDate: '已是最新版本',
     updateAvailable: '有新版本可用！',
     releaseNotes: '更新日志',

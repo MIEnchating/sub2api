@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       tag:
-        description: 'Tag to release (e.g., v1.0.0)'
+        description: 'Date version tag (e.g., v2026.8.22)'
         required: true
         type: string
       simple_release:
@@ -35,12 +35,14 @@ jobs:
         uses: actions/checkout@v6
 
       - name: Update VERSION file
+        env:
+          RELEASE_TAG: ${{ github.event.inputs.tag || github.ref_name }}
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            VERSION=${{ github.event.inputs.tag }}
-            VERSION=${VERSION#v}
-          else
-            VERSION=${GITHUB_REF#refs/tags/v}
+          TAG="$RELEASE_TAG"
+          VERSION=${TAG#v}
+          if ! [[ "$VERSION" =~ ^[0-9]{4}\.(0?[1-9]|1[0-2])\.(0?[1-9]|[12][0-9]|3[01])$ ]]; then
+            echo "Invalid release tag: $TAG (expected vYYYY.M.D, for example v2026.8.22)" >&2
+            exit 1
           fi
           echo "$VERSION" > backend/cmd/server/VERSION
           echo "Updated VERSION file to: $VERSION"

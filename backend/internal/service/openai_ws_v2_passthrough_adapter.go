@@ -773,7 +773,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	}
 	firstClientMessage = updatedFirst
 	firstClientMessage = s.prepareCodexQuotaOverdraftBody(ctx, account, false, firstClientMessage)
-	ensureStagedCodexFingerprintIDs(c, account, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	ensureStagedCodexFingerprintIDs(c, account, resolveOpenAIAccountUniqueFingerprintEnabled(s.settingService, s.cfg))
 	if fingerprintIDs := stagedCodexFingerprintIDs(c, account); fingerprintIDs != nil {
 		var fingerprintErr error
 		firstClientMessage, _, fingerprintErr = applyCodexFingerprintClientMetadataRaw(firstClientMessage, fingerprintIDs)

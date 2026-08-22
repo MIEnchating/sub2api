@@ -214,6 +214,9 @@ func TestCodexQuotaOverdraftBusinessSuccessCannotReplaceFailedCycle(t *testing.T
 }
 
 func TestCodexQuotaOverdraftInjectedBusinessQuota429FailsImmediately(t *testing.T) {
+	SetCodexQuotaOverdraftEnabled(true)
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
+
 	now := time.Date(2026, time.August, 13, 14, 0, 0, 0, time.UTC)
 	account := newCodexOverdraftProbeTestAccount(now)
 	repo := &codexOverdraftProbeRepoStub{account: account}

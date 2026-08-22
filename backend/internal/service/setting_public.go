@@ -233,6 +233,9 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyChannelMonitorHideThroughput,
 		SettingKeyChannelMonitorShowQuota,
 		SettingKeyAvailableChannelsEnabled,
+		SettingKeyNavigationItemVisibility,
+		SettingKeyUserSubscriptionsPageEnabled,
+		SettingKeyAdminSubscriptionsPageEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyAffiliateEnabled,
@@ -359,6 +362,13 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		ChannelMonitorShowQuota:              settings[SettingKeyChannelMonitorShowQuota] == "true",
 
 		AvailableChannelsEnabled: settings[SettingKeyAvailableChannelsEnabled] == "true",
+		NavigationItemVisibility: parseNavigationItemVisibility(
+			settings[SettingKeyNavigationItemVisibility],
+			settings[SettingKeyUserSubscriptionsPageEnabled],
+			settings[SettingKeyAdminSubscriptionsPageEnabled],
+		),
+		UserSubscriptionsPageEnabled:  !isFalseSettingValue(settings[SettingKeyUserSubscriptionsPageEnabled]),
+		AdminSubscriptionsPageEnabled: !isFalseSettingValue(settings[SettingKeyAdminSubscriptionsPageEnabled]),
 
 		ModelPlazaEnabled:     settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth: settings[SettingKeyModelPlazaRequireAuth] == "true",
@@ -616,13 +626,16 @@ type PublicSettingsInjectionPayload struct {
 	ChannelMonitorHideThroughput bool `json:"channel_monitor_hide_throughput"`
 	// ChannelMonitorShowQuota gates the user-facing quota/balance display on
 	// monitors; fail-closed (absent/false = hidden). Admin UI always shows it.
-	ChannelMonitorShowQuota    bool `json:"channel_monitor_show_quota"`
-	AvailableChannelsEnabled   bool `json:"available_channels_enabled"`
-	ModelPlazaEnabled          bool `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth      bool `json:"model_plaza_require_auth"`
-	AffiliateEnabled           bool `json:"affiliate_enabled"`
-	RiskControlEnabled         bool `json:"risk_control_enabled"`
-	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	ChannelMonitorShowQuota       bool            `json:"channel_monitor_show_quota"`
+	AvailableChannelsEnabled      bool            `json:"available_channels_enabled"`
+	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
+	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
+	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
+	ModelPlazaEnabled             bool            `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth         bool            `json:"model_plaza_require_auth"`
+	AffiliateEnabled              bool            `json:"affiliate_enabled"`
+	RiskControlEnabled            bool            `json:"risk_control_enabled"`
+	AllowUserViewErrorRequests    bool            `json:"allow_user_view_error_requests"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -698,6 +711,9 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 		AvailableChannelsEnabled:             settings.AvailableChannelsEnabled,
+		NavigationItemVisibility:             settings.NavigationItemVisibility,
+		UserSubscriptionsPageEnabled:         settings.UserSubscriptionsPageEnabled,
+		AdminSubscriptionsPageEnabled:        settings.AdminSubscriptionsPageEnabled,
 		ModelPlazaEnabled:                    settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                settings.ModelPlazaRequireAuth,
 		AffiliateEnabled:                     settings.AffiliateEnabled,

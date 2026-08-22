@@ -118,6 +118,7 @@
         <label class="space-y-1 text-sm text-gray-700 dark:text-dark-200 sm:col-span-2">
           <span>{{ t('admin.promptAudit.pool.model') }}</span>
           <input v-model="editing.model" class="input w-full" :aria-label="t('admin.promptAudit.pool.model')" />
+          <span class="block text-xs leading-5 text-gray-500 dark:text-dark-400">{{ t('admin.promptAudit.pool.modelHint') }}</span>
         </label>
         <label class="space-y-1 text-sm text-gray-700 dark:text-dark-200">
           <span>{{ t('admin.promptAudit.pool.timeout') }}</span>

@@ -1338,6 +1338,101 @@ func TestContentModerationCallModeration_400DoesNotFreezeAPIKey(t *testing.T) {
 	require.Nil(t, status.FrozenUntil)
 }
 
+func TestContentModerationGeneralModelUsesStructuredChatCompletion(t *testing.T) {
+	var request moderationChatAPIRequest
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		require.Equal(t, "/v1/chat/completions", r.URL.Path)
+		require.Equal(t, "Bearer sk-test", r.Header.Get("Authorization"))
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		require.Equal(t, "gpt-5.5", request.Model)
+		require.Len(t, request.Messages, 2)
+		require.Equal(t, "system", request.Messages[0].Role)
+		require.Contains(t, request.Messages[0].Content, "untrusted content")
+		require.Equal(t, "user", request.Messages[1].Role)
+		require.Equal(t, "review this input", request.Messages[1].Content)
+		require.Equal(t, "json_schema", request.ResponseFormat["type"])
+
+		scores := make(map[string]float64, len(contentModerationCategoryOrder))
+		for _, category := range contentModerationCategoryOrder {
+			scores[category] = 0.01
+		}
+		scores["sexual"] = 0.9
+		content, err := json.Marshal(moderationAPIResult{Flagged: true, CategoryScores: scores})
+		require.NoError(t, err)
+		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}}},
+		}))
+	}))
+	defer server.Close()
+
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURL = server.URL
+	cfg.Model = "gpt-5.5"
+	cfg.APIKeys = []string{"sk-test"}
+	svc := NewContentModerationService(nil, nil, nil, nil, nil, nil, nil, nil)
+	status := 0
+	result, err := svc.callModerationOnceWithInput(context.Background(), cfg, "sk-test", "review this input", &status)
+
+	require.NoError(t, err)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, 0.9, result.CategoryScores["sexual"])
+}
+
+func TestContentModerationGeneralModelFallsBackToJSONMode(t *testing.T) {
+	requests := 0
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		var request moderationChatAPIRequest
+		require.NoError(t, json.NewDecoder(r.Body).Decode(&request))
+		if requests == 1 {
+			require.Equal(t, "json_schema", request.ResponseFormat["type"])
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"message":"response_format json_schema is unsupported"}}`))
+			return
+		}
+		require.Equal(t, "json_object", request.ResponseFormat["type"])
+		scores := make(map[string]float64, len(contentModerationCategoryOrder))
+		for _, category := range contentModerationCategoryOrder {
+			scores[category] = 0
+		}
+		content, err := json.Marshal(moderationAPIResult{CategoryScores: scores})
+		require.NoError(t, err)
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"choices": []any{map[string]any{"message": map[string]any{"content": "```json\n" + string(content) + "\n```"}}},
+		})
+	}))
+	defer server.Close()
+
+	cfg := defaultContentModerationConfig()
+	cfg.BaseURL = server.URL
+	cfg.Model = "gpt-5.5"
+	svc := NewContentModerationService(nil, nil, nil, nil, nil, nil, nil, nil)
+	status := 0
+	result, err := svc.callModerationOnceWithInput(context.Background(), cfg, "sk-test", "safe input", &status)
+
+	require.NoError(t, err)
+	require.NotNil(t, result)
+	require.Equal(t, http.StatusOK, status)
+	require.Equal(t, 2, requests)
+}
+
+func TestContentModerationGeneralModelRejectsIncompleteScores(t *testing.T) {
+	content := `{"flagged":false,"category_scores":{"sexual":0.1}}`
+	body, err := json.Marshal(map[string]any{
+		"choices": []any{map[string]any{"message": map[string]any{"content": content}}},
+	})
+	require.NoError(t, err)
+
+	_, err = parseGeneralModerationChatResponse(body)
+	require.ErrorContains(t, err, "every category score")
+}
+
+func TestIsNativeModerationModel(t *testing.T) {
+	require.True(t, isNativeModerationModel("omni-moderation-latest"))
+	require.True(t, isNativeModerationModel("text-moderation-latest"))
+	require.False(t, isNativeModerationModel("gpt-5.5"))
+}
+
 func TestContentModerationCallModeration_FreezesByHTTPStatus(t *testing.T) {
 	tests := []struct {
 		name       string

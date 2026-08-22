@@ -360,10 +360,7 @@ func (s *AntigravityGatewayService) startAntigravityCompatScanner(
 }
 
 func (s *AntigravityGatewayService) antigravityCompatStreamTimeout() time.Duration {
-	if s.settingService == nil || s.settingService.cfg == nil {
-		return 0
-	}
-	return time.Duration(s.settingService.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+	return s.gatewayStreamDataIntervalTimeout()
 }
 
 func (s *AntigravityGatewayService) newAntigravityCompatKeepaliveTicker() (*time.Ticker, <-chan time.Time) {

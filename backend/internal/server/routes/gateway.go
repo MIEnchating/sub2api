@@ -42,8 +42,16 @@ func RegisterGatewayRoutes(
 	compositeGeminiTarget := compositeGeminiTargetPlatformMiddleware(compositeResolver)
 
 	// 未分组 Key 拦截中间件（按协议格式区分错误响应）
-	requireGroupAnthropic := middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter)
-	requireGroupGoogle := middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter)
+	requireGroupAnthropic := requireEnabledGatewayPlatform(
+		settingService,
+		false,
+		middleware.RequireGroupAssignment(settingService, middleware.AnthropicErrorWriter),
+	)
+	requireGroupGoogle := requireEnabledGatewayPlatform(
+		settingService,
+		true,
+		middleware.RequireGroupAssignment(settingService, middleware.GoogleErrorWriter),
+	)
 
 	isOpenAIResponsesCompatibleGatewayPlatform := func(c *gin.Context) bool {
 		switch getGroupPlatform(c) {
@@ -470,7 +478,7 @@ func RegisterGatewayRoutes(
 	})
 
 	// Antigravity 模型列表
-	r.GET("/antigravity/models", gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
+	r.GET("/antigravity/models", middleware.ForcePlatform(service.PlatformAntigravity), gin.HandlerFunc(apiKeyAuth), requireGroupAnthropic, h.Gateway.AntigravityModels)
 
 	// Antigravity 专用路由（仅使用 antigravity 账户，不混合调度）
 	antigravityV1 := r.Group("/antigravity/v1")
@@ -506,6 +514,9 @@ func RegisterGatewayRoutes(
 
 // getGroupPlatform extracts the group platform from the API Key stored in context.
 func getGroupPlatform(c *gin.Context) string {
+	if platform, ok := middleware.GetForcePlatformFromContext(c); ok {
+		return platform
+	}
 	apiKey, ok := middleware.GetAPIKeyFromContext(c)
 	if !ok || apiKey.Group == nil {
 		return ""
@@ -516,6 +527,38 @@ func getGroupPlatform(c *gin.Context) string {
 		}
 	}
 	return apiKey.Group.Platform
+}
+
+func requireEnabledGatewayPlatform(settingService *service.SettingService, googleStyle bool, next gin.HandlerFunc) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		platform := getGroupPlatform(c)
+		if settingService == nil || settingService.IsGatewayPlatformEnabled(platform) {
+			next(c)
+			return
+		}
+
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		message := "The " + platform + " gateway is temporarily disabled by the administrator"
+		if googleStyle {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"error": gin.H{
+					"code":    http.StatusServiceUnavailable,
+					"message": message,
+					"status":  "UNAVAILABLE",
+				},
+			})
+		} else {
+			c.JSON(http.StatusServiceUnavailable, gin.H{
+				"type": "error",
+				"error": gin.H{
+					"type":    "service_unavailable_error",
+					"code":    "platform_disabled",
+					"message": message,
+				},
+			})
+		}
+		c.Abort()
+	}
 }
 
 func compositeTargetPlatformMiddleware(resolver *service.CompositeRouteResolver) gin.HandlerFunc {

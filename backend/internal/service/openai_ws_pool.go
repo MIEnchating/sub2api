@@ -623,7 +623,8 @@ type openAIWSPoolMetrics struct {
 }
 
 type openAIWSConnPool struct {
-	cfg *config.Config
+	cfg                              *config.Config
+	uniqueFingerprintEnabledResolver func() bool
 	// 通过接口解耦底层 WS 客户端实现，默认使用 coder/websocket。
 	clientDialer openAIWSClientDialer
 
@@ -643,8 +644,15 @@ func newOpenAIWSConnPool(cfg *config.Config) *openAIWSConnPool {
 		clientDialer: newDefaultOpenAIWSClientDialer(),
 		workerStopCh: make(chan struct{}),
 	}
+	pool.uniqueFingerprintEnabledResolver = func() bool {
+		return resolveOpenAIAccountUniqueFingerprintEnabled(nil, cfg)
+	}
 	pool.startBackgroundWorkers()
 	return pool
+}
+
+func (p *openAIWSConnPool) uniqueFingerprintEnabled() bool {
+	return p != nil && p.uniqueFingerprintEnabledResolver != nil && p.uniqueFingerprintEnabledResolver()
 }
 
 func (p *openAIWSConnPool) SnapshotMetrics() OpenAIWSPoolMetricsSnapshot {
@@ -861,7 +869,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 
 retryAcquire:
 	accountID := req.Account.ID
-	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p.uniqueFingerprintEnabled())
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
@@ -1647,7 +1655,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled) {
+		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire, p.uniqueFingerprintEnabled()) {
 			staleTarget = true
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
@@ -1807,7 +1815,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConn(id, req.Account.ID, conn, handshakeHeaders)
-	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p.uniqueFingerprintEnabled())
 	pooledConn.routingAffinity = normalizeOpenAIWSRoutingAffinity(req.Headers)
 	return pooledConn, nil
 }

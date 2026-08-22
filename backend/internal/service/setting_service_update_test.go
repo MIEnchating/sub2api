@@ -238,6 +238,35 @@ func TestSettingService_UpdateSettings_PersistsCompactHomeEnabled(t *testing.T) 
 	require.Equal(t, "true", repo.updates[SettingKeyCompactHomeEnabled])
 }
 
+func TestSettingService_UpdateSettings_PersistsNavigationItemVisibility(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		NavigationItemVisibility: map[string]bool{
+			"/usage":       false,
+			"/admin/users": true,
+		},
+	})
+
+	require.NoError(t, err)
+	var stored map[string]bool
+	require.NoError(t, json.Unmarshal([]byte(repo.updates[SettingKeyNavigationItemVisibility]), &stored))
+	require.Equal(t, map[string]bool{"/usage": false, "/admin/users": true}, stored)
+}
+
+func TestSettingService_UpdateSettings_RejectsProtectedNavigationPaths(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	err := svc.UpdateSettings(context.Background(), &SystemSettings{
+		NavigationItemVisibility: map[string]bool{"/admin/settings": false},
+	})
+
+	require.Error(t, err)
+	require.Nil(t, repo.updates)
+}
+
 func TestSettingService_UpdateSettings_DefaultSubscriptions_ValidGroup(t *testing.T) {
 	repo := &settingUpdateRepoStub{}
 	groupReader := &defaultSubGroupReaderStub{
@@ -888,6 +917,18 @@ func TestSettingService_PasskeySwitchPersistsAndDefaultsToConfigured(t *testing.
 	publicSettings, err := runtimeService.GetPublicSettings(context.Background())
 	require.NoError(t, err)
 	require.False(t, publicSettings.PasskeyEnabled)
+}
+
+func TestSettingService_SubscriptionPageVisibilityPersists(t *testing.T) {
+	repo := &settingUpdateRepoStub{}
+	svc := NewSettingService(repo, &config.Config{})
+
+	require.NoError(t, svc.UpdateSettings(context.Background(), &SystemSettings{
+		UserSubscriptionsPageEnabled:  false,
+		AdminSubscriptionsPageEnabled: false,
+	}))
+	require.Equal(t, "false", repo.updates[SettingKeyUserSubscriptionsPageEnabled])
+	require.Equal(t, "false", repo.updates[SettingKeyAdminSubscriptionsPageEnabled])
 }
 
 // 移除 WebAuthn 配置后，残留的 passkey_enabled="true" 不得再让 GetAllSettings

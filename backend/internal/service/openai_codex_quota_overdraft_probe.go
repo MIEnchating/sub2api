@@ -137,7 +137,7 @@ func NewCodexQuotaOverdraftCoordinator(
 	return coordinator
 }
 func (c *CodexQuotaOverdraftCoordinator) enabled() bool {
-	return c != nil && c.cfg != nil && c.cfg.Gateway.CodexQuotaOverdraftEnabled &&
+	return c != nil && CodexQuotaOverdraftEnabled() &&
 		c.accountRepo != nil && c.httpUpstream != nil
 }
 

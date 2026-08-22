@@ -621,6 +621,15 @@ export interface SystemSettings {
 
   // Gateway forwarding behavior
   enable_fingerprint_unification: boolean;
+  codex_quota_overdraft_enabled: boolean;
+  openai_account_unique_fingerprint_enabled: boolean;
+  gateway_stream_data_interval_timeout_seconds: number;
+  openai_first_output_timeout_seconds: number;
+  openai_high_effort_first_output_timeout_seconds: number;
+  openai_sticky_escape_enabled: boolean;
+  openai_sticky_escape_ttft_ms: number;
+  openai_sticky_escape_error_rate: number;
+  gateway_platform_enabled: Record<string, boolean>;
   enable_metadata_passthrough: boolean;
   enable_cch_signing: boolean;
   enable_claude_oauth_system_prompt_injection: boolean;
@@ -722,6 +731,9 @@ export interface SystemSettings {
 
   // Available Channels feature switch
   available_channels_enabled: boolean;
+  navigation_item_visibility: Record<string, boolean>;
+  user_subscriptions_page_enabled?: boolean;
+  admin_subscriptions_page_enabled?: boolean;
 
   // Model Plaza feature switches + description
   model_plaza_enabled: boolean;
@@ -935,6 +947,15 @@ export interface UpdateSettingsRequest {
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
   enable_fingerprint_unification?: boolean;
+  codex_quota_overdraft_enabled?: boolean;
+  openai_account_unique_fingerprint_enabled?: boolean;
+  gateway_stream_data_interval_timeout_seconds?: number;
+  openai_first_output_timeout_seconds?: number;
+  openai_high_effort_first_output_timeout_seconds?: number;
+  openai_sticky_escape_enabled?: boolean;
+  openai_sticky_escape_ttft_ms?: number;
+  openai_sticky_escape_error_rate?: number;
+  gateway_platform_enabled?: Record<string, boolean>;
   enable_metadata_passthrough?: boolean;
   enable_cch_signing?: boolean;
   enable_claude_oauth_system_prompt_injection?: boolean;
@@ -1021,6 +1042,7 @@ export interface UpdateSettingsRequest {
 
   // Available Channels feature switch
   available_channels_enabled?: boolean;
+  navigation_item_visibility?: Record<string, boolean>;
 
   // Model Plaza feature switches + description
   model_plaza_enabled?: boolean;

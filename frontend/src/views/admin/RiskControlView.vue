@@ -408,6 +408,7 @@
               <div>
                 <label class="input-label">{{ t('admin.riskControl.model') }}</label>
                 <input v-model.trim="configForm.model" type="text" class="input" placeholder="omni-moderation-latest" />
+                <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.modelHint') }}</p>
               </div>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.timeoutMs') }}</label>

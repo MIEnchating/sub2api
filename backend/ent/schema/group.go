@@ -281,6 +281,10 @@ func (Group) Fields() []ent.Field {
 		field.Bool("profit_control_enabled").
 			Default(false).
 			Comment("是否启用利润控制：调度时仅允许账号计费倍率满足毛利率要求的账号进入候选池"),
+		field.Bool("codex_quota_overdraft_enabled").
+			Optional().
+			Nillable().
+			Comment("Codex 额度透支分组覆盖；NULL 表示继承全局设置"),
 		field.Float("profit_min_margin").
 			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
 			Default(0).

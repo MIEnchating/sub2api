@@ -9,8 +9,8 @@ services:
       context: ..
       dockerfile: Dockerfile
       args:
-        # Keep this empty so source builds always read the tracked FORK_VERSION.
-        # This avoids unrelated host BUILD_VERSION values overriding the Fork version.
+        # Keep this empty so source builds read backend/cmd/server/VERSION.
+        # This avoids unrelated host BUILD_VERSION values overriding the date version.
         VERSION: ""
         COMMIT: ${BUILD_COMMIT:-local}
         BUILD_TYPE: source

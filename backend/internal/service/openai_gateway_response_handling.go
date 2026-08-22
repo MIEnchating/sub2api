@@ -168,18 +168,12 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 	}
 	documentScanner := newOpenAISSEJSONDocumentScanner(scanner)
 
-	streamInterval := time.Duration(0)
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		streamInterval = time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
+	streamInterval := s.gatewayStreamDataIntervalTimeout()
 	// Grok: always enforce an upstream-read idle so hung SSE bodies fail over
 	// instead of holding the OAuth slot until the client cancels. Prefer the
 	// global gateway setting when set; otherwise apply a Grok-only default.
 	if account != nil && account.Platform == PlatformGrok {
-		cfgSec := 0
-		if s.cfg != nil {
-			cfgSec = s.cfg.Gateway.StreamDataIntervalTimeout
-		}
+		cfgSec := int(streamInterval / time.Second)
 		streamInterval = resolveGrokStreamIdleTimeout(cfgSec)
 	}
 	// 仅监控上游数据间隔超时，不被下游写入阻塞影响

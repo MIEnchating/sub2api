@@ -12,7 +12,7 @@
         ]"
         :title="hasUpdate ? t('version.updateAvailable') : t('version.upToDate')"
       >
-        <span v-if="currentVersion" class="font-medium">v{{ currentVersion }}</span>
+        <span v-if="currentVersion" class="font-medium">{{ compactVersionLabel }}</span>
         <span
           v-else
           class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
@@ -31,15 +31,14 @@
         <div
           v-if="dropdownOpen"
           ref="dropdownRef"
-          class="absolute left-0 z-50 mt-2 overflow-hidden whitespace-normal rounded-xl border border-gray-200 bg-white shadow-lg transition-all duration-200 dark:border-dark-700 dark:bg-dark-800"
-          :class="rollbackPanelOpen && isReleaseBuild ? 'w-80' : 'w-64'"
+          class="absolute left-0 z-50 mt-2 w-[27rem] max-w-[calc(100vw-5rem)] overflow-hidden whitespace-normal rounded-lg border border-gray-200 bg-white shadow-lg transition-all duration-200 dark:border-dark-700 dark:bg-dark-800"
         >
           <!-- Header with refresh button -->
           <div
             class="flex items-center justify-between border-b border-gray-100 px-4 py-3 dark:border-dark-700"
           >
             <span class="text-sm font-medium text-gray-700 dark:text-dark-300">{{
-              t('version.currentVersion')
+              t('version.versionOverview')
             }}</span>
             <button
               @click="refreshVersion(true)"
@@ -78,15 +77,18 @@
 
             <!-- Content -->
             <template v-else>
-              <!-- Version display - centered and prominent -->
+              <!-- Current build and upstream baselines -->
               <div class="mb-4 text-center">
+                <p class="text-xs text-gray-500 dark:text-dark-400">
+                  {{ t('version.currentVersion') }}
+                </p>
                 <div class="inline-flex items-center gap-2">
                   <span
                     v-if="currentVersion"
-                    class="text-2xl font-bold text-gray-900 dark:text-white"
-                    >v{{ currentVersion }}</span
+                    class="text-xl font-semibold text-gray-900 dark:text-white"
+                    >{{ imageVersionLabel(currentVersion) }}</span
                   >
-                  <span v-else class="text-2xl font-bold text-gray-400 dark:text-dark-500">--</span>
+                  <span v-else class="text-xl font-semibold text-gray-400 dark:text-dark-500">--</span>
                   <!-- Show check mark when up to date -->
                   <span
                     v-if="!hasUpdate"
@@ -108,10 +110,71 @@
                 <p class="mt-1 text-xs text-gray-500 dark:text-dark-400">
                   {{
                     hasUpdate
-                      ? t('version.latestVersion') + ': v' + latestVersion
+                      ? t('version.latestVersion') + ': ' + imageVersionLabel(latestVersion)
                       : t('version.upToDate')
                   }}
                 </p>
+              </div>
+
+              <div
+                class="mb-4 divide-y divide-gray-100 border-y border-gray-100 dark:divide-dark-700 dark:border-dark-700"
+              >
+                <a
+                  v-for="upstream in upstreamVersions"
+                  :key="upstream.id"
+                  :href="upstream.compare_url || upstream.html_url"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="grid min-h-14 grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 py-2.5 text-left transition-colors hover:text-primary-600 max-[420px]:grid-cols-1 max-[420px]:gap-1 dark:hover:text-primary-400"
+                  :title="
+                    upstream.warning ||
+                    (upstream.compare_url ? t('version.compareChanges') : upstream.repository)
+                  "
+                >
+                  <span class="min-w-0">
+                    <span class="block whitespace-nowrap text-xs font-medium text-gray-700 dark:text-dark-300">
+                      {{ upstreamLabel(upstream.id) }}
+                    </span>
+                    <span class="block truncate text-xs text-gray-400 dark:text-dark-500">
+                      {{ upstream.repository }}
+                    </span>
+                  </span>
+                  <span class="flex min-w-0 items-center justify-end gap-1.5 max-[420px]:flex-wrap max-[420px]:justify-start">
+                    <span
+                      class="whitespace-nowrap font-mono text-xs font-medium"
+                      :class="
+                        upstream.version
+                          ? 'text-gray-700 dark:text-dark-200'
+                          : 'text-red-500 dark:text-red-400'
+                      "
+                    >
+                      {{
+                        upstream.version
+                          ? upstreamVersionLabel(upstream.version)
+                          : t('version.upstreamUnavailable')
+                      }}
+                    </span>
+                    <span
+                      v-if="upstream.compare_checked && upstream.has_update"
+                      class="whitespace-nowrap rounded-full bg-amber-100 px-1.5 py-0.5 text-[10px] font-semibold text-amber-700 dark:bg-amber-900/40 dark:text-amber-300"
+                    >
+                      {{ t('version.upstreamUpdate') }}<template v-if="upstream.ahead_by"> · +{{ upstream.ahead_by }}</template>
+                    </span>
+                    <span
+                      v-else-if="upstream.compare_checked"
+                      class="whitespace-nowrap rounded-full bg-green-100 px-1.5 py-0.5 text-[10px] font-semibold text-green-700 dark:bg-green-900/40 dark:text-green-300"
+                    >
+                      {{ t('version.upstreamCurrent') }}
+                    </span>
+                    <span
+                      v-else-if="upstream.warning"
+                      class="whitespace-nowrap rounded-full bg-red-100 px-1.5 py-0.5 text-[10px] font-semibold text-red-700 dark:bg-red-900/40 dark:text-red-300"
+                    >
+                      {{ t('version.upstreamCheckFailed') }}
+                    </span>
+                    <Icon name="externalLink" size="xs" :stroke-width="2" class="flex-shrink-0" />
+                  </span>
+                </a>
               </div>
 
               <!-- Priority 1: Update error (must check before hasUpdate) -->
@@ -255,7 +318,7 @@
                       {{ t('version.updateAvailable') }}
                     </p>
                     <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
-                      v{{ latestVersion }}
+                      {{ imageVersionLabel(latestVersion) }}
                     </p>
                   </div>
                   <svg
@@ -312,7 +375,7 @@
                       {{ t('version.updateAvailable') }}
                     </p>
                     <p class="text-xs text-amber-600/70 dark:text-amber-400/70">
-                      v{{ latestVersion }}
+                      {{ imageVersionLabel(latestVersion) }}
                     </p>
                   </div>
                 </div>
@@ -632,7 +695,7 @@
 
     <!-- Non-admin: Simple static version text -->
     <span v-else-if="version" class="text-xs text-gray-500 dark:text-dark-400">
-      v{{ version }}
+      {{ normalizeVersion(version) }}
     </span>
   </div>
 </template>
@@ -651,9 +714,9 @@ import {
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
 
-const GITHUB_REPO = 'DeanZFC/sub2api-overdraft'
-// Docker Hub image published by CI (tags carry no "v" prefix, e.g. weishaw/sub2api:0.1.146)
-const DOCKER_IMAGE = 'weishaw/sub2api'
+const GITHUB_REPO = 'MIEnchating/sub2api'
+// Docker Hub image published by CI (tags carry no "v" prefix, e.g. sub2api:2026.8.22)
+const DOCKER_IMAGE = 'mienvirtuoso/sub2api'
 
 const { t } = useI18n()
 
@@ -675,7 +738,29 @@ const currentVersion = computed(() => appStore.currentVersion || props.version |
 const latestVersion = computed(() => appStore.latestVersion)
 const hasUpdate = computed(() => appStore.hasUpdate)
 const releaseInfo = computed(() => appStore.releaseInfo)
+const upstreamVersions = computed(() => appStore.upstreamVersions)
 const buildType = computed(() => appStore.buildType)
+const compactVersionLabel = computed(() => normalizeVersion(currentVersion.value))
+
+function normalizeVersion(value: string): string {
+  return value.trim().replace(/^v/, '')
+}
+
+function imageVersionLabel(value: string): string {
+  const normalized = normalizeVersion(value)
+  return normalized || '--'
+}
+
+function upstreamVersionLabel(value: string): string {
+  const normalized = normalizeVersion(value)
+  return normalized ? `v${normalized}` : '--'
+}
+
+function upstreamLabel(id: 'official' | 'overdraft'): string {
+  return id === 'official'
+    ? t('version.officialUpstream')
+    : t('version.overdraftUpstream')
+}
 
 // Update process states (local to this component)
 const updating = ref(false)

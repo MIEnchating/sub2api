@@ -2224,6 +2224,11 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+	if groupID != nil && s.schedulerSnapshot != nil {
+		if group, err := s.schedulerSnapshot.GetGroupByID(ctx, *groupID); err == nil && group != nil {
+			ctx = WithCodexQuotaOverdraftGroupOverride(ctx, group.CodexQuotaOverdraftEnabled)
+		}
+	}
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
 	// 入口已在请求开始经 WithOpenAIRequestPricingContext 装门并固定 pricingAt，
 	// 此处对同分组门直接复用（failover 重入阈值稳定），仅为不经 handler 装配的
@@ -2504,6 +2509,14 @@ func (s *OpenAIGatewayService) openAIWSLBTopKForRequest(ctx context.Context) int
 }
 
 func (s *OpenAIGatewayService) openAIStickyEscapeConfig() openAIStickyEscapeConfig {
+	if s != nil && s.settingService != nil {
+		enabled, ttftMs, errorRate := s.settingService.GatewayOpenAIStickyEscapeConfig()
+		return openAIStickyEscapeConfig{
+			enabled:   enabled,
+			ttftMs:    ttftMs,
+			errorRate: errorRate,
+		}
+	}
 	if s != nil && s.cfg != nil {
 		cfg := s.cfg.Gateway.OpenAIScheduler
 		enabled := cfg.StickyEscapeEnabled

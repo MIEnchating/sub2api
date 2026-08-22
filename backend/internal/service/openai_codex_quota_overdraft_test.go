@@ -98,6 +98,29 @@ func TestCodexQuotaOverdraftInjectionGuards(t *testing.T) {
 	require.Equal(t, oversized, svc.prepareCodexQuotaOverdraftBody(ctx, oauth, false, oversized))
 }
 
+func TestCodexQuotaOverdraftPolicyPriority(t *testing.T) {
+	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
+	account := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+	groupOn := true
+	groupOff := false
+
+	SetCodexQuotaOverdraftEnabled(false)
+	account.Extra = map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}
+	require.False(t, codexQuotaOverdraftEnabledForAccount(WithCodexQuotaOverdraftGroupOverride(context.Background(), &groupOn), account), "global off is the master switch")
+
+	SetCodexQuotaOverdraftEnabled(true)
+	account.Extra = nil
+	require.True(t, codexQuotaOverdraftEnabledForAccount(WithCodexQuotaOverdraftGroupOverride(context.Background(), &groupOn), account))
+	require.False(t, codexQuotaOverdraftEnabledForAccount(WithCodexQuotaOverdraftGroupOverride(context.Background(), &groupOff), account))
+
+	account.Extra = map[string]any{CodexQuotaOverdraftEnabledExtraKey: true}
+	require.True(t, codexQuotaOverdraftEnabledForAccount(WithCodexQuotaOverdraftGroupOverride(context.Background(), &groupOff), account), "account on overrides group off")
+	account.Extra[CodexQuotaOverdraftEnabledExtraKey] = false
+	require.False(t, codexQuotaOverdraftEnabledForAccount(WithCodexQuotaOverdraftGroupOverride(context.Background(), &groupOn), account), "account off overrides group on")
+	account.Extra = nil
+	require.True(t, codexQuotaOverdraftEnabledForAccount(context.Background(), account), "unset group and account inherit global")
+}
+
 func TestCodexQuotaOverdraftSchedulingDoesNotBypassThresholdBelowPrearm(t *testing.T) {
 	t.Cleanup(func() { SetCodexQuotaOverdraftEnabled(false) })
 	SetCodexQuotaOverdraftEnabled(true)

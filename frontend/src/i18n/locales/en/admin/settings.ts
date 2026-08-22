@@ -14,6 +14,13 @@ export default {
         payment: 'Payment',
       },
       features: {
+        navigation: {
+          title: 'Navigation and Pages',
+          description: 'Control whether built-in pages appear in the sidebar and block direct access to hidden pages.',
+          userPages: 'User pages',
+          adminPages: 'Admin pages',
+          protectedHint: 'The user dashboard, admin dashboard, and system settings remain visible as safe entry points. Disabling any other page hides its sidebar entry and blocks direct URL access.'
+        },
         channelMonitor: {
           title: 'Channel Monitor',
           description: 'Choose either V1 active probes or V2 passive usage monitoring. When disabled, both background jobs stop and the user entry is hidden.',
@@ -452,6 +459,37 @@ export default {
         debounceHint: 'Range: 1–60 minutes. Refresh after the latest model request has been quiet for this long.',
         saved: 'Ollama Cloud usage refresh settings saved',
         saveFailed: 'Failed to save Ollama Cloud usage refresh settings'
+      },
+      codexQuotaOverdraft: {
+        title: 'Codex Quota Overdraft',
+        description: 'Global master switch. Groups and accounts may override it; disabling the global switch always wins.',
+        enabled: 'Enable global quota overdraft',
+        hint: 'When enabled, eligible OpenAI OAuth Codex accounts may continue ordinary text requests after the quota threshold.'
+      },
+      openAIAccountFingerprint: {
+        title: 'Unique OpenAI Account Fingerprint',
+        description: 'Controls OpenAI OAuth accounts without an explicit fingerprint mode. Account-level settings take precedence.',
+        enabled: 'Enable unique account device fingerprints',
+        hint: 'Assigns each account a stable, unique Codex installation ID. Changes take effect immediately without a restart.'
+      },
+      gatewayRuntime: {
+        title: 'Gateway Runtime Policy',
+        description: 'Changes take effect immediately after saving; no config-file edit or service restart is required.',
+        timeoutsTitle: 'Response timeouts',
+        streamIdleTimeout: 'Streaming idle timeout',
+        streamIdleTimeoutHint: 'Maximum time with no upstream stream data. Set 0 to disable; enabled range is 30–300 seconds.',
+        firstOutputTimeout: 'OpenAI first-output timeout',
+        firstOutputTimeoutHint: 'Maximum wait for the first visible OpenAI output. Set 0 to disable; enabled range is 30–600 seconds.',
+        highEffortTimeout: 'High-effort first-output timeout',
+        highEffortTimeoutHint: 'Used for high, xhigh, and max reasoning effort. Set 0 to inherit the regular timeout.',
+        platformsTitle: 'Global platform switches',
+        platformsHint: 'Disabling a platform rejects new gateway requests while leaving admin operations available. Composite groups are checked against the resolved target platform.',
+        stickyEscape: 'Temporarily switch unhealthy sticky accounts',
+        stickyEscapeHint: 'Select a healthy account when the sticky account is slow, error-prone, or at concurrency capacity. The session binding is not permanently removed.',
+        stickyTTFT: 'Slow-response threshold',
+        stickyErrorRate: 'Error-rate threshold',
+        timeoutRangeError: 'Streaming idle timeout must be 0 or 30–300 seconds; OpenAI first-output timeouts must be 0 or 30–600 seconds.',
+        stickyRangeError: 'The sticky-account response threshold must be above 0 ms and the error rate must be between 0% and 100%.'
       },
       gatewayForwarding: {
         title: 'Request Forwarding',

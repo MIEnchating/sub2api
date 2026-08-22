@@ -25,6 +25,9 @@ const appStore = vi.hoisted(() => ({
   cachedPublicSettings: null as null | {
     payment_enabled?: boolean
     risk_control_enabled?: boolean
+    navigation_item_visibility?: Record<string, boolean>
+    user_subscriptions_page_enabled?: boolean
+    admin_subscriptions_page_enabled?: boolean
     custom_menu_items?: []
   },
   fetchPublicSettings: vi.fn(),
@@ -173,5 +176,52 @@ describe('feature route guard', () => {
     expect(appStore.fetchPublicSettings).not.toHaveBeenCalled()
     expect(next).toHaveBeenCalledOnce()
     expect(next).toHaveBeenCalledWith(target)
+  })
+
+  it.each([
+    ['user usage', false, '/usage', '/dashboard'],
+    ['admin users', true, '/admin/users', '/admin/dashboard'],
+    ['user subscriptions', false, '/subscriptions', '/dashboard'],
+  ])('redirects a hidden %s page', async (_name, isAdmin, path, target) => {
+    authStore.isAdmin = isAdmin
+    appStore.cachedPublicSettings = { navigation_item_visibility: { [path]: false } }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      { requiresAdmin: isAdmin },
+      path
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith(target)
+  })
+
+  it('keeps a page accessible when its path is absent from the visibility map', async () => {
+    appStore.cachedPublicSettings = { navigation_item_visibility: {} }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard(
+      {},
+      '/subscriptions'
+    )
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith()
+  })
+
+  it('never hides protected fallback routes', async () => {
+    authStore.isAdmin = true
+    appStore.cachedPublicSettings = {
+      navigation_item_visibility: { '/admin/settings': false },
+    }
+    appStore.publicSettingsLoaded = true
+
+    const { navigation, next } = runGuard({ requiresAdmin: true }, '/admin/settings')
+    await navigation
+
+    expect(next).toHaveBeenCalledOnce()
+    expect(next).toHaveBeenCalledWith()
   })
 })

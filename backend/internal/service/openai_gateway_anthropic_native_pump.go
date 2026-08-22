@@ -119,8 +119,5 @@ func (p *anthropicNativeLinePump) stop() {
 // anthropicNativeStreamInterval 返回本组转换路径适用的读间隔上限；
 // gateway.stream_data_interval_timeout <= 0 时视为禁用。
 func (s *OpenAIGatewayService) anthropicNativeStreamInterval() time.Duration {
-	if s.cfg != nil && s.cfg.Gateway.StreamDataIntervalTimeout > 0 {
-		return time.Duration(s.cfg.Gateway.StreamDataIntervalTimeout) * time.Second
-	}
-	return 0
+	return s.gatewayStreamDataIntervalTimeout()
 }
