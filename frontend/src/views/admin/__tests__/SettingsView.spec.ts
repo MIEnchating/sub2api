@@ -719,6 +719,34 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+  it("organizes navigation switches by scope and supports bulk visibility changes", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.get("#settings-tab-features").trigger("click");
+    expect(wrapper.findAll('[data-testid="navigation-page-item"]')).toHaveLength(11);
+    expect(
+      wrapper.get('[data-testid="navigation-scope-userPages"]').attributes("aria-selected"),
+    ).toBe("true");
+
+    await wrapper.get('[data-testid="navigation-scope-adminPages"]').trigger("click");
+    expect(wrapper.findAll('[data-testid="navigation-page-item"]')).toHaveLength(21);
+
+    await wrapper.get('[data-testid="navigation-hide-all"]').trigger("click");
+    expect(
+      wrapper
+        .findAll('[data-testid="navigation-page-item"] .toggle-stub')
+        .every((toggle) => !(toggle.element as HTMLInputElement).checked),
+    ).toBe(true);
+
+    await wrapper.get('[data-testid="navigation-show-all"]').trigger("click");
+    expect(
+      wrapper
+        .findAll('[data-testid="navigation-page-item"] .toggle-stub')
+        .every((toggle) => (toggle.element as HTMLInputElement).checked),
+    ).toBe(true);
+  });
+
   it("submits the compact home page toggle", async () => {
     const wrapper = mountView();
     await flushPromises();

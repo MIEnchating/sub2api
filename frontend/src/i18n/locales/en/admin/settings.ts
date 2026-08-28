@@ -19,6 +19,9 @@ export default {
           description: 'Control whether built-in pages appear in the sidebar and block direct access to hidden pages.',
           userPages: 'User pages',
           adminPages: 'Admin pages',
+          visibleSummary: 'shown',
+          showAll: 'Show all',
+          hideAll: 'Hide all',
           protectedHint: 'The user dashboard, admin dashboard, and system settings remain visible as safe entry points. Disabling any other page hides its sidebar entry and blocks direct URL access.'
         },
         channelMonitor: {

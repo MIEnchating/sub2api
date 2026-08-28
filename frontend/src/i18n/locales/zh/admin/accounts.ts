@@ -1000,6 +1000,28 @@ export default {
       expired: '已过期',
       proxy: '代理',
       noProxy: '无代理',
+      primaryProxy: '主代理',
+      proxyPoolSectionTitle: '多 IP 出口',
+      proxyPoolSectionDescription: '为此账号配置一个主代理和最多 20 个附加代理。',
+      proxyPool: '附加代理',
+      proxyPoolEmpty: '未选择附加代理',
+      proxyPoolSelected: '已选择 {count} 个附加代理',
+      proxyPoolNoOptions: '没有其他可用代理，请先到 IP管理 添加更多代理',
+      proxyPoolClear: '清空附加代理',
+      proxyPoolPrimaryRequired: '请先选择主代理；如果没有可选项，请先到 IP管理 添加代理。',
+      proxyPoolHint: '主代理和附加代理共同组成业务请求的出口池；授权、测试和额度探测始终使用主代理。',
+      proxyEgressMode: '出口策略',
+      proxyStickyTTLMinutes: '会话粘性时长（分钟）',
+      proxyEgressModes: {
+        sessionSticky: '同一会话固定出口',
+        roundRobin: '按请求轮询',
+        primary: '固定主代理'
+      },
+      proxyEgressModeHints: {
+        session_sticky: '同一账号和会话持续使用同一出口；无会话标识时自动按请求轮询。',
+        round_robin: '每个新请求依次选择出口，请求开始后不会中途切换。',
+        primary: '所有业务请求都使用主代理，附加代理暂不参与。'
+      },
       concurrency: '并发数',
       loadFactor: '负载因子',
       loadFactorHint: '提高负载因子可以提高对账号的调度频率',

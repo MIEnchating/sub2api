@@ -65,6 +65,7 @@ type DataAccount struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra,omitempty"`
 	ProxyKey           *string        `json:"proxy_key,omitempty"`
+	ProxyPoolKeys      []string       `json:"proxy_pool_keys,omitempty"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	RateMultiplier     *float64       `json:"rate_multiplier,omitempty"`
@@ -194,10 +195,25 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 				proxyKey = &key
 			}
 		}
+		proxyPoolKeys := make([]string, 0, len(acc.ProxyIDs))
+		for _, proxyID := range acc.ProxyIDs {
+			if key, ok := proxyKeyByID[proxyID]; ok {
+				proxyPoolKeys = append(proxyPoolKeys, key)
+			}
+		}
 		var expiresAt *int64
 		if acc.ExpiresAt != nil {
 			v := acc.ExpiresAt.Unix()
 			expiresAt = &v
+		}
+		accountExtra := make(map[string]any, len(acc.Extra))
+		for key, value := range acc.Extra {
+			if key != service.AccountProxyPoolExtraKey {
+				accountExtra[key] = value
+			}
+		}
+		if len(accountExtra) == 0 {
+			accountExtra = nil
 		}
 		dataAccounts = append(dataAccounts, DataAccount{
 			Name:               acc.Name,
@@ -205,8 +221,9 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			Platform:           acc.Platform,
 			Type:               acc.Type,
 			Credentials:        acc.Credentials,
-			Extra:              acc.Extra,
+			Extra:              accountExtra,
 			ProxyKey:           proxyKey,
+			ProxyPoolKeys:      proxyPoolKeys,
 			Concurrency:        acc.Concurrency,
 			Priority:           acc.Priority,
 			RateMultiplier:     acc.RateMultiplier,
@@ -426,6 +443,26 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 				continue
 			}
 		}
+		proxyIDs := make([]int64, 0, len(item.ProxyPoolKeys))
+		missingProxyKey := ""
+		for _, key := range item.ProxyPoolKeys {
+			id, ok := proxyKeyToID[key]
+			if !ok {
+				missingProxyKey = key
+				break
+			}
+			proxyIDs = append(proxyIDs, id)
+		}
+		if missingProxyKey != "" {
+			result.AccountFailed++
+			result.Errors = append(result.Errors, DataImportError{
+				Kind:     "account",
+				Name:     item.Name,
+				ProxyKey: missingProxyKey,
+				Message:  "proxy_pool_key not found",
+			})
+			continue
+		}
 
 		enrichCredentialsFromIDToken(&item)
 
@@ -437,6 +474,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			Credentials:          item.Credentials,
 			Extra:                item.Extra,
 			ProxyID:              proxyID,
+			ProxyIDs:             proxyIDs,
 			Concurrency:          item.Concurrency,
 			Priority:             item.Priority,
 			RateMultiplier:       item.RateMultiplier,
@@ -571,18 +609,21 @@ func (h *AccountHandler) resolveExportProxies(ctx context.Context, accounts []se
 	seen := make(map[int64]struct{})
 	ids := make([]int64, 0)
 	for i := range accounts {
-		if accounts[i].ProxyID == nil {
-			continue
+		accountProxyIDs := make([]int64, 0, len(accounts[i].ProxyIDs)+1)
+		if accounts[i].ProxyID != nil {
+			accountProxyIDs = append(accountProxyIDs, *accounts[i].ProxyID)
 		}
-		id := *accounts[i].ProxyID
-		if id <= 0 {
-			continue
+		accountProxyIDs = append(accountProxyIDs, accounts[i].ProxyIDs...)
+		for _, id := range accountProxyIDs {
+			if id <= 0 {
+				continue
+			}
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
 		}
-		if _, ok := seen[id]; ok {
-			continue
-		}
-		seen[id] = struct{}{}
-		ids = append(ids, id)
 	}
 	if len(ids) == 0 {
 		return []service.Proxy{}, nil

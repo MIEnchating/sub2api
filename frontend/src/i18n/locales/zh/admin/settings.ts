@@ -19,6 +19,9 @@ export default {
           description: '控制内置页面是否出现在侧边栏，并阻止用户直接访问已隐藏的页面。',
           userPages: '用户端页面',
           adminPages: '管理端页面',
+          visibleSummary: '已显示',
+          showAll: '全部显示',
+          hideAll: '全部隐藏',
           protectedHint: '用户仪表盘、管理仪表盘和系统设置是安全入口，始终保持显示。关闭其他页面后，侧边栏入口和直接 URL 访问会同时禁用。'
         },
         channelMonitor: {

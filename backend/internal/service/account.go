@@ -29,6 +29,7 @@ type Account struct {
 	Credentials             map[string]any
 	Extra                   map[string]any
 	ProxyID                 *int64
+	ProxyIDs                []int64
 	ProxyFallbackOriginID   *int64
 	ProxyFallbackOriginName *string // 仅展示用
 	Concurrency             int
@@ -62,6 +63,7 @@ type Account struct {
 	QuotaDimension  string // 用量维度："" / "global" / "spark"
 
 	Proxy         *Proxy
+	ProxyPool     []*Proxy
 	AccountGroups []AccountGroup
 	GroupIDs      []int64
 	Groups        []*Group
@@ -82,6 +84,11 @@ type Account struct {
 	headerOverrideCacheRawPtr         uintptr
 	headerOverrideCacheRawLen         int
 	headerOverrideCacheRawSig         uint64
+
+	// egressProxySelected prevents one request from changing IP when the same
+	// selected account is hydrated more than once.
+	egressProxySelected  bool
+	egressPrimaryProxyID *int64
 }
 
 type OpenAIEndpointCapability string

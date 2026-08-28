@@ -13,12 +13,15 @@ const (
 	// AccountTestModeCompact drives the remote-compaction probe test
 	// (native v2: streaming /responses with a compaction_trigger input item).
 	AccountTestModeCompact = "compact"
+	// AccountTestModeBehavior sends an operator-supplied behavioral probe while
+	// preserving the account's normal upstream routing and credentials.
+	AccountTestModeBehavior = "behavior"
 )
 
 func normalizeAccountTestMode(mode string) string {
 	switch strings.ToLower(strings.TrimSpace(mode)) {
-	case AccountTestModeCompact:
-		return AccountTestModeCompact
+	case AccountTestModeCompact, AccountTestModeBehavior:
+		return strings.ToLower(strings.TrimSpace(mode))
 	default:
 		return AccountTestModeDefault
 	}

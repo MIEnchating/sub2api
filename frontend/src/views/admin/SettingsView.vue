@@ -7178,39 +7178,118 @@
         <!-- Tab: Features (功能开关) -->
         <div v-show="activeTab === 'features'" class="space-y-6">
 
-        <div class="card">
-          <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-            <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-              {{ t('admin.settings.features.navigation.title') }}
-            </h2>
-            <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-              {{ t('admin.settings.features.navigation.description') }}
-            </p>
+        <div class="card overflow-hidden">
+          <div class="border-b border-gray-100 px-4 py-4 sm:px-6 dark:border-dark-700">
+            <div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div class="min-w-0">
+                <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                  {{ t('admin.settings.features.navigation.title') }}
+                </h2>
+                <p class="mt-1 max-w-3xl text-sm text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.navigation.description') }}
+                </p>
+              </div>
+              <div class="flex shrink-0 items-baseline gap-1 rounded-lg bg-gray-100 px-3 py-2 dark:bg-dark-800">
+                <span class="text-base font-semibold tabular-nums text-gray-900 dark:text-white">
+                  {{ activeNavigationVisibleCount }} / {{ activeNavigationSection.items.length }}
+                </span>
+                <span class="text-xs text-gray-500 dark:text-gray-400">
+                  {{ t('admin.settings.features.navigation.visibleSummary') }}
+                </span>
+              </div>
+            </div>
           </div>
-          <div class="grid gap-6 p-6 lg:grid-cols-2">
-            <section v-for="section in navigationVisibilitySections" :key="section.key">
-              <h3 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">
-                {{ t(`admin.settings.features.navigation.${section.key}`) }}
-              </h3>
-              <div class="divide-y divide-gray-100 rounded border border-gray-200 px-4 dark:divide-dark-700 dark:border-dark-600">
-                <div
-                  v-for="item in section.items"
-                  :key="item.path"
-                  class="flex min-h-14 items-center justify-between gap-4 py-3"
+
+          <div class="space-y-4 p-4 sm:p-6">
+            <div class="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+              <div
+                class="grid w-full grid-cols-2 rounded-lg border border-gray-200 bg-gray-50 p-1 lg:max-w-xl dark:border-dark-600 dark:bg-dark-900/40"
+                role="tablist"
+                :aria-label="t('admin.settings.features.navigation.title')"
+              >
+                <button
+                  v-for="section in navigationVisibilitySections"
+                  :key="section.key"
+                  type="button"
+                  role="tab"
+                  :aria-selected="activeNavigationSectionKey === section.key"
+                  :aria-controls="`navigation-panel-${section.key}`"
+                  :data-testid="`navigation-scope-${section.key}`"
+                  class="flex min-w-0 items-center justify-center gap-2 rounded-md px-3 py-2 text-sm font-medium transition-colors"
+                  :class="activeNavigationSectionKey === section.key
+                    ? 'bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white'
+                    : 'text-gray-500 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'"
+                  @click="activeNavigationSectionKey = section.key"
                 >
-                  <div class="min-w-0">
-                    <label class="block truncate text-sm font-medium text-gray-700 dark:text-gray-300">
-                      {{ t(item.labelKey) }}
-                    </label>
-                    <code class="block truncate text-xs text-gray-400 dark:text-gray-500">{{ item.path }}</code>
-                  </div>
-                  <Toggle v-model="form.navigation_item_visibility[item.path]" />
+                  <Icon :name="section.icon" size="sm" class="hidden shrink-0 sm:block" />
+                  <span class="truncate">
+                    {{ t(`admin.settings.features.navigation.${section.key}`) }}
+                  </span>
+                  <span
+                    class="shrink-0 rounded bg-gray-100 px-1.5 py-0.5 text-[11px] tabular-nums text-gray-500 dark:bg-dark-800 dark:text-gray-400"
+                  >
+                    {{ getNavigationVisibleCount(section.items) }}/{{ section.items.length }}
+                  </span>
+                </button>
+              </div>
+
+              <div class="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  data-testid="navigation-show-all"
+                  @click="setActiveNavigationVisibility(true)"
+                >
+                  {{ t('admin.settings.features.navigation.showAll') }}
+                </button>
+                <button
+                  type="button"
+                  class="btn btn-secondary btn-sm"
+                  data-testid="navigation-hide-all"
+                  @click="setActiveNavigationVisibility(false)"
+                >
+                  {{ t('admin.settings.features.navigation.hideAll') }}
+                </button>
+              </div>
+            </div>
+
+            <section
+              :id="`navigation-panel-${activeNavigationSection.key}`"
+              role="tabpanel"
+              class="grid gap-2 sm:grid-cols-2 xl:grid-cols-3"
+            >
+              <div
+                v-for="item in activeNavigationSection.items"
+                :key="item.path"
+                data-testid="navigation-page-item"
+                class="flex min-h-[4.25rem] items-center justify-between gap-3 rounded-lg border px-3.5 py-3 transition-colors"
+                :class="form.navigation_item_visibility[item.path]
+                  ? 'border-gray-200 bg-white dark:border-dark-600 dark:bg-dark-800/40'
+                  : 'border-gray-200 bg-gray-50/80 dark:border-dark-700 dark:bg-dark-900/40'"
+              >
+                <div class="min-w-0">
+                  <label
+                    :for="navigationToggleId(item.path)"
+                    class="block truncate text-sm font-medium text-gray-800 dark:text-gray-200"
+                  >
+                    {{ t(item.labelKey) }}
+                  </label>
+                  <code class="mt-0.5 block truncate text-xs text-gray-400 dark:text-gray-500">
+                    {{ item.path }}
+                  </code>
                 </div>
+                <Toggle
+                  :id="navigationToggleId(item.path)"
+                  v-model="form.navigation_item_visibility[item.path]"
+                  :aria-label="t(item.labelKey)"
+                />
               </div>
             </section>
-            <p class="text-xs text-gray-500 dark:text-gray-400 lg:col-span-2">
-              {{ t('admin.settings.features.navigation.protectedHint') }}
-            </p>
+
+            <div class="flex items-start gap-2 border-t border-gray-100 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400">
+              <Icon name="shield" size="sm" class="mt-0.5 shrink-0" />
+              <p>{{ t('admin.settings.features.navigation.protectedHint') }}</p>
+            </div>
           </div>
         </div>
 
@@ -9053,9 +9132,40 @@ const adminSettingsStore = useAdminSettingsStore();
 const isZhLocale = computed(() => locale.value.startsWith("zh"));
 
 const navigationVisibilitySections = [
-  { key: "userPages", items: USER_NAVIGATION_PAGES },
-  { key: "adminPages", items: ADMIN_NAVIGATION_PAGES },
+  { key: "userPages", icon: "user" as const, items: USER_NAVIGATION_PAGES },
+  { key: "adminPages", icon: "shield" as const, items: ADMIN_NAVIGATION_PAGES },
 ] as const;
+type NavigationVisibilitySection = (typeof navigationVisibilitySections)[number];
+type NavigationVisibilitySectionKey = NavigationVisibilitySection["key"];
+const activeNavigationSectionKey = ref<NavigationVisibilitySectionKey>("userPages");
+const activeNavigationSection = computed<NavigationVisibilitySection>(() =>
+  navigationVisibilitySections.find(
+    (section) => section.key === activeNavigationSectionKey.value,
+  ) ?? navigationVisibilitySections[0],
+);
+
+function getNavigationVisibleCount(
+  items: readonly { path: string }[],
+): number {
+  return items.reduce(
+    (count, item) => count + (form.navigation_item_visibility[item.path] ? 1 : 0),
+    0,
+  );
+}
+
+const activeNavigationVisibleCount = computed(() =>
+  getNavigationVisibleCount(activeNavigationSection.value.items),
+);
+
+function setActiveNavigationVisibility(visible: boolean): void {
+  for (const item of activeNavigationSection.value.items) {
+    form.navigation_item_visibility[item.path] = visible;
+  }
+}
+
+function navigationToggleId(path: string): string {
+  return `navigation-toggle-${path.replace(/[^a-zA-Z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+}
 
 function localText(zh: string, en: string): string {
   return isZhLocale.value ? zh : en;

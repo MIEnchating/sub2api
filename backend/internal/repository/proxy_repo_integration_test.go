@@ -4,6 +4,7 @@ package repository
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
 
@@ -203,6 +204,36 @@ func (s *ProxyRepoSuite) TestCountAccountsByProxyID_Zero() {
 	count, err := s.repo.CountAccountsByProxyID(s.ctx, proxy.ID)
 	s.Require().NoError(err)
 	s.Require().Zero(count)
+}
+
+func (s *ProxyRepoSuite) TestProxyPoolReferencesCountAsAccountUsage() {
+	primary := s.mustCreateProxy(&service.Proxy{Name: "p-primary", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive})
+	additional := s.mustCreateProxy(&service.Proxy{Name: "p-additional", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive})
+	extra := fmt.Sprintf(`{"%s":[%d]}`, service.AccountProxyPoolExtraKey, additional.ID)
+	_, err := s.tx.ExecContext(
+		s.ctx,
+		"INSERT INTO accounts (name, platform, type, proxy_id, extra) VALUES ($1, $2, $3, $4, $5::jsonb)",
+		"pooled-account",
+		service.PlatformOpenAI,
+		service.AccountTypeAPIKey,
+		primary.ID,
+		extra,
+	)
+	s.Require().NoError(err)
+
+	count, err := s.repo.CountAccountsByProxyID(s.ctx, additional.ID)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), count)
+
+	summaries, err := s.repo.ListAccountSummariesByProxyID(s.ctx, additional.ID)
+	s.Require().NoError(err)
+	s.Require().Len(summaries, 1)
+	s.Require().Equal("pooled-account", summaries[0].Name)
+
+	counts, err := s.repo.GetAccountCountsForProxies(s.ctx)
+	s.Require().NoError(err)
+	s.Require().Equal(int64(1), counts[primary.ID])
+	s.Require().Equal(int64(1), counts[additional.ID])
 }
 
 // --- GetAccountCountsForProxies ---

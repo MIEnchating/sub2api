@@ -1156,6 +1156,7 @@ export interface Account {
     }
   } & Record<string, unknown>)
   proxy_id: number | null
+  proxy_ids?: number[]
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
@@ -1464,6 +1465,7 @@ export interface CreateAccountRequest {
   credentials: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  proxy_ids?: number[]
   concurrency?: number
   load_factor?: number | null
   priority?: number
@@ -1482,6 +1484,7 @@ export interface UpdateAccountRequest {
   credentials?: Record<string, unknown>
   extra?: Record<string, unknown>
   proxy_id?: number | null
+  proxy_ids?: number[]
   concurrency?: number
   load_factor?: number | null
   priority?: number

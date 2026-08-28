@@ -297,6 +297,7 @@ func (s *adminServiceImpl) DuplicateAccount(ctx context.Context, id int64, actor
 		Credentials:           credentials,
 		Extra:                 extra,
 		ProxyID:               cloneAccountValuePointer(proxyID),
+		ProxyIDs:              configuredAccountProxyPoolIDs(source),
 		Concurrency:           source.Concurrency,
 		Priority:              source.Priority,
 		RateMultiplier:        cloneAccountValuePointer(source.RateMultiplier),
@@ -415,6 +416,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		Credentials: input.Credentials,
 		Extra:       accountExtra,
 		ProxyID:     input.ProxyID,
+		ProxyIDs:    append([]int64(nil), input.ProxyIDs...),
 		Concurrency: normalizeAccountConcurrency(input.Platform, input.Type, input.Concurrency),
 		Priority:    input.Priority,
 		Status:      StatusActive,
@@ -474,6 +476,14 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if err != nil {
 		return nil, err
 	}
+	proxyIDs, err := s.validateAccountProxyPoolProxies(ctx, input.ProxyID, input.ProxyIDs)
+	if err != nil {
+		return nil, err
+	}
+	input.ProxyIDs = proxyIDs
+	proxyConfig := &Account{ProxyID: input.ProxyID, Extra: accountExtra}
+	setAccountProxyPoolIDs(proxyConfig, proxyIDs)
+	accountExtra = proxyConfig.Extra
 
 	// 绑定分组
 	groupIDs := input.GroupIDs
@@ -588,6 +598,10 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_IMMUTABLE_TYPE",
 				"spark shadow account type cannot be changed; it must remain an OpenAI OAuth shadow")
 		}
+		if input.ProxyIDs != nil {
+			return nil, infraerrors.Newf(http.StatusBadRequest, "SPARK_SHADOW_PROXY_INHERITED",
+				"spark shadow account proxy pool is inherited from its parent and cannot be changed independently")
+		}
 	} else if input.Type != "" && input.Type != account.Type && input.Type != AccountTypeOAuth {
 		// 母账号守卫(外审 D/P1):有 spark 影子的账号不能把 type 改出 OpenAI OAuth——影子读透母
 		// 凭据,母变成 apikey/setup_token 会让影子被调度后按错协议失败(resolveCredentialAccount
@@ -662,6 +676,7 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 			OllamaCloudUsageAutoRefreshExtraKey,
 			OllamaCloudUsageSnapshotExtraKey,
 			OpenAIAutoResetCreditStateExtraKey,
+			AccountProxyPoolExtraKey,
 		} {
 			if v, ok := account.Extra[key]; ok {
 				normalizedExtra[key] = v
@@ -730,6 +745,16 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		}
 		account.Proxy = nil // 清除关联对象，防止 GORM Save 时根据 Proxy.ID 覆盖 ProxyID
 	}
+	proxyIDs := configuredAccountProxyPoolIDs(account)
+	if input.ProxyIDs != nil {
+		proxyIDs, err = s.validateAccountProxyPoolProxies(ctx, account.ProxyID, *input.ProxyIDs)
+		if err != nil {
+			return nil, err
+		}
+	} else if account.ProxyID == nil {
+		proxyIDs = nil
+	}
+	setAccountProxyPoolIDs(account, proxyIDs)
 	if !reflect.DeepEqual(previousProbeIdentity, upstreamBillingProbeIdentity(account)) && account.Extra != nil {
 		delete(account.Extra, UpstreamBillingProbeExtraKey)
 		if !isUpstreamBillingProbeAccount(account) {
@@ -848,8 +873,11 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 
 	// 将 proxy 变更传播到 spark 影子账号（同步；Update 内部已触发调度快照）。
 	// 影子自身 proxy 不可独立编辑(见上),故对影子的更新不触发传播。
-	if input.ProxyID != nil && !account.IsCredentialShadow() {
+	if (input.ProxyID != nil || input.ProxyIDs != nil) && !account.IsCredentialShadow() {
 		if err := s.propagateProxyToShadows(ctx, id, account.ProxyID); err != nil {
+			return nil, err
+		}
+		if err := propagateAccountProxyPoolToShadows(ctx, s.accountRepo, id, account.ProxyIDs, account.Extra); err != nil {
 			return nil, err
 		}
 	}
@@ -907,6 +935,7 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSessionExtraKey)
 	delete(input.Extra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
+	delete(input.Extra, AccountProxyPoolExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
@@ -1161,6 +1190,7 @@ func upstreamBillingProbeIdentity(account *Account) map[string]any {
 	if account.ProxyID != nil {
 		identity["proxy_id"] = *account.ProxyID
 	}
+	identity[AccountProxyPoolExtraKey] = configuredAccountProxyPoolIDs(account)
 	for _, key := range []string{"api_key", "base_url", credKeyHeaderOverrideEnabled, credKeyHeaderOverrides} {
 		if value, ok := account.Credentials[key]; ok {
 			identity[key] = value
@@ -1379,13 +1409,17 @@ func (s *adminServiceImpl) CreateShadow(ctx context.Context, parentID int64, opt
 		ParentAccountID: &parentID,
 		QuotaDimension:  QuotaDimensionSpark,
 		ProxyID:         parent.ProxyID,
+		ProxyIDs:        configuredAccountProxyPoolIDs(parent),
 		Priority:        priority,
 		Concurrency:     concurrency,
 		Schedulable:     true,
 		Extra: map[string]any{
-			openAILongContextBillingEnabledKey: parent.IsOpenAILongContextBillingEnabled(),
+			openAILongContextBillingEnabledKey:   parent.IsOpenAILongContextBillingEnabled(),
+			AccountProxyEgressModeExtraKey:       AccountProxyEgressMode(parent.Extra),
+			AccountProxyStickyTTLSecondsExtraKey: int(AccountProxyStickyTTL(parent.Extra).Seconds()),
 		},
 	}
+	setAccountProxyPoolIDs(shadow, shadow.ProxyIDs)
 
 	// 5. 持久化（Create 填充 shadow.ID）。并发竞态:预查(步骤2)放行后另一请求抢先建成,本次会撞
 	// 一母一影唯一索引。复查确认确为"已存在"竞态时返回结构化 409 而非裸 500——外审 A/P1。
@@ -1435,6 +1469,25 @@ func propagateAccountProxyToShadows(ctx context.Context, repo AccountRepository,
 		shadow.ProxyID = proxyID
 		if err := repo.Update(ctx, shadow); err != nil {
 			return fmt.Errorf("update spark shadow %d proxy: %w", shadow.ID, err)
+		}
+	}
+	return nil
+}
+
+func propagateAccountProxyPoolToShadows(ctx context.Context, repo AccountRepository, parentID int64, proxyIDs []int64, parentExtra map[string]any) error {
+	shadows, err := repo.ListShadowsByParent(ctx, parentID)
+	if err != nil {
+		return fmt.Errorf("list spark shadows for proxy pool propagation: %w", err)
+	}
+	for _, shadow := range shadows {
+		setAccountProxyPoolIDs(shadow, proxyIDs)
+		if shadow.Extra == nil {
+			shadow.Extra = make(map[string]any)
+		}
+		shadow.Extra[AccountProxyEgressModeExtraKey] = AccountProxyEgressMode(parentExtra)
+		shadow.Extra[AccountProxyStickyTTLSecondsExtraKey] = int(AccountProxyStickyTTL(parentExtra).Seconds())
+		if err := repo.Update(ctx, shadow); err != nil {
+			return fmt.Errorf("update spark shadow %d proxy pool: %w", shadow.ID, err)
 		}
 	}
 	return nil

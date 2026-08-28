@@ -91,6 +91,7 @@ type BatchImagePublicService struct {
 	Pricing           BatchImagePricingResolver
 	BillingRepo       UsageBillingRepository
 	AuthCache         APIKeyAuthCacheInvalidator
+	Cache             GatewayCache
 	Config            *config.Config
 }
 
@@ -182,7 +183,7 @@ type BatchImageItemsQuery struct {
 	Cursor string
 }
 
-func NewBatchImagePublicService(repo BatchImageRepository, accountRepo AccountRepository, groupRepo GroupRepository, userGroupRateRepo UserGroupRateRepository, queue BatchImageQueue, pricing *BatchImageModelPricingResolver, billingRepo UsageBillingRepository, authCache APIKeyAuthCacheInvalidator, cfg *config.Config) *BatchImagePublicService {
+func NewBatchImagePublicService(repo BatchImageRepository, accountRepo AccountRepository, groupRepo GroupRepository, userGroupRateRepo UserGroupRateRepository, queue BatchImageQueue, pricing *BatchImageModelPricingResolver, billingRepo UsageBillingRepository, authCache APIKeyAuthCacheInvalidator, cache GatewayCache, cfg *config.Config) *BatchImagePublicService {
 	return &BatchImagePublicService{
 		Repo:              repo,
 		AccountRepo:       accountRepo,
@@ -193,6 +194,7 @@ func NewBatchImagePublicService(repo BatchImageRepository, accountRepo AccountRe
 		Pricing:           pricing,
 		BillingRepo:       billingRepo,
 		AuthCache:         authCache,
+		Cache:             cache,
 		Config:            cfg,
 	}
 }
@@ -231,6 +233,9 @@ func (s *BatchImagePublicService) Submit(ctx context.Context, owner BatchImageOw
 		}
 	}
 
+	if normalized.SessionID != nil {
+		ctx = withAccountEgressSessionHash(ctx, *normalized.SessionID)
+	}
 	provider, account, err := s.selectProviderAndAccount(ctx, owner, normalized.Provider, normalized.Model)
 	if err != nil {
 		return nil, err
@@ -971,7 +976,7 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 				continue
 			}
 			if provider.SupportsAccount(&account) {
-				return provider, &account, nil
+				return provider, selectAccountEgressProxy(ctx, s.Cache, &account), nil
 			}
 		}
 	}

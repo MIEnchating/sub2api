@@ -550,8 +550,8 @@ func grokCredentialMutationSnapshot(account *Account) GrokCredentialMutationSnap
 		RefreshToken:    strings.TrimSpace(account.GetGrokRefreshToken()),
 		TokenVersion:    account.GetCredentialAsInt64("_token_version"),
 	}
-	if account.ProxyID != nil {
-		proxyID := *account.ProxyID
+	if account.ConfiguredProxyID() != nil {
+		proxyID := *account.ConfiguredProxyID()
 		snapshot.ProxyID = &proxyID
 	}
 	return snapshot

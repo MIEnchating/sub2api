@@ -180,6 +180,7 @@ type CreateAccountRequest struct {
 	Credentials        map[string]any `json:"credentials"`
 	Extra              map[string]any `json:"extra"`
 	ProxyID            *int64         `json:"proxy_id"`
+	ProxyIDs           []int64        `json:"proxy_ids"`
 	Concurrency        int            `json:"concurrency"`
 	Priority           int            `json:"priority"`
 	GroupIDs           []int64        `json:"group_ids"`
@@ -194,6 +195,7 @@ type UpdateAccountRequest struct {
 	Credentials        *map[string]any `json:"credentials"`
 	Extra              *map[string]any `json:"extra"`
 	ProxyID            *int64          `json:"proxy_id"`
+	ProxyIDs           *[]int64        `json:"proxy_ids"`
 	Concurrency        *int            `json:"concurrency"`
 	Priority           *int            `json:"priority"`
 	Status             *string         `json:"status"`
@@ -222,6 +224,10 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	proxyIDs, err := validateAccountProxyPool(req.ProxyID, req.ProxyIDs)
+	if err != nil {
+		return nil, err
+	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
 		if err := s.validateGroupIDsExist(ctx, req.GroupIDs); err != nil {
@@ -243,6 +249,7 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Status:      StatusActive,
 		ExpiresAt:   req.ExpiresAt,
 	}
+	setAccountProxyPoolIDs(account, proxyIDs)
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
@@ -339,6 +346,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		delete(extra, OllamaCloudUsageSessionExtraKey)
 		delete(extra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(extra, OllamaCloudUsageSnapshotExtraKey)
+		if value, ok := account.Extra[AccountProxyPoolExtraKey]; ok {
+			extra[AccountProxyPoolExtraKey] = value
+		}
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, extra)
 	} else {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
@@ -347,6 +357,14 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.ProxyID != nil {
 		account.ProxyID = req.ProxyID
 	}
+	proxyIDs := configuredAccountProxyPoolIDs(account)
+	if req.ProxyIDs != nil {
+		proxyIDs, err = validateAccountProxyPool(account.ProxyID, *req.ProxyIDs)
+		if err != nil {
+			return nil, err
+		}
+	}
+	setAccountProxyPoolIDs(account, proxyIDs)
 
 	if req.Concurrency != nil {
 		account.Concurrency = *req.Concurrency

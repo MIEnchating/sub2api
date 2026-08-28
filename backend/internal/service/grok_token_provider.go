@@ -66,7 +66,7 @@ func (p *GrokTokenProvider) GetAccessToken(ctx context.Context, account *Account
 	if account.Platform != PlatformGrok || account.Type != AccountTypeOAuth {
 		return "", errors.New("not a grok oauth account")
 	}
-	selectedProxyID := cloneGrokProxyID(account.ProxyID)
+	selectedProxyID := cloneGrokProxyID(account.ConfiguredProxyID())
 	if eligibilityErr := grokOAuthRequestAccountEligibilityError(account); eligibilityErr != nil {
 		return "", withGrokCredentialFailureSnapshot(eligibilityErr, account)
 	}
@@ -244,7 +244,7 @@ func (p *GrokTokenProvider) waitForRefreshedToken(ctx context.Context, account *
 
 	initialToken := strings.TrimSpace(account.GetGrokAccessToken())
 	initialVersion := account.GetCredentialAsInt64("_token_version")
-	selectedProxyID := cloneGrokProxyID(account.ProxyID)
+	selectedProxyID := cloneGrokProxyID(account.ConfiguredProxyID())
 	sawAuthoritativeState := false
 	var lastAccountReadErr error
 	ticker := time.NewTicker(grokRefreshLockPollInterval)

@@ -37,14 +37,15 @@ type dataProxy struct {
 }
 
 type dataAccount struct {
-	Name        string         `json:"name"`
-	Platform    string         `json:"platform"`
-	Type        string         `json:"type"`
-	Credentials map[string]any `json:"credentials"`
-	Extra       map[string]any `json:"extra"`
-	ProxyKey    *string        `json:"proxy_key"`
-	Concurrency int            `json:"concurrency"`
-	Priority    int            `json:"priority"`
+	Name          string         `json:"name"`
+	Platform      string         `json:"platform"`
+	Type          string         `json:"type"`
+	Credentials   map[string]any `json:"credentials"`
+	Extra         map[string]any `json:"extra"`
+	ProxyKey      *string        `json:"proxy_key"`
+	ProxyPoolKeys []string       `json:"proxy_pool_keys"`
+	Concurrency   int            `json:"concurrency"`
+	Priority      int            `json:"priority"`
 }
 
 func setupAccountDataRouter() (*gin.Engine, *stubAdminService) {
@@ -91,7 +92,7 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 		},
 		{
 			ID:       12,
-			Name:     "orphan",
+			Name:     "additional",
 			Protocol: "https",
 			Host:     "10.0.0.1",
 			Port:     443,
@@ -109,6 +110,7 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 			Credentials: map[string]any{"token": "secret"},
 			Extra:       map[string]any{"note": "x"},
 			ProxyID:     &proxyID,
+			ProxyIDs:    []int64{12},
 			Concurrency: 3,
 			Priority:    50,
 			Status:      service.StatusDisabled,
@@ -125,10 +127,11 @@ func TestExportDataIncludesSecrets(t *testing.T) {
 	require.Equal(t, 0, resp.Code)
 	require.Empty(t, resp.Data.Type)
 	require.Equal(t, 0, resp.Data.Version)
-	require.Len(t, resp.Data.Proxies, 1)
+	require.Len(t, resp.Data.Proxies, 2)
 	require.Equal(t, "pass", resp.Data.Proxies[0].Password)
 	require.Len(t, resp.Data.Accounts, 1)
 	require.Equal(t, "secret", resp.Data.Accounts[0].Credentials["token"])
+	require.Equal(t, []string{"https|10.0.0.1|443|o|p"}, resp.Data.Accounts[0].ProxyPoolKeys)
 }
 
 func TestExportDataWithoutProxies(t *testing.T) {
@@ -273,6 +276,14 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 			Password: "p",
 			Status:   service.StatusActive,
 		},
+		{
+			ID:       2,
+			Name:     "additional",
+			Protocol: "http",
+			Host:     "5.6.7.8",
+			Port:     8080,
+			Status:   service.StatusActive,
+		},
 	}
 
 	dataPayload := map[string]any{
@@ -290,16 +301,25 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 					"password":  "p",
 					"status":    "active",
 				},
+				{
+					"proxy_key": "http|5.6.7.8|8080||",
+					"name":      "additional",
+					"protocol":  "http",
+					"host":      "5.6.7.8",
+					"port":      8080,
+					"status":    "active",
+				},
 			},
 			"accounts": []map[string]any{
 				{
-					"name":        "acc",
-					"platform":    service.PlatformOpenAI,
-					"type":        service.AccountTypeOAuth,
-					"credentials": map[string]any{"token": "x"},
-					"proxy_key":   "socks5|1.2.3.4|1080|u|p",
-					"concurrency": 3,
-					"priority":    50,
+					"name":            "acc",
+					"platform":        service.PlatformOpenAI,
+					"type":            service.AccountTypeOAuth,
+					"credentials":     map[string]any{"token": "x"},
+					"proxy_key":       "socks5|1.2.3.4|1080|u|p",
+					"proxy_pool_keys": []string{"http|5.6.7.8|8080||"},
+					"concurrency":     3,
+					"priority":        50,
 				},
 			},
 		},
@@ -316,4 +336,5 @@ func TestImportDataReusesProxyAndSkipsDefaultGroup(t *testing.T) {
 	require.Len(t, adminSvc.createdProxies, 0)
 	require.Len(t, adminSvc.createdAccounts, 1)
 	require.True(t, adminSvc.createdAccounts[0].SkipDefaultGroupBind)
+	require.Equal(t, []int64{2}, adminSvc.createdAccounts[0].ProxyIDs)
 }

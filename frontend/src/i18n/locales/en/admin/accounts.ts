@@ -929,6 +929,28 @@ export default {
       expired: 'Expired',
       proxy: 'Proxy',
       noProxy: 'No Proxy',
+      primaryProxy: 'Primary Proxy',
+      proxyPoolSectionTitle: 'Multi-IP Egress',
+      proxyPoolSectionDescription: 'Assign one primary proxy and up to 20 additional proxies to this account.',
+      proxyPool: 'Additional Proxies',
+      proxyPoolEmpty: 'No additional proxies',
+      proxyPoolSelected: '{count} additional proxies selected',
+      proxyPoolNoOptions: 'No other proxies available. Add more proxies in IP Management first.',
+      proxyPoolClear: 'Clear additional proxies',
+      proxyPoolPrimaryRequired: 'Select a primary proxy first. If none are available, add one in IP Management.',
+      proxyPoolHint: 'The primary and additional proxies form the request egress pool. OAuth, tests, and quota probes always use the primary proxy.',
+      proxyEgressMode: 'Egress Strategy',
+      proxyStickyTTLMinutes: 'Session Stickiness (minutes)',
+      proxyEgressModes: {
+        sessionSticky: 'Sticky by session',
+        roundRobin: 'Round robin per request',
+        primary: 'Primary proxy only'
+      },
+      proxyEgressModeHints: {
+        session_sticky: 'The same account and session keep one egress. Requests without a session identifier fall back to round robin.',
+        round_robin: 'Each new request selects the next egress and keeps it until the request completes.',
+        primary: 'All business requests use the primary proxy; additional proxies remain idle.'
+      },
       concurrency: 'Concurrency',
       loadFactor: 'Load Factor',
       loadFactorHint: 'Higher load factor increases scheduling frequency',

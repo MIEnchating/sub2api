@@ -3124,6 +3124,7 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 
 	accountIDs := make([]int64, 0, len(accounts))
 	proxyIDs := make([]int64, 0, len(accounts))
+	proxyPoolIDsByAccount := make(map[int64][]int64, len(accounts))
 	for _, acc := range accounts {
 		accountIDs = append(accountIDs, acc.ID)
 		if acc.ProxyID != nil {
@@ -3131,6 +3132,11 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 		if acc.ProxyFallbackOriginID != nil {
 			proxyIDs = append(proxyIDs, *acc.ProxyFallbackOriginID)
+		}
+		poolIDs := service.ParseAccountProxyPoolIDs(acc.Extra)
+		if len(poolIDs) > 0 {
+			proxyPoolIDsByAccount[acc.ID] = poolIDs
+			proxyIDs = append(proxyIDs, poolIDs...)
 		}
 	}
 
@@ -3152,6 +3158,15 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {
 				out.Proxy = proxy
+			}
+		}
+		if poolIDs := proxyPoolIDsByAccount[acc.ID]; len(poolIDs) > 0 {
+			out.ProxyIDs = append([]int64(nil), poolIDs...)
+			out.ProxyPool = make([]*service.Proxy, 0, len(poolIDs))
+			for _, proxyID := range poolIDs {
+				if proxy, ok := proxyMap[proxyID]; ok {
+					out.ProxyPool = append(out.ProxyPool, proxy)
+				}
 			}
 		}
 		out.ProxyFallbackOriginID = acc.ProxyFallbackOriginID

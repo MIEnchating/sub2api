@@ -212,6 +212,14 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
   })
 
+  it('shows multi-IP egress settings for OAuth account creation', async () => {
+    const wrapper = mountModal()
+    await flushPromises()
+
+    expect(wrapper.find('[data-testid="multi-ip-egress-section"]').exists()).toBe(true)
+    expect(wrapper.text()).toContain('admin.accounts.proxyPoolPrimaryRequired')
+  })
+
   it('hides only the redundant account toggle when every selected group enables tier pricing', async () => {
     authIsSimpleMode.value = false
     const wrapper = mountModal([

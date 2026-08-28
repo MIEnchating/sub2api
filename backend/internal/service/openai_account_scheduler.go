@@ -2159,6 +2159,7 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	ctx = withAccountEgressSessionHash(ctx, sessionHash)
 	groupID = riskRoutingGroupID(ctx, groupID)
 	platform = riskRoutingPlatform(ctx, platform)
 	if accountID, ok := riskRoutingAccountID(ctx); ok {

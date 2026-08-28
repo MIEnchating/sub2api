@@ -2884,12 +2884,59 @@
         </div>
       </div>
 
-      <div>
+      <div
+        class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
+        data-testid="multi-ip-egress-section"
+      >
+        <div class="mb-4">
+          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
+            {{ t('admin.accounts.proxyPoolSectionTitle') }}
+          </h3>
+          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+            {{ t('admin.accounts.proxyPoolSectionDescription') }}
+          </p>
+        </div>
         <div class="mb-1 flex items-center gap-2">
-          <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
+          <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
           <ProxyAdBanner />
         </div>
         <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+        <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+          <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
+          <ProxyPoolSelector
+            v-model="form.proxy_ids"
+            :proxies="proxies"
+            :primary-proxy-id="form.proxy_id"
+            :disabled="form.proxy_id === null"
+          />
+          <p class="input-hint">
+            {{
+              form.proxy_id === null
+                ? t('admin.accounts.proxyPoolPrimaryRequired')
+                : t('admin.accounts.proxyPoolHint')
+            }}
+          </p>
+        </div>
+        <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+          <div>
+            <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
+            <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
+          </div>
+          <div v-if="form.proxy_egress_mode === 'session_sticky'">
+            <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
+            <input
+              v-model.number="form.proxy_sticky_ttl_minutes"
+              type="number"
+              min="1"
+              max="10080"
+              class="input"
+              @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))"
+            />
+          </div>
+        </div>
+        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+          {{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}
+        </p>
       </div>
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -3787,6 +3834,7 @@ import Select from '@/components/common/Select.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
+import ProxyPoolSelector from '@/components/common/ProxyPoolSelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
@@ -4499,6 +4547,9 @@ const form = reactive({
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
   proxy_id: null as number | null,
+  proxy_ids: [] as number[],
+  proxy_egress_mode: 'session_sticky' as 'session_sticky' | 'round_robin' | 'primary',
+  proxy_sticky_ttl_minutes: 120,
   concurrency: 10,
   load_factor: null as number | null,
   priority: 1,
@@ -4506,6 +4557,23 @@ const form = reactive({
   group_ids: [] as number[],
   expires_at: null as number | null
 })
+
+const proxyEgressModeOptions = computed(() => [
+  { value: 'session_sticky', label: t('admin.accounts.proxyEgressModes.sessionSticky') },
+  { value: 'round_robin', label: t('admin.accounts.proxyEgressModes.roundRobin') },
+  { value: 'primary', label: t('admin.accounts.proxyEgressModes.primary') }
+])
+
+watch(
+  () => form.proxy_id,
+  (primaryProxyID) => {
+    if (primaryProxyID === null) {
+      form.proxy_ids = []
+      return
+    }
+    form.proxy_ids = form.proxy_ids.filter((id) => id !== primaryProxyID)
+  }
+)
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
@@ -5071,6 +5139,9 @@ const resetForm = () => {
   form.type = 'oauth'
   form.credentials = {}
   form.proxy_id = null
+  form.proxy_ids = []
+  form.proxy_egress_mode = 'session_sticky'
+  form.proxy_sticky_ttl_minutes = 120
   form.concurrency = 10
   form.load_factor = null
   form.priority = 1
@@ -5297,6 +5368,14 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
+  const extra: Record<string, unknown> = { ...(payload.extra || {}) }
+  extra.proxy_egress_mode = form.proxy_egress_mode
+  if (form.proxy_egress_mode === 'session_sticky') {
+    extra.proxy_sticky_ttl_seconds = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120)) * 60
+  } else {
+    delete extra.proxy_sticky_ttl_seconds
+  }
+  payload.extra = extra
   const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
     await submitCreateAccount(payload)
   })
@@ -5752,6 +5831,7 @@ const createAccountAndFinish = async (
     credentials,
     extra: finalExtra,
     proxy_id: form.proxy_id,
+    proxy_ids: form.proxy_ids,
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
