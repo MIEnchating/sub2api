@@ -3,6 +3,7 @@ import { apiClient } from '../client'
 export type ModerationMode = 'off' | 'observe' | 'pre_block'
 export type KeywordBlockingMode = 'keyword_only' | 'keyword_and_api' | 'api_only'
 export type ContentModerationModelFilterType = 'all' | 'include' | 'exclude'
+export type RiskHitAction = 'block' | 'route_group' | 'route_account'
 
 export interface ContentModerationModelFilter {
   type: ContentModerationModelFilterType
@@ -30,6 +31,9 @@ export interface ContentModerationConfig {
   queue_size: number
   block_status: number
   block_message: string
+  hit_action: RiskHitAction
+  route_group_id: number | null
+  route_account_id: number | null
   email_on_hit: boolean
   auto_ban_enabled: boolean
   ban_threshold: number
@@ -110,6 +114,9 @@ export interface UpdateContentModerationConfig {
   queue_size?: number
   block_status?: number
   block_message?: string
+  hit_action?: RiskHitAction
+  route_group_id?: number
+  route_account_id?: number
   email_on_hit?: boolean
   auto_ban_enabled?: boolean
   ban_threshold?: number

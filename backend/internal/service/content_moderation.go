@@ -176,6 +176,9 @@ type ContentModerationConfig struct {
 	QueueSize            int                          `json:"queue_size"`
 	BlockStatus          int                          `json:"block_status"`
 	BlockMessage         string                       `json:"block_message"`
+	HitAction            string                       `json:"hit_action"`
+	RouteGroupID         *int64                       `json:"route_group_id,omitempty"`
+	RouteAccountID       *int64                       `json:"route_account_id,omitempty"`
 	EmailOnHit           bool                         `json:"email_on_hit"`
 	AutoBanEnabled       bool                         `json:"auto_ban_enabled"`
 	BanThreshold         int                          `json:"ban_threshold"`
@@ -214,6 +217,9 @@ type ContentModerationConfigView struct {
 	QueueSize                      int                             `json:"queue_size"`
 	BlockStatus                    int                             `json:"block_status"`
 	BlockMessage                   string                          `json:"block_message"`
+	HitAction                      string                          `json:"hit_action"`
+	RouteGroupID                   *int64                          `json:"route_group_id"`
+	RouteAccountID                 *int64                          `json:"route_account_id"`
 	EmailOnHit                     bool                            `json:"email_on_hit"`
 	AutoBanEnabled                 bool                            `json:"auto_ban_enabled"`
 	BanThreshold                   int                             `json:"ban_threshold"`
@@ -306,6 +312,9 @@ type UpdateContentModerationConfigInput struct {
 	QueueSize                      *int                          `json:"queue_size"`
 	BlockStatus                    *int                          `json:"block_status"`
 	BlockMessage                   *string                       `json:"block_message"`
+	HitAction                      *string                       `json:"hit_action"`
+	RouteGroupID                   *int64                        `json:"route_group_id"`
+	RouteAccountID                 *int64                        `json:"route_account_id"`
 	EmailOnHit                     *bool                         `json:"email_on_hit"`
 	AutoBanEnabled                 *bool                         `json:"auto_ban_enabled"`
 	BanThreshold                   *int                          `json:"ban_threshold"`
@@ -630,6 +639,36 @@ func (s *ContentModerationService) GetConfig(ctx context.Context) (*ContentModer
 	return s.configView(cfg), nil
 }
 
+// RiskHitRoutingTarget returns the configured post-audit routing action. A
+// missing or stale target is rejected later by the scheduler (fail closed).
+func (s *ContentModerationService) RiskHitRoutingTarget(ctx context.Context) (RiskRoutingTarget, bool) {
+	if s == nil {
+		return RiskRoutingTarget{}, false
+	}
+	snapshot, err := s.loadRuntimeSnapshot(ctx)
+	if err != nil || snapshot == nil || snapshot.config == nil {
+		return RiskRoutingTarget{}, false
+	}
+	cfg := snapshot.config
+	switch cfg.HitAction {
+	case RiskHitActionRouteGroup:
+		if cfg.RouteGroupID != nil && *cfg.RouteGroupID > 0 {
+			target := RiskRoutingTarget{Action: cfg.HitAction, GroupID: *cfg.RouteGroupID}
+			if s.groupRepo != nil {
+				if group, err := s.groupRepo.GetByIDLite(ctx, *cfg.RouteGroupID); err == nil && group != nil {
+					target.Platform = group.Platform
+				}
+			}
+			return target, true
+		}
+	case RiskHitActionRouteAccount:
+		if cfg.RouteAccountID != nil && *cfg.RouteAccountID > 0 {
+			return RiskRoutingTarget{Action: cfg.HitAction, AccountID: *cfg.RouteAccountID}, true
+		}
+	}
+	return RiskRoutingTarget{}, false
+}
+
 func (s *ContentModerationService) UpdateConfig(ctx context.Context, input UpdateContentModerationConfigInput) (*ContentModerationConfigView, error) {
 	cfg, err := s.loadConfig(ctx)
 	if err != nil {
@@ -672,6 +711,25 @@ func (s *ContentModerationService) UpdateConfig(ctx context.Context, input Updat
 	}
 	if input.BlockMessage != nil {
 		cfg.BlockMessage = strings.TrimSpace(*input.BlockMessage)
+	}
+	if input.HitAction != nil {
+		cfg.HitAction = strings.TrimSpace(*input.HitAction)
+	}
+	if input.RouteGroupID != nil {
+		if *input.RouteGroupID > 0 {
+			id := *input.RouteGroupID
+			cfg.RouteGroupID = &id
+		} else {
+			cfg.RouteGroupID = nil
+		}
+	}
+	if input.RouteAccountID != nil {
+		if *input.RouteAccountID > 0 {
+			id := *input.RouteAccountID
+			cfg.RouteAccountID = &id
+		} else {
+			cfg.RouteAccountID = nil
+		}
 	}
 	if input.EmailOnHit != nil {
 		cfg.EmailOnHit = *input.EmailOnHit
@@ -1688,6 +1746,24 @@ func (s *ContentModerationService) validateConfig(ctx context.Context, cfg *Cont
 	if cfg.BlockStatus < 400 || cfg.BlockStatus > 599 {
 		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_BLOCK_STATUS", "拦截 HTTP 状态码必须在 400-599 之间")
 	}
+	switch cfg.HitAction {
+	case RiskHitActionBlock:
+	case RiskHitActionRouteGroup:
+		if cfg.RouteGroupID == nil {
+			return infraerrors.BadRequest("INVALID_RISK_ROUTE_GROUP", "路由到分组时必须选择目标分组")
+		}
+		if s.groupRepo != nil {
+			if _, err := s.groupRepo.GetByIDLite(ctx, *cfg.RouteGroupID); err != nil {
+				return infraerrors.BadRequest("INVALID_RISK_ROUTE_GROUP", fmt.Sprintf("风险路由分组不存在: %d", *cfg.RouteGroupID))
+			}
+		}
+	case RiskHitActionRouteAccount:
+		if cfg.RouteAccountID == nil {
+			return infraerrors.BadRequest("INVALID_RISK_ROUTE_ACCOUNT", "路由到账号时必须选择目标账号")
+		}
+	default:
+		return infraerrors.BadRequest("INVALID_RISK_HIT_ACTION", "风险命中动作无效")
+	}
 	if cfg.ModelFilter.Type != ContentModerationModelFilterAll && len(cfg.ModelFilter.Models) == 0 {
 		return infraerrors.BadRequest("INVALID_CONTENT_MODERATION_MODEL_FILTER", "指定或排除模型时至少需要配置 1 个模型")
 	}
@@ -2320,6 +2396,7 @@ func defaultContentModerationConfig() *ContentModerationConfig {
 		QueueSize:            defaultContentModerationQueueSize,
 		BlockStatus:          defaultContentModerationBlockHTTPStatus,
 		BlockMessage:         defaultContentModerationBlockMessage,
+		HitAction:            RiskHitActionBlock,
 		EmailOnHit:           true,
 		AutoBanEnabled:       true,
 		BanThreshold:         defaultContentModerationBanThreshold,
@@ -2344,6 +2421,8 @@ func cloneContentModerationConfig(cfg *ContentModerationConfig) *ContentModerati
 	}
 	clone := *cfg
 	clone.ProxyID = cloneInt64Ptr(cfg.ProxyID)
+	clone.RouteGroupID = cloneInt64Ptr(cfg.RouteGroupID)
+	clone.RouteAccountID = cloneInt64Ptr(cfg.RouteAccountID)
 	clone.APIKeys = append([]string(nil), cfg.APIKeys...)
 	clone.GroupIDs = append([]int64(nil), cfg.GroupIDs...)
 	clone.BlockedKeywords = append([]string(nil), cfg.BlockedKeywords...)
@@ -2404,6 +2483,16 @@ func (cfg *ContentModerationConfig) normalize() {
 		cfg.BlockMessage = defaultContentModerationBlockMessage
 	}
 	cfg.BlockMessage = strings.TrimSpace(cfg.BlockMessage)
+	cfg.HitAction = strings.TrimSpace(cfg.HitAction)
+	if cfg.HitAction == "" {
+		cfg.HitAction = RiskHitActionBlock
+	}
+	if cfg.RouteGroupID != nil && *cfg.RouteGroupID <= 0 {
+		cfg.RouteGroupID = nil
+	}
+	if cfg.RouteAccountID != nil && *cfg.RouteAccountID <= 0 {
+		cfg.RouteAccountID = nil
+	}
 	if cfg.BlockStatus <= 0 {
 		cfg.BlockStatus = defaultContentModerationBlockHTTPStatus
 	}
@@ -2655,6 +2744,9 @@ func (s *ContentModerationService) configView(cfg *ContentModerationConfig) *Con
 		QueueSize:                      cfg.QueueSize,
 		BlockStatus:                    cfg.BlockStatus,
 		BlockMessage:                   cfg.BlockMessage,
+		HitAction:                      cfg.HitAction,
+		RouteGroupID:                   cloneInt64Ptr(cfg.RouteGroupID),
+		RouteAccountID:                 cloneInt64Ptr(cfg.RouteAccountID),
 		EmailOnHit:                     cfg.EmailOnHit,
 		AutoBanEnabled:                 cfg.AutoBanEnabled,
 		BanThreshold:                   cfg.BanThreshold,

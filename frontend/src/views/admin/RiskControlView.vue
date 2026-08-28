@@ -868,6 +868,48 @@
 
           <div v-else-if="activeSettingsTab === 'response'" class="space-y-5">
             <div class="grid grid-cols-1 gap-5 lg:grid-cols-2">
+              <div class="space-y-3 lg:col-span-2">
+                <div>
+                  <label class="input-label">{{ t('admin.riskControl.hitAction') }}</label>
+                  <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.riskControl.hitActionHint') }}</p>
+                </div>
+                <div class="grid grid-cols-1 gap-2 sm:grid-cols-3">
+                  <button
+                    v-for="option in riskHitActionOptions"
+                    :key="option.value"
+                    type="button"
+                    class="min-h-20 rounded-lg border px-4 py-3 text-left transition-colors"
+                    :class="configForm.hit_action === option.value ? 'border-primary-400 bg-primary-50 text-primary-800 dark:border-primary-600 dark:bg-primary-900/20 dark:text-primary-200' : 'border-gray-200 text-gray-700 hover:bg-gray-50 dark:border-dark-600 dark:text-gray-300 dark:hover:bg-dark-700'"
+                    @click="configForm.hit_action = option.value"
+                  >
+                    <span class="block text-sm font-semibold">{{ option.label }}</span>
+                    <span class="mt-1 block text-xs leading-5 opacity-75">{{ option.description }}</span>
+                  </button>
+                </div>
+              </div>
+              <div v-if="configForm.hit_action === 'route_group'" class="lg:col-span-2">
+                <label class="input-label">{{ t('admin.riskControl.routeGroup') }}</label>
+                <Select
+                  v-model="configForm.route_group_id"
+                  :options="riskRouteGroupOptions"
+                  :placeholder="t('admin.riskControl.routeGroupPlaceholder')"
+                  searchable
+                />
+              </div>
+              <div v-if="configForm.hit_action === 'route_account'" class="lg:col-span-2">
+                <label class="input-label">{{ t('admin.riskControl.routeAccount') }}</label>
+                <Select
+                  v-model="configForm.route_account_id"
+                  :options="riskRouteAccountOptions"
+                  :placeholder="t('admin.riskControl.routeAccountPlaceholder')"
+                  remote
+                  :loading="riskRouteAccountsLoading"
+                  @search="loadRiskRouteAccounts"
+                />
+              </div>
+              <p v-if="configForm.hit_action !== 'block'" class="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-800 dark:border-amber-900/50 dark:bg-amber-900/20 dark:text-amber-200 lg:col-span-2">
+                {{ t('admin.riskControl.routeFailClosedHint') }}
+              </p>
               <div>
                 <label class="input-label">{{ t('admin.riskControl.blockStatus') }}</label>
                 <input v-model.number="configForm.block_status" type="number" min="400" max="599" class="input" />
@@ -1142,9 +1184,10 @@ import type {
   ContentModerationTestAuditResult,
   KeywordBlockingMode,
   ModerationMode,
+  RiskHitAction,
   UpdateContentModerationConfig,
 } from '@/api/admin/riskControl'
-import type { AdminGroup, Proxy, SelectOption } from '@/types'
+import type { Account, AdminGroup, Proxy, SelectOption } from '@/types'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { formatDateTime as formatDateTimeValue } from '@/utils/format'
@@ -1213,6 +1256,9 @@ const groupSearch = ref('')
 const flaggedHashInput = ref('')
 const groups = ref<AdminGroup[]>([])
 const proxies = ref<Proxy[]>([])
+const riskRouteAccounts = ref<Account[]>([])
+const riskRoutePinnedAccount = ref<Account | null>(null)
+const riskRouteAccountsLoading = ref(false)
 const logs = ref<ContentModerationLog[]>([])
 const status = ref<ContentModerationRuntimeStatus | null>(null)
 const testedApiKeyStatuses = ref<ContentModerationAPIKeyStatus[]>([])
@@ -1223,6 +1269,8 @@ const moderationTestImages = ref<string[]>([])
 const moderationTestResult = ref<ContentModerationTestAuditResult | null>(null)
 const inputDetailRow = ref<ContentModerationLog | null>(null)
 let statusTimer: number | null = null
+let riskRouteAccountSearchSeq = 0
+let riskRouteAccountSearchAbort: AbortController | null = null
 
 const configForm = reactive({
   enabled: false,
@@ -1248,6 +1296,9 @@ const configForm = reactive({
   queue_size: 32768,
   block_status: 403,
   block_message: defaultBlockMessage(),
+  hit_action: 'block' as RiskHitAction,
+  route_group_id: null as number | null,
+  route_account_id: null as number | null,
   email_on_hit: true,
   auto_ban_enabled: true,
   cyber_policy_exclude_from_ban_count: false,
@@ -1293,6 +1344,24 @@ const modeOptions = computed<SelectOption[]>(() => [
   { value: 'pre_block', label: t('admin.riskControl.modePreBlock') },
   { value: 'observe', label: t('admin.riskControl.modeObserve') },
   { value: 'off', label: t('admin.riskControl.modeOff') },
+])
+
+const riskHitActionOptions = computed<Array<{ value: RiskHitAction; label: string; description: string }>>(() => [
+  {
+    value: 'block',
+    label: t('admin.riskControl.hitActionBlock'),
+    description: t('admin.riskControl.hitActionBlockDesc'),
+  },
+  {
+    value: 'route_group',
+    label: t('admin.riskControl.hitActionRouteGroup'),
+    description: t('admin.riskControl.hitActionRouteGroupDesc'),
+  },
+  {
+    value: 'route_account',
+    label: t('admin.riskControl.hitActionRouteAccount'),
+    description: t('admin.riskControl.hitActionRouteAccountDesc'),
+  },
 ])
 
 const keywordBlockingModeOptions = computed<Array<{ value: KeywordBlockingMode; label: string; description: string }>>(() => [
@@ -1410,6 +1479,23 @@ const groupFilterOptions = computed<SelectOption[]>(() => [
     label: `${group.name} (${group.platform})`,
   })),
 ])
+
+const riskRouteGroupOptions = computed<SelectOption[]>(() => groups.value.map((group) => ({
+  value: group.id,
+  label: `${group.name} (${group.platform})`,
+})))
+
+const riskRouteAccountOptions = computed<SelectOption[]>(() => {
+  const options = riskRouteAccounts.value.map((account) => ({
+    value: account.id,
+    label: `${account.name} (#${account.id}, ${account.platform})`,
+  }))
+  const pinned = riskRoutePinnedAccount.value
+  if (pinned && pinned.id === configForm.route_account_id && !riskRouteAccounts.value.some((account) => account.id === pinned.id)) {
+    options.unshift({ value: pinned.id, label: `${pinned.name} (#${pinned.id}, ${pinned.platform})` })
+  }
+  return options
+})
 
 const selectedGroupCount = computed(() => String(configForm.group_ids.length))
 
@@ -1726,6 +1812,9 @@ function applyConfig(config: ContentModerationConfig) {
   configForm.queue_size = config.queue_size || 32768
   configForm.block_status = config.block_status || 403
   configForm.block_message = config.block_message || defaultBlockMessage()
+  configForm.hit_action = config.hit_action || 'block'
+  configForm.route_group_id = config.route_group_id || null
+  configForm.route_account_id = config.route_account_id || null
   configForm.email_on_hit = config.email_on_hit ?? true
   configForm.auto_ban_enabled = config.auto_ban_enabled ?? true
   configForm.cyber_policy_exclude_from_ban_count = config.cyber_policy_exclude_from_ban_count ?? false
@@ -1742,6 +1831,40 @@ function applyConfig(config: ContentModerationConfig) {
   configForm.model_filter_models = modelFilter.models
 }
 
+async function loadRiskRouteAccounts(search = '') {
+  const seq = ++riskRouteAccountSearchSeq
+  riskRouteAccountSearchAbort?.abort()
+  const controller = new AbortController()
+  riskRouteAccountSearchAbort = controller
+  riskRouteAccountsLoading.value = true
+  try {
+    const result = await adminAPI.accounts.list(
+      1,
+      50,
+      search ? { search } : undefined,
+      { signal: controller.signal },
+    )
+    if (seq !== riskRouteAccountSearchSeq) return
+    riskRouteAccounts.value = result.items || []
+    const selectedID = configForm.route_account_id
+    if (selectedID && !riskRouteAccounts.value.some((account) => account.id === selectedID) && riskRoutePinnedAccount.value?.id !== selectedID) {
+      try {
+        riskRoutePinnedAccount.value = await adminAPI.accounts.getById(selectedID)
+      } catch {
+        riskRoutePinnedAccount.value = null
+      }
+    }
+  } catch {
+    if (!controller.signal.aborted && !search) {
+      riskRouteAccounts.value = []
+    }
+  } finally {
+    if (seq === riskRouteAccountSearchSeq) {
+      riskRouteAccountsLoading.value = false
+    }
+  }
+}
+
 async function loadAll() {
   loading.value = true
   try {
@@ -1756,6 +1879,7 @@ async function loadAll() {
     groups.value = groupItems
     status.value = runtimeStatus
     proxies.value = proxyItems
+    await loadRiskRouteAccounts()
     if (Array.isArray(runtimeStatus.api_key_statuses)) {
       configForm.api_key_statuses = [...runtimeStatus.api_key_statuses]
       prunePendingDeleteAPIKeyHashes()
@@ -1794,6 +1918,14 @@ async function saveConfig() {
       appStore.showError(t('admin.riskControl.modelFilterModelsRequired'))
       return
     }
+    if (configForm.hit_action === 'route_group' && !configForm.route_group_id) {
+      appStore.showError(t('admin.riskControl.routeGroupRequired'))
+      return
+    }
+    if (configForm.hit_action === 'route_account' && !configForm.route_account_id) {
+      appStore.showError(t('admin.riskControl.routeAccountRequired'))
+      return
+    }
     const payload: UpdateContentModerationConfig = {
       enabled: configForm.enabled,
       mode: configForm.mode,
@@ -1812,6 +1944,9 @@ async function saveConfig() {
       queue_size: Number(configForm.queue_size) || 32768,
       block_status: Number(configForm.block_status) || 403,
       block_message: configForm.block_message || defaultBlockMessage(),
+      hit_action: configForm.hit_action,
+      route_group_id: configForm.route_group_id ?? 0,
+      route_account_id: configForm.route_account_id ?? 0,
       email_on_hit: configForm.email_on_hit,
       auto_ban_enabled: configForm.auto_ban_enabled,
       cyber_policy_exclude_from_ban_count: configForm.cyber_policy_exclude_from_ban_count,
@@ -2366,6 +2501,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  riskRouteAccountSearchAbort?.abort()
   if (statusTimer !== null) {
     window.clearInterval(statusTimer)
     statusTimer = null

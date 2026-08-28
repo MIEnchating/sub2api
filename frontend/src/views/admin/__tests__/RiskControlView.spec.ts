@@ -13,6 +13,8 @@ const {
   listLogs,
   getGroups,
   getProxies,
+  listAccounts,
+  getAccountById,
   showError,
   showSuccess,
 } = vi.hoisted(() => ({
@@ -22,6 +24,8 @@ const {
   listLogs: vi.fn(),
   getGroups: vi.fn(),
   getProxies: vi.fn(),
+  listAccounts: vi.fn(),
+  getAccountById: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
 }))
@@ -43,6 +47,10 @@ vi.mock('@/api/admin', () => ({
     },
     proxies: {
       getAll: getProxies,
+    },
+    accounts: {
+      list: listAccounts,
+      getById: getAccountById,
     },
   },
 }))
@@ -93,6 +101,9 @@ const baseConfig = (): ContentModerationConfig => ({
   queue_size: 32768,
   block_status: 403,
   block_message: '内容审计命中风险规则，请调整输入后重试',
+  hit_action: 'block',
+  route_group_id: null,
+  route_account_id: null,
   email_on_hit: true,
   auto_ban_enabled: true,
   ban_threshold: 10,
@@ -111,6 +122,7 @@ const baseConfig = (): ContentModerationConfig => ({
     type: 'all',
     models: [],
   },
+  cyber_policy_exclude_from_ban_count: false,
 })
 
 const runtimeStatus = () => ({
@@ -197,6 +209,9 @@ describe('admin RiskControlView', () => {
     getStatus.mockReset()
     listLogs.mockReset()
     getGroups.mockReset()
+    getProxies.mockReset()
+    listAccounts.mockReset()
+    getAccountById.mockReset()
     showError.mockReset()
     showSuccess.mockReset()
 
@@ -205,6 +220,7 @@ describe('admin RiskControlView', () => {
     listLogs.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
     getGroups.mockResolvedValue([])
     getProxies.mockResolvedValue([])
+    listAccounts.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 50, pages: 0 })
     updateConfig.mockImplementation(async (payload: UpdateContentModerationConfig) => ({
       ...baseConfig(),
       ...payload,

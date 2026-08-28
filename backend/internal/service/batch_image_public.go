@@ -935,12 +935,27 @@ func maxBatchImageReferenceImagesForModel(model string) int {
 
 func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, owner BatchImageOwner, requestedProvider, model string) (BatchImageProvider, *Account, error) {
 	providers := batchImageProviderSelectionOrder(requestedProvider)
+	selectionGroupID := riskRoutingGroupID(ctx, owner.GroupID)
+	riskAccountID, forceRiskAccount := riskRoutingAccountID(ctx)
 	for _, providerName := range providers {
 		provider, ok := s.ProviderRegistry.Get(providerName)
 		if !ok || provider == nil {
 			continue
 		}
-		accounts, err := s.listCandidateAccounts(ctx, owner.GroupID, batchImageProviderPlatform(providerName))
+		var accounts []Account
+		var err error
+		if forceRiskAccount {
+			if s.AccountRepo == nil {
+				return nil, nil, ErrBatchImageNoAccountAvailable
+			}
+			account, getErr := s.AccountRepo.GetByID(ctx, riskAccountID)
+			if getErr != nil || account == nil {
+				return nil, nil, ErrBatchImageNoAccountAvailable
+			}
+			accounts = []Account{*account}
+		} else {
+			accounts, err = s.listCandidateAccounts(ctx, selectionGroupID, batchImageProviderPlatform(providerName))
+		}
 		if err != nil {
 			return nil, nil, err
 		}
@@ -952,7 +967,7 @@ func (s *BatchImagePublicService) selectProviderAndAccount(ctx context.Context, 
 		})
 		for i := range accounts {
 			account := accounts[i]
-			if !account.IsSchedulable() || !account.IsModelSupported(model) {
+			if account.Platform != batchImageProviderPlatform(providerName) || !account.IsSchedulable() || !account.IsModelSupported(model) {
 				continue
 			}
 			if provider.SupportsAccount(&account) {

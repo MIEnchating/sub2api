@@ -32,6 +32,7 @@ func (s *GatewayService) SelectAccountForModel(ctx context.Context, groupID *int
 
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	groupID = riskRoutingGroupID(ctx, groupID)
 	// 优先检查 context 中的强制平台（/antigravity 路由）
 	var platform string
 	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
@@ -65,6 +66,9 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 		platform = PlatformAnthropic
 	}
 	ctx = s.withGatewayProfitControlGate(ctx, groupID)
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		return s.selectRiskRoutedGatewayAccount(ctx, accountID, groupID, platform, requestedModel, excludedIDs)
+	}
 
 	// Claude Code 限制可能已将 groupID 解析为 fallback group，
 	// 渠道限制预检查必须使用解析后的分组。
@@ -98,6 +102,7 @@ func (s *GatewayService) SelectAccountForModelWithExclusions(ctx context.Context
 // metadataUserID: 用于客户端亲和调度，从中提取客户端 ID
 // sub2apiUserID: 系统用户 ID，用于二维亲和调度
 func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, metadataUserID string, sub2apiUserID int64) (*AccountSelectionResult, error) {
+	groupID = riskRoutingGroupID(ctx, groupID)
 	// 调试日志：记录调度入口参数
 	excludedIDsList := make([]int64, 0, len(excludedIDs))
 	for id := range excludedIDs {
@@ -214,6 +219,27 @@ func (s *GatewayService) SelectAccountWithLoadAwareness(ctx context.Context, gro
 	platform, hasForcePlatform, err := s.resolvePlatform(ctx, groupID, group, requestedModel)
 	if err != nil {
 		return nil, err
+	}
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		account, selectErr := s.selectRiskRoutedGatewayAccount(ctx, accountID, groupID, platform, requestedModel, excludedIDs)
+		if selectErr != nil {
+			return nil, selectErr
+		}
+		result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+		if acquireErr == nil && result != nil && result.Acquired {
+			if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+				result.ReleaseFunc()
+				return nil, fmt.Errorf("%w: risk-routed account session limit reached", ErrNoAvailableAccounts)
+			}
+			return s.newSelectionResult(ctx, account, true, result.ReleaseFunc, nil)
+		}
+		if !s.checkAndRegisterSession(ctx, account, sessionHash) {
+			return nil, fmt.Errorf("%w: risk-routed account session limit reached", ErrNoAvailableAccounts)
+		}
+		return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+			AccountID: account.ID, MaxConcurrency: account.Concurrency,
+			Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,
+		})
 	}
 	preferOAuth := platform == PlatformGemini
 	if s.debugModelRoutingEnabled() && platform == PlatformAnthropic && requestedModel != "" {
@@ -1090,6 +1116,41 @@ func (s *GatewayService) isAccountAllowedForPlatform(account *Account, platform 
 		return account.Platform == PlatformAntigravity && account.IsMixedSchedulingEnabled()
 	}
 	return account.Platform == platform
+}
+
+func (s *GatewayService) selectRiskRoutedGatewayAccount(ctx context.Context, accountID int64, groupID *int64, platform, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
+	if accountID <= 0 {
+		return nil, fmt.Errorf("%w: risk route target is invalid", ErrNoAvailableAccounts)
+	}
+	if _, excluded := excludedIDs[accountID]; excluded {
+		return nil, fmt.Errorf("%w: risk route target failed", ErrNoAvailableAccounts)
+	}
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, fmt.Errorf("%w: risk route target is unavailable", ErrNoAvailableAccounts)
+	}
+	forcePlatform, hasForcePlatform := ctx.Value(ctxkey.ForcePlatform).(string)
+	hasForcePlatform = hasForcePlatform && forcePlatform != ""
+	useMixed := (platform == PlatformAnthropic || platform == PlatformGemini) && !hasForcePlatform
+	if !s.isAccountAllowedForPlatform(account, platform, useMixed) ||
+		!s.isAccountSchedulableForSelection(account) ||
+		!s.isGatewayAccountProfitEligible(ctx, account) ||
+		(requestedModel != "" && !s.isModelSupportedByAccountWithContext(ctx, account, requestedModel)) ||
+		!s.isAccountSchedulableForModelSelection(ctx, account, requestedModel) ||
+		!s.isAccountSchedulableForQuota(account) ||
+		!s.isAccountSchedulableForWindowCost(ctx, account, false) ||
+		!s.isAccountSchedulableForRPM(ctx, account, false) {
+		return nil, fmt.Errorf("%w: risk route target is incompatible with this request", ErrNoAvailableAccounts)
+	}
+	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) && s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel) {
+		return nil, fmt.Errorf("%w: risk route target is restricted for this model", ErrNoAvailableAccounts)
+	}
+	if groupID != nil && s.groupRepo != nil {
+		if group, groupErr := s.groupRepo.GetByID(ctx, *groupID); groupErr == nil && group != nil && group.RequirePrivacySet && !account.IsPrivacySet() {
+			return nil, fmt.Errorf("%w: risk route target does not satisfy group privacy requirements", ErrNoAvailableAccounts)
+		}
+	}
+	return s.hydrateSelectedAccount(ctx, account)
 }
 
 func (s *GatewayService) isAccountSchedulableForSelection(account *Account) bool {

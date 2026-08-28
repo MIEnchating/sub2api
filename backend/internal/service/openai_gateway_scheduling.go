@@ -235,6 +235,9 @@ func (s *OpenAIGatewayService) BindStickySession(ctx context.Context, groupID *i
 	if sessionHash == "" || accountID <= 0 {
 		return nil
 	}
+	if _, riskRouted := RiskRoutingTargetFromContext(ctx); riskRouted {
+		return nil
+	}
 	ttl := openaiStickySessionTTL
 	if s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds > 0 {
 		ttl = time.Duration(s.cfg.Gateway.OpenAIWS.StickySessionTTLSeconds) * time.Second
@@ -255,7 +258,15 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 // SelectAccountForModelWithExclusions selects an account supporting the requested model while excluding specified accounts.
 // SelectAccountForModelWithExclusions 选择支持指定模型的账号，同时排除指定的账号。
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
-	return s.selectAccountForModelWithExclusions(s.withOpenAIQuotaAutoPauseContext(ctx), groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
+	groupID = riskRoutingGroupID(ctx, groupID)
+	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
+	platform := riskRoutingPlatform(ctx, PlatformOpenAI)
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		return s.selectRiskRoutedOpenAIAccount(ctx, accountID, groupID, platform, requestedModel, excludedIDs, false, "", "", OpenAIUpstreamTransportAny)
+	}
+	return s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
 }
 
 // SelectAccountForTokenCount selects an account for a non-billable token-count
@@ -269,8 +280,14 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	requiredCapability OpenAIEndpointCapability,
 	platform string,
 ) (*Account, error) {
+	groupID = riskRoutingGroupID(ctx, groupID)
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+	platform = riskRoutingPlatform(ctx, platform)
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		return s.selectRiskRoutedOpenAIAccount(ctx, accountID, groupID, platform, requestedModel, nil, false, requiredCapability, "", OpenAIUpstreamTransportAny)
+	}
 	return s.selectAccountForModelWithExclusions(
 		ctx,
 		groupID,
@@ -1106,12 +1123,17 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
+	groupID = riskRoutingGroupID(ctx, groupID)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：legacy 公共入口同样装门，保证不经
 	// selectAccountWithScheduler 的调用方也无法绕过利润准入。
 	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
-	return s.selectAccountWithLoadAwareness(ctx, groupID, PlatformOpenAI, sessionHash, requestedModel, excludedIDs, false, "", true)
+	platform := riskRoutingPlatform(ctx, PlatformOpenAI)
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		return s.selectRiskRoutedOpenAIAccountWithSlot(ctx, accountID, groupID, platform, requestedModel, excludedIDs, false, "", "", OpenAIUpstreamTransportAny)
+	}
+	return s.selectAccountWithLoadAwareness(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, "", true)
 }
 
 func (s *OpenAIGatewayService) selectAccountWithLoadAwareness(ctx context.Context, groupID *int64, platform string, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}, requireCompact bool, requiredCapability OpenAIEndpointCapability, useUpstreamTokenCost bool) (*AccountSelectionResult, error) {
@@ -1507,6 +1529,71 @@ func (s *OpenAIGatewayService) listSchedulableAccounts(ctx context.Context, grou
 		accounts = s.filterGrokFreeQuotaAccountsForOpenAI(ctx, accounts)
 	}
 	return accounts, nil
+}
+
+func (s *OpenAIGatewayService) selectRiskRoutedOpenAIAccount(
+	ctx context.Context,
+	accountID int64,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requireCompact bool,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requiredTransport OpenAIUpstreamTransport,
+) (*Account, error) {
+	if accountID <= 0 {
+		return nil, fmt.Errorf("%w: risk route target is invalid", ErrNoAvailableAccounts)
+	}
+	if _, excluded := excludedIDs[accountID]; excluded {
+		return nil, fmt.Errorf("%w: risk route target failed", ErrNoAvailableAccounts)
+	}
+	account, err := s.getSchedulableAccount(ctx, accountID)
+	if err != nil || account == nil {
+		return nil, fmt.Errorf("%w: risk route target is unavailable", ErrNoAvailableAccounts)
+	}
+	account = s.resolveFreshSchedulableOpenAIAccount(ctx, account, platform, requestedModel, requireCompact, requiredCapability)
+	if account == nil ||
+		!accountSupportsOpenAICapabilities(account, requiredCapability, requiredImageCapability) ||
+		!s.isOpenAIAccountTransportCompatible(account, requiredTransport) {
+		return nil, fmt.Errorf("%w: risk route target is incompatible with this request", ErrNoAvailableAccounts)
+	}
+	if s.openAIGroupRequiresPrivacySet(ctx, groupID) && !account.IsPrivacySet() {
+		return nil, fmt.Errorf("%w: risk route target does not satisfy group privacy requirements", ErrNoAvailableAccounts)
+	}
+	if groupID != nil && s.needsUpstreamChannelRestrictionCheck(ctx, groupID) &&
+		s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel, requireCompact) {
+		return nil, fmt.Errorf("%w: risk route target is restricted for this model", ErrNoAvailableAccounts)
+	}
+	return s.hydrateSelectedAccount(ctx, account)
+}
+
+func (s *OpenAIGatewayService) selectRiskRoutedOpenAIAccountWithSlot(
+	ctx context.Context,
+	accountID int64,
+	groupID *int64,
+	platform string,
+	requestedModel string,
+	excludedIDs map[int64]struct{},
+	requireCompact bool,
+	requiredCapability OpenAIEndpointCapability,
+	requiredImageCapability OpenAIImagesCapability,
+	requiredTransport OpenAIUpstreamTransport,
+) (*AccountSelectionResult, error) {
+	account, err := s.selectRiskRoutedOpenAIAccount(ctx, accountID, groupID, platform, requestedModel, excludedIDs, requireCompact, requiredCapability, requiredImageCapability, requiredTransport)
+	if err != nil {
+		return nil, err
+	}
+	result, acquireErr := s.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency)
+	if acquireErr == nil && result != nil && result.Acquired {
+		return s.newAcquiredSelectionResult(ctx, account, result.ReleaseFunc)
+	}
+	cfg := s.schedulingConfig()
+	return s.newSelectionResult(ctx, account, false, nil, &AccountWaitPlan{
+		AccountID: account.ID, MaxConcurrency: account.Concurrency,
+		Timeout: cfg.FallbackWaitTimeout, MaxWaiting: cfg.FallbackMaxWaiting,
+	})
 }
 
 func (s *OpenAIGatewayService) tryAcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {

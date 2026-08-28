@@ -89,6 +89,7 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 		if legacyDecision.Blocked {
 			decision.Kind, decision.HTTPStatus, decision.ErrorCode, decision.ClientMessage, decision.AllowNextStage = securityaudit.DecisionBlock, contentModerationStatus(legacyDecision), "content_policy_violation", legacyDecision.Message, false
 		}
+		applyRiskHitRouting(c, reqLog, legacy, stage, &decision)
 		if decision.AllowNextStage && cacheCompletion {
 			c.Set(securityAuditCompletedContextKey, true)
 		}
@@ -119,11 +120,34 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 	}
 	logSecurityAuditStart(reqLog, request, len(body), false)
 	decision := coordinator.Check(c.Request.Context(), request)
+	applyRiskHitRouting(c, reqLog, legacy, request.Stage, &decision)
 	if decision.AllowNextStage && cacheCompletion {
 		c.Set(securityAuditCompletedContextKey, true)
 	}
 	logSecurityAuditDone(reqLog, request, decision, false)
 	return &decision
+}
+
+func applyRiskHitRouting(c *gin.Context, reqLog *zap.Logger, legacy *service.ContentModerationService, stage string, decision *securityaudit.Decision) {
+	if c == nil || c.Request == nil || legacy == nil || decision == nil || decision.Kind != securityaudit.DecisionBlock || isSecurityAuditWebSocketStage(stage) {
+		return
+	}
+	target, ok := legacy.RiskHitRoutingTarget(c.Request.Context())
+	if !ok {
+		return
+	}
+	c.Request = c.Request.WithContext(service.WithRiskRoutingTarget(c.Request.Context(), target))
+	decision.Kind = securityaudit.DecisionAllow
+	decision.HTTPStatus = http.StatusOK
+	decision.ErrorCode = "risk_routed"
+	decision.ClientMessage = ""
+	decision.AllowNextStage = true
+	if reqLog != nil {
+		reqLog.Warn("security_audit.risk_request_routed",
+			zap.String("action", target.Action),
+			zap.Int64("target_group_id", target.GroupID),
+			zap.Int64("target_account_id", target.AccountID))
+	}
 }
 
 func logSecurityAuditStart(reqLog *zap.Logger, request securityaudit.Request, bodyBytes int, cached bool) {

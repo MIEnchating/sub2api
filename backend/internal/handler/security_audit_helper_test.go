@@ -2,6 +2,7 @@ package handler
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"sync/atomic"
@@ -9,6 +10,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"go.uber.org/zap"
@@ -159,6 +161,48 @@ func TestRunSecurityAuditLogsWebSocketChecksAndCacheHits(t *testing.T) {
 	require.Equal(t, "allow", doneLogs[1].ContextMap()["decision"])
 	require.Equal(t, "subsequent_turn", doneLogs[1].ContextMap()["stage"])
 	require.Equal(t, int64(1), engine.evaluates.Load())
+}
+
+func TestRunSecurityAuditRoutesPromptBlockForHTTPButNotWebSocket(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	routeGroupID := int64(72)
+	raw, err := json.Marshal(service.ContentModerationConfig{
+		HitAction:    service.RiskHitActionRouteGroup,
+		RouteGroupID: &routeGroupID,
+	})
+	require.NoError(t, err)
+	settings := &contentModerationHandlerSettingRepo{values: map[string]string{
+		service.SettingKeyContentModerationConfig: string(raw),
+	}}
+	moderation := service.NewContentModerationService(settings, nil, nil, nil, nil, nil, nil, nil)
+	engine := &turnCountingEngine{mode: securityaudit.ModeBlocking, decisions: []*securityaudit.PromptDecision{
+		{Kind: securityaudit.DecisionBlock},
+		{Kind: securityaudit.DecisionBlock},
+	}}
+	coordinator := securityaudit.NewCoordinator(nil, engine)
+
+	httpRecorder := httptest.NewRecorder()
+	httpContext, _ := gin.CreateTestContext(httpRecorder)
+	httpContext.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	httpDecision := runSecurityAudit(httpContext, nil, coordinator, moderation, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", []byte(`{"input":"risk"}`), "http")
+	require.NotNil(t, httpDecision)
+	require.True(t, httpDecision.AllowNextStage)
+	require.Equal(t, securityaudit.DecisionAllow, httpDecision.Kind)
+	target, ok := service.RiskRoutingTargetFromContext(httpContext.Request.Context())
+	require.True(t, ok)
+	require.Equal(t, service.RiskHitActionRouteGroup, target.Action)
+	require.Equal(t, routeGroupID, target.GroupID)
+
+	wsRecorder := httptest.NewRecorder()
+	wsContext, _ := gin.CreateTestContext(wsRecorder)
+	wsContext.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	wsContext.Set(securityAuditWSTurnContextKey, 1)
+	wsDecision := runSecurityAudit(wsContext, nil, coordinator, moderation, nil, middleware2.AuthSubject{UserID: 7}, "openai_responses", "gpt-test", []byte(`{"input":"risk"}`), "first_turn")
+	require.NotNil(t, wsDecision)
+	require.False(t, wsDecision.AllowNextStage)
+	require.Equal(t, securityaudit.DecisionBlock, wsDecision.Kind)
+	_, ok = service.RiskRoutingTargetFromContext(wsContext.Request.Context())
+	require.False(t, ok)
 }
 
 type turnCountingEngine struct {

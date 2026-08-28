@@ -2159,6 +2159,25 @@ func (s *OpenAIGatewayService) selectAccountWithScheduler(
 	previousResponseCanMove bool,
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
+	groupID = riskRoutingGroupID(ctx, groupID)
+	platform = riskRoutingPlatform(ctx, platform)
+	if accountID, ok := riskRoutingAccountID(ctx); ok {
+		ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+		ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
+		if requiredImageCapability == "" {
+			ctx = s.withOpenAIProfitControlGate(ctx, groupID)
+		}
+		selection, err := s.selectRiskRoutedOpenAIAccountWithSlot(
+			ctx, accountID, groupID, platform, requestedModel, excludedIDs,
+			requireCompact, requiredCapability, requiredImageCapability, requiredTransport,
+		)
+		decision := OpenAIAccountScheduleDecision{Layer: "risk_route"}
+		if selection != nil && selection.Account != nil {
+			decision.SelectedAccountID = selection.Account.ID
+			decision.SelectedAccountType = selection.Account.Type
+		}
+		return selection, decision, err
+	}
 	selection, decision, err := s.selectAccountWithSchedulerOnce(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
 	if err == nil || openAIProxyStreamQuarantineBypassed(ctx) {
 		return selection, decision, err
