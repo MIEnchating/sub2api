@@ -260,13 +260,15 @@ func (s *OpenAIGatewayService) SelectAccountForModel(ctx context.Context, groupI
 func (s *OpenAIGatewayService) SelectAccountForModelWithExclusions(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*Account, error) {
 	groupID = riskRoutingGroupID(ctx, groupID)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
-	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
-	ctx = s.withOpenAIProfitControlGate(ctx, groupID)
 	platform := riskRoutingPlatform(ctx, PlatformOpenAI)
-	if accountID, ok := riskRoutingAccountID(ctx); ok {
-		return s.selectRiskRoutedOpenAIAccount(ctx, accountID, groupID, platform, requestedModel, excludedIDs, false, "", "", OpenAIUpstreamTransportAny)
-	}
-	return s.selectAccountForModelWithExclusions(ctx, groupID, platform, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
+	return selectAccountWithAPIKeyGroupFallback(ctx, groupID, requestedModel, func(selectionCtx context.Context, selectedGroupID *int64) (*Account, error) {
+		selectionCtx = s.withOpenAIGroupPrivacyRequirement(selectionCtx, selectedGroupID)
+		selectionCtx = s.withOpenAIProfitControlGate(selectionCtx, selectedGroupID)
+		if accountID, ok := riskRoutingAccountID(selectionCtx); ok {
+			return s.selectRiskRoutedOpenAIAccount(selectionCtx, accountID, selectedGroupID, platform, requestedModel, excludedIDs, false, "", "", OpenAIUpstreamTransportAny)
+		}
+		return s.selectAccountForModelWithExclusions(selectionCtx, selectedGroupID, platform, sessionHash, requestedModel, excludedIDs, false, 0, "", false)
+	})
 }
 
 // SelectAccountForTokenCount selects an account for a non-billable token-count
@@ -283,23 +285,25 @@ func (s *OpenAIGatewayService) SelectAccountForTokenCount(
 	groupID = riskRoutingGroupID(ctx, groupID)
 	ctx = WithOpenAIProfitControlSuppressed(ctx)
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
-	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	platform = riskRoutingPlatform(ctx, platform)
-	if accountID, ok := riskRoutingAccountID(ctx); ok {
-		return s.selectRiskRoutedOpenAIAccount(ctx, accountID, groupID, platform, requestedModel, nil, false, requiredCapability, "", OpenAIUpstreamTransportAny)
-	}
-	return s.selectAccountForModelWithExclusions(
-		ctx,
-		groupID,
-		platform,
-		sessionHash,
-		requestedModel,
-		nil,
-		false,
-		0,
-		requiredCapability,
-		false,
-	)
+	return selectAccountWithAPIKeyGroupFallback(ctx, groupID, requestedModel, func(selectionCtx context.Context, selectedGroupID *int64) (*Account, error) {
+		selectionCtx = s.withOpenAIGroupPrivacyRequirement(selectionCtx, selectedGroupID)
+		if accountID, ok := riskRoutingAccountID(selectionCtx); ok {
+			return s.selectRiskRoutedOpenAIAccount(selectionCtx, accountID, selectedGroupID, platform, requestedModel, nil, false, requiredCapability, "", OpenAIUpstreamTransportAny)
+		}
+		return s.selectAccountForModelWithExclusions(
+			selectionCtx,
+			selectedGroupID,
+			platform,
+			sessionHash,
+			requestedModel,
+			nil,
+			false,
+			0,
+			requiredCapability,
+			false,
+		)
+	})
 }
 
 // NormalizeOpenAICompatiblePlatform 保留 grok 与国产 OpenAI 兼容供应商（kimi/zhipu/
@@ -1125,6 +1129,20 @@ func (s *OpenAIGatewayService) isBetterAccount(candidate, current *Account) bool
 // SelectAccountWithLoadAwareness selects an account with load-awareness and wait plan.
 func (s *OpenAIGatewayService) SelectAccountWithLoadAwareness(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
 	groupID = riskRoutingGroupID(ctx, groupID)
+	selection, err := s.selectAccountWithLoadAwarenessForAPIKeyGroup(ctx, groupID, sessionHash, requestedModel, excludedIDs)
+	fallbackGroup, fallbackCtx, ok := apiKeyFallbackGroupForSelection(ctx, groupID, err)
+	if !ok {
+		return selection, err
+	}
+	fallbackGroupID := fallbackGroup.ID
+	selection, err = s.selectAccountWithLoadAwarenessForAPIKeyGroup(fallbackCtx, &fallbackGroupID, sessionHash, requestedModel, excludedIDs)
+	if err == nil {
+		markAPIKeyFallbackSelection(selection, fallbackGroupID)
+	}
+	return selection, err
+}
+
+func (s *OpenAIGatewayService) selectAccountWithLoadAwarenessForAPIKeyGroup(ctx context.Context, groupID *int64, sessionHash string, requestedModel string, excludedIDs map[int64]struct{}) (*AccountSelectionResult, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	// 分组利润控制：legacy 公共入口同样装门，保证不经

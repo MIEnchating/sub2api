@@ -466,12 +466,13 @@ func TestAccountTestService_OpenAI429PersistsSnapshotAndRateLimitState(t *testin
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:          88,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusError,
-		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token"},
+		ID:                     88,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusError,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -506,12 +507,13 @@ func TestAccountTestService_OpenAIQuota429UsesOverdraftCoordinatorWithoutRateLim
 		codexQuotaOverdraft: coordinator,
 	}
 	account := &Account{
-		ID:          97,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token"},
+		ID:                     97,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -540,12 +542,13 @@ func TestAccountTestService_OpenAI429FallsBackWhenOverdraftDoesNotHandle(t *test
 		codexQuotaOverdraft: coordinator,
 	}
 	account := &Account{
-		ID:          98,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token"},
+		ID:                     98,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -566,13 +569,14 @@ func TestAccountTestService_OpenAI429BodyOnlyPersistsRateLimitAndClearsStaleErro
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:           77,
-		Platform:     PlatformOpenAI,
-		Type:         AccountTypeOAuth,
-		Status:       StatusError,
-		ErrorMessage: "Access forbidden (403): account may be suspended or lack permissions",
-		Concurrency:  1,
-		Credentials:  map[string]any{"access_token": "test-token"},
+		ID:                     77,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusError,
+		ErrorMessage:           "Access forbidden (403): account may be suspended or lack permissions",
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -596,12 +600,13 @@ func TestAccountTestService_OpenAI429SyncsObservedPlanType(t *testing.T) {
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:          81,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token", "plan_type": "plus"},
+		ID:                     81,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token", "plan_type": "plus"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -623,12 +628,13 @@ func TestAccountTestService_OpenAI429ActiveAccountDoesNotClearError(t *testing.T
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:          78,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Concurrency: 1,
-		Credentials: map[string]any{"access_token": "test-token"},
+		ID:                     78,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -650,13 +656,14 @@ func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:           79,
-		Platform:     PlatformOpenAI,
-		Type:         AccountTypeOAuth,
-		Status:       StatusError,
-		ErrorMessage: "stale 403",
-		Concurrency:  1,
-		Credentials:  map[string]any{"access_token": "test-token"},
+		ID:                     79,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusError,
+		ErrorMessage:           "stale 403",
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
+		Credentials:            map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")

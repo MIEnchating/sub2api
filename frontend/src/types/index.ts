@@ -561,6 +561,7 @@ export interface Group {
   platform: GroupPlatform
   rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
+  user_concurrency_limit?: number // Per-user concurrent request cap inside this group (0 = unlimited)
   max_reasoning_effort?: string // OpenAI/Codex reasoning ceiling; empty means unlimited
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   is_exclusive: boolean
@@ -717,6 +718,7 @@ export interface ApiKey {
   key: string
   name: string
   group_id: number | null
+  fallback_group_id: number | null
   status: 'active' | 'inactive' | 'quota_exhausted' | 'expired'
   ip_whitelist: string[]
   ip_blacklist: string[]
@@ -729,6 +731,7 @@ export interface ApiKey {
   updated_at: string
   current_concurrency: number
   group?: Group
+  fallback_group?: Group
   rate_limit_5h: number
   rate_limit_1d: number
   rate_limit_7d: number
@@ -746,6 +749,7 @@ export interface ApiKey {
 export interface CreateApiKeyRequest {
   name: string
   group_id?: number | null
+  fallback_group_id?: number | null
   custom_key?: string // Optional custom API Key
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -759,6 +763,7 @@ export interface CreateApiKeyRequest {
 export interface UpdateApiKeyRequest {
   name?: string
   group_id?: number | null
+  fallback_group_id?: number | null
   status?: 'active' | 'inactive'
   ip_whitelist?: string[]
   ip_blacklist?: string[]
@@ -824,6 +829,7 @@ export interface CreateGroupRequest {
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
+  user_concurrency_limit?: number
   max_reasoning_effort?: string
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
@@ -887,6 +893,7 @@ export interface UpdateGroupRequest {
   model_routing?: Record<string, number[]> | null
   model_routing_enabled?: boolean
   rpm_limit?: number
+  user_concurrency_limit?: number
   max_reasoning_effort?: string
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   require_oauth_only?: boolean
@@ -1175,6 +1182,7 @@ export interface Account {
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
+  rate_limit_429_retry_count?: number
   load_factor?: number | null
   current_concurrency?: number // Real-time concurrency count from Redis
   scheduler_score?: {
@@ -1482,6 +1490,7 @@ export interface CreateAccountRequest {
   proxy_id?: number | null
   proxy_ids?: number[]
   concurrency?: number
+  rate_limit_429_retry_count?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
@@ -1501,6 +1510,7 @@ export interface UpdateAccountRequest {
   proxy_id?: number | null
   proxy_ids?: number[]
   concurrency?: number
+  rate_limit_429_retry_count?: number
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
@@ -1591,6 +1601,7 @@ export interface AdminDataAccount {
   extra?: Record<string, unknown>
   proxy_key?: string | null
   concurrency: number
+  rate_limit_429_retry_count?: number
   priority: number
   rate_multiplier?: number | null
   expires_at?: number | null
@@ -1621,6 +1632,7 @@ export interface CodexSessionImportRequest {
   group_ids?: number[]
   proxy_id?: number | null
   concurrency?: number
+  rate_limit_429_retry_count?: number
   priority?: number
   rate_multiplier?: number
   load_factor?: number | null
@@ -1640,6 +1652,7 @@ export interface OpenAICodexPATCreateRequest {
   group_ids?: number[]
   proxy_id?: number | null
   concurrency?: number
+  rate_limit_429_retry_count?: number
   priority?: number
   rate_multiplier?: number
   load_factor?: number | null

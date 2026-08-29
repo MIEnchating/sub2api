@@ -788,6 +788,20 @@ func (_c *GroupCreate) SetNillableRpmLimit(v *int) *GroupCreate {
 	return _c
 }
 
+// SetUserConcurrencyLimit sets the "user_concurrency_limit" field.
+func (_c *GroupCreate) SetUserConcurrencyLimit(v int) *GroupCreate {
+	_c.mutation.SetUserConcurrencyLimit(v)
+	return _c
+}
+
+// SetNillableUserConcurrencyLimit sets the "user_concurrency_limit" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableUserConcurrencyLimit(v *int) *GroupCreate {
+	if v != nil {
+		_c.SetUserConcurrencyLimit(*v)
+	}
+	return _c
+}
+
 // SetMaxReasoningEffort sets the "max_reasoning_effort" field.
 func (_c *GroupCreate) SetMaxReasoningEffort(v string) *GroupCreate {
 	_c.mutation.SetMaxReasoningEffort(v)
@@ -877,6 +891,21 @@ func (_c *GroupCreate) AddAPIKeys(v ...*APIKey) *GroupCreate {
 		ids[i] = v[i].ID
 	}
 	return _c.AddAPIKeyIDs(ids...)
+}
+
+// AddFallbackAPIKeyIDs adds the "fallback_api_keys" edge to the APIKey entity by IDs.
+func (_c *GroupCreate) AddFallbackAPIKeyIDs(ids ...int64) *GroupCreate {
+	_c.mutation.AddFallbackAPIKeyIDs(ids...)
+	return _c
+}
+
+// AddFallbackAPIKeys adds the "fallback_api_keys" edges to the APIKey entity.
+func (_c *GroupCreate) AddFallbackAPIKeys(v ...*APIKey) *GroupCreate {
+	ids := make([]int64, len(v))
+	for i := range v {
+		ids[i] = v[i].ID
+	}
+	return _c.AddFallbackAPIKeyIDs(ids...)
 }
 
 // AddRedeemCodeIDs adds the "redeem_codes" edge to the RedeemCode entity by IDs.
@@ -1133,6 +1162,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultRpmLimit
 		_c.mutation.SetRpmLimit(v)
 	}
+	if _, ok := _c.mutation.UserConcurrencyLimit(); !ok {
+		v := group.DefaultUserConcurrencyLimit
+		_c.mutation.SetUserConcurrencyLimit(v)
+	}
 	if _, ok := _c.mutation.MaxReasoningEffort(); !ok {
 		v := group.DefaultMaxReasoningEffort
 		_c.mutation.SetMaxReasoningEffort(v)
@@ -1322,6 +1355,9 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.RpmLimit(); !ok {
 		return &ValidationError{Name: "rpm_limit", err: errors.New(`ent: missing required field "Group.rpm_limit"`)}
+	}
+	if _, ok := _c.mutation.UserConcurrencyLimit(); !ok {
+		return &ValidationError{Name: "user_concurrency_limit", err: errors.New(`ent: missing required field "Group.user_concurrency_limit"`)}
 	}
 	if _, ok := _c.mutation.MaxReasoningEffort(); !ok {
 		return &ValidationError{Name: "max_reasoning_effort", err: errors.New(`ent: missing required field "Group.max_reasoning_effort"`)}
@@ -1598,6 +1634,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldRpmLimit, field.TypeInt, value)
 		_node.RpmLimit = value
 	}
+	if value, ok := _c.mutation.UserConcurrencyLimit(); ok {
+		_spec.SetField(group.FieldUserConcurrencyLimit, field.TypeInt, value)
+		_node.UserConcurrencyLimit = value
+	}
 	if value, ok := _c.mutation.MaxReasoningEffort(); ok {
 		_spec.SetField(group.FieldMaxReasoningEffort, field.TypeString, value)
 		_node.MaxReasoningEffort = value
@@ -1628,6 +1668,22 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 			Inverse: false,
 			Table:   group.APIKeysTable,
 			Columns: []string{group.APIKeysColumn},
+			Bidi:    false,
+			Target: &sqlgraph.EdgeTarget{
+				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
+			},
+		}
+		for _, k := range nodes {
+			edge.Target.Nodes = append(edge.Target.Nodes, k)
+		}
+		_spec.Edges = append(_spec.Edges, edge)
+	}
+	if nodes := _c.mutation.FallbackAPIKeysIDs(); len(nodes) > 0 {
+		edge := &sqlgraph.EdgeSpec{
+			Rel:     sqlgraph.O2M,
+			Inverse: false,
+			Table:   group.FallbackAPIKeysTable,
+			Columns: []string{group.FallbackAPIKeysColumn},
 			Bidi:    false,
 			Target: &sqlgraph.EdgeTarget{
 				IDSpec: sqlgraph.NewFieldSpec(apikey.FieldID, field.TypeInt64),
@@ -2711,6 +2767,24 @@ func (u *GroupUpsert) UpdateRpmLimit() *GroupUpsert {
 // AddRpmLimit adds v to the "rpm_limit" field.
 func (u *GroupUpsert) AddRpmLimit(v int) *GroupUpsert {
 	u.Add(group.FieldRpmLimit, v)
+	return u
+}
+
+// SetUserConcurrencyLimit sets the "user_concurrency_limit" field.
+func (u *GroupUpsert) SetUserConcurrencyLimit(v int) *GroupUpsert {
+	u.Set(group.FieldUserConcurrencyLimit, v)
+	return u
+}
+
+// UpdateUserConcurrencyLimit sets the "user_concurrency_limit" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateUserConcurrencyLimit() *GroupUpsert {
+	u.SetExcluded(group.FieldUserConcurrencyLimit)
+	return u
+}
+
+// AddUserConcurrencyLimit adds v to the "user_concurrency_limit" field.
+func (u *GroupUpsert) AddUserConcurrencyLimit(v int) *GroupUpsert {
+	u.Add(group.FieldUserConcurrencyLimit, v)
 	return u
 }
 
@@ -3941,6 +4015,27 @@ func (u *GroupUpsertOne) AddRpmLimit(v int) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateRpmLimit() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetUserConcurrencyLimit sets the "user_concurrency_limit" field.
+func (u *GroupUpsertOne) SetUserConcurrencyLimit(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUserConcurrencyLimit(v)
+	})
+}
+
+// AddUserConcurrencyLimit adds v to the "user_concurrency_limit" field.
+func (u *GroupUpsertOne) AddUserConcurrencyLimit(v int) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUserConcurrencyLimit(v)
+	})
+}
+
+// UpdateUserConcurrencyLimit sets the "user_concurrency_limit" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateUserConcurrencyLimit() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUserConcurrencyLimit()
 	})
 }
 
@@ -5352,6 +5447,27 @@ func (u *GroupUpsertBulk) AddRpmLimit(v int) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateRpmLimit() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateRpmLimit()
+	})
+}
+
+// SetUserConcurrencyLimit sets the "user_concurrency_limit" field.
+func (u *GroupUpsertBulk) SetUserConcurrencyLimit(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetUserConcurrencyLimit(v)
+	})
+}
+
+// AddUserConcurrencyLimit adds v to the "user_concurrency_limit" field.
+func (u *GroupUpsertBulk) AddUserConcurrencyLimit(v int) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddUserConcurrencyLimit(v)
+	})
+}
+
+// UpdateUserConcurrencyLimit sets the "user_concurrency_limit" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateUserConcurrencyLimit() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateUserConcurrencyLimit()
 	})
 }
 
