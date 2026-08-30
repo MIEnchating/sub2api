@@ -100,10 +100,11 @@ func TestOpenAIGatewayServiceForwardImages_ImageRateLimitReturnsFailoverAndCools
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
 	account := &Account{
-		ID:       204,
-		Name:     "openai-oauth",
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeOAuth,
+		ID:                     204,
+		Name:                   "openai-oauth",
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeOAuth,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token": "token-123",
 		},

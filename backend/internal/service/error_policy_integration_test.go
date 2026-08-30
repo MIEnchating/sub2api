@@ -74,6 +74,11 @@ func saveAndSetBaseURLs(t *testing.T) {
 }
 
 func newRetryParams(account *Account, upstream HTTPUpstream, handleError func(context.Context, string, *Account, int, http.Header, []byte, string, int64, string, bool) *handleModelRateLimitResult) antigravityRetryLoopParams {
+	// Error-policy tests exercise the response handling after the transport
+	// attempt. Keep same-account 429 retries disabled unless a test opts in.
+	if account != nil && account.RateLimit429RetryCount == nil {
+		account.RateLimit429RetryCount = retryCountPointer(0)
+	}
 	return antigravityRetryLoopParams{
 		ctx:            context.Background(),
 		prefix:         "[ep-test]",

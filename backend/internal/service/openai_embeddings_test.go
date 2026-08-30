@@ -164,9 +164,10 @@ func TestForwardEmbeddings_NonAccessFailoverKeepsLegacyShape(t *testing.T) {
 	}}
 	svc := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
 	account := &Account{
-		ID:       44,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
+		ID:                     44,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeAPIKey,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},

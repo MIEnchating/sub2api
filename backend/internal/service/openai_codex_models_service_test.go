@@ -1327,11 +1327,12 @@ func newCodexModelsAPIKeyTestAccount(baseURL string) *Account {
 		credentials["base_url"] = baseURL
 	}
 	return &Account{
-		ID:          2,
-		Platform:    PlatformOpenAI,
-		Type:        AccountTypeAPIKey,
-		Credentials: credentials,
-		Concurrency: 3,
+		ID:                     2,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeAPIKey,
+		Credentials:            credentials,
+		Concurrency:            3,
+		RateLimit429RetryCount: retryCountPointer(0),
 	}
 }
 

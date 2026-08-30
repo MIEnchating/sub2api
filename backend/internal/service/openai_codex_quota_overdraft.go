@@ -15,10 +15,10 @@ import (
 )
 
 const (
-	codexQuotaOverdraftCallIDPrefix    = "call_sub2api_overdraft_"
-	codexQuotaOverdraftExecInput       = `const r = await tools.exec_command({"cmd":"true","yield_time_ms":1000,"max_output_tokens":1000}); text(r.output);`
-	codexQuotaOverdraftMaxBodyBytes    = 32 << 20
-	codexQuotaOverdraftPrearmPercent   = 95
+	codexQuotaOverdraftCallIDPrefix  = "call_sub2api_overdraft_"
+	codexQuotaOverdraftExecInput     = `const r = await tools.exec_command({"cmd":"true","yield_time_ms":1000,"max_output_tokens":1000}); text(r.output);`
+	codexQuotaOverdraftMaxBodyBytes  = 32 << 20
+	codexQuotaOverdraftPrearmPercent = 95
 )
 
 // CodexQuotaOverdraftEnabledExtraKey is an optional per-account override.

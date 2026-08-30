@@ -164,7 +164,6 @@ func doAccount429Retry(req *http.Request, account *Account, do account429RetryDo
 				drainAndCloseRetryResponse(resp)
 				return nil, err
 			}
-			err = nil
 		}
 
 		if !requestCanReplay(attemptReq) {

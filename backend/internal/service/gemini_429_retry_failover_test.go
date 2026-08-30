@@ -36,7 +36,11 @@ func (s *geminiAlways429Upstream) DoWithTLS(req *http.Request, proxyURL string, 
 func TestGeminiForwardPreservesExhaustedAccount429MarkerOnFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	upstream := &geminiAlways429Upstream{}
-	svc := &GeminiMessagesCompatService{httpUpstream: upstream, cfg: &config.Config{}}
+	svc := &GeminiMessagesCompatService{
+		httpUpstream: upstream,
+		cfg:          &config.Config{},
+		retryBackoff: func(int) {},
+	}
 	retryCount := 1
 	account := &Account{
 		ID:       901,

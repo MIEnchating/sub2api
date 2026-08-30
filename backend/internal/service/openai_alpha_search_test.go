@@ -299,9 +299,10 @@ func TestForwardAlphaSearchReturnsFailoverBeforeWriting(t *testing.T) {
 	}}
 	service := &OpenAIGatewayService{cfg: &config.Config{}, httpUpstream: upstream}
 	account := &Account{
-		ID:       8,
-		Platform: PlatformOpenAI,
-		Type:     AccountTypeAPIKey,
+		ID:                     8,
+		Platform:               PlatformOpenAI,
+		Type:                   AccountTypeAPIKey,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"api_key": "sk-test",
 		},
