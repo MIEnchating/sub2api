@@ -1800,11 +1800,12 @@ func TestForwardGrokMedia429ReconcilesRateLimitBeforeCustomErrorBypass(t *testin
 	c.Request.Header.Set("Content-Type", "application/json")
 
 	account := &Account{
-		ID:          64,
-		Name:        "grok",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeAPIKey,
-		Concurrency: 1,
+		ID:                     64,
+		Name:                   "grok",
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeAPIKey,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"api_key":                    "api-key",
 			"base_url":                   "https://xai.test/v1",

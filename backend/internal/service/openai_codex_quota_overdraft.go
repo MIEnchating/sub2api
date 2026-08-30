@@ -19,7 +19,6 @@ const (
 	codexQuotaOverdraftExecInput       = `const r = await tools.exec_command({"cmd":"true","yield_time_ms":1000,"max_output_tokens":1000}); text(r.output);`
 	codexQuotaOverdraftMaxBodyBytes    = 32 << 20
 	codexQuotaOverdraftPrearmPercent   = 95
-	CodexQuotaOverdraftEnabledExtraKey = "codex_quota_overdraft_enabled"
 )
 
 // CodexQuotaOverdraftEnabledExtraKey is an optional per-account override.

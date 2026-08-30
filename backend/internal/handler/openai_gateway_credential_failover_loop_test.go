@@ -842,10 +842,12 @@ func findHandlerRefresherStarted(router *gin.Engine) <-chan struct{} {
 func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGatewayHandler, *grokCredentialHandlerRepo, *grokCredentialHandlerUpstream, *gin.Engine, func()) {
 	t.Helper()
 	groupID := int64(901)
+	zero429Retries := 0
 	accounts := []service.Account{
 		{
 			ID: 801, Name: "revoked", Platform: service.PlatformGrok, Type: service.AccountTypeOAuth,
 			Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 1,
+			RateLimit429RetryCount: &zero429Retries,
 			Credentials: map[string]any{
 				"access_token": "expired", "refresh_token": "revoked-refresh",
 				"expires_at": time.Now().Add(-time.Minute).UTC().Format(time.RFC3339),
@@ -855,6 +857,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		{
 			ID: 802, Name: "healthy", Platform: service.PlatformGrok, Type: service.AccountTypeOAuth,
 			Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 2,
+			RateLimit429RetryCount: &zero429Retries,
 			Credentials: map[string]any{
 				"access_token": "healthy-access", "refresh_token": "healthy-refresh",
 				"expires_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),
@@ -869,6 +872,7 @@ func newGrokCredentialFailoverHandler(t *testing.T, mode string) (*OpenAIGateway
 		accounts = append(accounts, service.Account{
 			ID: 803, Name: "untried-healthy", Platform: service.PlatformGrok, Type: service.AccountTypeOAuth,
 			Status: service.StatusActive, Schedulable: true, Concurrency: 1, Priority: 3,
+			RateLimit429RetryCount: &zero429Retries,
 			Credentials: map[string]any{
 				"access_token": "untried-healthy-access", "refresh_token": "untried-healthy-refresh",
 				"expires_at": time.Now().Add(2 * time.Hour).UTC().Format(time.RFC3339),

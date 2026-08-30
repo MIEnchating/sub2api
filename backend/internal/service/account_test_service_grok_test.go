@@ -192,13 +192,14 @@ func TestAccountTestService_Grok429PersistsRateLimitReset(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	account := &Account{
-		ID:          14,
-		Name:        "grok-oauth-limited",
-		Platform:    PlatformGrok,
-		Type:        AccountTypeOAuth,
-		Status:      StatusActive,
-		Schedulable: true,
-		Concurrency: 1,
+		ID:                     14,
+		Name:                   "grok-oauth-limited",
+		Platform:               PlatformGrok,
+		Type:                   AccountTypeOAuth,
+		Status:                 StatusActive,
+		Schedulable:            true,
+		Concurrency:            1,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token":  "grok-access-token",
 			"refresh_token": "grok-refresh-token",
@@ -233,6 +234,7 @@ func TestAccountTestService_Grok429WithoutQuotaHeadersUsesFallback(t *testing.T)
 	account := &Account{
 		ID: 15, Name: "grok-oauth-limited-no-headers", Platform: PlatformGrok,
 		Type: AccountTypeOAuth, Status: StatusActive, Schedulable: true, Concurrency: 1,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token":  "grok-access-token",
 			"refresh_token": "grok-refresh-token",
