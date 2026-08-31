@@ -1548,47 +1548,46 @@
             {{ t('admin.accounts.proxyPoolSectionDescription') }}
           </p>
         </div>
-        <div class="mb-1 flex items-center gap-2">
-          <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
-          <ProxyAdBanner />
-        </div>
-        <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
-        <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
-          <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
-          <ProxyPoolSelector
-            v-model="form.proxy_ids"
-            :proxies="proxies"
-            :primary-proxy-id="form.proxy_id"
-            :disabled="form.proxy_id === null"
-          />
-          <p class="input-hint">
-            {{
-              form.proxy_id === null
-                ? t('admin.accounts.proxyPoolPrimaryRequired')
-                : t('admin.accounts.proxyPoolHint')
-            }}
-          </p>
-        </div>
-        <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+        <div class="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-700">
           <div>
-            <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
-            <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
+            <span class="text-sm text-gray-700 dark:text-gray-200">{{ t('admin.accounts.proxyConcurrencyLimitEnabled') }}</span>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.proxyConcurrencyLimitEnabledHint') }}</p>
           </div>
-          <div v-if="form.proxy_egress_mode === 'session_sticky'">
-            <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
-            <input
-              v-model.number="form.proxy_sticky_ttl_minutes"
-              type="number"
-              min="1"
-              max="10080"
-              class="input"
-              @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))"
-            />
+          <button type="button" role="switch" :aria-checked="form.proxy_concurrency_limit_enabled" @click="toggleProxyPoolMode"
+            :class="['relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors', form.proxy_concurrency_limit_enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']">
+             <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', form.proxy_concurrency_limit_enabled ? 'translate-x-5' : 'translate-x-0']" />
+           </button>
+         </div>
+        <div v-if="form.proxy_concurrency_limit_enabled">
+          <div class="mb-1 flex items-center gap-2">
+            <label class="input-label mb-0">{{ t('admin.accounts.proxyConcurrencyPool') }}</label>
+            <ProxyAdBanner />
           </div>
+          <ProxySelector v-model="form.proxy_pool_ids" :proxies="proxies" multiple />
         </div>
-        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}
-        </p>
+        <template v-else>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
+            <ProxyAdBanner />
+          </div>
+          <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+          <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+            <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
+            <ProxyPoolSelector v-model="form.proxy_ids" :proxies="proxies" :primary-proxy-id="form.proxy_id" :disabled="form.proxy_id === null" />
+            <p class="input-hint">{{ form.proxy_id === null ? t('admin.accounts.proxyPoolPrimaryRequired') : t('admin.accounts.proxyPoolHint') }}</p>
+          </div>
+          <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
+              <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
+            </div>
+            <div v-if="form.proxy_egress_mode === 'session_sticky'">
+              <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
+              <input v-model.number="form.proxy_sticky_ttl_minutes" type="number" min="1" max="10080" class="input" @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))" />
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}</p>
+        </template>
       </div>
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -3742,6 +3741,8 @@ const form = reactive({
   proxy_ids: [] as number[],
   proxy_egress_mode: 'session_sticky' as 'session_sticky' | 'round_robin' | 'primary',
   proxy_sticky_ttl_minutes: 120,
+  proxy_concurrency_limit_enabled: false,
+  proxy_pool_ids: [] as number[],
   concurrency: 1,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -3768,6 +3769,10 @@ watch(
     form.proxy_ids = form.proxy_ids.filter((id) => id !== primaryProxyID)
   }
 )
+
+const toggleProxyPoolMode = () => {
+  form.proxy_concurrency_limit_enabled = !form.proxy_concurrency_limit_enabled
+}
 
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
   const parsed = Number(value)
@@ -3887,6 +3892,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.proxy_sticky_ttl_minutes = Number.isFinite(stickyTTLSeconds) && stickyTTLSeconds >= 60
     ? Math.min(10080, Math.max(1, Math.round(stickyTTLSeconds / 60)))
     : 120
+  form.proxy_concurrency_limit_enabled = newAccount.proxy_concurrency_limit_enabled === true
+  form.proxy_pool_ids = [...(newAccount.proxy_pool_ids || [])]
   form.concurrency = newAccount.concurrency
   form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
     newAccount.rate_limit_429_retry_count ?? DEFAULT_RATE_LIMIT_429_RETRY_COUNT
@@ -4862,6 +4869,12 @@ const handleSubmit = async () => {
       updatePayload.proxy_id = 0
       updatePayload.proxy_ids = []
     }
+    if (form.proxy_concurrency_limit_enabled) {
+      updatePayload.proxy_id = 0
+      updatePayload.proxy_ids = []
+    }
+    updatePayload.proxy_concurrency_limit_enabled = form.proxy_concurrency_limit_enabled
+    updatePayload.proxy_pool_ids = form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : []
     if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }

@@ -2926,47 +2926,46 @@
             {{ t('admin.accounts.proxyPoolSectionDescription') }}
           </p>
         </div>
-        <div class="mb-1 flex items-center gap-2">
-          <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
-          <ProxyAdBanner />
-        </div>
-        <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
-        <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
-          <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
-          <ProxyPoolSelector
-            v-model="form.proxy_ids"
-            :proxies="proxies"
-            :primary-proxy-id="form.proxy_id"
-            :disabled="form.proxy_id === null"
-          />
-          <p class="input-hint">
-            {{
-              form.proxy_id === null
-                ? t('admin.accounts.proxyPoolPrimaryRequired')
-                : t('admin.accounts.proxyPoolHint')
-            }}
-          </p>
-        </div>
-        <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+        <div class="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-700">
           <div>
-            <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
-            <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
+            <span class="text-sm text-gray-700 dark:text-gray-200">{{ t('admin.accounts.proxyConcurrencyLimitEnabled') }}</span>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.proxyConcurrencyLimitEnabledHint') }}</p>
           </div>
-          <div v-if="form.proxy_egress_mode === 'session_sticky'">
-            <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
-            <input
-              v-model.number="form.proxy_sticky_ttl_minutes"
-              type="number"
-              min="1"
-              max="10080"
-              class="input"
-              @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))"
-            />
-          </div>
+          <button type="button" role="switch" :aria-checked="form.proxy_concurrency_limit_enabled" @click="toggleProxyPoolMode"
+            :class="['relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors', form.proxy_concurrency_limit_enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']">
+            <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', form.proxy_concurrency_limit_enabled ? 'translate-x-5' : 'translate-x-0']" />
+          </button>
         </div>
-        <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
-          {{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}
-        </p>
+        <div v-if="form.proxy_concurrency_limit_enabled">
+          <div class="mb-1 flex items-center gap-2">
+            <label class="input-label mb-0">{{ t('admin.accounts.proxyConcurrencyPool') }}</label>
+            <ProxyAdBanner />
+          </div>
+          <ProxySelector v-model="form.proxy_pool_ids" :proxies="proxies" multiple />
+        </div>
+        <template v-else>
+          <div class="mb-1 flex items-center gap-2">
+            <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
+            <ProxyAdBanner />
+          </div>
+          <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
+          <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
+            <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
+            <ProxyPoolSelector v-model="form.proxy_ids" :proxies="proxies" :primary-proxy-id="form.proxy_id" :disabled="form.proxy_id === null" />
+            <p class="input-hint">{{ form.proxy_id === null ? t('admin.accounts.proxyPoolPrimaryRequired') : t('admin.accounts.proxyPoolHint') }}</p>
+          </div>
+          <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
+            <div>
+              <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
+              <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
+            </div>
+            <div v-if="form.proxy_egress_mode === 'session_sticky'">
+              <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
+              <input v-model.number="form.proxy_sticky_ttl_minutes" type="number" min="1" max="10080" class="input" @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))" />
+            </div>
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}</p>
+        </template>
       </div>
 
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
@@ -4652,6 +4651,8 @@ const form = reactive({
   proxy_ids: [] as number[],
   proxy_egress_mode: 'session_sticky' as 'session_sticky' | 'round_robin' | 'primary',
   proxy_sticky_ttl_minutes: 120,
+  proxy_concurrency_limit_enabled: false,
+  proxy_pool_ids: [] as number[],
   concurrency: 10,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -4677,6 +4678,23 @@ watch(
     form.proxy_ids = form.proxy_ids.filter((id) => id !== primaryProxyID)
   }
 )
+
+const toggleProxyPoolMode = () => {
+  form.proxy_concurrency_limit_enabled = !form.proxy_concurrency_limit_enabled
+}
+
+// OAuth 验证只能使用一个出口；多代理模式使用池中第一个代理认证，
+// 账号保存后实际请求仍按整个代理池调度。
+const authProxyID = computed(() =>
+  form.proxy_concurrency_limit_enabled
+    ? (form.proxy_pool_ids[0] ?? null)
+    : form.proxy_id
+)
+
+const proxyPoolPayload = () => ({
+  proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+  proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : []
+})
 
 // Helper to check if current type needs OAuth flow
 const isOAuthFlow = computed(() => {
@@ -5260,6 +5278,8 @@ const resetForm = () => {
   form.proxy_ids = []
   form.proxy_egress_mode = 'session_sticky'
   form.proxy_sticky_ttl_minutes = 120
+  form.proxy_concurrency_limit_enabled = false
+  form.proxy_pool_ids = []
   form.concurrency = 10
   form.rate_limit_429_retry_count = DEFAULT_RATE_LIMIT_429_RETRY_COUNT
   form.load_factor = null
@@ -5855,20 +5875,20 @@ const goBackToBasicInfo = () => {
 
 const handleGenerateUrl = async () => {
   if (form.platform === 'openai') {
-    await openaiOAuth.generateAuthUrl(form.proxy_id)
+    await openaiOAuth.generateAuthUrl(authProxyID.value)
   } else if (form.platform === 'gemini') {
     await geminiOAuth.generateAuthUrl(
-      form.proxy_id,
+      authProxyID.value,
       oauthFlowRef.value?.projectId,
       geminiOAuthType.value,
       geminiSelectedTier.value
     )
   } else if (form.platform === 'antigravity') {
-    await antigravityOAuth.generateAuthUrl(form.proxy_id)
+    await antigravityOAuth.generateAuthUrl(authProxyID.value)
   } else if (form.platform === 'grok') {
-    await grokOAuth.generateAuthUrl(form.proxy_id)
+    await grokOAuth.generateAuthUrl(authProxyID.value)
   } else {
-    await oauth.generateAuthUrl(addMethod.value, form.proxy_id)
+    await oauth.generateAuthUrl(addMethod.value, authProxyID.value)
   }
 }
 
@@ -5960,8 +5980,10 @@ const createAccountAndFinish = async (
     type,
     credentials,
     extra: finalExtra,
-    proxy_id: form.proxy_id,
-    proxy_ids: form.proxy_ids,
+    proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
+    proxy_ids: form.proxy_concurrency_limit_enabled ? [] : form.proxy_ids,
+    proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+    proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : [],
     concurrency: form.concurrency,
     load_factor: form.load_factor ?? undefined,
     priority: form.priority,
@@ -6000,7 +6022,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
   try {
     for (let i = 0; i < refreshTokens.length; i++) {
       try {
-        const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], form.proxy_id)
+        const tokenInfo = await grokOAuth.validateRefreshToken(refreshTokens[i], authProxyID.value)
         if (!tokenInfo) {
           failedCount++
           errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Validation failed'}`)
@@ -6022,13 +6044,14 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
         }
 
         await adminAPI.accounts.create({
+          ...proxyPoolPayload(),
           name: accountName,
           notes: form.notes,
           platform: 'grok',
           type: 'oauth',
           credentials,
           extra,
-          proxy_id: form.proxy_id,
+          proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -6095,7 +6118,9 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       sso_tokens: ssoTokens,
       name: form.name || undefined,
       notes: form.notes || undefined,
-      proxy_id: form.proxy_id,
+      proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
+      proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+      proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : [],
       group_ids: form.group_ids,
       credentials,
       concurrency: form.concurrency,
@@ -6171,7 +6196,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
   try {
     for (let i = 0; i < lines.length; i++) {
       try {
-        const tokenInfo = await grokOAuth.authorizePassword(lines[i], form.proxy_id)
+        const tokenInfo = await grokOAuth.authorizePassword(lines[i], authProxyID.value)
         if (!tokenInfo) {
           failedCount++
           errors.push(`#${i + 1}: ${grokOAuth.error.value || 'Authorization failed'}`)
@@ -6200,13 +6225,14 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
         }
 
         await adminAPI.accounts.create({
+          ...proxyPoolPayload(),
           name: accountName,
           notes: form.notes,
           platform: 'grok',
           type: 'oauth',
           credentials,
           extra,
-          proxy_id: form.proxy_id,
+          proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -6270,7 +6296,7 @@ const handleOpenAIExchange = async (authCode: string) => {
       authCode.trim(),
       oauthClient.sessionId.value,
       stateToUse,
-      form.proxy_id
+      authProxyID.value
     )
     if (!tokenInfo) return
 
@@ -6300,13 +6326,16 @@ const handleOpenAIExchange = async (authCode: string) => {
 
     if (shouldCreateOpenAI) {
       await adminAPI.accounts.create({
+        ...proxyPoolPayload(),
         name: form.name,
         notes: form.notes,
         platform: 'openai',
         type: 'oauth',
         credentials,
         extra,
-        proxy_id: form.proxy_id,
+        proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
+        proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+        proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : [],
         concurrency: form.concurrency,
         rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
         load_factor: form.load_factor ?? undefined,
@@ -6412,7 +6441,9 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       content: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: form.proxy_id,
+      proxy_id: form.proxy_concurrency_limit_enabled ? 0 : form.proxy_id,
+      proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+      proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : [],
       concurrency: form.concurrency,
       rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
       load_factor: form.load_factor ?? undefined,
@@ -6488,10 +6519,11 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
   try {
     const extra = buildOpenAICodexImportExtra()
     await adminAPI.accounts.createOpenAICodexPAT({
+      ...proxyPoolPayload(),
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: form.proxy_id,
+      proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
       concurrency: form.concurrency,
       rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
       load_factor: form.load_factor ?? undefined,
@@ -6547,7 +6579,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
       try {
         const tokenInfo = await oauthClient.validateRefreshToken(
           refreshTokens[i],
-          form.proxy_id,
+          authProxyID.value,
           clientId
         )
         if (!tokenInfo) {
@@ -6584,13 +6616,14 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
 
         if (shouldCreateOpenAI) {
           await adminAPI.accounts.create({
+            ...proxyPoolPayload(),
             name: accountName,
             notes: form.notes,
             platform: 'openai',
             type: 'oauth',
             credentials,
             extra,
-            proxy_id: form.proxy_id,
+            proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
             concurrency: form.concurrency,
             rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
             load_factor: form.load_factor ?? undefined,
@@ -6667,7 +6700,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
       try {
         const tokenInfo = await antigravityOAuth.validateRefreshToken(
           refreshTokens[i],
-          form.proxy_id
+          authProxyID.value
         )
         if (!tokenInfo) {
           failedCount++
@@ -6690,7 +6723,9 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           type: 'oauth',
           credentials,
           extra: {},
-          proxy_id: form.proxy_id,
+          proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
+          proxy_concurrency_limit_enabled: form.proxy_concurrency_limit_enabled,
+          proxy_pool_ids: form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : [],
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -6753,7 +6788,7 @@ const handleGeminiExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: geminiOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id,
+      proxyId: authProxyID.value,
       oauthType: geminiOAuthType.value,
       tierId: geminiSelectedTier.value
     })
@@ -6790,7 +6825,7 @@ const handleAntigravityExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: antigravityOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id
+      proxyId: authProxyID.value
     })
 		if (!tokenInfo) return
 
@@ -6837,7 +6872,7 @@ const handleGrokExchange = async (authCode: string) => {
       code: authCode.trim(),
       sessionId: grokOAuth.sessionId.value,
       state: stateToUse,
-      proxyId: form.proxy_id
+      proxyId: authProxyID.value
     })
     if (!tokenInfo) return
 
@@ -6861,7 +6896,7 @@ const handleAnthropicExchange = async (authCode: string) => {
   oauth.error.value = ''
 
   try {
-    const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
+    const proxyConfig = authProxyID.value ? { proxy_id: authProxyID.value } : {}
     const endpoint =
       addMethod.value === 'oauth'
         ? '/admin/accounts/exchange-code'
@@ -6965,7 +7000,7 @@ const handleCookieAuth = async (sessionKey: string) => {
   oauth.error.value = ''
 
   try {
-    const proxyConfig = form.proxy_id ? { proxy_id: form.proxy_id } : {}
+    const proxyConfig = authProxyID.value ? { proxy_id: authProxyID.value } : {}
     const keys = oauth.parseSessionKeys(sessionKey)
 
     if (keys.length === 0) {
@@ -7071,13 +7106,14 @@ const handleCookieAuth = async (sessionKey: string) => {
         }
 
         await adminAPI.accounts.create({
+          ...proxyPoolPayload(),
           name: accountName,
           notes: form.notes,
           platform: form.platform,
           type: addMethod.value, // Use addMethod as type: 'oauth' or 'setup-token'
           credentials,
           extra,
-          proxy_id: form.proxy_id,
+          proxy_id: form.proxy_concurrency_limit_enabled ? null : form.proxy_id,
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,

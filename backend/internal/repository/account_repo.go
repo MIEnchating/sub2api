@@ -309,9 +309,20 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 
 	accountIDs := make([]int64, 0, len(entAccounts))
 	entByID := make(map[int64]*dbent.Account, len(entAccounts))
+	proxyIDs := make([]int64, 0, len(entAccounts))
 	for _, acc := range entAccounts {
 		entByID[acc.ID] = acc
 		accountIDs = append(accountIDs, acc.ID)
+		if acc.ProxyID != nil {
+			proxyIDs = append(proxyIDs, *acc.ProxyID)
+		}
+		if acc.Extra != nil {
+			proxyIDs = append(proxyIDs, service.NormalizeProxyPoolIDs(acc.Extra[service.ProxyPoolIDsExtraKey])...)
+		}
+	}
+	proxyMap, err := r.loadProxies(ctx, proxyIDs)
+	if err != nil {
+		return nil, err
 	}
 
 	groupsByAccount, groupIDsByAccount, accountGroupsByAccount, err := r.loadAccountGroups(ctx, accountIDs)
@@ -329,6 +340,17 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		// Prefer the preloaded proxy edge when available.
 		if entAcc.Edges.Proxy != nil {
 			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
+		} else if entAcc.ProxyID != nil {
+			out.Proxy = proxyMap[*entAcc.ProxyID]
+		}
+		out.SyncProxyPoolConfig()
+		configuredProxyIDs := out.ProxyPoolIDs
+		out.ProxyPoolIDs = nil
+		for _, proxyID := range configuredProxyIDs {
+			if proxy, ok := proxyMap[proxyID]; ok && proxy != nil {
+				out.ProxyPoolIDs = append(out.ProxyPoolIDs, proxyID)
+				out.ProxyPool = append(out.ProxyPool, proxy)
+			}
 		}
 
 		if groups, ok := groupsByAccount[entAcc.ID]; ok {
@@ -3150,6 +3172,9 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			proxyPoolIDsByAccount[acc.ID] = poolIDs
 			proxyIDs = append(proxyIDs, poolIDs...)
 		}
+		if acc.Extra != nil {
+			proxyIDs = append(proxyIDs, service.NormalizeProxyPoolIDs(acc.Extra[service.ProxyPoolIDsExtraKey])...)
+		}
 	}
 
 	proxyMap, err := r.loadProxies(ctx, proxyIDs)
@@ -3177,6 +3202,21 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 			out.ProxyPool = make([]*service.Proxy, 0, len(poolIDs))
 			for _, proxyID := range poolIDs {
 				if proxy, ok := proxyMap[proxyID]; ok {
+					out.ProxyPool = append(out.ProxyPool, proxy)
+				}
+			}
+		}
+		out.SyncProxyPoolConfig()
+		proxyConcurrencyEnabled := out.ProxyConcurrencyLimitEnabled()
+		configuredProxyIDs := out.ProxyPoolIDs
+		out.ProxyPoolIDs = nil
+		if proxyConcurrencyEnabled {
+			out.ProxyPool = nil
+		}
+		for _, proxyID := range configuredProxyIDs {
+			if proxy, ok := proxyMap[proxyID]; ok && proxy != nil {
+				out.ProxyPoolIDs = append(out.ProxyPoolIDs, proxyID)
+				if proxyConcurrencyEnabled {
 					out.ProxyPool = append(out.ProxyPool, proxy)
 				}
 			}
@@ -3399,7 +3439,7 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 	rateMultiplier := m.RateMultiplier
 	rateLimit429RetryCount := m.RateLimit429RetryCount
 
-	return &service.Account{
+	out := &service.Account{
 		ID:                      m.ID,
 		Name:                    m.Name,
 		Notes:                   m.Notes,
@@ -3433,6 +3473,8 @@ func accountEntityToService(m *dbent.Account) *service.Account {
 		ParentAccountID:         m.ParentAccountID,
 		QuotaDimension:          string(m.QuotaDimension),
 	}
+	out.SyncProxyPoolConfig()
+	return out
 }
 
 func normalizeJSONMap(in map[string]any) map[string]any {
