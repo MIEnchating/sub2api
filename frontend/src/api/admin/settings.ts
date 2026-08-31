@@ -620,6 +620,7 @@ export interface SystemSettings {
   allow_ungrouped_key_scheduling: boolean;
 
   // Gateway forwarding behavior
+  openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   codex_quota_overdraft_enabled: boolean;
   openai_account_unique_fingerprint_enabled: boolean;
@@ -947,6 +948,7 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string;
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
+  openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   codex_quota_overdraft_enabled?: boolean;
   openai_account_unique_fingerprint_enabled?: boolean;

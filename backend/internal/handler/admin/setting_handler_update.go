@@ -243,6 +243,7 @@ type UpdateSettingsRequest struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
+	OpenAITTFTMode                            *string         `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              *bool           `json:"enable_fingerprint_unification"`
 	CodexQuotaOverdraftEnabled                *bool           `json:"codex_quota_overdraft_enabled"`
 	OpenAIAccountUniqueFingerprintEnabled     *bool           `json:"openai_account_unique_fingerprint_enabled"`
@@ -1688,6 +1689,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpsMetricsIntervalSeconds
 			}
 			return previousSettings.OpsMetricsIntervalSeconds
+		}(),
+		OpenAITTFTMode: func() string {
+			if req.OpenAITTFTMode != nil {
+				return *req.OpenAITTFTMode
+			}
+			return previousSettings.OpenAITTFTMode
 		}(),
 		EnableFingerprintUnification: func() bool {
 			if req.EnableFingerprintUnification != nil {

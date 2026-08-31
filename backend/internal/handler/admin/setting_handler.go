@@ -288,6 +288,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   settings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
+		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
 		CodexQuotaOverdraftEnabled:                             settings.CodexQuotaOverdraftEnabled,
 		OpenAIAccountUniqueFingerprintEnabled:                  settings.OpenAIAccountUniqueFingerprintEnabled,
