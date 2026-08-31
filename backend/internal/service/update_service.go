@@ -39,12 +39,12 @@ const (
 	releaseSourceUpdateURL = "https://github.com/MIEnchating/sub2api/commits/main"
 
 	officialUpstreamRepo       = "Wei-Shaw/sub2api"
-	officialUpstreamBaseline   = "b5827cfd54d58c248a9480b800444d0b40f0c6ea"
+	officialUpstreamBaseline   = "52374af94031f04df8de6fc91deb77a179e04b06"
 	overdraftUpstreamRepo      = "DeanZFC/sub2api-overdraft"
-	overdraftUpstreamBranch    = "codex-overdraft"
-	overdraftUpstreamBaseline  = "2bfdc395e6fd0fab0fef3757748dd41a594f592d"
+	overdraftUpstreamBranch    = "sub2api-custom"
+	overdraftUpstreamBaseline  = "9e3c9eada797e770abbaf5bfab8d295371fd43fc"
 	overdraftUpstreamVersion   = "FORK_VERSION"
-	overdraftUpstreamUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/codex-overdraft"
+	overdraftUpstreamUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/sub2api-custom"
 	upstreamBaselineSignature  = officialUpstreamBaseline + ":" + overdraftUpstreamBaseline
 
 	// Security: allowed download domains for updates
