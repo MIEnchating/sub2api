@@ -480,7 +480,9 @@ func (s *ConcurrencyService) AcquireAccountProxySlot(ctx context.Context, accoun
 		return &AcquireResult{Acquired: true, ReleaseFunc: func() {
 			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
-			_ = s.cache.(AccountProxyConcurrencyCache).ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID)
+			if err := balanced.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID); err != nil {
+				logger.LegacyPrintf("service.concurrency", "Warning: failed to release account proxy slot for account %d, proxy %d (req=%s): %v", accountID, proxyID, requestID, err)
+			}
 		}}, proxyID, nil
 	}
 	ext, ok := s.cache.(AccountProxyConcurrencyCache)
@@ -521,7 +523,9 @@ func (s *ConcurrencyService) AcquireAccountProxySlot(ctx context.Context, accoun
 			return &AcquireResult{Acquired: true, ReleaseFunc: func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				_ = ext.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID)
+				if err := ext.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID); err != nil {
+					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account proxy slot for account %d, proxy %d (req=%s): %v", accountID, proxyID, requestID, err)
+				}
 			}}, proxyID, nil
 		}
 	}
