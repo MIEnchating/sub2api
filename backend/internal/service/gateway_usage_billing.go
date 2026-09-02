@@ -639,9 +639,7 @@ func writeUsageLogBestEffort(ctx context.Context, repo UsageLogRepository, usage
 	}
 }
 
-// recordUsageOpts 内部选项，参数化普通计费与长上下文计费的差异点。
 type recordUsageOpts struct {
-	// 长上下文计费（仅 Gemini 路径需要）
 	LongContextThreshold  int
 	LongContextMultiplier float64
 }
@@ -676,7 +674,7 @@ func (s *GatewayService) RecordUsage(ctx context.Context, input *RecordUsageInpu
 		APIKeyService:      input.APIKeyService,
 		QuotaPlatform:      input.QuotaPlatform,
 		ChannelUsageFields: input.ChannelUsageFields,
-	}, &recordUsageOpts{})
+	})
 }
 
 // RecordUsageLongContextInput 记录使用量的输入参数（支持长上下文双倍计费）
@@ -716,23 +714,22 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 		}
 	}
 	return s.recordUsageCore(ctx, &recordUsageCoreInput{
-		Result:             input.Result,
-		APIKey:             apiKey,
-		User:               user,
-		Account:            input.Account,
-		Subscription:       input.Subscription,
-		PricingAt:          input.PricingAt,
-		InboundEndpoint:    input.InboundEndpoint,
-		UpstreamEndpoint:   input.UpstreamEndpoint,
-		UserAgent:          input.UserAgent,
-		IPAddress:          input.IPAddress,
-		SessionID:          input.SessionID,
-		RequestPayloadHash: input.RequestPayloadHash,
-		ForceCacheBilling:  input.ForceCacheBilling,
-		APIKeyService:      input.APIKeyService,
-		QuotaPlatform:      input.QuotaPlatform,
-		ChannelUsageFields: input.ChannelUsageFields,
-	}, &recordUsageOpts{
+		Result:                input.Result,
+		APIKey:                apiKey,
+		User:                  user,
+		Account:               input.Account,
+		Subscription:          input.Subscription,
+		PricingAt:             input.PricingAt,
+		InboundEndpoint:       input.InboundEndpoint,
+		UpstreamEndpoint:      input.UpstreamEndpoint,
+		UserAgent:             input.UserAgent,
+		IPAddress:             input.IPAddress,
+		SessionID:             input.SessionID,
+		RequestPayloadHash:    input.RequestPayloadHash,
+		ForceCacheBilling:     input.ForceCacheBilling,
+		APIKeyService:         input.APIKeyService,
+		QuotaPlatform:         input.QuotaPlatform,
+		ChannelUsageFields:    input.ChannelUsageFields,
 		LongContextThreshold:  input.LongContextThreshold,
 		LongContextMultiplier: input.LongContextMultiplier,
 	})
@@ -740,21 +737,23 @@ func (s *GatewayService) RecordUsageWithLongContext(ctx context.Context, input *
 
 // recordUsageCoreInput 是 recordUsageCore 的公共输入字段，从两种输入结构体中提取。
 type recordUsageCoreInput struct {
-	Result             *ForwardResult
-	APIKey             *APIKey
-	User               *User
-	Account            *Account
-	Subscription       *UserSubscription
-	PricingAt          time.Time
-	InboundEndpoint    string
-	UpstreamEndpoint   string
-	UserAgent          string
-	IPAddress          string
-	SessionID          string
-	RequestPayloadHash string
-	ForceCacheBilling  bool
-	APIKeyService      APIKeyQuotaUpdater
-	QuotaPlatform      string
+	Result                *ForwardResult
+	APIKey                *APIKey
+	User                  *User
+	Account               *Account
+	Subscription          *UserSubscription
+	PricingAt             time.Time
+	InboundEndpoint       string
+	UpstreamEndpoint      string
+	UserAgent             string
+	IPAddress             string
+	SessionID             string
+	RequestPayloadHash    string
+	ForceCacheBilling     bool
+	APIKeyService         APIKeyQuotaUpdater
+	QuotaPlatform         string
+	LongContextThreshold  int
+	LongContextMultiplier float64
 	ChannelUsageFields
 }
 
@@ -832,9 +831,8 @@ func logResponseModelBillingApplied(component string, account *Account, requestI
 	slog.Info("billing.response_model_applied", attrs...)
 }
 
-// recordUsageCore 是 RecordUsage 和 RecordUsageWithLongContext 的统一实现。
-// LongContextThreshold > 0 时 Token 计费回退走 CalculateCostWithLongContext。
-func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput, opts *recordUsageOpts) error {
+// recordUsageCore 是 RecordUsage 的核心实现。
+func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsageCoreInput) error {
 	result := input.Result
 	apiKey := input.APIKey
 	user := input.User
@@ -918,6 +916,10 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	}
 
 	// 计算费用
+	opts := &recordUsageOpts{
+		LongContextThreshold:  input.LongContextThreshold,
+		LongContextMultiplier: input.LongContextMultiplier,
+	}
 	cost := s.calculateRecordUsageCost(ctx, result, apiKey, billingModel, multiplier, imageMultiplier, pricingAt, opts)
 	// response_model：按上游成功响应自报的模型计费（渠道显式开启才生效）。
 	// 采纳条件见 responseModelBillingDeclaration + hasIdentifiedResponseModelPricing
@@ -951,7 +953,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	// 创建使用日志
 	accountRateMultiplier := account.BillingRateMultiplier()
 	usageLog := s.buildRecordUsageLog(ctx, input, result, apiKey, user, account, subscription,
-		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost, opts)
+		requestedModel, multiplier, imageMultiplier, accountRateMultiplier, billingType, cacheTTLOverridden, cost)
 
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
 	if apiKey.GroupID != nil {
@@ -1024,7 +1026,7 @@ func (s *GatewayService) recordUsageCore(ctx context.Context, input *recordUsage
 	return nil
 }
 
-// calculateRecordUsageCost 根据请求类型和选项计算费用。
+// calculateRecordUsageCost 根据请求类型计算费用。
 func (s *GatewayService) calculateRecordUsageCost(
 	ctx context.Context,
 	result *ForwardResult,
@@ -1033,12 +1035,13 @@ func (s *GatewayService) calculateRecordUsageCost(
 	multiplier float64,
 	imageMultiplier float64,
 	pricingAt time.Time,
-	opts *recordUsageOpts,
+	opts ...*recordUsageOpts,
 ) *CostBreakdown {
+	usageOpts := firstRecordUsageOpts(opts)
 	// 图片生成：渠道定价为 token 计费时走 token 路径，否则走图片计费
 	if result.ImageCount > 0 {
 		if resolved := s.resolveChannelPricing(ctx, billingModel, apiKey); resolved != nil && resolved.Mode == BillingModeToken {
-			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+			return s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, usageOpts)
 		}
 		return s.calculateImageCost(ctx, result, apiKey, billingModel, imageMultiplier)
 	}
@@ -1062,7 +1065,7 @@ func (s *GatewayService) calculateRecordUsageCost(
 	}
 
 	// Token 计费；SearchCount 为叠加 surcharge（不替代 token）。
-	tokenCost := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, opts)
+	tokenCost := s.calculateTokenCost(ctx, result, apiKey, billingModel, multiplier, pricingAt, usageOpts)
 	if result.SearchCount > 0 {
 		price := groupSearchPricePer1kFromAPIKey(apiKey)
 		if price != nil && *price == 0 {
@@ -1078,6 +1081,13 @@ func (s *GatewayService) calculateRecordUsageCost(
 		}
 	}
 	return tokenCost
+}
+
+func firstRecordUsageOpts(opts []*recordUsageOpts) *recordUsageOpts {
+	if len(opts) > 0 && opts[0] != nil {
+		return opts[0]
+	}
+	return &recordUsageOpts{}
 }
 
 // compositeBillableModel 决定 composite 分组请求的计费模型：来源覆盖把计费模型
@@ -1214,7 +1224,7 @@ func (s *GatewayService) calculateImageCost(
 	return s.billingService.CalculateImageCost(billingModel, sizeTier, result.ImageCount, groupConfig, multiplier)
 }
 
-// calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 旧长上下文规则 → 内置定价）
+// calculateTokenCost 计算 Token 计费：路径选择（分组/渠道定价 → 内置定价）
 // 统一交给 BillingService.CalculateTokenCostForRequest，与模型广场的阶梯表查询同源。
 func (s *GatewayService) calculateTokenCost(
 	ctx context.Context,
@@ -1241,7 +1251,7 @@ func (s *GatewayService) calculateTokenCost(
 		resolved = s.resolver.Resolve(ctx, PricingInput{Model: billingModel, GroupID: &gid, Group: apiKey.Group})
 	}
 	var legacy *LegacyLongContextRule
-	if opts.LongContextThreshold > 0 {
+	if opts != nil && opts.LongContextThreshold > 0 {
 		legacy = &LegacyLongContextRule{Threshold: opts.LongContextThreshold, Multiplier: opts.LongContextMultiplier}
 	}
 
@@ -1264,7 +1274,6 @@ func (s *GatewayService) calculateTokenCost(
 	return cost
 }
 
-// LegacyLongContextRule 透传 BillingService 的平台旧长上下文规则，供入口 handler 取用。
 func (s *GatewayService) LegacyLongContextRule(platform string) *LegacyLongContextRule {
 	if s == nil || s.billingService == nil {
 		return nil
@@ -1288,7 +1297,6 @@ func (s *GatewayService) buildRecordUsageLog(
 	billingType int8,
 	cacheTTLOverridden bool,
 	cost *CostBreakdown,
-	opts *recordUsageOpts,
 ) *UsageLog {
 	durationMs := int(result.Duration.Milliseconds())
 	requestID := resolveUsageBillingRequestID(ctx, result.RequestID)
