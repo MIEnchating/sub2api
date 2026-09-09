@@ -417,6 +417,10 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		}
 		rateLimit429RetryCount = *input.RateLimit429RetryCount
 	}
+	schedulable := true
+	if input.Schedulable != nil {
+		schedulable = *input.Schedulable
+	}
 	account := &Account{
 		Name:                   input.Name,
 		Notes:                  normalizeAccountNotes(input.Notes),
@@ -430,7 +434,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		RateLimit429RetryCount: &rateLimit429RetryCount,
 		Priority:               input.Priority,
 		Status:                 StatusActive,
-		Schedulable:            true,
+		Schedulable:            schedulable,
 	}
 	account.SyncProxyPoolConfig()
 	if account.ProxyConcurrencyLimitEnabled() {

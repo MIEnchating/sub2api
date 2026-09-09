@@ -131,6 +131,7 @@ type CreateAccountRequest struct {
 	ExpiresAt                    *int64         `json:"expires_at"`
 	AutoPauseOnExpired           *bool          `json:"auto_pause_on_expired"`
 	ProbeEnabled                 *bool          `json:"upstream_billing_probe_enabled"`
+	Schedulable                  *bool          `json:"schedulable"`
 	ConfirmMixedChannelRisk      *bool          `json:"confirm_mixed_channel_risk"` // 用户确认混合渠道风险
 }
 
@@ -896,6 +897,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ExpiresAt:                    req.ExpiresAt,
 			AutoPauseOnExpired:           req.AutoPauseOnExpired,
 			ProbeEnabled:                 req.ProbeEnabled,
+			Schedulable:                  req.Schedulable,
 			SkipMixedChannelCheck:        skipCheck,
 		})
 		if execErr != nil {

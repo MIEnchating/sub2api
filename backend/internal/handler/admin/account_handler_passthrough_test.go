@@ -66,3 +66,23 @@ func TestAccountHandler_Create_AnthropicAPIKeyPassthroughExtraForwarded(t *testi
 	require.NotNil(t, created.Extra)
 	require.Equal(t, true, created.Extra["anthropic_passthrough"])
 }
+
+func TestAccountHandlerCreateForwardsExplicitInitialSchedulableState(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	adminSvc := newStubAdminService()
+	handler := NewAccountHandler(adminSvc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	router := gin.New()
+	router.POST("/api/v1/admin/accounts", handler.Create)
+
+	recorder := httptest.NewRecorder()
+	request := httptest.NewRequest(http.MethodPost, "/api/v1/admin/accounts", bytes.NewBufferString(
+		`{"name":"disabled-on-create","platform":"openai","type":"apikey","credentials":{"api_key":"test"},"schedulable":false}`,
+	))
+	request.Header.Set("Content-Type", "application/json")
+	router.ServeHTTP(recorder, request)
+
+	require.Equal(t, http.StatusOK, recorder.Code)
+	require.Len(t, adminSvc.createdAccounts, 1)
+	require.NotNil(t, adminSvc.createdAccounts[0].Schedulable)
+	require.False(t, *adminSvc.createdAccounts[0].Schedulable)
+}

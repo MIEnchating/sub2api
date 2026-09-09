@@ -214,6 +214,19 @@ func TestDuplicateCreatePathMintsFreshSeedWhenEligible(t *testing.T) {
 	require.Equal(t, "session", account.Extra[codexFingerprintModeExtraKey])
 }
 
+func TestBuildAccountForCreateHonorsExplicitInitialSchedulableState(t *testing.T) {
+	schedulable := false
+	account, err := buildAccountForCreate(&CreateAccountInput{
+		Name:        "disabled-on-create",
+		Platform:    PlatformOpenAI,
+		Type:        AccountTypeAPIKey,
+		Schedulable: &schedulable,
+	}, nil)
+
+	require.NoError(t, err)
+	require.False(t, account.Schedulable)
+}
+
 func TestAccountServiceCreateAndUpdateCodexSeedLifecycle(t *testing.T) {
 	ctx := context.Background()
 	repo := &upstreamBillingProbeAccountRepo{accounts: make(map[int64]*Account)}
