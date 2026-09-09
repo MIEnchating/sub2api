@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 24 // v24: full fallback billing and OpenAI Fast group fields
+const apiKeyAuthSnapshotVersion = 25 // v25: merge full fallback billing fields with group model allowlist semantics
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -386,7 +386,8 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		RequirePrivacySet:               group.RequirePrivacySet,
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
-		ModelsListConfig:                group.ModelsListConfig,
+		ModelAllowlist:                  group.ModelAllowlist,
+		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
 		RPMLimit:                        group.RPMLimit,
 		UserConcurrencyLimit:            group.UserConcurrencyLimit,
 		MaxReasoningEffort:              group.MaxReasoningEffort,
@@ -458,7 +459,8 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		RequirePrivacySet:               snapshot.RequirePrivacySet,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
-		ModelsListConfig:                snapshot.ModelsListConfig,
+		ModelAllowlist:                  snapshot.ModelAllowlist,
+		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
 		RPMLimit:                        snapshot.RPMLimit,
 		UserConcurrencyLimit:            snapshot.UserConcurrencyLimit,
 		MaxReasoningEffort:              snapshot.MaxReasoningEffort,
@@ -573,7 +575,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			RequirePrivacySet:               apiKey.Group.RequirePrivacySet,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                apiKey.Group.ModelsListConfig,
+			ModelAllowlist:                  apiKey.Group.ModelAllowlist,
+			CodexModelsManifestConfig:       apiKey.Group.CodexModelsManifestConfig,
 			RPMLimit:                        apiKey.Group.RPMLimit,
 			UserConcurrencyLimit:            apiKey.Group.UserConcurrencyLimit,
 			MaxReasoningEffort:              apiKey.Group.MaxReasoningEffort,
@@ -690,7 +693,8 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			RequirePrivacySet:               snapshot.Group.RequirePrivacySet,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
-			ModelsListConfig:                snapshot.Group.ModelsListConfig,
+			ModelAllowlist:                  snapshot.Group.ModelAllowlist,
+			CodexModelsManifestConfig:       snapshot.Group.CodexModelsManifestConfig,
 			RPMLimit:                        snapshot.Group.RPMLimit,
 			UserConcurrencyLimit:            snapshot.Group.UserConcurrencyLimit,
 			MaxReasoningEffort:              snapshot.Group.MaxReasoningEffort,
