@@ -637,14 +637,6 @@
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <div>
-          <label class="input-label">{{ t("admin.groups.form.codexQuotaOverdraft") }}</label>
-          <Select
-            v-model="createForm.codex_quota_overdraft_enabled"
-            :options="codexQuotaOverdraftOptions"
-          />
-          <p class="input-hint">{{ t("admin.groups.form.codexQuotaOverdraftHint") }}</p>
-        </div>
-        <div>
           <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
           <input
             v-model.number="createForm.user_concurrency_limit"
@@ -2293,14 +2285,6 @@
             :placeholder="t('admin.groups.form.rpmLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
-        </div>
-        <div>
-          <label class="input-label">{{ t("admin.groups.form.codexQuotaOverdraft") }}</label>
-          <Select
-            v-model="editForm.codex_quota_overdraft_enabled"
-            :options="codexQuotaOverdraftOptions"
-          />
-          <p class="input-hint">{{ t("admin.groups.form.codexQuotaOverdraftHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
@@ -5038,7 +5022,6 @@ const createForm = reactive({
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
-  codex_quota_overdraft_enabled: null as boolean | null,
 });
 
 // 简单账号类型（用于模型路由选择）
@@ -5406,14 +5389,7 @@ const editForm = reactive({
   max_reasoning_effort: "",
   max_reasoning_effort_over_limit: reasoningEffortOverLimitDowngrade,
   reasoning_effort_mappings: [] as ReasoningEffortMappingRow[],
-  codex_quota_overdraft_enabled: null as boolean | null,
 });
-
-const codexQuotaOverdraftOptions = computed(() => [
-  { value: null, label: t("admin.groups.form.codexQuotaOverdraftInherit") },
-  { value: true, label: t("admin.groups.form.codexQuotaOverdraftEnabled") },
-  { value: false, label: t("admin.groups.form.codexQuotaOverdraftDisabled") },
-]);
 
 type ImagePricingFormState = {
   platform: GroupPlatform;
@@ -5857,7 +5833,6 @@ const closeCreateModal = () => {
   createForm.max_reasoning_effort = "";
   createForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   createForm.reasoning_effort_mappings = [];
-  createForm.codex_quota_overdraft_enabled = null;
   createReasoningEffortPolicyRef.value?.resetValidation();
   resetModelAllowlistState(createModelAllowlistState);
   createModelRoutingRules.value = [];
@@ -6150,7 +6125,6 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.mcp_xml_inject = group.mcp_xml_inject ?? true;
   editForm.copy_accounts_from_group_ids = []; // 复制账号字段每次编辑时重置为空
   editForm.rpm_limit = group.rpm_limit ?? 0;
-  editForm.codex_quota_overdraft_enabled = group.codex_quota_overdraft_enabled ?? null;
   editForm.user_concurrency_limit = group.user_concurrency_limit ?? 0;
   editForm.max_reasoning_effort = normalizeReasoningEffortForPlatform(
     group.platform,
@@ -6204,7 +6178,6 @@ const closeEditModal = () => {
   editForm.max_reasoning_effort = "";
   editForm.max_reasoning_effort_over_limit = reasoningEffortOverLimitDowngrade;
   editForm.reasoning_effort_mappings = [];
-  editForm.codex_quota_overdraft_enabled = null;
   editReasoningEffortPolicyRef.value?.resetValidation();
   editModelRoutingRules.value = [];
   editForm.copy_accounts_from_group_ids = [];

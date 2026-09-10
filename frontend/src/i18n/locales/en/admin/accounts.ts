@@ -188,7 +188,6 @@ export default {
         rateLimited: 'Rate Limited',
         overloaded: 'Overloaded',
         tempUnschedulable: 'Temp Unschedulable',
-        codexQuotaPaused: 'Quota Paused',
         quotaExceeded: 'Quota Exceeded',
         unschedulable: 'Unschedulable',
         rateLimitedUntil: 'Rate limited and removed from scheduling. Auto resumes at {time}',
@@ -208,6 +207,7 @@ export default {
         platform: 'Platform',
         type: 'Type',
         capacity: 'Capacity',
+        recentRequests: 'Recent Requests',
         notes: 'Notes',
         priority: 'Priority',
         billingRateMultiplier: 'Billing Rate',
@@ -230,6 +230,15 @@ export default {
         stickyShort: 'Sticky',
         ungrouped: 'Ungrouped',
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, billing rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
+      },
+      recentRequests: {
+        summary: '{count} recent requests',
+        empty: 'No requests',
+        unknownError: 'Unknown error',
+        errorPrefix: 'HTTP {status}',
+        user: 'User',
+        group: 'Group',
+        latency: 'Latency'
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       ollamaCloud: {
@@ -580,11 +589,6 @@ export default {
         oauthPassthroughDesc:
           'When enabled, this OpenAI account uses automatic passthrough: the gateway forwards request/response as-is and only swaps auth, while keeping billing/concurrency/audit and necessary safety filtering.',
         modelNormalization: 'Normalize Codex model names',
-        codexQuotaOverdraft: 'Codex quota overdraft',
-        codexQuotaOverdraftDesc: 'Account setting takes precedence over its group. Inherit to use the group or global setting; a global off always disables it.',
-        codexQuotaOverdraftInherit: 'Inherit group setting',
-        codexQuotaOverdraftEnabled: 'Enabled',
-        codexQuotaOverdraftDisabled: 'Disabled',
         modelNormalizationDesc:
           'Enabled by default. Known aliases and suffixed model names are converted to names supported by the Codex upstream. Disable to forward custom mapped names such as gpt-5.6-sol-wm unchanged.',
         flattenNamespaces: 'Flatten Codex namespace tools (compatibility)',
@@ -658,6 +662,7 @@ export default {
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
+        codexFingerprintSingleMachineMultiWindow: 'Enable single machine, multiple windows',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',

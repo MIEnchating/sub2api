@@ -102,6 +102,7 @@ export default {
         platform: '平台',
         type: '类型',
         capacity: '容量',
+        recentRequests: '最近请求',
         notes: '备注',
         priority: '优先级',
         billingRateMultiplier: '账号倍率',
@@ -124,6 +125,15 @@ export default {
         stickyShort: '粘性',
         ungrouped: '未分组',
         hint: '显示格式为“分组名 / 基础分 / 粘性加分”。基础分按当前筛选条件限定的候选账号计算，包含优先级、负载、排队、错误率、首包延迟、重置窗口、额度余量、计费倍率等因子；粘性加分只在开启粘性加权时用于 previous_response_id 或 session_hash。分数越大越优先。'
+      },
+      recentRequests: {
+        summary: '最近 {count} 次请求',
+        empty: '暂无请求',
+        unknownError: '未知错误',
+        errorPrefix: 'HTTP {status}',
+        user: '用户',
+        group: '分组',
+        latency: '延迟'
       },
       usageWindowsHint: '“5h / 7d”是上游账号（如 OpenAI ChatGPT、Claude）官方的滚动用量窗口限制，由上游对账号设定，并非 sub2api 配置，也与你映射的模型无关。窗口滚动到期后用量会自动重置，无法在 sub2api 端解除该限制。',
       ollamaCloud: {
@@ -391,7 +401,6 @@ export default {
         rateLimited: '限流中',
         overloaded: '过载中',
         tempUnschedulable: '临时不可调度',
-        codexQuotaPaused: '额度暂停',
         quotaExceeded: '配额超限',
         unschedulable: '不可调度',
         rateLimitedUntil: '限流中，当前不参与调度，预计 {time} 自动恢复',
@@ -666,11 +675,6 @@ export default {
         oauthPassthroughDesc:
           '开启后，该 OpenAI 账号将自动透传请求与响应，仅替换认证并保留计费/并发/审计及必要安全过滤；如遇兼容性问题可随时关闭回滚。',
         modelNormalization: '规范化 Codex 模型名称',
-        codexQuotaOverdraft: 'Codex 额度超刷',
-        codexQuotaOverdraftDesc: '账号级设置优先于所属分组；继承时使用分组或全局设置。全局关闭时不会启用。',
-        codexQuotaOverdraftInherit: '继承分组设置',
-        codexQuotaOverdraftEnabled: '开启',
-        codexQuotaOverdraftDisabled: '关闭',
         modelNormalizationDesc:
           '默认开启，将已知别名和带后缀的模型名称转换为 Codex 上游支持的标准名称。关闭后，账号映射得到的自定义模型名称（如 gpt-5.6-sol-wm）将原样发送。',
         flattenNamespaces: '摊平 Codex namespace 工具（兼容）',
@@ -737,6 +741,7 @@ export default {
         codexFingerprintDevice: '仅设备',
         codexFingerprintSession: '设备+会话',
         codexFingerprintFull: '完全收敛',
+        codexFingerprintSingleMachineMultiWindow: '启用单机多窗口',
         codexImageTool: 'Codex 图片桥接策略',
         codexImageToolDesc:
           '统一控制 Codex /responses 文本请求的 hosted image_generation 桥接和客户端图片工具声明。hosted 工具自动注入仅适用于非 Responses Lite 请求；账号级策略优先于渠道和全局配置，不影响独立图片生成接口。',

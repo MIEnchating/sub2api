@@ -935,20 +935,13 @@ describe('BulkEditAccountModal', () => {
       status: 'active'
     })
   })
-  // issue #6327：批量编辑无法把 Codex 指纹收敛关掉。
-  //
-  // 批量更新走 JSONB 顶层合并（extra = COALESCE(extra,'{}') || payload），删掉 payload
-  // 里的键只表示「本次不更新该键」，清不掉账号已有的 device/session/full；而且只删不写会让
-  // payload 退化成 {extra:{}}，被后端 len(req.Extra) > 0 判为空更新直接 400
-  // "No updates provided"。Create/Edit 那两个表单能删键，是因为它们提交完整 extra 对象、
-  // 后端整体 SetExtra 覆盖——两种持久化语义不能共用同一套写法。
-  it('OpenAI OAuth 批量编辑选择「关闭」时应显式提交 codex_fingerprint_mode=off（issue #6327）', async () => {
+  it('OpenAI OAuth 批量编辑默认提交单机多窗口指纹模式', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
       selectedTypes: ['oauth']
     })
 
-    // 下拉框默认就是 off，用户只勾选「编辑该项」即提交——正是 issue 描述的操作路径。
+    // 用户只勾选「编辑该项」时，应提交当前推荐的默认方案。
     await wrapper.get('#bulk-edit-openai-codex-fingerprint-mode-enabled').setValue(true)
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -956,11 +949,11 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        codex_fingerprint_mode: 'off'
+        codex_fingerprint_mode: 'single_machine_multi_window'
       }
     })
 
-    // 缺陷时期的形状：extra 为空对象，后端必然回 400。显式钉死不得回退。
+    // 批量更新必须落一个显式模式，不能退化成会被后端拒绝的空 extra。
     const payload = vi.mocked(adminAPI.accounts.bulkUpdate).mock.calls[0][1] as {
       extra: Record<string, unknown>
     }

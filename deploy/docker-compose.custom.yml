@@ -1,8 +1,6 @@
 # sub2api-custom source-build overlay.
 # Use together with docker-compose.local.yml for a new generic deployment.
-# The legacy docker-compose.overdraft.yml and docker-compose.coexist.yml remain
-# available for existing deployments that still use the old project/container
-# names.
+# Existing deployments can apply this overlay without changing their data volumes.
 
 services:
   sub2api:
@@ -16,9 +14,6 @@ services:
         VERSION: ""
         COMMIT: ${BUILD_COMMIT:-local}
         BUILD_TYPE: source
-    environment:
-      - GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED=${GATEWAY_CODEX_QUOTA_OVERDRAFT_ENABLED:-true}
-      - GATEWAY_OPENAI_ACCOUNT_UNIQUE_FINGERPRINT_ENABLED=${GATEWAY_OPENAI_ACCOUNT_UNIQUE_FINGERPRINT_ENABLED:-true}
 
   postgres:
     container_name: sub2api-custom-postgres

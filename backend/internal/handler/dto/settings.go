@@ -203,8 +203,6 @@ type SystemSettings struct {
 	// Gateway forwarding behavior
 	OpenAITTFTMode                            string          `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              bool            `json:"enable_fingerprint_unification"`
-	CodexQuotaOverdraftEnabled                bool            `json:"codex_quota_overdraft_enabled"`
-	OpenAIAccountUniqueFingerprintEnabled     bool            `json:"openai_account_unique_fingerprint_enabled"`
 	GatewayStreamDataIntervalTimeoutSeconds   int             `json:"gateway_stream_data_interval_timeout_seconds"`
 	OpenAIFirstOutputTimeoutSeconds           int             `json:"openai_first_output_timeout_seconds"`
 	OpenAIHighEffortFirstOutputTimeoutSeconds int             `json:"openai_high_effort_first_output_timeout_seconds"`

@@ -4439,48 +4439,6 @@
 
         <!-- Tab: Gateway — Claude Code, Scheduling -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
-          <div class="card">
-            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('admin.settings.codexQuotaOverdraft.title') }}
-              </h2>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t('admin.settings.codexQuotaOverdraft.description') }}
-              </p>
-            </div>
-            <div class="flex items-center justify-between p-6">
-              <div>
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.codexQuotaOverdraft.enabled') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.codexQuotaOverdraft.hint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.codex_quota_overdraft_enabled" />
-            </div>
-          </div>
-          <div class="card">
-            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
-              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
-                {{ t('admin.settings.openAIAccountFingerprint.title') }}
-              </h2>
-              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                {{ t('admin.settings.openAIAccountFingerprint.description') }}
-              </p>
-            </div>
-            <div class="flex items-center justify-between gap-6 p-6">
-              <div class="min-w-0">
-                <label class="text-sm font-medium text-gray-700 dark:text-gray-300">
-                  {{ t('admin.settings.openAIAccountFingerprint.enabled') }}
-                </label>
-                <p class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">
-                  {{ t('admin.settings.openAIAccountFingerprint.hint') }}
-                </p>
-              </div>
-              <Toggle v-model="form.openai_account_unique_fingerprint_enabled" />
-            </div>
-          </div>
           <!-- Claude Code Settings -->
           <div class="card">
             <div
@@ -10142,8 +10100,6 @@ const form = reactive<SettingsForm>({
   // Gateway forwarding behavior
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
-  codex_quota_overdraft_enabled: false,
-  openai_account_unique_fingerprint_enabled: true,
   gateway_stream_data_interval_timeout_seconds: 180,
   openai_first_output_timeout_seconds: 0,
   openai_high_effort_first_output_timeout_seconds: 0,
@@ -11770,9 +11726,6 @@ async function saveSettings() {
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,
-      codex_quota_overdraft_enabled: form.codex_quota_overdraft_enabled,
-      openai_account_unique_fingerprint_enabled:
-        form.openai_account_unique_fingerprint_enabled,
       gateway_stream_data_interval_timeout_seconds:
         form.gateway_stream_data_interval_timeout_seconds,
       openai_first_output_timeout_seconds:

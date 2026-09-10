@@ -1446,7 +1446,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
-		account := normalizeCodexQuotaOverdraftAccountForScheduling(ctx, &accounts[i])
+		account := &accounts[i]
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
 				filterStats.exclude("excluded")
@@ -2321,11 +2321,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
-	if groupID != nil && s.schedulerSnapshot != nil {
-		if group, err := s.schedulerSnapshot.GetGroupByID(ctx, *groupID); err == nil && group != nil {
-			ctx = WithCodexQuotaOverdraftGroupOverride(ctx, group.CodexQuotaOverdraftEnabled)
-		}
-	}
 	// 分组利润控制：唯一文本调度入口的防御性装门。handler 文本
 	// 入口已在请求开始经 WithOpenAIRequestPricingContext 装门并固定 pricingAt，
 	// 此处对同分组门直接复用（failover 重入阈值稳定），仅为不经 handler 装配的
@@ -2519,9 +2514,8 @@ func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Accoun
 	return s.reportOpenAIAccountScheduleResult(context.Background(), account, model, success, firstTokenMs, observedErr...)
 }
 
-// ReportOpenAIAccountScheduleResultWithContext preserves request-scoped
-// overdraft observations while using the same health-breaker and scheduler
-// reporting path as the standard entry point.
+// ReportOpenAIAccountScheduleResultWithContext uses the same health-breaker and
+// scheduler reporting path while preserving request-scoped cancellation.
 func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResultWithContext(requestCtx context.Context, account *Account, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
 	return s.reportOpenAIAccountScheduleResult(requestCtx, account, model, success, firstTokenMs, observedErr...)
 }
@@ -2542,7 +2536,6 @@ func (s *OpenAIGatewayService) reportOpenAIAccountScheduleResult(requestCtx cont
 	if success {
 		s.openaiOAuth429RetryStartedAt.Delete(accountID)
 		s.clearOpenAIAccountModelTransientState(accountID, normalizeOpenAIAccountModelTransientModel(model))
-		s.observeCodexQuotaOverdraftScheduleSuccess(accountID, model, []context.Context{requestCtx})
 	}
 	scheduler := s.getOpenAIAccountScheduler(context.Background())
 	if scheduler == nil {

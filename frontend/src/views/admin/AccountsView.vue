@@ -195,6 +195,7 @@
         <DataTable
           ref="dataTableRef"
           :columns="cols"
+          :resizable-columns="true"
           :data="accounts"
           :loading="loading"
           row-key="id"
@@ -285,6 +286,12 @@
           </template>
           <template #cell-capacity="{ row }">
             <AccountCapacityCell :account="row" />
+          </template>
+          <template #cell-recent_requests="{ row }">
+            <RecentRequestsCell
+              :requests="recentRequestsByAccountId[String(row.id)] ?? []"
+              :loading="recentRequestsLoadingByAccountId[String(row.id)] === true"
+            />
           </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
@@ -519,6 +526,7 @@ import AccountUsageCell from '@/components/account/AccountUsageCell.vue'
 import AccountTodayStatsCell from '@/components/account/AccountTodayStatsCell.vue'
 import AccountGroupsCell from '@/components/account/AccountGroupsCell.vue'
 import AccountCapacityCell from '@/components/account/AccountCapacityCell.vue'
+import RecentRequestsCell from '@/components/account/RecentRequestsCell.vue'
 import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import PlatformTypeBadge from '@/components/common/PlatformTypeBadge.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -532,6 +540,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
+import type { OpsRequestDetail } from '@/api/admin/ops'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
@@ -704,6 +713,10 @@ const todayStatsError = ref<string | null>(null)
 const todayStatsReqSeq = ref(0)
 const pendingTodayStatsRefresh = ref(false)
 const usageManualRefreshToken = ref(0)
+const recentRequestsByAccountId = ref<Record<string, OpsRequestDetail[]>>({})
+const recentRequestsLoadingByAccountId = ref<Record<string, boolean>>({})
+let recentRequestsReqSeq = 0
+let recentRequestsRefreshTimer: ReturnType<typeof setInterval> | null = null
 
 const desktopViewportQuery = '(min-width: 768px)'
 const isDesktopViewport = ref(
@@ -1049,6 +1062,11 @@ const toggleColumn = (key: string) => {
       console.error('Failed to load account today stats after showing column:', error)
     })
   }
+  if (key === 'recent_requests' && wasHidden) {
+    refreshRecentRequests().catch((error) => {
+      console.error('Failed to load recent account requests after showing column:', error)
+    })
+  }
   if (key === 'scheduler_score') {
     // The server only returns scheduler scores when this column is visible, so reload the current page immediately.
     syncAccountListDerivedParams()
@@ -1147,6 +1165,40 @@ useSwipeSelect(accountTableRef, {
 const resetAutoRefreshCache = () => {
   autoRefreshETag.value = null
   upstreamBillingRateETag.value = null
+}
+
+const refreshRecentRequests = async () => {
+  const rows = accounts.value
+  const requestSeq = ++recentRequestsReqSeq
+  if (!isColumnVisible('recent_requests') || rows.length === 0) {
+    recentRequestsByAccountId.value = {}
+    recentRequestsLoadingByAccountId.value = {}
+    return
+  }
+
+  const visibleIDs = new Set(rows.map(row => String(row.id)))
+  recentRequestsLoadingByAccountId.value = Object.fromEntries(rows.map(row => [String(row.id), true]))
+  const results = await Promise.allSettled(rows.map(async row => {
+    const response = await adminAPI.ops.listRequestDetails({
+      account_id: row.id,
+      time_range: '24h',
+      kind: 'all',
+      sort: 'created_at_desc',
+      page: 1,
+      page_size: 10
+    })
+    return [String(row.id), response.items.slice(0, 10)] as const
+  }))
+
+  if (requestSeq !== recentRequestsReqSeq) return
+  const next: Record<string, OpsRequestDetail[]> = {}
+  results.forEach(result => {
+    if (result.status === 'fulfilled') next[result.value[0]] = result.value[1]
+  })
+  recentRequestsByAccountId.value = Object.fromEntries(
+    Object.entries(next).filter(([key]) => visibleIDs.has(key))
+  )
+  recentRequestsLoadingByAccountId.value = {}
 }
 
 type AccountLoadOptions = {
@@ -1329,6 +1381,7 @@ const handleSort = (key: string, order: AccountSortOrder) => {
 watch(loading, (isLoading, wasLoading) => {
   if (wasLoading && !isLoading) {
     upstreamBillingNow.value = Date.now()
+    void refreshRecentRequests()
   }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
@@ -1340,6 +1393,12 @@ watch(loading, (isLoading, wasLoading) => {
 
 watch(accounts, (rows) => {
   const visibleIDs = new Set(rows.map((row) => String(row.id)))
+  recentRequestsByAccountId.value = Object.fromEntries(
+    Object.entries(recentRequestsByAccountId.value).filter(([key]) => visibleIDs.has(key))
+  )
+  recentRequestsLoadingByAccountId.value = Object.fromEntries(
+    Object.entries(recentRequestsLoadingByAccountId.value).filter(([key]) => visibleIDs.has(key))
+  )
   usageBatchByAccountId.value = Object.fromEntries(
     Object.entries(usageBatchByAccountId.value).filter(([key]) => visibleIDs.has(key))
   )
@@ -1470,6 +1529,7 @@ const refreshAccountsIncrementally = async () => {
     upstreamBillingNow.value = Date.now()
 
     await refreshTodayStatsBatch()
+    await refreshRecentRequests()
   } catch (error) {
     console.error('Auto refresh failed:', error)
   } finally {
@@ -1786,6 +1846,7 @@ const allColumns = computed(() => {
     { key: 'id', label: t('admin.accounts.columns.id'), sortable: true },
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
+    { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
@@ -2532,6 +2593,12 @@ onMounted(async () => {
   }
 
   load()
+  // Recent request indicators refresh independently of the account-list auto refresh.
+  recentRequestsRefreshTimer = setInterval(() => {
+    if (!document.hidden && !loading.value && !isAnyModalOpen.value) {
+      refreshRecentRequests().catch(error => console.error('Failed to refresh recent requests:', error))
+    }
+  }, 5000)
   loadUpstreamBillingProbeGlobalState()
   const [proxiesResult, groupsResult] = await Promise.allSettled([
     adminAPI.proxies.getAll(),
@@ -2560,6 +2627,10 @@ onMounted(async () => {
 })
 
 onUnmounted(() => {
+  if (recentRequestsRefreshTimer !== null) {
+    clearInterval(recentRequestsRefreshTimer)
+    recentRequestsRefreshTimer = null
+  }
   upstreamBillingRateAbortController?.abort()
   if (usageBatchFlushTimer !== null) {
     clearTimeout(usageBatchFlushTimer)

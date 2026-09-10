@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
@@ -86,7 +87,7 @@ type codexFingerprintMode string
 const (
 	// codexFingerprintOff 不做任何收敛，原样透传客户端标识。
 	// 账号 extra 未显式配置模式时，GetCodexFingerprintMode 返回此值；
-	// 出站请求是否按全局开关提升到 device 模式由 resolveCodexFingerprintMode 决定。
+	// 出站请求是否按静态部署配置使用默认模式由 resolveCodexFingerprintMode 决定。
 	codexFingerprintOff codexFingerprintMode = "off"
 	// codexFingerprintAccountDevice 是页面显示的“CPA 指纹出口”兼容模式：
 	// 使用账号 ID（已有系统种子优先）派生唯一且稳定的 installation_id。
@@ -102,6 +103,10 @@ const (
 	// codexFingerprintFull 收敛所有标识：installation_id + session_id + thread_id。
 	// 上游看到 1 台设备 + 1 会话 + 1 线程，最激进。
 	codexFingerprintFull codexFingerprintMode = "full"
+	// codexFingerprintSingleMachineMultiWindow keeps one stable device per
+	// account while deriving a stable, separate Codex window for each client
+	// session. This is the user-facing replacement for the legacy modes.
+	codexFingerprintSingleMachineMultiWindow codexFingerprintMode = "single_machine_multi_window"
 )
 
 const (
@@ -141,7 +146,7 @@ func codexFingerprintModeFromExtra(extra map[string]any) codexFingerprintMode {
 	}
 	raw, _ := extra[codexFingerprintModeExtraKey].(string)
 	switch codexFingerprintMode(strings.TrimSpace(raw)) {
-	case codexFingerprintOff, codexFingerprintAccountDevice, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
+	case codexFingerprintOff, codexFingerprintAccountDevice, codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull, codexFingerprintSingleMachineMultiWindow:
 		return codexFingerprintMode(strings.TrimSpace(raw))
 	default:
 		return codexFingerprintOff
@@ -150,7 +155,7 @@ func codexFingerprintModeFromExtra(extra map[string]any) codexFingerprintMode {
 
 func codexFingerprintModeRequiresSeed(mode codexFingerprintMode) bool {
 	switch mode {
-	case codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull:
+	case codexFingerprintDevice, codexFingerprintSession, codexFingerprintFull, codexFingerprintSingleMachineMultiWindow:
 		return true
 	default:
 		return false
@@ -235,8 +240,8 @@ func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 }
 
 // resolveCodexFingerprintMode resolves the effective account mode. An explicit
-// per-account value always wins; when the global switch is enabled and the
-// account has no mode key, device-level convergence is enabled by default.
+// per-account value always wins; otherwise the unified multi-window identity is
+// used for Codex clients when enabled by static configuration.
 func resolveCodexFingerprintMode(account *Account, enabled bool) (codexFingerprintMode, bool) {
 	if account == nil || !account.IsOpenAIOAuth() {
 		return codexFingerprintOff, false
@@ -247,10 +252,10 @@ func resolveCodexFingerprintMode(account *Account, enabled bool) (codexFingerpri
 			return mode, mode == codexFingerprintAccountDevice
 		}
 	}
-	if enabled {
-		return codexFingerprintDevice, true
+	if !enabled {
+		return codexFingerprintOff, false
 	}
-	return codexFingerprintOff, false
+	return codexFingerprintSingleMachineMultiWindow, true
 }
 
 // deriveAccountCodexFingerprintSeed gives existing accounts a stable seed even
@@ -310,6 +315,31 @@ func resolveConvergedThreadID(seed, clientSessionID string) string {
 		return ""
 	}
 	return deriveStableUUIDv4("sub2api:codex-thread-id:v2:" + seed + ":" + clientSessionID)
+}
+
+func resolveSingleMachineMultiWindowSessionID(seed, clientSessionID string) string {
+	if seed == "" {
+		return ""
+	}
+	if strings.TrimSpace(clientSessionID) == "" {
+		return resolveConvergedSessionID(seed)
+	}
+	return deriveStableUUIDv4("sub2api:codex-single-machine-session:v1:" + seed + ":" + strings.TrimSpace(clientSessionID))
+}
+
+func isCodexFingerprintClient(h http.Header) bool {
+	if h == nil {
+		return false
+	}
+	if openai.IsCodexOfficialClientByHeaders(h.Get("User-Agent"), h.Get("originator")) {
+		return true
+	}
+	for key := range h {
+		if strings.HasPrefix(strings.ToLower(strings.TrimSpace(key)), "x-codex-") {
+			return true
+		}
+	}
+	return strings.TrimSpace(h.Get("session-id")) != "" && strings.TrimSpace(h.Get("thread-id")) != ""
 }
 
 // codexFingerprintIDs 收敛后的完整 ID 集合。
@@ -385,6 +415,16 @@ func resolveCodexFingerprintIDsWithSeed(account *Account, clientSessionID string
 		ids.turnID = uuid.Must(uuid.NewV7()).String()
 		ids.windowID = ids.threadID + ":0"
 		return ids
+
+	case codexFingerprintSingleMachineMultiWindow:
+		ids.sessionID = resolveSingleMachineMultiWindowSessionID(seed, clientSessionID)
+		ids.threadID = resolveConvergedThreadID(seed, ids.sessionID)
+		if ids.threadID == "" {
+			ids.threadID = ids.sessionID
+		}
+		ids.turnID = uuid.Must(uuid.NewV7()).String()
+		ids.windowID = ids.threadID + ":0"
+		return ids
 	}
 
 	return nil
@@ -416,10 +456,11 @@ func resolveCodexFingerprintIDsFromRequest(account *Account, clientHeaders http.
 	if clientHeaders != nil {
 		clientSessionID = extractClientSessionID(clientHeaders)
 	}
+	if mode == codexFingerprintSingleMachineMultiWindow && !isCodexFingerprintClient(clientHeaders) {
+		return nil
+	}
 	if isDefault {
 		seed := deriveAccountCodexFingerprintSeed(account)
-		// 已有系统管理种子优先，保证迁移过的账号不会因连接池键与
-		// 实际出站头使用不同种子而被拆成多组连接。
 		if persisted, ok := codexFingerprintSeed(account.Extra); ok {
 			seed = persisted
 		}
@@ -445,12 +486,20 @@ func applyCodexFingerprintHeaders(h http.Header, ids *codexFingerprintIDs) {
 		return
 	}
 
-	// session / full 模式：改写所有相关头
+	// session / full / single-machine 模式：改写所有相关头
 	h.Set("x-codex-window-id", ids.windowID)
 	h.Set("x-client-request-id", ids.threadID)
-	// 连字符形式和下划线形式都改写，保证一致
+	// 连字符形式始终改写；旧模式继续保留下划线头以兼容历史客户端。
 	h.Set("session-id", ids.sessionID)
-	h.Set("session_id", ids.sessionID)
+	if ids.mode != codexFingerprintSingleMachineMultiWindow {
+		h.Set("session_id", ids.sessionID)
+	}
+	// Current Codex clients no longer send the legacy underscore session header.
+	// Keep the canonical hyphenated header only for the new unified mode; legacy
+	// modes retain their historical wire shape for backwards compatibility.
+	if ids.mode == codexFingerprintSingleMachineMultiWindow {
+		h.Del("session_id")
+	}
 	h.Set("thread-id", ids.threadID)
 
 	rewriteCodexTurnMetadataFields(h, map[string]any{
@@ -580,7 +629,7 @@ func shouldRewriteCodexFingerprintPromptCacheKey(ids *codexFingerprintIDs, promp
 	if ids == nil || !ids.originalBodySessionIDCaptured || ids.originalBodySessionID == "" || ids.sessionID == "" {
 		return false
 	}
-	if ids.mode != codexFingerprintSession && ids.mode != codexFingerprintFull {
+	if ids.mode != codexFingerprintSession && ids.mode != codexFingerprintFull && ids.mode != codexFingerprintSingleMachineMultiWindow {
 		return false
 	}
 	return promptCacheKey == ids.originalBodySessionID

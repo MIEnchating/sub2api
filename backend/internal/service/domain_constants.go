@@ -681,9 +681,7 @@ const (
 	// SettingKeyOpenAICodexClientVersion。
 	SettingKeyOpenAICodexClientVersionSynced = "openai_codex_client_version_synced"
 	// SettingKeyOpenAICodexVersionAutoSyncEnabled 是否启用 Codex 客户端版本号自动同步（默认 true）。
-	SettingKeyOpenAICodexVersionAutoSyncEnabled     = "openai_codex_version_auto_sync_enabled"
-	SettingKeyCodexQuotaOverdraftEnabled            = "codex_quota_overdraft_enabled"
-	SettingKeyOpenAIAccountUniqueFingerprintEnabled = "openai_account_unique_fingerprint_enabled"
+	SettingKeyOpenAICodexVersionAutoSyncEnabled = "openai_codex_version_auto_sync_enabled"
 	// Gateway runtime policy. These values can be changed from the admin panel
 	// and take precedence over YAML/environment configuration without a restart.
 	SettingKeyGatewayStreamDataIntervalTimeoutSeconds   = "gateway_stream_data_interval_timeout_seconds"

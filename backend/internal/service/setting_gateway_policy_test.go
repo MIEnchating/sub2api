@@ -67,7 +67,6 @@ func TestGatewayRuntimePolicyFallsBackToConfigAndWarmsOverrides(t *testing.T) {
 		StreamDataIntervalTimeout:                 90,
 		OpenAIFirstOutputTimeoutSeconds:           120,
 		OpenAIHighEffortFirstOutputTimeoutSeconds: 240,
-		OpenAIAccountUniqueFingerprintEnabled:     true,
 		OpenAIScheduler: config.GatewayOpenAISchedulerConfig{
 			StickyEscapeEnabled:   true,
 			StickyEscapeTTFTMs:    18000,
@@ -80,7 +79,6 @@ func TestGatewayRuntimePolicyFallsBackToConfigAndWarmsOverrides(t *testing.T) {
 	require.Equal(t, 90*time.Second, svc.GatewayStreamDataIntervalTimeout())
 	require.Equal(t, 120*time.Second, svc.GatewayOpenAIFirstOutputTimeout("medium"))
 	require.Equal(t, 240*time.Second, svc.GatewayOpenAIFirstOutputTimeout("high"))
-	require.True(t, svc.OpenAIAccountUniqueFingerprintEnabled())
 
 	repo.values[SettingKeyGatewayStreamDataIntervalTimeoutSeconds] = "45"
 	repo.values[SettingKeyOpenAIFirstOutputTimeoutSeconds] = "60"
@@ -88,7 +86,6 @@ func TestGatewayRuntimePolicyFallsBackToConfigAndWarmsOverrides(t *testing.T) {
 	repo.values[SettingKeyOpenAIStickyEscapeEnabled] = "false"
 	repo.values[SettingKeyOpenAIStickyEscapeTTFTMs] = "9000"
 	repo.values[SettingKeyOpenAIStickyEscapeErrorRate] = "0.25"
-	repo.values[SettingKeyOpenAIAccountUniqueFingerprintEnabled] = "false"
 	repo.values[SettingKeyGatewayPlatformEnabled] = `{"openai":false,"gemini":true}`
 	require.NoError(t, svc.WarmGatewayRuntimePolicy(context.Background()))
 
@@ -99,7 +96,6 @@ func TestGatewayRuntimePolicyFallsBackToConfigAndWarmsOverrides(t *testing.T) {
 	require.False(t, enabled)
 	require.Equal(t, float64(9000), ttft)
 	require.Equal(t, 0.25, errorRate)
-	require.False(t, svc.OpenAIAccountUniqueFingerprintEnabled())
 	require.False(t, svc.IsGatewayPlatformEnabled(PlatformOpenAI))
 	require.True(t, svc.IsGatewayPlatformEnabled(PlatformGemini))
 	require.True(t, svc.IsGatewayPlatformEnabled(PlatformAnthropic), "omitted platforms default to enabled")
@@ -117,15 +113,12 @@ func TestGatewayRuntimePolicyUpdateIsImmediate(t *testing.T) {
 	settings.OpenAIStickyEscapeEnabled = false
 	settings.OpenAIStickyEscapeTTFTMs = 12000
 	settings.OpenAIStickyEscapeErrorRate = 0.2
-	settings.OpenAIAccountUniqueFingerprintEnabled = true
 	settings.GatewayPlatformEnabled[PlatformGrok] = false
 	require.NoError(t, svc.UpdateSettings(context.Background(), settings))
 
 	require.Equal(t, 75*time.Second, svc.GatewayStreamDataIntervalTimeout())
 	require.Equal(t, 150*time.Second, svc.GatewayOpenAIFirstOutputTimeout("max"))
 	require.False(t, svc.IsGatewayPlatformEnabled(PlatformGrok))
-	require.True(t, svc.OpenAIAccountUniqueFingerprintEnabled())
-	require.Equal(t, "true", repo.values[SettingKeyOpenAIAccountUniqueFingerprintEnabled])
 }
 
 func TestValidateGatewayRuntimePolicyRanges(t *testing.T) {

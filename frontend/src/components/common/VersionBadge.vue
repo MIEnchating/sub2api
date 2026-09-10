@@ -756,10 +756,10 @@ function upstreamVersionLabel(value: string): string {
   return normalized ? `v${normalized}` : '--'
 }
 
-function upstreamLabel(id: 'official' | 'overdraft'): string {
+function upstreamLabel(id: 'official' | 'custom'): string {
   return id === 'official'
     ? t('version.officialUpstream')
-    : t('version.overdraftUpstream')
+    : t('version.customUpstream')
 }
 
 // Update process states (local to this component)

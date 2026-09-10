@@ -192,7 +192,7 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 			},
 		},
 		repositoryFiles: map[string][]byte{
-			overdraftUpstreamRepo + "\x00" + overdraftUpstreamBranch + "\x00" + overdraftUpstreamVersion: []byte("0.1.179-overdraft.2\n"),
+			customUpstreamRepo + "\x00" + customUpstreamBranch + "\x00" + customUpstreamVersion: []byte("0.2.4-custom.1\n"),
 		},
 	}
 	svc := NewUpdateService(&updateServiceCacheStub{}, client, "2026.8.22", "release")
@@ -212,10 +212,10 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 			CompareChecked: true,
 		},
 		{
-			ID:             "overdraft",
-			Repository:     overdraftUpstreamRepo,
-			Version:        "0.1.179-overdraft.2",
-			HTMLURL:        overdraftUpstreamUpdateURL,
+			ID:             "custom",
+			Repository:     customUpstreamRepo,
+			Version:        "0.2.4-custom.1",
+			HTMLURL:        customUpstreamUpdateURL,
 			CompareURL:     "https://github.com/compare",
 			CompareChecked: true,
 		},
@@ -228,10 +228,10 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 			headRef:  "main",
 		},
 		{
-			baseRepo: overdraftUpstreamRepo,
-			baseRef:  overdraftUpstreamBaseline,
-			headRepo: overdraftUpstreamRepo,
-			headRef:  overdraftUpstreamBranch,
+			baseRepo: customUpstreamRepo,
+			baseRef:  customUpstreamBaseline,
+			headRepo: customUpstreamRepo,
+			headRef:  customUpstreamBranch,
 		},
 	}, client.comparisonCalls)
 }

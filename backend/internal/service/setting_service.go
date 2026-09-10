@@ -372,7 +372,6 @@ func (s *SettingService) GetAllSettings(ctx context.Context) (*SystemSettings, e
 	}
 
 	parsed := s.parseSettings(settings)
-	SetCodexQuotaOverdraftEnabled(parsed.CodexQuotaOverdraftEnabled)
 	s.storeGatewayRuntimePolicy(parsed)
 	return parsed, nil
 }

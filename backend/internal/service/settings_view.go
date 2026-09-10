@@ -234,8 +234,6 @@ type SystemSettings struct {
 	// Gateway forwarding behavior
 	OpenAITTFTMode                            string          // Responses first_token_ms 统计口径（默认 semantic）
 	EnableFingerprintUnification              bool            // 是否统一 OAuth 账号的指纹头（默认 true）
-	CodexQuotaOverdraftEnabled                bool            // Codex 额度透支全局总开关
-	OpenAIAccountUniqueFingerprintEnabled     bool            // 是否为每个 OpenAI OAuth 账号使用唯一且稳定的 Codex 设备指纹
 	EnableMetadataPassthrough                 bool            // 是否透传客户端原始 metadata（默认 false）
 	EnableCCHSigning                          bool            // 已废弃 no-op：新版 CLI 取消 cch 签名后网关不再注入/签名 cch，开关无效果
 	EnableClaudeOAuthSystemPromptInjection    bool            // 是否对 Claude OAuth mimic 路径注入 Claude Code system blocks（默认 true）

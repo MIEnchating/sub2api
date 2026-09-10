@@ -718,11 +718,9 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"admin_subscriptions_page_enabled": true,
-					"codex_quota_overdraft_enabled": false,
 					"gateway_platform_enabled": {"anthropic":true,"antigravity":true,"deepseek":true,"gemini":true,"grok":true,"kimi":true,"openai":true,"zhipu":true},
 					"gateway_stream_data_interval_timeout_seconds": 0,
 					"navigation_item_visibility": {"/admin/subscriptions":true,"/subscriptions":true},
-					"openai_account_unique_fingerprint_enabled": false,
 					"openai_first_output_timeout_seconds": 0,
 					"openai_high_effort_first_output_timeout_seconds": 0,
 					"openai_sticky_escape_enabled": true,
@@ -1080,11 +1078,9 @@ func TestAPIContracts(t *testing.T) {
 				"message": "success",
 				"data": {
 					"admin_subscriptions_page_enabled": true,
-					"codex_quota_overdraft_enabled": false,
 					"gateway_platform_enabled": {"anthropic":true,"antigravity":true,"deepseek":true,"gemini":true,"grok":true,"kimi":true,"openai":true,"zhipu":true},
 					"gateway_stream_data_interval_timeout_seconds": 0,
 					"navigation_item_visibility": {"/admin/subscriptions":true,"/subscriptions":true},
-					"openai_account_unique_fingerprint_enabled": false,
 					"openai_first_output_timeout_seconds": 0,
 					"openai_high_effort_first_output_timeout_seconds": 0,
 					"openai_sticky_escape_enabled": true,

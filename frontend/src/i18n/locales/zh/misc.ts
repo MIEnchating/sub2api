@@ -23,7 +23,7 @@ export default {
     currentVersion: '当前版本',
     latestVersion: '最新版本',
     officialUpstream: '官方上游',
-    overdraftUpstream: '功能上游',
+    customUpstream: '功能上游',
     upstreamUnavailable: '获取失败',
     upstreamUpdate: '有更新',
     upstreamCurrent: '已同步',

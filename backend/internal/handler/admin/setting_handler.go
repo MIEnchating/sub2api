@@ -290,8 +290,6 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		BackendModeEnabled:                                     settings.BackendModeEnabled,
 		OpenAITTFTMode:                                         settings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           settings.EnableFingerprintUnification,
-		CodexQuotaOverdraftEnabled:                             settings.CodexQuotaOverdraftEnabled,
-		OpenAIAccountUniqueFingerprintEnabled:                  settings.OpenAIAccountUniqueFingerprintEnabled,
 		GatewayStreamDataIntervalTimeoutSeconds:                settings.GatewayStreamDataIntervalTimeoutSeconds,
 		OpenAIFirstOutputTimeoutSeconds:                        settings.OpenAIFirstOutputTimeoutSeconds,
 		OpenAIHighEffortFirstOutputTimeoutSeconds:              settings.OpenAIHighEffortFirstOutputTimeoutSeconds,

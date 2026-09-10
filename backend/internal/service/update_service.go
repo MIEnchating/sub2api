@@ -38,14 +38,14 @@ const (
 	releaseSourceVersion   = "backend/cmd/server/VERSION"
 	releaseSourceUpdateURL = "https://github.com/MIEnchating/sub2api/commits/main"
 
-	officialUpstreamRepo       = "Wei-Shaw/sub2api"
-	officialUpstreamBaseline   = "5097b31457e6dc9f49e5f5c9c72b925ce79543b3"
-	overdraftUpstreamRepo      = "DeanZFC/sub2api-overdraft"
-	overdraftUpstreamBranch    = "sub2api-custom"
-	overdraftUpstreamBaseline  = "55e1a83cfcb69ce4b101846c8dad595e321e84f2"
-	overdraftUpstreamVersion   = "FORK_VERSION"
-	overdraftUpstreamUpdateURL = "https://github.com/DeanZFC/sub2api-overdraft/commits/sub2api-custom"
-	upstreamBaselineSignature  = officialUpstreamBaseline + ":" + overdraftUpstreamBaseline
+	officialUpstreamRepo      = "Wei-Shaw/sub2api"
+	officialUpstreamBaseline  = "5097b31457e6dc9f49e5f5c9c72b925ce79543b3"
+	customUpstreamRepo        = "DeanZFC/sub2api-custom"
+	customUpstreamBranch      = "sub2api-custom"
+	customUpstreamBaseline    = "b920047c7eedc785e886e67650f1146749f59413"
+	customUpstreamVersion     = "FORK_VERSION"
+	customUpstreamUpdateURL   = "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom"
+	upstreamBaselineSignature = officialUpstreamBaseline + ":" + customUpstreamBaseline
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -526,10 +526,10 @@ func (s *UpdateService) fetchUpstreamVersions(ctx context.Context) []UpstreamVer
 		Repository: officialUpstreamRepo,
 		HTMLURL:    "https://github.com/" + officialUpstreamRepo + "/releases",
 	}
-	overdraft := UpstreamVersionInfo{
-		ID:         "overdraft",
-		Repository: overdraftUpstreamRepo,
-		HTMLURL:    overdraftUpstreamUpdateURL,
+	custom := UpstreamVersionInfo{
+		ID:         "custom",
+		Repository: customUpstreamRepo,
+		HTMLURL:    customUpstreamUpdateURL,
 	}
 
 	var wg sync.WaitGroup
@@ -560,28 +560,28 @@ func (s *UpdateService) fetchUpstreamVersions(ctx context.Context) []UpstreamVer
 		defer wg.Done()
 		raw, err := s.githubClient.FetchRepositoryFile(
 			ctx,
-			overdraftUpstreamRepo,
-			overdraftUpstreamBranch,
-			overdraftUpstreamVersion,
+			customUpstreamRepo,
+			customUpstreamBranch,
+			customUpstreamVersion,
 		)
 		if err != nil {
-			overdraft.Warning = err.Error()
+			custom.Warning = err.Error()
 			return
 		}
-		overdraft.Version = strings.TrimPrefix(strings.TrimSpace(string(raw)), "v")
-		if overdraft.Version == "" {
-			overdraft.Warning = "version file is empty"
+		custom.Version = strings.TrimPrefix(strings.TrimSpace(string(raw)), "v")
+		if custom.Version == "" {
+			custom.Warning = "version file is empty"
 		}
-		comparison, err := s.githubClient.FetchComparison(ctx, overdraftUpstreamRepo, overdraftUpstreamBaseline, overdraftUpstreamRepo, overdraftUpstreamBranch)
+		comparison, err := s.githubClient.FetchComparison(ctx, customUpstreamRepo, customUpstreamBaseline, customUpstreamRepo, customUpstreamBranch)
 		if err != nil {
-			overdraft.Warning = appendUpdateWarning(overdraft.Warning, "compare failed: "+err.Error())
+			custom.Warning = appendUpdateWarning(custom.Warning, "compare failed: "+err.Error())
 			return
 		}
-		applyUpstreamComparison(&overdraft, comparison)
+		applyUpstreamComparison(&custom, comparison)
 	}()
 	wg.Wait()
 
-	return []UpstreamVersionInfo{official, overdraft}
+	return []UpstreamVersionInfo{official, custom}
 }
 
 func applyUpstreamComparison(upstream *UpstreamVersionInfo, comparison *GitHubComparison) {

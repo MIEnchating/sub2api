@@ -453,12 +453,6 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableFingerprintUnification != after.EnableFingerprintUnification {
 		changed = append(changed, "enable_fingerprint_unification")
 	}
-	if before.CodexQuotaOverdraftEnabled != after.CodexQuotaOverdraftEnabled {
-		changed = append(changed, "codex_quota_overdraft_enabled")
-	}
-	if before.OpenAIAccountUniqueFingerprintEnabled != after.OpenAIAccountUniqueFingerprintEnabled {
-		changed = append(changed, "openai_account_unique_fingerprint_enabled")
-	}
 	if before.GatewayStreamDataIntervalTimeoutSeconds != after.GatewayStreamDataIntervalTimeoutSeconds {
 		changed = append(changed, "gateway_stream_data_interval_timeout_seconds")
 	}

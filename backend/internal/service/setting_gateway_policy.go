@@ -35,7 +35,6 @@ type GatewayRuntimePolicy struct {
 	StreamDataIntervalTimeoutSeconds          int
 	OpenAIFirstOutputTimeoutSeconds           int
 	OpenAIHighEffortFirstOutputTimeoutSeconds int
-	OpenAIAccountUniqueFingerprintEnabled     bool
 	StickyEscapeEnabled                       bool
 	StickyEscapeTTFTMs                        int
 	StickyEscapeErrorRate                     float64
@@ -64,12 +63,11 @@ func normalizeGatewayPlatformEnabled(input map[string]bool) (map[string]bool, er
 
 func gatewayRuntimePolicyFromConfig(cfg *config.Config) *GatewayRuntimePolicy {
 	policy := &GatewayRuntimePolicy{
-		StreamDataIntervalTimeoutSeconds:      defaultGatewayStreamDataIntervalTimeoutSeconds,
-		OpenAIAccountUniqueFingerprintEnabled: true,
-		StickyEscapeEnabled:                   true,
-		StickyEscapeTTFTMs:                    defaultOpenAIStickyEscapeTTFTMs,
-		StickyEscapeErrorRate:                 defaultOpenAIStickyEscapeErrorRate,
-		PlatformEnabled:                       defaultGatewayPlatformEnabled(),
+		StreamDataIntervalTimeoutSeconds: defaultGatewayStreamDataIntervalTimeoutSeconds,
+		StickyEscapeEnabled:              true,
+		StickyEscapeTTFTMs:               defaultOpenAIStickyEscapeTTFTMs,
+		StickyEscapeErrorRate:            defaultOpenAIStickyEscapeErrorRate,
+		PlatformEnabled:                  defaultGatewayPlatformEnabled(),
 	}
 	if cfg == nil {
 		return policy
@@ -77,7 +75,6 @@ func gatewayRuntimePolicyFromConfig(cfg *config.Config) *GatewayRuntimePolicy {
 	policy.StreamDataIntervalTimeoutSeconds = cfg.Gateway.StreamDataIntervalTimeout
 	policy.OpenAIFirstOutputTimeoutSeconds = cfg.Gateway.OpenAIFirstOutputTimeoutSeconds
 	policy.OpenAIHighEffortFirstOutputTimeoutSeconds = cfg.Gateway.OpenAIHighEffortFirstOutputTimeoutSeconds
-	policy.OpenAIAccountUniqueFingerprintEnabled = cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled
 	scheduler := cfg.Gateway.OpenAIScheduler
 	policy.StickyEscapeEnabled = scheduler.StickyEscapeEnabled
 	if !policy.StickyEscapeEnabled && scheduler.StickyEscapeTTFTMs == 0 && scheduler.StickyEscapeErrorRate == 0 {
@@ -119,7 +116,6 @@ func (s *SettingService) storeGatewayRuntimePolicy(settings *SystemSettings) {
 		StreamDataIntervalTimeoutSeconds:          settings.GatewayStreamDataIntervalTimeoutSeconds,
 		OpenAIFirstOutputTimeoutSeconds:           settings.OpenAIFirstOutputTimeoutSeconds,
 		OpenAIHighEffortFirstOutputTimeoutSeconds: settings.OpenAIHighEffortFirstOutputTimeoutSeconds,
-		OpenAIAccountUniqueFingerprintEnabled:     settings.OpenAIAccountUniqueFingerprintEnabled,
 		StickyEscapeEnabled:                       settings.OpenAIStickyEscapeEnabled,
 		StickyEscapeTTFTMs:                        settings.OpenAIStickyEscapeTTFTMs,
 		StickyEscapeErrorRate:                     settings.OpenAIStickyEscapeErrorRate,
@@ -167,10 +163,6 @@ func (s *SettingService) GatewayOpenAIFirstOutputTimeout(reasoningEffort string)
 	return time.Duration(seconds) * time.Second
 }
 
-func (s *SettingService) OpenAIAccountUniqueFingerprintEnabled() bool {
-	return s.gatewayRuntimePolicySnapshot().OpenAIAccountUniqueFingerprintEnabled
-}
-
 func (s *SettingService) GatewayOpenAIStickyEscapeConfig() (bool, float64, float64) {
 	policy := s.gatewayRuntimePolicySnapshot()
 	return policy.StickyEscapeEnabled, float64(policy.StickyEscapeTTFTMs), policy.StickyEscapeErrorRate
@@ -205,11 +197,6 @@ func parseGatewayRuntimePolicySettings(settings map[string]string, fallback *Gat
 	if raw, ok := settings[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds]; ok {
 		if value, err := strconv.Atoi(strings.TrimSpace(raw)); err == nil {
 			policy.OpenAIHighEffortFirstOutputTimeoutSeconds = value
-		}
-	}
-	if raw, ok := settings[SettingKeyOpenAIAccountUniqueFingerprintEnabled]; ok {
-		if value, err := strconv.ParseBool(strings.TrimSpace(raw)); err == nil {
-			policy.OpenAIAccountUniqueFingerprintEnabled = value
 		}
 	}
 	if raw, ok := settings[SettingKeyOpenAIStickyEscapeEnabled]; ok {

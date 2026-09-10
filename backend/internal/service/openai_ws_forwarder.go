@@ -277,7 +277,7 @@ func (s *OpenAIGatewayService) getOpenAIWSConnPool() *openAIWSConnPool {
 		if s.openaiWSPool == nil {
 			s.openaiWSPool = newOpenAIWSConnPool(s.cfg)
 			s.openaiWSPool.uniqueFingerprintEnabledResolver = func() bool {
-				return resolveOpenAIAccountUniqueFingerprintEnabled(s.settingService, s.cfg)
+				return s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled
 			}
 		}
 	})

@@ -23,7 +23,7 @@ export default {
     currentVersion: 'Current Version',
     latestVersion: 'Latest Version',
     officialUpstream: 'Official Upstream',
-    overdraftUpstream: 'Feature Upstream',
+    customUpstream: 'Feature Upstream',
     upstreamUnavailable: 'Unavailable',
     upstreamUpdate: 'Update available',
     upstreamCurrent: 'Up to date',

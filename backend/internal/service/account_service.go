@@ -364,12 +364,6 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		if value, ok := account.Extra[AccountProxyPoolExtraKey]; ok {
 			extra[AccountProxyPoolExtraKey] = value
 		}
-		// 透支探测状态由服务维护，完整编辑账号时也必须像其他运行态快照一样保留。
-		if account.Extra != nil {
-			if state, ok := account.Extra[CodexQuotaOverdraftProbeExtraKey]; ok {
-				extra[CodexQuotaOverdraftProbeExtraKey] = state
-			}
-		}
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, extra)
 	} else {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)

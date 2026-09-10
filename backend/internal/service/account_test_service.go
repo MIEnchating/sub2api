@@ -147,7 +147,6 @@ type AccountTestService struct {
 	cfg                       *config.Config
 	settingService            *SettingService
 	tlsFPProfileService       *TLSFingerprintProfileService
-	codexQuotaOverdraft       codexQuotaOverdraftAccountTestCoordinator
 	modelMetadataRegistryMu   sync.Mutex
 	modelMetadataRegistry     map[string]modelsDevProvider
 	modelMetadataRegistryAt   time.Time
@@ -841,7 +840,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	}
 	payload := createOpenAIAccountTestPayload(upstreamTestModelID, isOAuth, prompt, mode)
 	payloadBytes, _ := json.Marshal(payload)
-	ctx, payloadBytes, overdraftInjected := s.prepareCodexQuotaOverdraftTestRequest(ctx, account, payloadBytes)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
 	// restart this probe after registering a replacement task.
@@ -926,9 +924,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 			return s.testOpenAIAccountConnection(c, account, modelID, prompt, mode)
 		}
 		if resp.StatusCode == http.StatusTooManyRequests {
-			if !s.handleCodexQuotaOverdraftTest429(ctx, account, resp.Header, body, upstreamTestModelID) {
-				s.reconcileOpenAI429State(ctx, account, resp.Header, body)
-			}
+			s.reconcileOpenAI429State(ctx, account, resp.Header, body)
 		}
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
@@ -941,7 +937,6 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if err := s.processOpenAIStream(c, resp.Body); err != nil {
 		return err
 	}
-	s.observeCodexQuotaOverdraftTestResult(account, upstreamTestModelID, overdraftInjected)
 	return nil
 }
 
@@ -2241,7 +2236,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		// 指纹收敛：探测与真实转发走同一个 /responses 端点，身份也必须同构，
 		// 否则探测流量会以「缺 x-codex-installation-id + 非收敛 session」的
 		// 形态暴露在上游眼里。账号关闭收敛（off）时返回 nil，探测保持原样。
-		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, resolveOpenAIAccountUniqueFingerprintEnabled(s.settingService, s.cfg)); fpIDs != nil {
+		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled); fpIDs != nil {
 			applyCodexFingerprintHeaders(req.Header, fpIDs)
 		}
 	}

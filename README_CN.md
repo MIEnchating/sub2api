@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-overdraft Logo" width="128" />
+<img src="assets/logo.svg" alt="sub2api Logo" width="128" />
 
-# sub2api-overdraft
+# sub2api-custom
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,7 +10,7 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**带 Codex 5h / 7d 额度透支探测、统计与恢复的 AI API 网关**
+**支持自定义账号调度与管理功能的 AI API 网关**
 
 [English](README.md) | 中文 | [日本語](README_JA.md)
 
@@ -24,67 +24,38 @@
 - 支持账号级上游 429 自动重试：首次 429 后默认在同一账号额外重试 5 次，可在账号创建、编辑和批量编辑中配置为 `0..10`；一次用户请求内，同一账号的所有官方重试共享这份额外预算，不会重复领取。中间 429 不触发限流或冷却，预算耗尽后完整执行原有同账号重试、错误处理、冷却与切号逻辑。HTTP 请求和 WebSocket 握手均覆盖，流式响应一旦已输出有效内容则不会盲目重放。
 - 支持分组内每用户并发限制：可为每个分组单独配置并发上限，按“用户 + 分组”独立计数，并与原有用户级、账号级并发控制同时生效。
 - 支持 API Key 主分组与同平台兜底分组：每次请求一定先完整尝试主分组，仅在主分组明确无可用账号时进入兜底分组；命中兜底后，本次请求按兜底分组的倍率、高峰倍率、渠道定价和订阅额度扣费，用量记录也归属兜底分组。
-- OpenAI 账号支持独立的透支功能开关和 `CPA 指纹出口`：关闭账号开关后不会执行透支逻辑；CPA 模式为每个账号提供唯一、稳定的设备身份，同时不强制所有会话和线程共用同一身份。
-- Codex 5h / 7d 用量达到 95% 后，为普通 OAuth 文本业务请求注入透支请求形态；达到 100% 后直接使用真实业务结果确认透支状态。
-- 注入业务请求成功即记为 `passed`；返回明确额度 429 即记为 `failed` 并切号冷却。缺少业务证据时，同一额度周期最多补充 1 次独立探测。
-- 确认成功后继续参与账号调度，并分别统计 5h / 7d 透支期请求数、Token 和金额。
-- 管理页面显示“透支探测中”“透支中”“已确认限额”“探测无法确认”和“额度已恢复”。
-- 网络、超时、5xx 和普通瞬时 429 不会被误判为额度耗尽；401/403、账号禁用和其他风控仍使用原有策略。
-- 多实例通过 PostgreSQL 原子领取（atomic claim）去重；状态保存在现有 `accounts.extra`，无需新增数据表。
-- 可通过一个配置开关立即关闭，恢复上游 Sub2API 的调度和请求行为。
-- 管理后台从 `DeanZFC/sub2api-overdraft` 的 `codex-overdraft` 分支检查更新，不再使用官方 Sub2API 的版本结果。
+- 支持 Codex 单机多窗口指纹：按账号保持设备身份稳定，并保留各客户端会话边界。
+- 账号列表展示最近请求结果和悬停详情，账号表格支持拖动调整列宽。
 
 ## 快速部署
 
 完整步骤、现有服务器迁移、Nginx、验证、升级和故障排查请阅读：
 
-**[sub2api-overdraft 部署与运维指南](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)**
+**[sub2api-custom 部署与运维指南](deploy/README.md)**
 
 最短部署流程：
 
 ```bash
-git clone https://github.com/DeanZFC/sub2api-overdraft.git
-cd sub2api-overdraft/deploy
+git clone https://github.com/MIEnchating/sub2api.git sub2api-custom
+cd sub2api-custom/deploy
 cp .env.example .env
 chmod 600 .env
 # 编辑 .env，至少设置 POSTGRES_PASSWORD、JWT_SECRET 和 TOTP_ENCRYPTION_KEY
 mkdir -p data postgres_data redis_data
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --build
 ```
 
-源码中的 `deploy/config.example.yaml` 只是模板。运行配置通常位于 `deploy/data/config.yaml`。透支开关为：
-
-```yaml
-gateway:
-  codex_quota_overdraft_enabled: true
-```
-
-公开的 `docker-compose.overdraft.yml` 已通过环境变量默认开启该功能。
-
 源码镜像会把 `backend/cmd/server/VERSION` 写入当前版本。管理后台同时展示官方与功能上游版本；Release 构建只从 `MIEnchating/sub2api` 更新，源码构建仍提示使用 `git pull`。完整更新命令见部署指南的“日常升级本 Fork”。
-
-## 如何确认透支成功
-
-账号额度达到 100% 后检查日志：
-
-```bash
-docker logs --since 30m sub2api 2>&1 | \
-  grep -E 'codex_quota_overdraft_(probe|state|pause|stale_rate_limit)'
-```
-
-出现 `codex_quota_overdraft_business_passed` 或 `codex_quota_overdraft_probe_passed`，页面显示“透支中”，并且后续真实业务请求成功，即可确认透支功能完整生效。注入业务请求返回明确额度 429 时会出现 `codex_quota_overdraft_business_exhausted`，状态、账号暂停和调度通知会原子提交。网络错误、5xx、超时和普通瞬时 429 不会判定透支结束；独立探测为 `inconclusive` 后同周期不自动重试。OpenAI OAuth 常规文本“测试账号连接”也使用同一请求形态和状态机；API Key、Shadow、图片和 Compact 测试除外。额度未达到 95% 时没有透支注入，未达到 100% 时没有探测日志，均属正常现象。
 
 ## 来源、许可证与风险
 
 - 上游项目：[Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)
-- 透支逻辑参考：[Mxucc/cpa-account-config-manager](https://github.com/Mxucc/cpa-account-config-manager)
 - 许可证：[GNU LGPL-3.0](LICENSE)，保留上游版权和许可证声明。
-- 本功能不保证上游一定允许超额调用，探测和后续请求可能产生真实用量，也可能触发账号限制。请自行核对上游服务条款并承担使用风险。
 
-下面的功能、部署和赞助信息继承自上游 Sub2API 文档。上游赞助关系不代表这些组织赞助或认可本 Fork；需要透支功能时，请以上方本 Fork 部署指南为准。
+下面的功能、部署和赞助信息继承自上游 Sub2API 文档。上游赞助关系不代表这些组织赞助或认可本 Fork；本 Fork 的部署方式请以上方指南为准。
 
 ## ⚠️ 重要提醒
 
@@ -363,7 +334,7 @@ sudo systemctl enable sub2api
 
 Release 构建可以在管理后台从 `MIEnchating/sub2api` 在线升级；源码构建提示使用 `git pull` 后重新构建。版本弹窗会同时显示当前日期版本、官方上游版本和功能上游版本。
 
-本 Fork 的升级命令见 [日常升级本 Fork](CODEX_OVERDRAFT_DEPLOYMENT_CN.md#日常升级本-fork)。源码构建不支持页面内一键升级和在线回退，避免误装官方二进制而丢失透支功能。
+本 Fork 的升级方式见 [部署与运维指南](deploy/README.md)。源码构建请通过 Git 拉取并重新构建镜像。
 
 #### 常用命令
 

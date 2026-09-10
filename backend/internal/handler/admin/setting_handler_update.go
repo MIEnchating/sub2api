@@ -245,8 +245,6 @@ type UpdateSettingsRequest struct {
 	// Gateway forwarding behavior
 	OpenAITTFTMode                            *string         `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              *bool           `json:"enable_fingerprint_unification"`
-	CodexQuotaOverdraftEnabled                *bool           `json:"codex_quota_overdraft_enabled"`
-	OpenAIAccountUniqueFingerprintEnabled     *bool           `json:"openai_account_unique_fingerprint_enabled"`
 	GatewayStreamDataIntervalTimeoutSeconds   *int            `json:"gateway_stream_data_interval_timeout_seconds"`
 	OpenAIFirstOutputTimeoutSeconds           *int            `json:"openai_first_output_timeout_seconds"`
 	OpenAIHighEffortFirstOutputTimeoutSeconds *int            `json:"openai_high_effort_first_output_timeout_seconds"`
@@ -1703,18 +1701,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableFingerprintUnification
 		}(),
-		CodexQuotaOverdraftEnabled: func() bool {
-			if req.CodexQuotaOverdraftEnabled != nil {
-				return *req.CodexQuotaOverdraftEnabled
-			}
-			return previousSettings.CodexQuotaOverdraftEnabled
-		}(),
-		OpenAIAccountUniqueFingerprintEnabled: func() bool {
-			if req.OpenAIAccountUniqueFingerprintEnabled != nil {
-				return *req.OpenAIAccountUniqueFingerprintEnabled
-			}
-			return previousSettings.OpenAIAccountUniqueFingerprintEnabled
-		}(),
 		GatewayStreamDataIntervalTimeoutSeconds:   intValueOrDefault(req.GatewayStreamDataIntervalTimeoutSeconds, previousSettings.GatewayStreamDataIntervalTimeoutSeconds),
 		OpenAIFirstOutputTimeoutSeconds:           intValueOrDefault(req.OpenAIFirstOutputTimeoutSeconds, previousSettings.OpenAIFirstOutputTimeoutSeconds),
 		OpenAIHighEffortFirstOutputTimeoutSeconds: intValueOrDefault(req.OpenAIHighEffortFirstOutputTimeoutSeconds, previousSettings.OpenAIHighEffortFirstOutputTimeoutSeconds),
@@ -2335,8 +2321,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
-		CodexQuotaOverdraftEnabled:                             updatedSettings.CodexQuotaOverdraftEnabled,
-		OpenAIAccountUniqueFingerprintEnabled:                  updatedSettings.OpenAIAccountUniqueFingerprintEnabled,
 		GatewayStreamDataIntervalTimeoutSeconds:                updatedSettings.GatewayStreamDataIntervalTimeoutSeconds,
 		OpenAIFirstOutputTimeoutSeconds:                        updatedSettings.OpenAIFirstOutputTimeoutSeconds,
 		OpenAIHighEffortFirstOutputTimeoutSeconds:              updatedSettings.OpenAIHighEffortFirstOutputTimeoutSeconds,

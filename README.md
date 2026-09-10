@@ -1,8 +1,8 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api-overdraft Logo" width="128" />
+<img src="assets/logo.svg" alt="sub2api Logo" width="128" />
 
-# sub2api-overdraft
+# sub2api-custom
 
 [![Go](https://img.shields.io/badge/Go-1.27.0-00ADD8.svg)](https://golang.org/)
 [![Vue](https://img.shields.io/badge/Vue-3.4+-4FC08D.svg)](https://vuejs.org/)
@@ -10,7 +10,7 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**AI API gateway with Codex 5h / 7d quota overdraft probing, tracking, and recovery**
+**AI API gateway with custom account scheduling and management features**
 
 English | [中文](README_CN.md) | [日本語](README_JA.md)
 
@@ -24,32 +24,26 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 - Supports per-account upstream 429 retries: five additional same-account attempts by default, configurable from `0` (disabled) to `10` in account create, edit, and bulk-edit forms. Intermediate 429 responses do not trigger cooldown or failover; the existing error path runs only after exhaustion. HTTP requests and WebSocket handshakes are covered, while a stream that has already emitted meaningful output is never blindly replayed.
 - Adds an optional per-user concurrency cap to every group. Usage is counted independently by user and group, while existing user-level and account-level concurrency controls remain in effect.
 - Lets each API key select a same-platform fallback group. Every request fully tries the primary group first and uses the fallback only when the primary group has no available account; when fallback is selected, its pricing multiplier, peak multiplier, subscription deduction, and usage attribution apply to that request.
-- Provides an OpenAI account-level overdraft switch and a `CPA fingerprint egress` mode. The fingerprint mode keeps the device identity stable and unique per account without forcing all sessions and threads to share one identity.
-- Pre-arms ordinary OAuth text traffic with the overdraft payload at 95% usage and uses successful business traffic as direct evidence after usage reaches 100%.
-- Marks an injected request's explicit quota 429 as terminal for that cycle; when business evidence is unavailable, runs at most one independent probe per quota cycle.
-- Keeps an account schedulable after a successful probe and tracks overdraft requests, tokens, cost, and recovery for both windows independently.
-- Exposes `pending`, `passed`, `failed`, `inconclusive`, and `recovered` states in the admin UI and PostgreSQL.
-- Treats transient 429s, timeouts, network failures, and 5xx responses as inconclusive without automatic background retries.
-- Uses an atomic PostgreSQL claim for multi-instance deployments and atomically commits terminal failure, account pause, and scheduler notification without a schema migration.
-- Supports an immediate configuration rollback to the upstream scheduling behavior.
+- Provides single-machine, multi-window Codex fingerprints with stable per-account device identities and separate client sessions.
+- Shows recent account request results with hover details and supports resizing account table columns.
 
-See the **[Chinese deployment and operations guide](CODEX_OVERDRAFT_DEPLOYMENT_CN.md)** for source builds, migration, verification, upgrades, rollback, Nginx, and troubleshooting. Maintainers should also read [CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md](CODEX_QUOTA_OVERDRAFT_CUSTOMIZATION.md).
+See the [deployment guide](deploy/README.md) for source builds and operations.
 
 Quick start:
 
 ```bash
-git clone https://github.com/DeanZFC/sub2api-overdraft.git
-cd sub2api-overdraft/deploy
+git clone https://github.com/MIEnchating/sub2api.git sub2api-custom
+cd sub2api-custom/deploy
 cp .env.example .env
 # Set POSTGRES_PASSWORD, JWT_SECRET, and TOTP_ENCRYPTION_KEY in .env
 mkdir -p data postgres_data redis_data
 docker compose \
   -f docker-compose.local.yml \
-  -f docker-compose.overdraft.yml \
+  -f docker-compose.custom.yml \
   up -d --build
 ```
 
-This fork remains licensed under [GNU LGPL-3.0](LICENSE) and preserves upstream attribution. The overdraft behavior may conflict with upstream provider terms and may incur real usage or account restrictions. Operators are responsible for compliance and risk.
+This fork remains licensed under [GNU LGPL-3.0](LICENSE) and preserves upstream attribution. Operators are responsible for compliance with upstream provider terms.
 
 The remaining feature, deployment, sponsor, and license text is inherited from the upstream Sub2API documentation. Upstream sponsorship does not imply sponsorship or endorsement of this fork.
 

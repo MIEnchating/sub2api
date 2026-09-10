@@ -17,8 +17,6 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `docker-compose.yml` | Docker Compose configuration (named volumes) |
 | `docker-compose.local.yml` | Docker Compose configuration (local directories, easy migration) |
 | `docker-compose.custom.yml` | Generic source-build overlay with `sub2api-custom` image and container names |
-| `docker-compose.overdraft.yml` | Legacy source-build overlay kept for existing deployments |
-| `docker-compose.coexist.yml` | Legacy isolation overlay for existing deployments using the old container names |
 | `docker-deploy.sh` | **One-click Docker deployment script (recommended)** |
 | `apple-container.sh` | Native Apple `container` lifecycle script |
 | `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
@@ -64,7 +62,7 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
 sudo systemctl enable --now docker
 
-git clone -b codex-overdraft https://github.com/DeanZFC/sub2api-overdraft.git /opt/sub2api-custom
+git clone https://github.com/MIEnchating/sub2api.git /opt/sub2api-custom
 cd /opt/sub2api-custom/deploy
 cp .env.example .env
 chmod 600 .env

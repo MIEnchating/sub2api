@@ -83,6 +83,36 @@ describe('DataTable', () => {
     expect(nameHeader.findAll('svg')[1].classes()).toContain('text-primary-600')
   })
 
+  it('resizes a column by dragging its header handle', async () => {
+    const wrapper = mount(DataTable, {
+      props: {
+        columns: [{ key: 'name', label: 'Name' }],
+        data: [{ id: 1, name: 'Alpha' }],
+        resizableColumns: true
+      }
+    })
+    const header = wrapper.get('th')
+    vi.spyOn(header.element, 'getBoundingClientRect').mockReturnValue({
+      width: 160,
+      height: 40,
+      top: 0,
+      right: 160,
+      bottom: 40,
+      left: 0,
+      x: 0,
+      y: 0,
+      toJSON: () => ({})
+    })
+
+    await header.get('.cursor-col-resize').trigger('mousedown', { clientX: 100 })
+    window.dispatchEvent(new MouseEvent('mousemove', { clientX: 170 }))
+    await wrapper.vm.$nextTick()
+
+    expect(header.attributes('style')).toContain('width: 230px')
+    expect(wrapper.get('tbody td').attributes('style')).toContain('width: 230px')
+    window.dispatchEvent(new MouseEvent('mouseup'))
+  })
+
   it('renders every row with no virtual padding spacer for small datasets (virtualization off)', async () => {
     const data = Array.from({ length: 8 }, (_, i) => ({ id: i + 1, name: `Row ${i + 1}` }))
     const wrapper = mount(DataTable, {

@@ -624,8 +624,6 @@ export interface SystemSettings {
   // Gateway forwarding behavior
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
-  codex_quota_overdraft_enabled: boolean;
-  openai_account_unique_fingerprint_enabled: boolean;
   gateway_stream_data_interval_timeout_seconds: number;
   openai_first_output_timeout_seconds: number;
   openai_high_effort_first_output_timeout_seconds: number;
@@ -953,8 +951,6 @@ export interface UpdateSettingsRequest {
   allow_ungrouped_key_scheduling?: boolean;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
-  codex_quota_overdraft_enabled?: boolean;
-  openai_account_unique_fingerprint_enabled?: boolean;
   gateway_stream_data_interval_timeout_seconds?: number;
   openai_first_output_timeout_seconds?: number;
   openai_high_effort_first_output_timeout_seconds?: number;

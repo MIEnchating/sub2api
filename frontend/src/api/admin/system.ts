@@ -12,7 +12,7 @@ export interface ReleaseInfo {
 }
 
 export interface UpstreamVersionInfo {
-  id: 'official' | 'overdraft'
+  id: 'official' | 'custom'
   repository: string
   version?: string
   html_url: string

@@ -465,18 +465,6 @@ export default {
         saved: 'Ollama Cloud 用量刷新设置已保存',
         saveFailed: '保存 Ollama Cloud 用量刷新设置失败'
       },
-      codexQuotaOverdraft: {
-        title: 'Codex 额度透支',
-        description: '全局总开关。分组和账号可以单独覆盖；全局关闭时所有覆盖都不会生效。',
-        enabled: '启用全局额度透支',
-        hint: '开启后，达到额度阈值的 OpenAI OAuth Codex 账号可继续处理普通文本请求。'
-      },
-      openAIAccountFingerprint: {
-        title: 'OpenAI 账号唯一指纹',
-        description: '控制未单独指定指纹模式的 OpenAI OAuth 账号；账号级配置优先于此全局开关。',
-        enabled: '启用账号唯一设备指纹',
-        hint: '开启后，每个账号使用固定且唯一的 Codex installation ID。保存后立即生效，无需重启。'
-      },
       gatewayRuntime: {
         title: '网关运行策略',
         description: '这些设置保存后立即生效，不需要修改配置文件或重启服务。',

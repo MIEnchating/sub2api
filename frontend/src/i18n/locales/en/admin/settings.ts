@@ -472,18 +472,6 @@ export default {
         saved: 'Ollama Cloud usage refresh settings saved',
         saveFailed: 'Failed to save Ollama Cloud usage refresh settings'
       },
-      codexQuotaOverdraft: {
-        title: 'Codex Quota Overdraft',
-        description: 'Global master switch. Groups and accounts may override it; disabling the global switch always wins.',
-        enabled: 'Enable global quota overdraft',
-        hint: 'When enabled, eligible OpenAI OAuth Codex accounts may continue ordinary text requests after the quota threshold.'
-      },
-      openAIAccountFingerprint: {
-        title: 'Unique OpenAI Account Fingerprint',
-        description: 'Controls OpenAI OAuth accounts without an explicit fingerprint mode. Account-level settings take precedence.',
-        enabled: 'Enable unique account device fingerprints',
-        hint: 'Assigns each account a stable, unique Codex installation ID. Changes take effect immediately without a restart.'
-      },
       gatewayRuntime: {
         title: 'Gateway Runtime Policy',
         description: 'Changes take effect immediately after saving; no config-file edit or service restart is required.',

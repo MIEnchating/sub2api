@@ -706,7 +706,7 @@ func newOpenAIWSConnPool(cfg *config.Config) *openAIWSConnPool {
 		workerStopCh: make(chan struct{}),
 	}
 	pool.uniqueFingerprintEnabledResolver = func() bool {
-		return resolveOpenAIAccountUniqueFingerprintEnabled(nil, cfg)
+		return cfg != nil && cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled
 	}
 	pool.startBackgroundWorkers()
 	return pool
@@ -2235,7 +2235,9 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 		return key
 	}
 	key.sessionIDHyphen = normalizeOpenAIWSStableIdentityHeader(headers, "session-id")
-	key.sessionIDUnderscore = normalizeOpenAIWSStableIdentityHeader(headers, "session_id")
+	if mode != codexFingerprintSingleMachineMultiWindow {
+		key.sessionIDUnderscore = normalizeOpenAIWSStableIdentityHeader(headers, "session_id")
+	}
 	key.threadID = normalizeOpenAIWSStableIdentityHeader(headers, "thread-id")
 	key.clientRequestID = normalizeOpenAIWSStableIdentityHeader(headers, "x-client-request-id")
 	key.codexWindowID = normalizeOpenAIWSStableIdentityHeader(headers, "x-codex-window-id")

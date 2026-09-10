@@ -1782,24 +1782,6 @@
         </div>
       </div>
 
-      <!-- Codex 额度超刷账号级覆盖（仅 OAuth） -->
-      <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.openai.codexQuotaOverdraft') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.openai.codexQuotaOverdraftDesc') }}
-          </p>
-          <select v-model="codexQuotaOverdraftMode" class="input mt-2">
-            <option value="inherit">{{ t('admin.accounts.openai.codexQuotaOverdraftInherit') }}</option>
-            <option value="enabled">{{ t('admin.accounts.openai.codexQuotaOverdraftEnabled') }}</option>
-            <option value="disabled">{{ t('admin.accounts.openai.codexQuotaOverdraftDisabled') }}</option>
-          </select>
-        </div>
-      </div>
-
       <!-- OpenAI OAuth 模型名称归一化 -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
@@ -2317,39 +2299,6 @@
           <div class="w-52 flex-shrink-0">
             <Select v-model="codexFingerprintMode" data-testid="edit-codex-fingerprint-mode-select" :options="codexFingerprintModeOptions" />
           </div>
-        </div>
-      </div>
-
-      <!-- Codex 额度透支（仅 OpenAI OAuth） -->
-      <div
-        v-if="account?.platform === 'openai' && account?.type === 'oauth'"
-        class="border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div class="flex items-center justify-between gap-4">
-          <div class="min-w-0">
-            <label class="input-label mb-0">{{ t('admin.accounts.openai.codexQuotaOverdraft') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.openai.codexQuotaOverdraftDesc') }}
-            </p>
-          </div>
-          <button
-            type="button"
-            data-testid="edit-codex-quota-overdraft-toggle"
-            role="switch"
-            :aria-checked="codexQuotaOverdraftEnabled"
-            @click="codexQuotaOverdraftEnabled = !codexQuotaOverdraftEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexQuotaOverdraftEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexQuotaOverdraftEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
         </div>
       </div>
 
@@ -3561,7 +3510,6 @@ const customBaseUrl = ref('')
 // OpenAI 自动透传开关（OAuth/API Key）
 const openaiPassthroughEnabled = ref(false)
 const openAIModelNormalizationEnabled = ref(true)
-const codexQuotaOverdraftMode = ref<'inherit' | 'enabled' | 'disabled'>('inherit')
 // OpenAI Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
@@ -3576,9 +3524,8 @@ const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
 const codexCLIOnlyAppServerEnabled = ref(false)
-type CodexFingerprintMode = 'off' | 'account_device' | 'device' | 'session' | 'full'
-const codexQuotaOverdraftEnabled = ref(true)
-const codexFingerprintMode = ref<CodexFingerprintMode>('off')
+type CodexFingerprintMode = 'off' | 'account_device' | 'single_machine_multi_window' | 'device' | 'session' | 'full'
+const codexFingerprintMode = ref<CodexFingerprintMode>('single_machine_multi_window')
 type CodexImageToolMode = 'inherit' | 'enabled' | 'disabled' | 'block'
 const codexImageToolMode = ref<CodexImageToolMode>('inherit')
 type AnthropicAPIKeyAuthScheme = 'x_api_key' | 'authorization_bearer'
@@ -3613,6 +3560,7 @@ const editResetTimezone = ref<string | null>(null)
 const codexFingerprintModeOptions = computed(() => [
   { value: 'off' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintOff') },
   { value: 'account_device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintAccountDevice') },
+  { value: 'single_machine_multi_window' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSingleMachineMultiWindow') },
   { value: 'device' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintDevice') },
   { value: 'session' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintSession') },
   { value: 'full' as CodexFingerprintMode, label: t('admin.accounts.openai.codexFingerprintFull') },
@@ -4101,7 +4049,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   // Load OpenAI passthrough toggle (OpenAI OAuth/SetupToken/API Key)
   openaiPassthroughEnabled.value = false
   openAIModelNormalizationEnabled.value = true
-  codexQuotaOverdraftMode.value = 'inherit'
   openaiFlattenNamespacesEnabled.value = false
   openAILongContextBillingEnabled.value = false
   editPlanType.value = ''
@@ -4113,8 +4060,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
-  codexQuotaOverdraftEnabled.value = true
-  codexFingerprintMode.value = 'off'
+  codexFingerprintMode.value = 'single_machine_multi_window'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
@@ -4122,12 +4068,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   if (newAccount.platform === 'openai' && (newAccount.type === 'oauth' || newAccount.type === 'setup-token' || newAccount.type === 'apikey')) {
     openaiPassthroughEnabled.value = extra?.openai_passthrough === true || extra?.openai_oauth_passthrough === true
     openAIModelNormalizationEnabled.value = extra?.openai_model_normalization_enabled !== false
-    const overdraftValue = extra?.codex_quota_overdraft_enabled
-    codexQuotaOverdraftMode.value = overdraftValue === true
-      ? 'enabled'
-      : overdraftValue === false
-        ? 'disabled'
-        : 'inherit'
     openaiFlattenNamespacesEnabled.value =
       newAccount.type === 'oauth' && extra?.openai_responses_flatten_namespaces === true
     const longContextBillingValue = extra?.openai_long_context_billing_enabled
@@ -4174,12 +4114,11 @@ const syncFormFromAccount = (newAccount: Account | null) => {
         extra?.codex_cli_only_allow_app_server === true
     }
     if (newAccount.type === 'oauth') {
-      codexQuotaOverdraftEnabled.value = extra?.codex_quota_overdraft_enabled !== false
       const fpMode = extra?.codex_fingerprint_mode as string | undefined
-      // 缺省/非法值按 off 呈现，与后端 GetCodexFingerprintMode 的 opt-in 语义一致（#5610）
-      codexFingerprintMode.value = (['off', 'account_device', 'device', 'session', 'full'].includes(fpMode || '')
+      // 缺省/非法值使用统一的单机多窗口模式。
+      codexFingerprintMode.value = (['off', 'account_device', 'single_machine_multi_window', 'device', 'session', 'full'].includes(fpMode || '')
         ? fpMode as CodexFingerprintMode
-        : 'off')
+        : 'single_machine_multi_window')
     }
     const credentials = newAccount.credentials as Record<string, unknown> | undefined
     const compactMappings = credentials?.compact_model_mapping as Record<string, string> | undefined
@@ -5622,13 +5561,6 @@ const handleSubmit = async () => {
       } else {
         delete newExtra.openai_model_normalization_enabled
       }
-      if (codexQuotaOverdraftMode.value === 'enabled') {
-        newExtra.codex_quota_overdraft_enabled = true
-      } else if (codexQuotaOverdraftMode.value === 'disabled') {
-        newExtra.codex_quota_overdraft_enabled = false
-      } else {
-        delete newExtra.codex_quota_overdraft_enabled
-      }
       // 缺省即保留 namespace，不写空值，避免 extra 里堆积默认项
       if (props.account.type === 'oauth' && openaiFlattenNamespacesEnabled.value) {
         newExtra.openai_responses_flatten_namespaces = true
@@ -5722,7 +5654,6 @@ const handleSubmit = async () => {
       // 指纹收敛模式：默认 off（不写入）；account_device/device/session/full 是显式 opt-in，
       // 必须落键，否则管理员的选择会被后端当作"未设置"而回落到 off（#5610）。
       if (props.account.type === 'oauth') {
-        newExtra.codex_quota_overdraft_enabled = codexQuotaOverdraftEnabled.value
         if (codexFingerprintMode.value !== 'off') {
           newExtra.codex_fingerprint_mode = codexFingerprintMode.value
         } else {

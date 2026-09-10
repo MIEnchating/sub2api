@@ -253,8 +253,6 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyOpenAICodexClientVersion:                           "",
 		SettingKeyOpenAICodexClientVersionSynced:                     "",
 		SettingKeyOpenAICodexVersionAutoSyncEnabled:                  "true",
-		SettingKeyCodexQuotaOverdraftEnabled:                         strconv.FormatBool(s.cfg != nil && s.cfg.Gateway.CodexQuotaOverdraftEnabled),
-		SettingKeyOpenAIAccountUniqueFingerprintEnabled:              strconv.FormatBool(gatewayPolicyDefaults.OpenAIAccountUniqueFingerprintEnabled),
 		SettingKeyGatewayStreamDataIntervalTimeoutSeconds:            strconv.Itoa(gatewayPolicyDefaults.StreamDataIntervalTimeoutSeconds),
 		SettingKeyOpenAIFirstOutputTimeoutSeconds:                    strconv.Itoa(gatewayPolicyDefaults.OpenAIFirstOutputTimeoutSeconds),
 		SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds:          strconv.Itoa(gatewayPolicyDefaults.OpenAIHighEffortFirstOutputTimeoutSeconds),
@@ -379,7 +377,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		GatewayStreamDataIntervalTimeoutSeconds:   gatewayPolicy.StreamDataIntervalTimeoutSeconds,
 		OpenAIFirstOutputTimeoutSeconds:           gatewayPolicy.OpenAIFirstOutputTimeoutSeconds,
 		OpenAIHighEffortFirstOutputTimeoutSeconds: gatewayPolicy.OpenAIHighEffortFirstOutputTimeoutSeconds,
-		OpenAIAccountUniqueFingerprintEnabled:     gatewayPolicy.OpenAIAccountUniqueFingerprintEnabled,
 		OpenAIStickyEscapeEnabled:                 gatewayPolicy.StickyEscapeEnabled,
 		OpenAIStickyEscapeTTFTMs:                  gatewayPolicy.StickyEscapeTTFTMs,
 		OpenAIStickyEscapeErrorRate:               gatewayPolicy.StickyEscapeErrorRate,
@@ -916,7 +913,6 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	}
 	result.AntigravityUserAgentVersion = antigravity.NormalizeUserAgentVersion(settings[SettingKeyAntigravityUserAgentVersion])
 	result.OpenAICodexUserAgent = strings.TrimSpace(settings[SettingKeyOpenAICodexUserAgent])
-	result.CodexQuotaOverdraftEnabled = settings[SettingKeyCodexQuotaOverdraftEnabled] == "true"
 	result.OpenAICodexClientVersion = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersion])
 	result.OpenAICodexClientVersionSynced = NormalizeCodexClientVersion(settings[SettingKeyOpenAICodexClientVersionSynced])
 	// 自动同步默认开启：缺失/空值一律视为开启，与 enable_client_dateline_normalization 同一惯例。

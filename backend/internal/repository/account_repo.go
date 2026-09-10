@@ -56,7 +56,6 @@ var schedulerNeutralExtraKeyPrefixes = []string{
 	"codex_secondary_",
 	"codex_5h_",
 	"codex_7d_",
-	"codex_quota_overdraft_",
 	"codex_reset_credit_",
 	"passive_usage_",
 	"upstream_billing_probe",
@@ -2849,11 +2848,6 @@ func isSchedulerNeutralExtraKey(key string) bool {
 	if key == "" {
 		return false
 	}
-	// Unlike runtime quota/probe fields, this account-level policy changes
-	// scheduling eligibility and must refresh the scheduler snapshot immediately.
-	if key == service.CodexQuotaOverdraftEnabledExtraKey {
-		return false
-	}
 	if _, ok := schedulerNeutralExtraKeys[key]; ok {
 		return true
 	}
@@ -3274,7 +3268,6 @@ func tempUnschedulablePredicate(ctx context.Context) dbpredicate.Account {
 			entsql.IsNull(col),
 			entsql.LTE(col, entsql.Expr("NOW()")),
 		}
-		predicates = extendCodexQuotaOverdraftTempUnschedulablePredicates(ctx, s, predicates)
 		s.Where(entsql.Or(predicates...))
 	})
 }
