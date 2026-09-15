@@ -298,7 +298,8 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: false,
       title: 'My Subscriptions',
       titleKey: 'userSubscriptions.title',
-      descriptionKey: 'userSubscriptions.description'
+      descriptionKey: 'userSubscriptions.description',
+      requiresSubscription: true
     }
   },
   {
@@ -938,7 +939,9 @@ router.beforeEach(async (to, _from, next) => {
 
   if (
     appStore.publicSettingsLoaded &&
-    !isNavigationItemVisible(appStore.cachedPublicSettings, to.path)
+    (!isNavigationItemVisible(appStore.cachedPublicSettings, to.path) ||
+      (to.meta.requiresSubscription &&
+        appStore.cachedPublicSettings?.subscription_enabled === false))
   ) {
     next(authStore.isAdmin ? '/admin/dashboard' : '/dashboard')
     return

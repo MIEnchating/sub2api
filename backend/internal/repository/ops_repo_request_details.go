@@ -154,6 +154,8 @@ WITH combined AS (
 			// default
 		case "duration_desc":
 			sort = "ORDER BY duration_ms DESC NULLS LAST, created_at DESC"
+		case "ttft_desc":
+			sort = "ORDER BY first_token_ms DESC NULLS LAST, created_at DESC"
 		default:
 			return nil, 0, fmt.Errorf("invalid sort")
 		}

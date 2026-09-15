@@ -354,6 +354,9 @@ type UpdateSettingsRequest struct {
 	UserSubscriptionsPageEnabled  *bool           `json:"user_subscriptions_page_enabled"`
 	AdminSubscriptionsPageEnabled *bool           `json:"admin_subscriptions_page_enabled"`
 
+	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
+	SubscriptionEnabled *bool `json:"subscription_enabled"`
+
 	// Model Plaza feature switches + description
 	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
@@ -1970,6 +1973,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.AdminSubscriptionsPageEnabled
 		}(),
+		SubscriptionEnabled: func() bool {
+			if req.SubscriptionEnabled != nil {
+				return *req.SubscriptionEnabled
+			}
+			return previousSettings.SubscriptionEnabled
+		}(),
 		ModelPlazaEnabled: func() bool {
 			if req.ModelPlazaEnabled != nil {
 				return *req.ModelPlazaEnabled
@@ -2423,6 +2432,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		NavigationItemVisibility:      updatedSettings.NavigationItemVisibility,
 		UserSubscriptionsPageEnabled:  updatedSettings.UserSubscriptionsPageEnabled,
 		AdminSubscriptionsPageEnabled: updatedSettings.AdminSubscriptionsPageEnabled,
+		SubscriptionEnabled:           updatedSettings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,

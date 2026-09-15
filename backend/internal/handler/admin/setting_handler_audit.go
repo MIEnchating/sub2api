@@ -610,6 +610,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.AdminSubscriptionsPageEnabled != after.AdminSubscriptionsPageEnabled {
 		changed = append(changed, "admin_subscriptions_page_enabled")
 	}
+	if before.SubscriptionEnabled != after.SubscriptionEnabled {
+		changed = append(changed, "subscription_enabled")
+	}
 	if before.ModelPlazaEnabled != after.ModelPlazaEnabled {
 		changed = append(changed, "model_plaza_enabled")
 	}

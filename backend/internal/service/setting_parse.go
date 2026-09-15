@@ -212,6 +212,9 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 		SettingKeyUserSubscriptionsPageEnabled:  "true",
 		SettingKeyAdminSubscriptionsPageEnabled: "true",
 
+		// Subscription feature (default enabled; opt-out)
+		SettingKeySubscriptionEnabled: "true",
+
 		// Model plaza feature (default disabled; opt-in, public unless require_auth)
 		SettingKeyModelPlazaEnabled:       "false",
 		SettingKeyModelPlazaRequireAuth:   "false",
@@ -855,6 +858,9 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 	)
 	result.UserSubscriptionsPageEnabled = !isFalseSettingValue(settings[SettingKeyUserSubscriptionsPageEnabled])
 	result.AdminSubscriptionsPageEnabled = !isFalseSettingValue(settings[SettingKeyAdminSubscriptionsPageEnabled])
+
+	// Subscription feature (default: enabled; only an explicit false disables)
+	result.SubscriptionEnabled = !isFalseSettingValue(settings[SettingKeySubscriptionEnabled])
 
 	// Model plaza feature (default: disabled; strict true)
 	result.ModelPlazaEnabled = settings[SettingKeyModelPlazaEnabled] == "true"
