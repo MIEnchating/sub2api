@@ -4,7 +4,6 @@ package repository
 
 import (
 	"context"
-	"fmt"
 	"testing"
 	"time"
 
@@ -209,15 +208,23 @@ func (s *ProxyRepoSuite) TestCountAccountsByProxyID_Zero() {
 func (s *ProxyRepoSuite) TestProxyPoolReferencesCountAsAccountUsage() {
 	primary := s.mustCreateProxy(&service.Proxy{Name: "p-primary", Protocol: "http", Host: "127.0.0.1", Port: 8080, Status: service.StatusActive})
 	additional := s.mustCreateProxy(&service.Proxy{Name: "p-additional", Protocol: "http", Host: "127.0.0.1", Port: 8081, Status: service.StatusActive})
-	extra := fmt.Sprintf(`{"%s":[%d]}`, service.AccountProxyPoolExtraKey, additional.ID)
-	_, err := s.tx.ExecContext(
+	var accountID int64
+	err := scanSingleRow(
 		s.ctx,
-		"INSERT INTO accounts (name, platform, type, proxy_id, extra) VALUES ($1, $2, $3, $4, $5::jsonb)",
-		"pooled-account",
-		service.PlatformOpenAI,
-		service.AccountTypeAPIKey,
+		s.tx,
+		"INSERT INTO accounts (name, platform, type, proxy_id) VALUES ($1, $2, $3, $4) RETURNING id",
+		[]any{"pooled-account", service.PlatformOpenAI, service.AccountTypeAPIKey, primary.ID},
+		&accountID,
+	)
+	s.Require().NoError(err)
+	_, err = s.tx.ExecContext(
+		s.ctx,
+		"INSERT INTO account_proxies (account_id, proxy_id, position) VALUES ($1, $2, $3), ($1, $4, $5)",
+		accountID,
 		primary.ID,
-		extra,
+		0,
+		additional.ID,
+		1,
 	)
 	s.Require().NoError(err)
 

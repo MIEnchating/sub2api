@@ -245,7 +245,7 @@ type CreateGroupRequest struct {
 	// 分组 RPM 上限（0 = 不限制）
 	RPMLimit             int `json:"rpm_limit"`
 	UserConcurrencyLimit int `json:"user_concurrency_limit"`
-	// Anthropic/OpenAI 请求推理强度上限，空字符串表示不限制。
+	// OpenAI/Codex 请求推理强度上限，空字符串表示不限制。
 	MaxReasoningEffort string `json:"max_reasoning_effort"`
 	// 超过上限时的访问控制：downgrade（默认）或 deny。
 	MaxReasoningEffortOverLimit string `json:"max_reasoning_effort_over_limit"`
@@ -321,7 +321,7 @@ type UpdateGroupRequest struct {
 	// 分组 RPM 上限（0 = 不限制）；nil 表示未提供不改动
 	RPMLimit             *int `json:"rpm_limit"`
 	UserConcurrencyLimit *int `json:"user_concurrency_limit"`
-	// Anthropic/OpenAI 请求推理强度上限；空字符串清除，nil 不修改。
+	// OpenAI/Codex 请求推理强度上限；空字符串清除，nil 不修改。
 	MaxReasoningEffort *string `json:"max_reasoning_effort"`
 	// 超过上限时的访问控制；空字符串视为 downgrade，nil 不修改。
 	MaxReasoningEffortOverLimit *string `json:"max_reasoning_effort_over_limit"`

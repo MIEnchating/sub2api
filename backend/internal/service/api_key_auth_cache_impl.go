@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // v25: merge full fallback billing fields with group model allowlist semantics
+const apiKeyAuthSnapshotVersion = 25 // v25: official model_allowlist semantics with custom fallback billing and concurrency fields
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -387,7 +387,6 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		DefaultMappedModel:              group.DefaultMappedModel,
 		MessagesDispatchModelConfig:     group.MessagesDispatchModelConfig,
 		ModelAllowlist:                  group.ModelAllowlist,
-		CodexModelsManifestConfig:       group.CodexModelsManifestConfig,
 		RPMLimit:                        group.RPMLimit,
 		UserConcurrencyLimit:            group.UserConcurrencyLimit,
 		MaxReasoningEffort:              group.MaxReasoningEffort,
@@ -460,7 +459,6 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
 		MessagesDispatchModelConfig:     snapshot.MessagesDispatchModelConfig,
 		ModelAllowlist:                  snapshot.ModelAllowlist,
-		CodexModelsManifestConfig:       snapshot.CodexModelsManifestConfig,
 		RPMLimit:                        snapshot.RPMLimit,
 		UserConcurrencyLimit:            snapshot.UserConcurrencyLimit,
 		MaxReasoningEffort:              snapshot.MaxReasoningEffort,
@@ -569,10 +567,10 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			SortOrder:                       apiKey.Group.SortOrder,
 			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
 			AllowLive:                       apiKey.Group.AllowLive,
-			ForceOpenAIFast:                 apiKey.Group.ForceOpenAIFast,
-			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
 			RequireOAuthOnly:                apiKey.Group.RequireOAuthOnly,
 			RequirePrivacySet:               apiKey.Group.RequirePrivacySet,
+			ForceOpenAIFast:                 apiKey.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 			ModelAllowlist:                  apiKey.Group.ModelAllowlist,
@@ -687,10 +685,10 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			SortOrder:                       snapshot.Group.SortOrder,
 			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
 			AllowLive:                       snapshot.Group.AllowLive,
-			ForceOpenAIFast:                 snapshot.Group.ForceOpenAIFast,
-			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
 			RequireOAuthOnly:                snapshot.Group.RequireOAuthOnly,
 			RequirePrivacySet:               snapshot.Group.RequirePrivacySet,
+			ForceOpenAIFast:                 snapshot.Group.ForceOpenAIFast,
+			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 			ModelAllowlist:                  snapshot.Group.ModelAllowlist,

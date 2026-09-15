@@ -9,6 +9,7 @@ import (
 
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/ent/proxy"
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -16,8 +17,6 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 )
 
-// sqlQuerier 已替换为 sqlExecutor（定义在 group_repo.go），
-// proxyRepository 使用同一接口以支持 ExecContext。
 type proxyRepository struct {
 	client *dbent.Client
 	sql    sqlExecutor
@@ -25,7 +24,7 @@ type proxyRepository struct {
 
 const proxyProbeOutboxAccountChunkSize = 500
 
-func NewProxyRepository(client *dbent.Client, sqlDB *sql.DB) service.ProxyRepository {
+func NewProxyRepository(client *dbent.Client, sqlDB *sql.DB, _ *config.Config) service.ProxyRepository {
 	return newProxyRepositoryWithSQL(client, sqlDB)
 }
 
@@ -472,19 +471,7 @@ func (r *proxyRepository) ExistsByHostPortAuth(ctx context.Context, host string,
 // CountAccountsByProxyID returns the number of accounts using a specific proxy
 func (r *proxyRepository) CountAccountsByProxyID(ctx context.Context, proxyID int64) (int64, error) {
 	var count int64
-	if err := scanSingleRow(ctx, r.sql, `
-		SELECT COUNT(*)
-		FROM accounts
-		WHERE deleted_at IS NULL
-		  AND (
-			proxy_id = $1
-			OR jsonb_path_exists(
-				COALESCE(extra, '{}'::jsonb),
-				'$.proxy_pool_ids[*] ? (@ == $id)',
-				jsonb_build_object('id', to_jsonb($1::bigint))
-			)
-		  )
-	`, []any{proxyID}, &count); err != nil {
+	if err := scanSingleRow(ctx, r.sql, "SELECT COUNT(*) FROM accounts WHERE (proxy_id = $1 OR id IN (SELECT account_id FROM account_proxies WHERE proxy_id = $1)) AND deleted_at IS NULL", []any{proxyID}, &count); err != nil {
 		return 0, err
 	}
 	return count, nil
@@ -494,15 +481,7 @@ func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, pro
 	rows, err := r.sql.QueryContext(ctx, `
 		SELECT id, name, platform, type, notes
 		FROM accounts
-		WHERE deleted_at IS NULL
-		  AND (
-			proxy_id = $1
-			OR jsonb_path_exists(
-				COALESCE(extra, '{}'::jsonb),
-				'$.proxy_pool_ids[*] ? (@ == $id)',
-				jsonb_build_object('id', to_jsonb($1::bigint))
-			)
-		  )
+		WHERE (proxy_id = $1 OR id IN (SELECT account_id FROM account_proxies WHERE proxy_id = $1)) AND deleted_at IS NULL
 		ORDER BY id DESC
 	`, proxyID)
 	if err != nil {
@@ -542,25 +521,7 @@ func (r *proxyRepository) ListAccountSummariesByProxyID(ctx context.Context, pro
 
 // GetAccountCountsForProxies returns a map of proxy ID to account count for all proxies
 func (r *proxyRepository) GetAccountCountsForProxies(ctx context.Context) (counts map[int64]int64, err error) {
-	rows, err := r.sql.QueryContext(ctx, `
-		SELECT proxy_id, COUNT(*) AS count
-		FROM (
-			SELECT id AS account_id, proxy_id
-			FROM accounts
-			WHERE proxy_id IS NOT NULL AND deleted_at IS NULL
-			UNION
-			SELECT a.id AS account_id, (pool.value #>> '{}')::bigint AS proxy_id
-			FROM accounts AS a
-			CROSS JOIN LATERAL jsonb_array_elements(
-				CASE
-					WHEN jsonb_typeof(a.extra->'proxy_pool_ids') = 'array' THEN a.extra->'proxy_pool_ids'
-					ELSE '[]'::jsonb
-				END
-			) AS pool(value)
-			WHERE a.deleted_at IS NULL AND jsonb_typeof(pool.value) = 'number'
-		) AS account_proxy_refs
-		GROUP BY proxy_id
-	`)
+	rows, err := r.sql.QueryContext(ctx, "SELECT proxy_id, COUNT(*) AS count FROM (SELECT id, proxy_id FROM accounts WHERE proxy_id IS NOT NULL AND deleted_at IS NULL UNION SELECT a.id, ap.proxy_id FROM accounts a JOIN account_proxies ap ON ap.account_id=a.id WHERE a.deleted_at IS NULL) bindings GROUP BY proxy_id")
 	if err != nil {
 		return nil, err
 	}
@@ -791,7 +752,7 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 					ELSE extra
 				END,
 				updated_at=NOW()
-			WHERE proxy_id=$1 AND deleted_at IS NULL
+			WHERE proxy_id=$1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM account_proxies ap WHERE ap.account_id=accounts.id)
 			RETURNING id`, proxyID)
 	} else {
 		rows, err = exec.QueryContext(ctx, `
@@ -802,7 +763,7 @@ func (r *proxyRepository) sweepOneExpiredProxyOnExec(ctx context.Context, exec s
 					ELSE extra
 				END,
 				updated_at=NOW()
-			WHERE proxy_id=$1 AND deleted_at IS NULL
+			WHERE proxy_id=$1 AND deleted_at IS NULL AND NOT EXISTS (SELECT 1 FROM account_proxies ap WHERE ap.account_id=accounts.id)
 			RETURNING id`, proxyID, *target)
 	}
 	if err != nil {

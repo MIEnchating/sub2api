@@ -662,6 +662,7 @@ func registerSystemRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		system.GET("/check-updates", h.Admin.System.CheckUpdates)
 		system.GET("/rollback-versions", h.Admin.System.GetRollbackVersions)
 		system.POST("/update", h.Admin.System.PerformUpdate)
+		system.GET("/update-status/:job_id", h.Admin.System.GetSourceUpdateStatus)
 		system.POST("/rollback", h.Admin.System.Rollback)
 		system.POST("/restart", h.Admin.System.RestartService)
 	}
@@ -716,13 +717,32 @@ func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 }
 
 func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
+	defs := admin.Group("/scheduled-test-definitions")
+	{
+		defs.GET("", h.Admin.ScheduledTest.ListDefinitions)
+		defs.POST("", h.Admin.ScheduledTest.CreateDefinition)
+		defs.PUT("/:id", h.Admin.ScheduledTest.UpdateDefinition)
+		defs.DELETE("/:id", h.Admin.ScheduledTest.DeleteDefinition)
+	}
 	plans := admin.Group("/scheduled-test-plans")
 	{
 		plans.POST("", h.Admin.ScheduledTest.Create)
 		plans.PUT("/:id", h.Admin.ScheduledTest.Update)
 		plans.DELETE("/:id", h.Admin.ScheduledTest.Delete)
 		plans.GET("/:id/results", h.Admin.ScheduledTest.ListResults)
+		plans.POST("/:id/run", h.Admin.ScheduledTest.RunNow)
 	}
+	// Generic aliases used by the test management UI.
+	admin.GET("/test-plans", h.Admin.ScheduledTest.ListPlans)
+	admin.POST("/test-plans", h.Admin.ScheduledTest.Create)
+	admin.PUT("/test-plans/:id", h.Admin.ScheduledTest.Update)
+	admin.DELETE("/test-plans/:id", h.Admin.ScheduledTest.Delete)
+	admin.GET("/test-plans/:id/results", h.Admin.ScheduledTest.ListResults)
+	admin.POST("/test-plans/:id/run", h.Admin.ScheduledTest.RunNow)
+	admin.DELETE("/test-results/:id", h.Admin.ScheduledTest.DeleteResult)
+	admin.POST("/test-results/:id/retry", h.Admin.ScheduledTest.RetryResult)
+	admin.DELETE("/scheduled-test-results/:id", h.Admin.ScheduledTest.DeleteResult)
+	admin.POST("/scheduled-test-results/:id/retry", h.Admin.ScheduledTest.RetryResult)
 	// Nested under accounts
 	admin.GET("/accounts/:id/scheduled-test-plans", h.Admin.ScheduledTest.ListByAccount)
 }

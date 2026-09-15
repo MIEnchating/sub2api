@@ -477,7 +477,7 @@ func (s *OpenAIGatewayService) selectAccountByPreviousResponseIDForCapability(
 		return nil, nil
 	}
 
-	result, acquireErr := s.tryAcquireAccountSlotForAccount(ctx, account)
+	result, acquireErr := s.tryAcquireAccountSlot(ctx, accountID, account.Concurrency, &account)
 	if acquireErr == nil && result.Acquired {
 		logOpenAIWSBindResponseAccountWarn(
 			derefGroupID(groupID),
@@ -714,7 +714,7 @@ func openAIWSSemantic429Headers(account *Account, model string, headers http.Hea
 	return nil
 }
 
-func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string, account429RetryExhausted bool) *UpstreamFailoverError {
+func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Account, headers http.Header, responseBody []byte, message string, account429RetryExhausted ...bool) *UpstreamFailoverError {
 	failoverErr := s.newOpenAIAccountFailoverError(
 		account,
 		http.StatusTooManyRequests,
@@ -724,7 +724,9 @@ func (s *OpenAIGatewayService) newOpenAIWSRateLimitFailoverError(account *Accoun
 		false,
 		false,
 	)
-	failoverErr.Account429RetryExhausted = account429RetryExhausted
+	if len(account429RetryExhausted) > 0 {
+		failoverErr.Account429RetryExhausted = account429RetryExhausted[0]
+	}
 	return failoverErr
 }
 

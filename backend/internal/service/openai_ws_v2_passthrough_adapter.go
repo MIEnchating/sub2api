@@ -873,6 +873,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if dialer == nil {
 		return errors.New("openai ws passthrough dialer is nil")
 	}
+	tlsProfile := resolveCodexMacTLSProfile(account)
 
 	agentTaskRecoveryTried := false
 	var upstreamConn openAIWSClientConn
@@ -887,6 +888,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		upstreamConn, statusCode, handshakeHeaders, account429RetryExhausted, err = dialAccount429Retry(ctx, account, func(attemptCtx context.Context) (openAIWSClientConn, int, http.Header, error) {
 			dialCtx, cancelDial := context.WithTimeout(attemptCtx, s.openAIWSDialTimeout())
 			defer cancelDial()
+			dialCtx = withOpenAIWSTLSProfile(dialCtx, tlsProfile)
 			return dialer.Dial(dialCtx, wsURL, headers, proxyURL)
 		})
 		if err == nil {

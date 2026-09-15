@@ -160,19 +160,18 @@ func (s *live429SequenceUpstream) DoWithTLS(request *http.Request, proxyURL stri
 	return s.Do(request, proxyURL, accountID, accountConcurrency)
 }
 
-func TestCreateUpstreamLiveCallMarksExhaustedAccount429(t *testing.T) {
+func TestCreateUpstreamLiveCallReturns429WithoutRetryMarker(t *testing.T) {
 	upstream := &live429SequenceUpstream{}
 	svc := &OpenAIGatewayService{
 		cfg:          &config.Config{},
 		httpUpstream: upstream,
 	}
-	retryCount := 1
 	account := &Account{
 		ID:                     8,
 		Platform:               PlatformOpenAI,
 		Type:                   AccountTypeOAuth,
 		Concurrency:            1,
-		RateLimit429RetryCount: &retryCount,
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token":       "test-access-token",
 			"chatgpt_account_id": "acct_test",
@@ -185,8 +184,8 @@ func TestCreateUpstreamLiveCallMarksExhaustedAccount429(t *testing.T) {
 	}, `{"v":1}`)
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
-	require.True(t, failoverErr.Account429RetryExhausted)
-	require.Equal(t, 2, upstream.calls, "首次请求之外应额外重试一次")
+	require.Equal(t, http.StatusTooManyRequests, failoverErr.StatusCode)
+	require.Equal(t, 1, upstream.calls, "explicit zero retry budget must disable account retries")
 }
 
 func TestLiveAttestationCipherRoundTripAndRejectsOtherInstanceKey(t *testing.T) {

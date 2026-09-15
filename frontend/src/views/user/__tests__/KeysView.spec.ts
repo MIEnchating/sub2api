@@ -2,8 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
-import type { ApiKey, Group, GroupPlatform } from '@/types'
 import { keysAPI } from '@/api'
+import type { ApiKey, Group, GroupPlatform } from '@/types'
 import KeysView from '../KeysView.vue'
 
 const {

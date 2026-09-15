@@ -18,6 +18,7 @@ export default {
     required: 'Required',
     sending: 'Sending...',
     tryAgain: 'Please try again',
+    retry: 'Retry',
     update: 'Update',
     confirm: 'Confirm',
     reset: 'Reset',
@@ -168,6 +169,8 @@ export default {
     apiKeys: 'API Keys',
     batchImage: 'Batch Images',
     usage: 'Usage',
+    testResults: 'Channel Tests',
+    tests: 'Channel Test Management',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
     affiliateManagement: 'Affiliate Rebates',
@@ -214,6 +217,11 @@ export default {
     contentModeration: 'Content Moderation',
     promptAudit: 'Prompt Audit',
     auditLogs: 'Audit Logs',
+  },
+
+  tests: {
+    preview: 'Preview HTML', closePreview: 'Close preview', rawOutput: 'Original response', noOutput: 'No output returned', running: 'Test is running…', loadFailed: 'Unable to load or save test data',
+    title: 'Channel Tests', description: 'View channel test results for your visible groups', empty: 'No channel test results yet', htmlResult: 'HTML channel test result', allTypes: 'All types', groupFilter: 'Group', modelFilter: 'Model', reasoningEffort: 'Reasoning effort', allGroups: 'All groups', allModels: 'All models', noMatches: 'No results match the selected filters', viewHistory: 'View history', historyHint: 'Historical channel test results for this group or account', group: 'Group', account: 'Account', ungrouped: 'Ungrouped', unknownType: 'Unknown test'
   },
 
   // Auth

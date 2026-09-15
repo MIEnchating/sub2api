@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api Logo" width="128" />
+<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
 
 # sub2api-custom
 
@@ -10,22 +10,22 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**支持自定义账号调度与管理功能的 AI API 网关**
+**支持路由、额度策略和多种服务商扩展的 AI API 网关**
 
 [English](README.md) | 中文 | [日本語](README_JA.md)
 
 </div>
 
 > [!IMPORTANT]
-> 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。请使用本仓库安装脚本或 `mienvirtuoso/sub2api:latest`，官方镜像不包含本项目定制功能。
+> 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。官方安装脚本和 `weishaw/sub2api:latest` 镜像不包含本 Fork 的扩展功能，请按本仓库的源码构建文档部署。
 
-## 本 Fork 增加的功能
+## 扩展功能
 
-- 支持账号级上游 429 自动重试：首次 429 后默认在同一账号额外重试 5 次，可在账号创建、编辑和批量编辑中配置为 `0..10`；一次用户请求内，同一账号的所有官方重试共享这份额外预算，不会重复领取。中间 429 不触发限流或冷却，预算耗尽后完整执行原有同账号重试、错误处理、冷却与切号逻辑。HTTP 请求和 WebSocket 握手均覆盖，流式响应一旦已输出有效内容则不会盲目重放。
 - 支持分组内每用户并发限制：可为每个分组单独配置并发上限，按“用户 + 分组”独立计数，并与原有用户级、账号级并发控制同时生效。
 - 支持 API Key 主分组与同平台兜底分组：每次请求一定先完整尝试主分组，仅在主分组明确无可用账号时进入兜底分组；命中兜底后，本次请求按兜底分组的倍率、高峰倍率、渠道定价和订阅额度扣费，用量记录也归属兜底分组。
-- 支持 Codex 单机多窗口指纹：按账号保持设备身份稳定，并保留各客户端会话边界。
-- 账号列表展示最近请求结果和悬停详情，账号表格支持拖动调整列宽。
+- 支持 Codex 单机多窗口指纹：按账号保持设备身份稳定，并把并发请求收敛为少量对话窗口及其子智能体。
+- 账号表格支持最近请求独立刷新和列宽拖动。
+- 管理后台从本项目的 `sub2api-custom` 分支检查更新，不再使用官方 Sub2API 的版本结果。
 
 ## 快速部署
 
@@ -33,22 +33,34 @@
 
 **[sub2api-custom 部署与运维指南](deploy/README.md)**
 
-最短部署流程：
+最短部署流程（Linux Docker，会自动安装宿主机更新器）：
 
 ```bash
-git clone https://github.com/MIEnchating/sub2api.git sub2api-custom
-cd sub2api-custom/deploy
-cp .env.example .env
-chmod 600 .env
-# 编辑 .env，至少设置 POSTGRES_PASSWORD、JWT_SECRET 和 TOTP_ENCRYPTION_KEY
-mkdir -p data postgres_data redis_data
-docker compose \
-  -f docker-compose.local.yml \
-  -f docker-compose.custom.yml \
-  up -d --build
+curl -fsSL https://raw.githubusercontent.com/DeanZFC/sub2api-custom/sub2api-custom/deploy/install-custom-docker.sh \
+  -o /tmp/install-custom-docker.sh
+sudo bash /tmp/install-custom-docker.sh
 ```
 
-源码镜像会把 `backend/cmd/server/VERSION` 写入当前版本。管理后台同时展示官方与功能上游版本；Release 构建只从 `MIEnchating/sub2api` 更新，源码构建仍提示使用 `git pull`。完整更新命令见部署指南的“日常升级本 Fork”。
+安装更新器后，管理员可在页面右上角版本菜单点击“立即更新”。更新器会自动备份
+PostgreSQL、快进拉取 `sub2api-custom`、重建应用镜像、仅重建 `sub2api` 容器并执行健康检查。
+更新器不会接收网页传入的命令、仓库或路径，也不会删除 PostgreSQL/Redis 数据卷。
+此功能仅适用于 Linux Docker + systemd。macOS Apple container 不会安装宿主机更新器，页面会保留手动更新提示。
+
+需要手动控制目录、端口或 Compose 项目名时，使用安装器参数，例如：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeanZFC/sub2api-custom/sub2api-custom/deploy/install-custom-docker.sh \
+  -o /tmp/install-custom-docker.sh
+sudo bash /tmp/install-custom-docker.sh \
+  --directory /opt/sub2api-custom-28080 \
+  --port 28080 \
+  --project sub2api-custom-28080
+```
+
+源码镜像会把根目录的 `FORK_VERSION` 写入版本信息。安装宿主机更新器后，管理后台可直接拉取本项目
+源码、备份数据库、重建应用容器并进行健康检查；更新成功后还会原子替换宿主机更新器自身，后续版本可继续使用同一个按钮。
+完整安装和故障排查见部署指南的“后台页面自动更新”。
+自动更新的仓库、分支、版本号规则、服务器凭据检查和排查命令见 [docs/AUTO_UPDATE.md](docs/AUTO_UPDATE.md)。
 
 ## 来源、许可证与风险
 
@@ -221,7 +233,8 @@ Sub2API 是一个 AI API 网关平台，用于分发和管理 AI 产品订阅的
 - **API Key 分发** - 为用户生成和管理 API Key
 - **精确计费** - Token 级别的用量追踪和成本计算
 - **智能调度** - 智能账号选择，支持粘性会话
-- **并发控制** - 用户级和账号级并发限制
+- **API Key 兜底分组** - 主分组无可用账号时自动切换到同平台兜底分组，并保证每次请求优先主分组
+- **并发控制** - 用户级、分组内每用户、账号级并发限制；分组并发按“用户 + 分组”独立计数
 - **速率限制** - 可配置的请求和 Token 速率限制
 - **内置支付系统** - 支持 EasyPay 易支付、支付宝官方、微信官方、Stripe，用户自助充值，无需独立部署支付服务（[配置指南](docs/PAYMENT_CN.md)）
 - **管理后台** - Web 界面进行监控和管理
@@ -318,7 +331,7 @@ fast_mode = true
 #### 安装步骤
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 脚本会自动：
@@ -348,9 +361,9 @@ sudo systemctl enable sub2api
 
 #### 升级
 
-Release 构建可以在管理后台从 `MIEnchating/sub2api` 在线升级；源码构建提示使用 `git pull` 后重新构建。版本弹窗会同时显示当前日期版本、官方上游版本和功能上游版本。
-
-本 Fork 的升级方式见 [部署与运维指南](deploy/README.md)。源码构建请通过 Git 拉取并重新构建镜像。
+官方发行版可以直接在管理后台进行二进制在线升级。本项目使用源码构建，管理后台读取本项目分支中的
+`FORK_VERSION` 检测新版本，并由宿主机受限更新器完成拉取、构建、重建和健康检查，不会用官方二进制覆盖本 Fork。
+源码构建不提供在线二进制回退；失败时更新器会恢复更新前的源码和应用镜像。
 
 #### 常用命令
 
@@ -365,7 +378,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # 卸载
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -387,22 +400,17 @@ curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/inst
 # 创建部署目录
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
-# 下载并运行部署准备脚本
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
-
-# 启动服务
-docker compose up -d
-
-# 查看日志
-docker compose logs -f sub2api
+# 下载并运行源码版一键部署（自动构建并安装宿主机更新器）
+curl -fsSL https://raw.githubusercontent.com/DeanZFC/sub2api-custom/sub2api-custom/deploy/install-custom-docker.sh \
+  -o /tmp/install-custom-docker.sh
+sudo bash /tmp/install-custom-docker.sh
 ```
 
 **脚本功能：**
-- 下载 `docker-compose.local.yml`（本地保存为 `docker-compose.yml`）和 `.env.example`
+- 克隆 `sub2api-custom` 源码并构建自定义镜像
 - 自动生成安全凭证（JWT_SECRET、TOTP_ENCRYPTION_KEY、POSTGRES_PASSWORD）
-- 创建 `.env` 文件并填充自动生成的密钥
-- 创建数据目录（使用本地目录，便于备份和迁移）
-- 显示生成的凭证供你记录
+- 创建本地数据目录，并安装宿主机 systemd 更新器
+- 后台页面可直接检查版本、备份数据库、构建和健康检查
 
 #### 手动部署
 
@@ -410,8 +418,8 @@ docker compose logs -f sub2api
 
 ```bash
 # 1. 克隆仓库
-git clone https://github.com/Wei-Shaw/sub2api.git
-cd sub2api/deploy
+git clone -b sub2api-custom https://github.com/DeanZFC/sub2api-custom.git
+cd sub2api-custom/deploy
 
 # 2. 复制环境配置文件
 cp .env.example .env

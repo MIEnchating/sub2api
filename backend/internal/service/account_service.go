@@ -156,6 +156,7 @@ type AdminAccountRepository interface {
 // AccountBulkUpdate describes the fields that can be updated in a bulk operation.
 // Nil pointers mean "do not change".
 type AccountBulkUpdate struct {
+	ProxyIDs               *[]int64
 	Name                   *string
 	ProxyID                *int64
 	Concurrency            *int
@@ -228,10 +229,6 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
-	proxyIDs, err := validateAccountProxyPool(req.ProxyID, req.ProxyIDs)
-	if err != nil {
-		return nil, err
-	}
 	if req.RateLimit429RetryCount != nil {
 		if err := ValidateRateLimit429RetryCount(*req.RateLimit429RetryCount); err != nil {
 			return nil, err
@@ -253,13 +250,13 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		Credentials:            SanitizeStoredCredentials(req.Platform, req.Credentials),
 		Extra:                  prepareCodexFingerprintExtraForCreate(req.Platform, req.Type, req.Extra),
 		ProxyID:                req.ProxyID,
+		ProxyIDs:               append([]int64(nil), req.ProxyIDs...),
 		Concurrency:            req.Concurrency,
 		RateLimit429RetryCount: cloneAccountValuePointer(req.RateLimit429RetryCount),
 		Priority:               req.Priority,
 		Status:                 StatusActive,
 		ExpiresAt:              req.ExpiresAt,
 	}
-	setAccountProxyPoolIDs(account, proxyIDs)
 	if req.AutoPauseOnExpired != nil {
 		account.AutoPauseOnExpired = *req.AutoPauseOnExpired
 	} else {
@@ -361,9 +358,6 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 		delete(extra, OllamaCloudUsageSessionExtraKey)
 		delete(extra, OllamaCloudUsageAutoRefreshExtraKey)
 		delete(extra, OllamaCloudUsageSnapshotExtraKey)
-		if value, ok := account.Extra[AccountProxyPoolExtraKey]; ok {
-			extra[AccountProxyPoolExtraKey] = value
-		}
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, extra)
 	} else {
 		account.Extra = prepareCodexFingerprintExtraForUpdate(account, account.Extra)
@@ -372,14 +366,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	if req.ProxyID != nil {
 		account.ProxyID = req.ProxyID
 	}
-	proxyIDs := configuredAccountProxyPoolIDs(account)
 	if req.ProxyIDs != nil {
-		proxyIDs, err = validateAccountProxyPool(account.ProxyID, *req.ProxyIDs)
-		if err != nil {
-			return nil, err
-		}
+		account.ProxyIDs = append([]int64(nil), (*req.ProxyIDs)...)
 	}
-	setAccountProxyPoolIDs(account, proxyIDs)
 
 	if req.Concurrency != nil {
 		account.Concurrency = *req.Concurrency

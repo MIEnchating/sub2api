@@ -197,6 +197,7 @@ func (s *RateLimitService) ApplyAccountSchedulingThreshold(ctx context.Context, 
 
 	account.TempUnschedulableUntil = cloneTimePtr(decision.Until)
 	account.TempUnschedulableReason = reason
+	s.notifyAccountSchedulingBlocked(account, *decision.Until, "account_scheduling_threshold")
 
 	if err := s.accountRepo.SetTempUnschedulable(ctx, account.ID, *decision.Until, reason); err != nil {
 		slog.Warn("account_scheduling_threshold_set_temp_unsched_failed",
@@ -1314,8 +1315,7 @@ func (s *RateLimitService) get429FallbackCooldown(ctx context.Context, account *
 		slog.Warn("rate_limit_429_settings_read_failed", "account_id", account.ID, "error", err)
 	}
 
-	seconds := defaultRateLimit429CooldownSeconds
-	seconds = clampRateLimit429CooldownSeconds(seconds)
+	seconds := clampRateLimit429CooldownSeconds(defaultRateLimit429CooldownSeconds)
 	return time.Duration(seconds) * time.Second, true
 }
 

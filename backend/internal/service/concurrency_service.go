@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"errors"
 	"os"
-	"sort"
 	"strconv"
 	"sync"
 	"sync/atomic"
@@ -56,36 +55,14 @@ type ConcurrencyCache interface {
 	CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error
 }
 
-// AccountProxyConcurrencyCache is an optional extension. Implementations that
-// support it keep a separate Redis bucket for every account/proxy pair.
-type AccountProxyConcurrencyCache interface {
-	AcquireAccountProxySlot(ctx context.Context, accountID, proxyID int64, maxConcurrency int, requestID string) (bool, error)
-	ReleaseAccountProxySlot(ctx context.Context, accountID, proxyID int64, requestID string) error
-	GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error)
+type accountProxyConcurrencyCache interface {
+	AcquireAccountProxyPoolSlot(context.Context, int64, []int64, int, string, ...int64) (int64, error)
+	ReleaseAccountProxyPoolSlot(context.Context, int64, int64, string) error
 }
 
-// BalancedAccountProxyConcurrencyCache can choose the least-loaded proxy and
-// reserve its slot atomically. It is optional so older cache implementations
-// can continue using the per-proxy methods above.
-type BalancedAccountProxyConcurrencyCache interface {
-	AccountProxyConcurrencyCache
-	AcquireAccountProxySlotBalanced(ctx context.Context, accountID int64, proxyIDs []int64, maxConcurrency int, requestID string) (bool, int64, error)
-}
-
-func (s *ConcurrencyService) GetAccountProxyConcurrency(ctx context.Context, accountID, proxyID int64) (int, error) {
-	if s == nil || s.cache == nil {
-		return 0, errors.New("concurrency cache is unavailable")
-	}
-	if ext, ok := s.cache.(AccountProxyConcurrencyCache); ok {
-		return ext.GetAccountProxyConcurrency(ctx, accountID, proxyID)
-	}
-	return 0, nil
-}
-
-// UserGroupConcurrencyCache is the optional cache extension used to acquire
-// the user-wide and per-group user slot atomically. Keeping it separate from
-// ConcurrencyCache preserves compatibility with older test doubles and cache
-// implementations while production Redis supports the stronger operation.
+// UserGroupConcurrencyCache is an optional cache extension that atomically
+// reserves both the user's global slot and the user's slot in one group.
+// Keeping this separate preserves compatibility with lightweight test doubles.
 type UserGroupConcurrencyCache interface {
 	AcquireUserGroupSlot(ctx context.Context, userID, groupID int64, userMax, groupMax int, requestID string) (bool, error)
 	ReleaseUserGroupSlot(ctx context.Context, userID, groupID int64, requestID string) error
@@ -344,41 +321,14 @@ func (s *ConcurrencyService) SetAccountLoadBatchCacheTTL(ttl time.Duration) {
 
 // AcquireResult represents the result of acquiring a concurrency slot
 type AcquireResult struct {
+	ProxyID     int64 // Set only for a multi-proxy request; chosen atomically with its slot.
 	Acquired    bool
 	ReleaseFunc func() // Must be called when done (typically via defer)
 }
 
 type AccountWithConcurrency struct {
-	ID                           int64
-	MaxConcurrency               int
-	ProxyConcurrencyLimitEnabled bool
-	ProxyPoolIDs                 []int64
-}
-
-// BuildAccountWithConcurrency carries the routing metadata required to read
-// the correct distributed load buckets. Proxy-limited accounts use one bucket
-// per configured proxy, while ordinary accounts keep the legacy account key.
-func BuildAccountWithConcurrency(account *Account) AccountWithConcurrency {
-	if account == nil {
-		return AccountWithConcurrency{}
-	}
-	proxyPoolIDs := NormalizeProxyPoolIDs(account.ProxyPoolIDs)
-	if len(proxyPoolIDs) == 0 && account.Extra != nil {
-		proxyPoolIDs = NormalizeProxyPoolIDs(account.Extra[ProxyPoolIDsExtraKey])
-	}
-	if len(proxyPoolIDs) == 0 {
-		proxyPoolIDs = nil
-	}
-	proxyLimited := false
-	if account.Extra != nil {
-		proxyLimited, _ = account.Extra[ProxyConcurrencyLimitEnabledExtraKey].(bool)
-	}
-	return AccountWithConcurrency{
-		ID:                           account.ID,
-		MaxConcurrency:               account.EffectiveLoadFactor(),
-		ProxyConcurrencyLimitEnabled: proxyLimited && len(proxyPoolIDs) > 0,
-		ProxyPoolIDs:                 proxyPoolIDs,
-	}
+	ID             int64
+	MaxConcurrency int
 }
 
 type UserWithConcurrency struct {
@@ -403,16 +353,16 @@ type UserLoadInfo struct {
 // AcquireAccountSlot attempts to acquire a concurrency slot for an account.
 // If the account is at max concurrency, it waits until a slot is available or timeout.
 // Returns a release function that MUST be called when the request completes.
-func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int) (*AcquireResult, error) {
+func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID int64, maxConcurrency int, proxyIDs ...int64) (*AcquireResult, error) {
+	if len(proxyIDs) > 1 {
+		return s.acquireAccountProxyPoolSlot(ctx, accountID, maxConcurrency, proxyIDs)
+	}
 	// If maxConcurrency is 0 or negative, no limit
 	if maxConcurrency <= 0 {
 		return &AcquireResult{
 			Acquired:    true,
 			ReleaseFunc: func() {}, // no-op
 		}, nil
-	}
-	if s == nil || s.cache == nil {
-		return nil, errors.New("concurrency cache is unavailable")
 	}
 
 	// Generate unique request ID for this slot
@@ -429,7 +379,8 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 			ReleaseFunc: func() {
 				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 				defer cancel()
-				if err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID); err != nil {
+				err := s.cache.ReleaseAccountSlot(bgCtx, accountID, requestID)
+				if err != nil {
 					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account slot for %d (req=%s): %v", accountID, requestID, err)
 				}
 			},
@@ -442,96 +393,6 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 	}, nil
 }
 
-// AcquireAccountProxySlot chooses the least-loaded configured proxy and reserves
-// a slot in that proxy's independent bucket. It falls back to the legacy account
-// bucket when the cache implementation has no proxy extension.
-func (s *ConcurrencyService) AcquireAccountProxySlot(ctx context.Context, accountID int64, proxyIDs []int64, maxConcurrency int) (*AcquireResult, int64, error) {
-	validProxyIDs := make([]int64, 0, len(proxyIDs))
-	seenProxyIDs := make(map[int64]struct{}, len(proxyIDs))
-	for _, proxyID := range proxyIDs {
-		if proxyID <= 0 {
-			continue
-		}
-		if _, seen := seenProxyIDs[proxyID]; seen {
-			continue
-		}
-		seenProxyIDs[proxyID] = struct{}{}
-		validProxyIDs = append(validProxyIDs, proxyID)
-	}
-	if len(validProxyIDs) == 0 {
-		result, err := s.AcquireAccountSlot(ctx, accountID, maxConcurrency)
-		return result, 0, err
-	}
-	if maxConcurrency <= 0 {
-		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, validProxyIDs[0], nil
-	}
-	if s == nil || s.cache == nil {
-		return nil, 0, errors.New("concurrency cache is unavailable")
-	}
-	requestID := generateRequestID()
-	if balanced, ok := s.cache.(BalancedAccountProxyConcurrencyCache); ok {
-		acquired, proxyID, err := balanced.AcquireAccountProxySlotBalanced(ctx, accountID, validProxyIDs, maxConcurrency, requestID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if !acquired {
-			return &AcquireResult{Acquired: false}, 0, nil
-		}
-		return &AcquireResult{Acquired: true, ReleaseFunc: func() {
-			bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-			defer cancel()
-			if err := balanced.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID); err != nil {
-				logger.LegacyPrintf("service.concurrency", "Warning: failed to release account proxy slot for account %d, proxy %d (req=%s): %v", accountID, proxyID, requestID, err)
-			}
-		}}, proxyID, nil
-	}
-	ext, ok := s.cache.(AccountProxyConcurrencyCache)
-	if !ok {
-		result, err := s.AcquireAccountSlot(ctx, accountID, maxConcurrency*len(validProxyIDs))
-		return result, validProxyIDs[0], err
-	}
-	ordered := append([]int64(nil), validProxyIDs...)
-	// Rotate ties by request ID so equal-load proxies are selected in a
-	// round-robin-like distribution instead of always favoring the first row.
-	if len(ordered) > 1 {
-		var offset int
-		for i := 0; i < len(requestID); i++ {
-			offset = (offset*31 + int(requestID[i])) % len(ordered)
-		}
-		ordered = append(ordered[offset:], ordered[:offset]...)
-	}
-	loads := make(map[int64]int, len(ordered))
-	for _, proxyID := range ordered {
-		if proxyID <= 0 {
-			continue
-		}
-		loads[proxyID], _ = ext.GetAccountProxyConcurrency(ctx, accountID, proxyID)
-	}
-	sort.SliceStable(ordered, func(i, j int) bool { return loads[ordered[i]] < loads[ordered[j]] })
-	if maxConcurrency <= 0 {
-		return &AcquireResult{Acquired: true, ReleaseFunc: func() {}}, ordered[0], nil
-	}
-	for _, proxyID := range ordered {
-		if proxyID <= 0 {
-			continue
-		}
-		acquired, err := ext.AcquireAccountProxySlot(ctx, accountID, proxyID, maxConcurrency, requestID)
-		if err != nil {
-			return nil, 0, err
-		}
-		if acquired {
-			return &AcquireResult{Acquired: true, ReleaseFunc: func() {
-				bgCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-				defer cancel()
-				if err := ext.ReleaseAccountProxySlot(bgCtx, accountID, proxyID, requestID); err != nil {
-					logger.LegacyPrintf("service.concurrency", "Warning: failed to release account proxy slot for account %d, proxy %d (req=%s): %v", accountID, proxyID, requestID, err)
-				}
-			}}, proxyID, nil
-		}
-	}
-	return &AcquireResult{Acquired: false}, 0, nil
-}
-
 // AcquireUserSlot attempts to acquire a concurrency slot for a user.
 // If the user is at max concurrency, it waits until a slot is available or timeout.
 // Returns a release function that MUST be called when the request completes.
@@ -542,9 +403,6 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 			Acquired:    true,
 			ReleaseFunc: func() {}, // no-op
 		}, nil
-	}
-	if s == nil || s.cache == nil {
-		return nil, errors.New("concurrency cache is unavailable")
 	}
 
 	// Generate unique request ID for this slot
@@ -575,17 +433,14 @@ func (s *ConcurrencyService) AcquireUserSlot(ctx context.Context, userID int64, 
 }
 
 // AcquireUserGroupSlot atomically enforces the user's global limit and the
-// per-user limit of one group. A non-positive group ID/limit disables the
-// group dimension while retaining the existing user limit behavior.
+// per-user limit for one group. A non-positive group ID or limit disables only
+// the group dimension and retains the existing user limit behavior.
 func (s *ConcurrencyService) AcquireUserGroupSlot(ctx context.Context, userID, groupID int64, userMax, groupMax int) (*AcquireResult, error) {
 	if groupID <= 0 || groupMax <= 0 {
 		return s.AcquireUserSlot(ctx, userID, userMax)
 	}
 	if s == nil || s.cache == nil {
 		return nil, errors.New("concurrency cache is unavailable")
-	}
-	if userMax <= 0 {
-		userMax = 0
 	}
 	cache, ok := s.cache.(UserGroupConcurrencyCache)
 	if !ok {
@@ -880,15 +735,6 @@ func accountLoadBatchCacheKey(accounts []AccountWithConcurrency) string {
 		binary.LittleEndian.PutUint64(buf[:8], uint64(account.ID))
 		binary.LittleEndian.PutUint64(buf[8:], uint64(int64(account.MaxConcurrency)))
 		_, _ = hash.Write(buf[:])
-		if account.ProxyConcurrencyLimitEnabled {
-			_, _ = hash.Write([]byte{1})
-		} else {
-			_, _ = hash.Write([]byte{0})
-		}
-		for _, proxyID := range account.ProxyPoolIDs {
-			binary.LittleEndian.PutUint64(buf[:8], uint64(proxyID))
-			_, _ = hash.Write(buf[:8])
-		}
 	}
 	sum := hash.Sum(nil)
 	return strconv.Itoa(len(accounts)) + ":" + hex.EncodeToString(sum)

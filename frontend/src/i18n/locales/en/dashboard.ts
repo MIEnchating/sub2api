@@ -134,7 +134,7 @@ export default {
     fallbackGroupShortLabel: 'Fallback',
     selectFallbackGroup: 'Select fallback',
     noFallbackGroup: 'No fallback group',
-    fallbackGroupHint: 'Used only when the primary group has no available accounts. Every request tries the primary group first; requests routed to fallback use its pricing and usage attribution.',
+    fallbackGroupHint: 'Used only when the primary group has no available accounts. Every request always tries the primary group first. Billing, quotas, and concurrency remain on the primary group.',
     fallbackGroupInvalid: 'The fallback group must differ from the primary group and use the same platform',
     statusLabel: 'Status',
     selectStatus: 'Select status',
@@ -523,6 +523,7 @@ export default {
     // Quota snapshot rendering (MonitorQuotaView, shared by admin + user views)
     quota: {
       unavailable: 'Quota unavailable',
+      resetSoon: 'resetting',
       windows: {
         '5h': '5h',
         '7d': '7d',
@@ -633,8 +634,6 @@ export default {
       inputPrice: 'Input',
       outputPrice: 'Output',
       cacheWritePrice: 'Cache Write',
-      cacheWrite5mPrice: 'Cache Write (5m)',
-      cacheWrite1hPrice: 'Cache Write (1h)',
       cacheReadPrice: 'Cache Read',
       imageInputPrice: 'Image Input',
       imageOutputPrice: 'Image Output',

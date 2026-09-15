@@ -1,11 +1,10 @@
 # sub2api-custom source-build overlay.
 # Use together with docker-compose.local.yml for a new generic deployment.
-# Existing deployments can apply this overlay without changing their data volumes.
-
+# Container names are intentionally inherited from the Compose project so that
+# multiple instances can share one host without collisions.
 services:
   sub2api:
-    image: sub2api-custom:local
-    container_name: sub2api-custom
+    image: ${SUB2API_IMAGE:-sub2api-custom:local}
     build:
       context: ..
       dockerfile: Dockerfile
@@ -14,9 +13,8 @@ services:
         VERSION: ""
         COMMIT: ${BUILD_COMMIT:-local}
         BUILD_TYPE: source
-
-  postgres:
-    container_name: sub2api-custom-postgres
-
-  redis:
-    container_name: sub2api-custom-redis
+    environment:
+      - SUB2API_UPDATER_SOCKET=${SUB2API_UPDATER_SOCKET:-/run/sub2api-updater/sub2api-custom.sock}
+      - SUB2API_UPDATER_TOKEN=${SUB2API_UPDATER_TOKEN:-}
+    volumes:
+      - ${SUB2API_UPDATER_DIR:-/run/sub2api-updater}:/run/sub2api-updater:ro

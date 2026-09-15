@@ -773,10 +773,6 @@ func decodeCachedAccount(val any) (*service.Account, error) {
 	if err := json.Unmarshal(payload, &account); err != nil {
 		return nil, err
 	}
-	// Older scheduler entries may contain the pool configuration only in Extra.
-	// Rebuild the typed fields on read so those entries remain usable until the
-	// next normal cache refresh.
-	account.SyncProxyPoolConfig()
 	return &account, nil
 }
 
@@ -867,7 +863,6 @@ func (c *schedulerCache) mgetChunked(ctx context.Context, keys []string) ([]any,
 }
 
 func buildSchedulerMetadataAccount(account service.Account) service.Account {
-	account.SyncProxyPoolConfig()
 	return service.Account{
 		ID:                      account.ID,
 		Name:                    account.Name,
@@ -875,6 +870,8 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		Type:                    account.Type,
 		Concurrency:             account.Concurrency,
 		RateLimit429RetryCount:  account.RateLimit429RetryCount,
+		ProxyIDs:                append([]int64(nil), account.ProxyIDs...),
+		Proxies:                 account.Proxies,
 		LoadFactor:              account.LoadFactor,
 		Priority:                account.Priority,
 		RateMultiplier:          account.RateMultiplier,
@@ -893,9 +890,6 @@ func buildSchedulerMetadataAccount(account service.Account) service.Account {
 		SessionWindowStatus:     account.SessionWindowStatus,
 		ParentAccountID:         account.ParentAccountID,
 		QuotaDimension:          account.QuotaDimension,
-		ProxyID:                 account.ProxyID,
-		ProxyPoolIDs:            append([]int64(nil), account.ProxyPoolIDs...),
-		ProxyPool:               append([]*service.Proxy(nil), account.ProxyPool...),
 		AccountGroups:           filterSchedulerAccountGroups(account.AccountGroups),
 		GroupIDs:                filterSchedulerGroupIDs(account.GroupIDs, account.AccountGroups),
 		Credentials:             filterSchedulerCredentials(account.Credentials),
@@ -1027,7 +1021,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_oauth_passthrough",
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
-		service.OpenAIModelNormalizationEnabledExtraKey,
 		"codex_5h_used_percent",
 		"codex_7d_used_percent",
 		"codex_5h_reset_at",
@@ -1040,11 +1033,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"auto_pause_5h_disabled",
 		"auto_pause_7d_disabled",
 		"model_rate_limits",
+		service.OpenAIModelNormalizationEnabledExtraKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.GrokMediaEligibleExtraKey,
 		"grok_billing_snapshot",
-		service.ProxyConcurrencyLimitEnabledExtraKey,
-		service.ProxyPoolIDsExtraKey,
 	}
 	filtered := make(map[string]any)
 	for _, key := range keys {

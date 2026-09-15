@@ -473,13 +473,13 @@ func TestResolveLiveSubscriptionIDDoesNotCarryPrimarySubscriptionToStandardFallb
 	require.Zero(t, id)
 }
 
-func TestDialLiveSidebandRetries429OnSameAccount(t *testing.T) {
+func TestDialLiveSidebandReturns429WithoutSameAccountRetry(t *testing.T) {
 	account := &Account{
 		ID:                     11,
 		Platform:               PlatformOpenAI,
 		Type:                   AccountTypeOAuth,
 		Concurrency:            2,
-		RateLimit429RetryCount: retryCountPointer(2),
+		RateLimit429RetryCount: retryCountPointer(0),
 		Credentials: map[string]any{
 			"access_token":       "test-access-token",
 			"chatgpt_account_id": "acct_test",
@@ -504,9 +504,9 @@ func TestDialLiveSidebandRetries429OnSameAccount(t *testing.T) {
 	}
 
 	conn, err := service.dialLiveSideband(context.Background(), record)
-	require.NoError(t, err)
-	require.Same(t, upstream, conn)
-	require.Equal(t, 3, dialer.calls)
+	require.Error(t, err)
+	require.Nil(t, conn)
+	require.Equal(t, 1, dialer.calls)
 }
 
 func TestProxyLiveSidebandForwardsTextAndBinary(t *testing.T) {

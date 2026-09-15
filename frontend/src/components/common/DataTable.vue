@@ -420,7 +420,6 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
-  stopColumnResize()
   detachDesktopTableTracking()
   if (desktopViewportMediaQuery && desktopViewportListener) {
     if (typeof desktopViewportMediaQuery.removeEventListener === 'function') {
@@ -487,8 +486,8 @@ const props = withDefaults(defineProps<Props>(), {
   defaultSortOrder: 'asc',
   serverSideSort: false,
   selectable: false,
-  selectedKeys: () => [],
-  resizableColumns: false
+  selectedKeys: () => []
+  ,resizableColumns: false
 })
 
 const sortKey = ref<string>('')

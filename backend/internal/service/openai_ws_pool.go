@@ -386,7 +386,6 @@ func (c *openAIWSConn) runReaderLoop() {
 			c.readerLoopErrMu.Lock()
 			c.readerLoopErr = err
 			c.readerLoopErrMu.Unlock()
-			// 本地主动关闭时对端会回 close 帧，同样以读错误结束循环，不算上游事件。
 			peerClosed := false
 			select {
 			case <-c.closedCh:
@@ -394,20 +393,11 @@ func (c *openAIWSConn) runReaderLoop() {
 				peerClosed = true
 				c.readerLoopPeerClosed.Store(true)
 				now := time.Now()
-				// 空闲连接被上游断开是常态，池已当场出池，只记 info；借出中断开会影响请求，记 warn。
 				logClosed := logOpenAIWSModeInfo
 				if c.isLeased() {
 					logClosed = logOpenAIWSModeWarn
 				}
-				logClosed(
-					"conn_reader_loop_closed conn_id=%s leased=%v idle_ms=%d age_ms=%d upstream_pings=%d cause=%s",
-					c.id,
-					c.isLeased(),
-					c.idleDuration(now).Milliseconds(),
-					c.age(now).Milliseconds(),
-					c.upstreamPingCount(),
-					truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen),
-				)
+				logClosed("conn_reader_loop_closed conn_id=%s leased=%v idle_ms=%d age_ms=%d upstream_pings=%d cause=%s", c.id, c.isLeased(), c.idleDuration(now).Milliseconds(), c.age(now).Milliseconds(), c.upstreamPingCount(), truncateOpenAIWSLogValue(err.Error(), openAIWSLogValueMaxLen))
 			}
 			c.close()
 			if evict := c.onPeerClosed.Load(); peerClosed && evict != nil {
@@ -423,14 +413,10 @@ func (c *openAIWSConn) runReaderLoop() {
 	}
 }
 
-func (c *openAIWSConn) hasReaderLoop() bool {
-	return c != nil && c.readerLoopResults != nil
-}
-
+func (c *openAIWSConn) hasReaderLoop() bool { return c != nil && c.readerLoopResults != nil }
 func (c *openAIWSConn) readerLoopClosedByPeer() bool {
 	return c != nil && c.readerLoopPeerClosed.Load()
 }
-
 func (c *openAIWSConn) upstreamPingCount() int64 {
 	if c == nil || c.ws == nil {
 		return 0
@@ -440,13 +426,9 @@ func (c *openAIWSConn) upstreamPingCount() int64 {
 	}
 	return 0
 }
-
-// readerLoopPending 报告空闲期是否已有数据消息被读循环缓存。len 不消费消息；
-// 缓存满时读循环阻塞在投递上，因此最多只有这一条待接管消息。
 func (c *openAIWSConn) readerLoopPending() bool {
 	return c.hasReaderLoop() && len(c.readerLoopResults) > 0
 }
-
 func (c *openAIWSConn) readerLoopError() error {
 	c.readerLoopErrMu.Lock()
 	defer c.readerLoopErrMu.Unlock()
@@ -455,9 +437,6 @@ func (c *openAIWSConn) readerLoopError() error {
 	}
 	return errOpenAIWSConnClosed
 }
-
-// leaseTokenUsable 在拿到租约令牌后确认连接仍可借出：已关闭的连接退回令牌；
-// 空闲期收到过数据消息的连接状态已不可信，直接关闭而不交给借用者。
 func (c *openAIWSConn) leaseTokenUsable() bool {
 	select {
 	case <-c.closedCh:
@@ -466,27 +445,18 @@ func (c *openAIWSConn) leaseTokenUsable() bool {
 	default:
 	}
 	if c.readerLoopPending() {
-		// 只记事件类型，不记报文原文，避免模型输出进日志。
 		eventType := ""
 		select {
 		case payload := <-c.readerLoopResults:
 			eventType = effectiveOpenAISSEEventType(payload, "")
 		default:
 		}
-		logOpenAIWSModeWarn(
-			"conn_idle_dirty_discard conn_id=%s idle_ms=%d upstream_pings=%d event=%s",
-			c.id,
-			c.idleDuration(time.Now()).Milliseconds(),
-			c.upstreamPingCount(),
-			normalizeOpenAIWSLogValue(eventType),
-		)
-		// 关闭握手可能阻塞到一个 RTT，而 tryAcquire 在池锁内调用，这里只标记，出池后再关闭。
+		logOpenAIWSModeWarn("conn_idle_dirty_discard conn_id=%s idle_ms=%d upstream_pings=%d event=%s", c.id, c.idleDuration(time.Now()).Milliseconds(), c.upstreamPingCount(), normalizeOpenAIWSLogValue(eventType))
 		c.unusable.Store(true)
 		return false
 	}
 	return true
 }
-
 func (c *openAIWSConn) isClosed() bool {
 	if c == nil {
 		return true
@@ -498,11 +468,7 @@ func (c *openAIWSConn) isClosed() bool {
 		return false
 	}
 }
-
-func (c *openAIWSConn) isUnusable() bool {
-	return c != nil && c.unusable.Load()
-}
-
+func (c *openAIWSConn) isUnusable() bool { return c != nil && c.unusable.Load() }
 func (c *openAIWSConn) tryAcquire() bool {
 	if c == nil {
 		return false
@@ -902,8 +868,7 @@ type openAIWSPoolMetrics struct {
 }
 
 type openAIWSConnPool struct {
-	cfg                              *config.Config
-	uniqueFingerprintEnabledResolver func() bool
+	cfg *config.Config
 	// 通过接口解耦底层 WS 客户端实现，默认使用 coder/websocket。
 	clientDialer openAIWSClientDialer
 
@@ -926,15 +891,8 @@ func newOpenAIWSConnPool(cfg *config.Config) *openAIWSConnPool {
 		clientDialer: newDefaultOpenAIWSClientDialer(),
 		workerStopCh: make(chan struct{}),
 	}
-	pool.uniqueFingerprintEnabledResolver = func() bool {
-		return cfg != nil && cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled
-	}
 	pool.startBackgroundWorkers()
 	return pool
-}
-
-func (p *openAIWSConnPool) uniqueFingerprintEnabled() bool {
-	return p != nil && p.uniqueFingerprintEnabledResolver != nil && p.uniqueFingerprintEnabledResolver()
 }
 
 func (p *openAIWSConnPool) SnapshotMetrics() OpenAIWSPoolMetricsSnapshot {
@@ -1212,7 +1170,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 retryAcquire:
 	accountID := req.Account.ID
 	proxyKey := openAIWSRequestProxyKey(req)
-	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p.uniqueFingerprintEnabled())
+	compatibility := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
@@ -2137,7 +2095,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire, p.uniqueFingerprintEnabled()) {
+		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled) {
 			staleTarget = true
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
@@ -2296,6 +2254,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	conn, status, handshakeHeaders, account429RetryExhausted, err := dialAccount429Retry(ctx, req.Account, func(attemptCtx context.Context) (openAIWSClientConn, int, http.Header, error) {
 		dialCtx, cancelDial := context.WithTimeout(attemptCtx, p.dialTimeout())
 		defer cancelDial()
+		dialCtx = withOpenAIWSTLSProfile(dialCtx, resolveCodexMacTLSProfile(req.Account))
 		return p.clientDialer.Dial(dialCtx, req.WSURL, headers, req.ProxyURL)
 	})
 	if err != nil {
@@ -2322,7 +2281,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConnWithProxy(id, req.Account.ID, conn, handshakeHeaders, openAIWSRequestProxyKey(req))
-	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p.uniqueFingerprintEnabled())
+	pooledConn.handshakeCompatibility = normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
 	accountID := req.Account.ID
 	evict := func() { p.evictConn(accountID, id) }
 	pooledConn.onPeerClosed.Store(&evict)

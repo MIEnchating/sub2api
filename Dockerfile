@@ -80,15 +80,17 @@ RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
 
 # Copy backend source first
 COPY backend/ ./
+COPY FORK_VERSION /app/FORK_VERSION
 
 # Copy frontend dist from previous stage (must be after backend copy to avoid being overwritten)
 COPY --from=frontend-builder /app/backend/internal/web/dist ./internal/web/dist
 
-# Build the binary and embed the frontend. Source builds read our VERSION file;
+# Build the binary and embed the frontend. Fork source builds read FORK_VERSION;
 # CI release builds still override VERSION and BUILD_TYPE explicitly.
 RUN --mount=type=cache,id=sub2api-gomod,target=/go/pkg/mod \
     --mount=type=cache,id=sub2api-gobuild,target=/root/.cache/go-build \
     VERSION_VALUE="${VERSION}" && \
+    if [ -z "${VERSION_VALUE}" ] && [ -s /app/FORK_VERSION ]; then VERSION_VALUE="$(tr -d '\r\n' < /app/FORK_VERSION)"; fi && \
     if [ -z "${VERSION_VALUE}" ]; then VERSION_VALUE="$(./scripts/resolve-version.sh)"; fi && \
     DATE_VALUE="${DATE:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}" && \
     CGO_ENABLED=0 GOOS=${TARGETOS:-linux} GOARCH=${TARGETARCH} go build \
@@ -111,7 +113,7 @@ FROM ${ALPINE_IMAGE}
 # Labels
 LABEL maintainer="DeanZFC <github.com/DeanZFC>"
 LABEL description="sub2api-custom - extensible Sub2API fork with additional provider and quota features"
-LABEL org.opencontainers.image.source="https://github.com/MIEnchating/sub2api"
+LABEL org.opencontainers.image.source="https://github.com/DeanZFC/sub2api-custom"
 LABEL org.opencontainers.image.licenses="LGPL-3.0-or-later"
 
 # Install runtime dependencies

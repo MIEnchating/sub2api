@@ -487,6 +487,16 @@ export default {
         saved: 'Ollama Cloud usage refresh settings saved',
         saveFailed: 'Failed to save Ollama Cloud usage refresh settings'
       },
+      upstreamErrorRetry: {
+        title: 'Upstream error auto retry',
+        description: 'Retry matching upstream errors inside the gateway to reduce client reconnections.',
+        maxRetries: 'Additional retries (1–10)',
+        delay: 'Retry interval (milliseconds, 100–10000)',
+        errors: 'Error rules (one per line)',
+        matchHint: 'Mix HTTP status codes, error codes and error messages. Status codes match exactly; text uses case-insensitive substring matching. Any matching line triggers a retry. For example, servers are currently overloaded matches the full overload message. No wildcards or regular expressions are needed. Up to 100 lines.',
+        scopeHint: 'Retry only before body content or tool calls are sent. All attempts within one request share the retry limit. Built-in error handling continues after exhaustion. HTTP 429 keeps the official rate-limit policy and is unaffected. Saving takes effect without a restart.',
+        invalid: 'Check retry settings: 1–10 retries, a 100–10000 ms interval and up to 100 error rules (at least one when enabled). Status codes must be 400–599, excluding 429.',
+      },
       gatewayRuntime: {
         title: 'Gateway Runtime Policy',
         description: 'Changes take effect immediately after saving; no config-file edit or service restart is required.',
@@ -572,6 +582,19 @@ export default {
         openaiCodexVersionAutoSyncHint: 'Fetches the latest stable client version from the official repository every 6 hours, so you never need to upgrade this service just to keep the version current. When disabled, only the version above or the built-in default is used.',
         openaiCodexVersionSyncedValue: 'Currently synced: {version}',
         codexHardeningTitle: "Codex Settings",
+        codexRetry: {
+          title: "Automatic error retry",
+          maxRetries: "Maximum retries",
+          interval: "Retry interval (ms)",
+          window: "Retry window (seconds)",
+          keywords: "Error message / code keywords",
+          save: "Save retry settings",
+          saved: "Retry settings saved",
+          loadFailed: "Failed to load retry settings",
+          saveFailed: "Failed to save retry settings",
+          invalidLimits: "Retries: 1-10; interval: 100-10000 ms; retry window: 1-300 seconds.",
+          invalidKeywords: "When enabled, provide 1-50 keywords, at most 256 bytes each.",
+        },
         codexClientRestrictionTitle: "Codex client restriction",
         codexHardeningDesc:
           "Only affects OpenAI OAuth accounts with 'Codex official clients only' enabled (global). Beyond User-Agent/Originator, harden the decision with a version range, an engine-fingerprint gate, and black/whitelists.",

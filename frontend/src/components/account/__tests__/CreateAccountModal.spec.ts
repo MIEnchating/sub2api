@@ -212,14 +212,6 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     createOpenAICodexPATMock.mockReset().mockResolvedValue({})
   })
 
-  it('shows multi-IP egress settings for OAuth account creation', async () => {
-    const wrapper = mountModal()
-    await flushPromises()
-
-    expect(wrapper.find('[data-testid="multi-ip-egress-section"]').exists()).toBe(true)
-    expect(wrapper.text()).toContain('admin.accounts.proxyPoolPrimaryRequired')
-  })
-
   afterEach(() => vi.useRealTimers())
 
   it('sets month and year expiry presets without submitting the account form', async () => {
@@ -298,6 +290,29 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.rate_limit_429_retry_count).toBe(5)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_long_context_billing_enabled).toBe(false)
+  })
+
+  it('exposes and submits the account 429 retry setting', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    expect(wrapper.find('#create-rate-limit-429-retry-count').exists()).toBe(true)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock.mock.calls[0]?.[0]?.rate_limit_429_retry_count).toBe(5)
+  })
+
+  it('does not expose or submit the removed quota extension for OAuth imports', async () => {
+    const wrapper = await openCodexImportStep()
+    expect(wrapper.find('[data-testid="create-codex-quota-overdraft-toggle"]').exists()).toBe(false)
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+
+    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra ?? {}).not.toHaveProperty('codex_quota_overdraft_enabled')
   })
 
   it('omits the upstream request id header from extra when left empty', async () => {
@@ -407,19 +422,6 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
     )
   })
 
-  it('submits the configured 429 retry count for normal account creation', async () => {
-    const wrapper = mountModal()
-    await selectButtonByText(wrapper, 'OpenAI')
-    await selectButtonByText(wrapper, 'API Key')
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('OpenAI account')
-    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
-    await wrapper.get('#create-rate-limit-429-retry-count').setValue(7)
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    expect(createAccountMock.mock.calls[0]?.[0]?.rate_limit_429_retry_count).toBe(7)
-  })
-
   // namespace 摊平是仅 OAuth 的兼容开关：API Key 走 chat completions 回退桥时由桥自行摊平
   it('shows the Codex namespace flatten toggle only for OpenAI OAuth accounts', async () => {
     const wrapper = mountModal()
@@ -431,24 +433,6 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     await selectButtonByText(wrapper, 'API Key')
     expect(wrapper.find('[data-testid="create-openai-flatten-namespaces-toggle"]').exists()).toBe(
-      false
-    )
-  })
-
-  it('defaults OAuth model normalization on and persists an explicit opt-out', async () => {
-    const wrapper = mountModal()
-    await selectButtonByText(wrapper, 'OpenAI')
-    const toggle = wrapper.get('[data-testid="create-openai-model-normalization-toggle"]')
-    expect(toggle.attributes('aria-checked')).toBe('true')
-
-    await toggle.trigger('click')
-    await wrapper.get('form#create-account-form input[type="text"]').setValue('Codex import')
-    await wrapper.get('form#create-account-form').trigger('submit.prevent')
-    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
-    await flushPromises()
-
-    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
-    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra?.openai_model_normalization_enabled).toBe(
       false
     )
   })

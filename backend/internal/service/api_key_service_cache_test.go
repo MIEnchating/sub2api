@@ -270,23 +270,19 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 			},
 		},
 		FallbackGroup: &Group{
-			ID:                          fallbackGroupID,
-			Name:                        "openai-fallback",
-			Platform:                    PlatformOpenAI,
-			Status:                      StatusActive,
-			Hydrated:                    true,
-			SubscriptionType:            SubscriptionTypeStandard,
-			RateMultiplier:              2.5,
-			RPMLimit:                    60,
-			UserConcurrencyLimit:        3,
-			ForceOpenAIFast:             true,
-			FreeOpenAIFast:              true,
-			MaxReasoningEffort:          "medium",
-			MaxReasoningEffortOverLimit: ReasoningEffortOverLimitDeny,
-			PeakRateEnabled:             true,
-			PeakStart:                   "09:00",
-			PeakEnd:                     "18:00",
-			PeakRateMultiplier:          1.4,
+			ID:                   fallbackGroupID,
+			Name:                 "openai-fallback",
+			Platform:             PlatformOpenAI,
+			Status:               StatusActive,
+			Hydrated:             true,
+			SubscriptionType:     SubscriptionTypeStandard,
+			RateMultiplier:       2.5,
+			RPMLimit:             60,
+			UserConcurrencyLimit: 3,
+			PeakRateEnabled:      true,
+			PeakStart:            "09:00",
+			PeakEnd:              "18:00",
+			PeakRateMultiplier:   1.4,
 		},
 	}
 
@@ -305,10 +301,6 @@ func TestAPIKeyService_SnapshotRoundTrip_PreservesMessagesDispatchModelConfig(t 
 	require.Equal(t, 2.5, roundTrip.FallbackGroup.RateMultiplier)
 	require.Equal(t, 60, roundTrip.FallbackGroup.RPMLimit)
 	require.Equal(t, 3, roundTrip.FallbackGroup.UserConcurrencyLimit)
-	require.True(t, roundTrip.FallbackGroup.ForceOpenAIFast)
-	require.True(t, roundTrip.FallbackGroup.FreeOpenAIFast)
-	require.Equal(t, "medium", roundTrip.FallbackGroup.MaxReasoningEffort)
-	require.Equal(t, ReasoningEffortOverLimitDeny, roundTrip.FallbackGroup.MaxReasoningEffortOverLimit)
 	require.True(t, roundTrip.FallbackGroup.PeakRateEnabled)
 	require.Equal(t, "09:00", roundTrip.FallbackGroup.PeakStart)
 	require.Equal(t, "18:00", roundTrip.FallbackGroup.PeakEnd)

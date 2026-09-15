@@ -97,6 +97,14 @@ vi.mock("@/api", () => ({
       getStreamTimeoutSettings,
       getRectifierSettings,
       getBetaPolicySettings,
+      getCodexPreOutputRetrySettings: vi.fn().mockResolvedValue({
+        enabled: false,
+        max_retries: 3,
+        retry_interval_ms: 1000,
+        max_retry_window_seconds: 30,
+        keywords: ["servers are currently overloaded"],
+      }),
+      updateCodexPreOutputRetrySettings: vi.fn().mockImplementation(async (payload) => payload),
     },
     accounts: {
       getUpstreamBillingProbeSettings,
@@ -1415,6 +1423,43 @@ describe("admin SettingsView payment visible method controls", () => {
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(payload.grok_default_text_model).toBe("grok-custom-text");
     expect(payload.grok_cross_client_model_map_enabled).toBe(false);
+  });
+
+  it("loads and saves multiline upstream error message matching rules", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      upstream_error_retry: { enabled: true, max_retries: 2, delay_ms: 500, errors: "503\ncurrently overloaded" },
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const rules = wrapper.get('[data-testid="upstream-error-retry-errors"]');
+    expect((rules.element as HTMLTextAreaElement).value).toBe("503\ncurrently overloaded");
+    await rules.setValue("503\nOur servers are currently overloaded\n服务繁忙");
+    await wrapper.get('[data-testid="upstream-error-retry-max"]').setValue(4);
+    await wrapper.get('[data-testid="upstream-error-retry-delay"]').setValue(1000);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].upstream_error_retry).toEqual({
+      enabled: true, max_retries: 4, delay_ms: 1000, errors: "503\nOur servers are currently overloaded\n服务繁忙",
+    });
+    wrapper.unmount();
+  });
+
+  it("rejects enabled retries without rules and accepts saving disabled retries", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    await wrapper.get('[data-testid="upstream-error-retry-toggle"]').setValue(true);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalled();
+    await wrapper.get('[data-testid="upstream-error-retry-toggle"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].upstream_error_retry.enabled).toBe(false);
+    wrapper.unmount();
   });
 
   it("loads and saves the OpenAI Responses first-token metric mode", async () => {

@@ -211,10 +211,7 @@ func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *t
 		},
 	}
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
-	svc := &AccountTestService{
-		accountRepo:  repo,
-		httpUpstream: upstream,
-	}
+	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 
 	err := svc.TestAccountConnection(ctx, shadow.ID, "gpt-5.3-codex-spark", "", "")
 	require.NoError(t, err)
@@ -225,7 +222,6 @@ func TestAccountTestService_OpenAIShadowUsesParentCredentialsAndShadowModel(t *t
 	body, err := io.ReadAll(req.Body)
 	require.NoError(t, err)
 	require.Equal(t, "gpt-5.3-codex-spark", gjson.GetBytes(body, "model").String())
-	require.False(t, gjson.GetBytes(body, "input.1").Exists())
 	require.Contains(t, recorder.Body.String(), `"success":true`)
 }
 
@@ -495,14 +491,13 @@ func TestAccountTestService_OpenAI429WithoutResetSignalDoesNotMutateRuntimeState
 	upstream := &queuedHTTPUpstream{responses: []*http.Response{resp}}
 	svc := &AccountTestService{accountRepo: repo, httpUpstream: upstream}
 	account := &Account{
-		ID:                     79,
-		Platform:               PlatformOpenAI,
-		Type:                   AccountTypeOAuth,
-		Status:                 StatusError,
-		ErrorMessage:           "stale 403",
-		Concurrency:            1,
-		RateLimit429RetryCount: retryCountPointer(0),
-		Credentials:            map[string]any{"access_token": "test-token"},
+		ID:           79,
+		Platform:     PlatformOpenAI,
+		Type:         AccountTypeOAuth,
+		Status:       StatusError,
+		ErrorMessage: "stale 403",
+		Concurrency:  1,
+		Credentials:  map[string]any{"access_token": "test-token"},
 	}
 
 	err := svc.testOpenAIAccountConnection(ctx, account, "gpt-5.4", "", "")
@@ -571,10 +566,6 @@ func TestAccountTestService_OpenAIAPIKeyResponsesUsesCodexProbeHeaders(t *testin
 	req := upstream.requests[0]
 	require.Equal(t, "https://compat-upstream.example/v1/responses", req.URL.String())
 	requireOpenAICodexProbeHeaders(t, req.Header)
-	body, err := io.ReadAll(req.Body)
-	require.NoError(t, err)
-	require.Equal(t, "message", gjson.GetBytes(body, "input.0.type").String())
-	require.False(t, gjson.GetBytes(body, "input.1").Exists())
 }
 
 func TestAccountTestService_OpenAIAPIKeyResponsesUnsupportedUsesChatCompletionsPath(t *testing.T) {

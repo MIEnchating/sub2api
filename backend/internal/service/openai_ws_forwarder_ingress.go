@@ -71,6 +71,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 	firstClientMessage []byte,
 	hooks *OpenAIWSIngressHooks,
 ) (returnErr error) {
+	defer releaseStagedCodexFingerprintLease(c)
 	if s == nil {
 		return errors.New("service is nil")
 	}
@@ -801,12 +802,6 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			return ""
 		}(),
-		ProxyID: func() int64 {
-			if account.ProxyID != nil {
-				return *account.ProxyID
-			}
-			return 0
-		}(),
 		ForceNewConn: false,
 	}
 	pool := s.getOpenAIWSConnPool()
@@ -969,8 +964,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		}
 		turnStart := time.Now()
 		wroteDownstream := false
-		outboundPayload := payload
-		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(outboundPayload), s.openAIWSWriteTimeout()); err != nil {
+		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",
 				fmt.Errorf("write upstream websocket request: %w", err),
@@ -1148,7 +1142,15 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				if !wroteDownstream && isOpenAIWSRateLimitError(errCodeRaw, errTypeRaw, errMsgRaw) {
 					lease.MarkBroken()
-					return nil, s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw, false)
+					return nil, s.newOpenAIWSRateLimitFailoverError(account, lease.HandshakeHeaders(), upstreamMessage, errMsgRaw)
+				}
+			}
+			if !wroteDownstream && (eventType == "error" || eventType == "response.failed") {
+				if hit, _, _ := detectOpenAICyberPolicy(upstreamMessage); !hit {
+					if retryFailure := configuredOpenAIStreamRetryFailure(ctx, upstreamMessage, extractOpenAISSEErrorMessage(upstreamMessage), &usage); retryFailure != nil {
+						lease.MarkBroken()
+						return nil, retryFailure
+					}
 				}
 			}
 			isTokenEvent := isOpenAIWSTokenEvent(eventType)
@@ -1815,6 +1817,19 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				hooks.AfterTurn(turn, nil, finalErr)
 			}
 			sessionLease.MarkBroken()
+			var configuredFailure *UpstreamFailoverError
+			if turn > 1 && errors.As(finalErr, &configuredFailure) && configuredFailure.ConfiguredRetry {
+				retryPayload, retrySafe, retryErr := buildOpenAIWSCurrentTurnRetryPayload(
+					currentPayload, currentTurnReplayInput, currentTurnReplayInputExists, currentOriginalModel,
+				)
+				if retryErr != nil {
+					return fmt.Errorf("build websocket current-turn retry payload: %w", retryErr)
+				}
+				if !retrySafe {
+					retryPayload = nil
+				}
+				return newOpenAIWSCurrentTurnFailoverError(finalErr, retryPayload)
+			}
 			return finalErr
 		}
 		turnRetry = 0

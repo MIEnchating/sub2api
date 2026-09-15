@@ -398,7 +398,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchRepositoryFile_Success() {
 	encoded := base64.StdEncoding.EncodeToString([]byte("0.1.176-overdraft.1\n"))
 	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		require.Equal(s.T(), "/repos/DeanZFC/sub2api-custom/contents/FORK_VERSION", r.URL.Path)
-		require.Equal(s.T(), "sub2api-custom", r.URL.Query().Get("ref"))
+		require.Equal(s.T(), "codex/merge-official-0.2.2", r.URL.Query().Get("ref"))
 		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = w.Write([]byte(`{"encoding":"base64","content":"` + encoded + `"}`))
@@ -411,7 +411,7 @@ func (s *GitHubReleaseServiceSuite) TestFetchRepositoryFile_Success() {
 	content, err := s.client.FetchRepositoryFile(
 		context.Background(),
 		"DeanZFC/sub2api-custom",
-		"sub2api-custom",
+		"codex/merge-official-0.2.2",
 		"FORK_VERSION",
 	)
 
@@ -425,68 +425,6 @@ func (s *GitHubReleaseServiceSuite) TestFetchRepositoryFile_RejectsTraversal() {
 	_, err := s.client.FetchRepositoryFile(context.Background(), "test/repo", "main", "../secret")
 
 	require.Error(s.T(), err)
-}
-
-func (s *GitHubReleaseServiceSuite) TestFetchComparison_Success() {
-	s.srv = newLocalTestServer(s.T(), http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		require.Equal(s.T(), "/repos/MIEnchating/sub2api/compare/main...Wei-Shaw:main", r.URL.Path)
-		require.Equal(s.T(), "application/vnd.github.v3+json", r.Header.Get("Accept"))
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"status":"diverged","ahead_by":4,"behind_by":2,"total_commits":4,"html_url":"https://github.com/compare"}`))
-	}))
-	s.client = &githubReleaseClient{
-		httpClient:         &http.Client{Transport: &testTransport{testServerURL: s.srv.URL}},
-		downloadHTTPClient: &http.Client{},
-	}
-
-	comparison, err := s.client.FetchComparison(
-		context.Background(),
-		"MIEnchating/sub2api", "main",
-		"Wei-Shaw/sub2api", "main",
-	)
-
-	require.NoError(s.T(), err)
-	require.Equal(s.T(), 4, comparison.AheadBy)
-	require.Equal(s.T(), 2, comparison.BehindBy)
-	require.Equal(s.T(), "https://github.com/compare", comparison.HTMLURL)
-}
-
-func (s *GitHubReleaseServiceSuite) TestFetchComparison_RejectsInvalidRepository() {
-	s.client = newTestGitHubReleaseClient()
-
-	_, err := s.client.FetchComparison(
-		context.Background(),
-		"MIEnchating/sub2api", "main",
-		"invalid-repository", "main",
-	)
-
-	require.Error(s.T(), err)
-}
-
-func TestDecodeGitHubComparisonSummary_DoesNotReadLargeArrays(t *testing.T) {
-	payload := `{
-		"html_url":"https://github.com/compare",
-		"base_commit":{"sha":"base"},
-		"status":"diverged",
-		"ahead_by":77,
-		"behind_by":25,
-		"total_commits":77,
-		"commits":[`
-
-	comparison, err := decodeGitHubComparisonSummary(strings.NewReader(payload))
-
-	require.NoError(t, err)
-	require.Equal(t, "diverged", comparison.Status)
-	require.Equal(t, 77, comparison.AheadBy)
-	require.Equal(t, 25, comparison.BehindBy)
-	require.Equal(t, 77, comparison.Total)
-	require.Equal(t, "https://github.com/compare", comparison.HTMLURL)
-}
-
-func TestDecodeGitHubComparisonSummary_RequiresAllFields(t *testing.T) {
-	_, err := decodeGitHubComparisonSummary(strings.NewReader(`{"status":"ahead","ahead_by":1}`))
-
-	require.Error(t, err)
 }
 
 func (s *GitHubReleaseServiceSuite) TestFetchRecentReleases_Non200() {

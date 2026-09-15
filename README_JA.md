@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="assets/logo.svg" alt="sub2api Logo" width="128" />
+<img src="assets/logo.svg" alt="sub2api-custom Logo" width="128" />
 
 # sub2api-custom
 
@@ -10,27 +10,27 @@
 [![Redis](https://img.shields.io/badge/Redis-7+-DC382D.svg)](https://redis.io/)
 [![Docker](https://img.shields.io/badge/Docker-Ready-2496ED.svg)](https://www.docker.com/)
 
-**カスタムアカウントスケジューリングと管理機能を備えた AI API ゲートウェイ**
+**ルーティング、クォータポリシー、各種プロバイダー拡張に対応した AI API ゲートウェイ**
 
 [English](README.md) | [中文](README_CN.md) | 日本語
 
 </div>
 
 > [!IMPORTANT]
-> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork です。このリポジトリのインストーラーまたは `mienvirtuoso/sub2api:latest` を使用してください。公式イメージには本プロジェクトのカスタム機能は含まれていません。
+> これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork の追加拡張は含まれていません。
 
-## Fork の追加機能
+## 拡張機能
 
-- アカウント単位の上流 429 自動再試行に対応します。初回 429 の後、同じアカウントで既定 5 回（`0` で無効、最大 `10`）追加試行し、すべて失敗した場合のみ従来のエラー処理とフェイルオーバーを実行します。HTTP と WebSocket ハンドシェイクを対象とし、有効な出力を開始したストリームは再生しません。
 - グループごとにユーザー単位の同時実行上限を設定できます。「ユーザー + グループ」単位で独立して集計し、既存のユーザー単位・アカウント単位の同時実行制御と併用します。
 - API Key ごとに同一プラットフォームのフォールバックグループを選択できます。毎回プライマリグループを先に完全に試し、利用可能なアカウントがない場合のみフォールバックします。課金、クォータ、RPM、同時実行数、利用量の帰属はプライマリグループのままです。
 - Codex の単一マシン・複数ウィンドウモードに対応し、アカウントごとのデバイス識別とセッション境界を維持します。
-- アカウント表で最近のリクエスト詳細を確認でき、列幅も調整できます。
+- アカウント表で最近のリクエストを独立して更新でき、列幅も調整できます。
+- ホスト更新プログラムによりカスタムブランチからソースを更新できます。
 
 ソースビルド、既存環境からの移行、検証、更新、ロールバック、Nginx、トラブルシューティングについては、**[中国語のデプロイ・運用ガイド](deploy/README.md)** を参照してください。
 
 ```bash
-git clone https://github.com/MIEnchating/sub2api.git sub2api-custom
+git clone https://github.com/DeanZFC/sub2api-custom.git sub2api-custom
 cd sub2api-custom/deploy
 cp .env.example .env
 # .env に POSTGRES_PASSWORD、JWT_SECRET、TOTP_ENCRYPTION_KEY を設定
@@ -261,7 +261,7 @@ GitHub Releases からビルド済みバイナリをダウンロードするワ�
 #### インストール手順
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 スクリプトは以下を実行します:
@@ -311,7 +311,7 @@ sudo journalctl -u sub2api -f
 sudo systemctl restart sub2api
 
 # アンインストール
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash -s -- uninstall -y
 ```
 
 ---
@@ -334,7 +334,7 @@ PostgreSQL と Redis のコンテナを含む Docker Compose でデプロイし�
 mkdir -p sub2api-deploy && cd sub2api-deploy
 
 # デプロイ準備スクリプトをダウンロードして実行
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
 
 # サービスを起動
 docker compose up -d

@@ -202,6 +202,8 @@ type SystemSettings struct {
 	BackendModeEnabled bool `json:"backend_mode_enabled"`
 
 	// Gateway forwarding behavior
+	UpstreamErrorRetry *service.UpstreamErrorRetrySettings `json:"upstream_error_retry"`
+
 	OpenAITTFTMode                            string          `json:"openai_ttft_mode"`
 	EnableFingerprintUnification              bool            `json:"enable_fingerprint_unification"`
 	GatewayStreamDataIntervalTimeoutSeconds   int             `json:"gateway_stream_data_interval_timeout_seconds"`

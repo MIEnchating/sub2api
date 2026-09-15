@@ -72,6 +72,20 @@ type AccountTestOptions struct {
 	AudioDataURL string
 }
 
+type accountTestReasoningEffortContextKey struct{}
+
+func withAccountTestReasoningEffort(ctx context.Context, effort string) context.Context {
+	return context.WithValue(ctx, accountTestReasoningEffortContextKey{}, strings.ToLower(strings.TrimSpace(effort)))
+}
+
+func accountTestReasoningEffort(ctx context.Context) string {
+	if ctx == nil {
+		return ""
+	}
+	effort, _ := ctx.Value(accountTestReasoningEffortContextKey{}).(string)
+	return strings.TrimSpace(effort)
+}
+
 func firstAccountTestOptions(opts []AccountTestOptions) AccountTestOptions {
 	if len(opts) == 0 {
 		return AccountTestOptions{}
@@ -103,7 +117,25 @@ const (
 
 	defaultGrokRealtimeTestModel = "grok-voice-latest"
 	grokRealtimeProbeTimeout     = DefaultGrokRealtimeDialTimeout
+
+	// scheduledTestCustomPromptMaxOutputTokens gives configurable tests enough
+	// room for structured output such as a complete HTML/SVG document. The
+	// legacy probes intentionally keep their previous small budgets when no
+	// custom prompt is supplied, so a routine account connectivity check does
+	// not suddenly consume more upstream quota.
+	scheduledTestCustomPromptMaxOutputTokens = 8192
 )
+
+// accountTestMaxOutputTokens selects the output budget for a probe. Empty
+// prompts are the legacy connectivity probe and retain the caller's existing
+// budget; a configured prompt is a real test and needs a larger budget to
+// avoid treating a model-length truncation as a successful result.
+func accountTestMaxOutputTokens(prompt string, legacy int) int {
+	if strings.TrimSpace(prompt) == "" {
+		return legacy
+	}
+	return scheduledTestCustomPromptMaxOutputTokens
+}
 
 // isOpenAIImageModel checks if the model is an OpenAI image generation model (e.g. gpt-image-2).
 func isOpenAIImageModel(model string) bool {
@@ -285,27 +317,19 @@ func generateSessionString() (string, error) {
 	return FormatMetadataUserID(hex64, "", sessionUUID, uaVersion), nil
 }
 
-const accountTestBehaviorInstructions = "Follow the output contract exactly. Do not explain, add markdown, or repeat the questions."
-
-// createClaudeAccountTestPayload creates a Claude Messages account-test payload.
-func createClaudeAccountTestPayload(modelID string, prompt string, mode string) (map[string]any, error) {
+// createTestPayload creates a Claude Code style test request payload
+func createTestPayload(modelID string, customPrompt ...string) (map[string]any, error) {
 	sessionID, err := generateSessionString()
 	if err != nil {
 		return nil, err
 	}
 
-	testPrompt := "hi"
-	systemPrompt := claudeCodeSystemPrompt
-	temperature := 1
-	if normalizeAccountTestMode(mode) == AccountTestModeBehavior {
-		testPrompt = strings.TrimSpace(prompt)
-		if testPrompt == "" {
-			testPrompt = "hi"
-		}
-		systemPrompt = accountTestBehaviorInstructions
-		temperature = 0
+	prompt := "hi"
+	configuredPrompt := ""
+	if len(customPrompt) > 0 && strings.TrimSpace(customPrompt[0]) != "" {
+		configuredPrompt = strings.TrimSpace(customPrompt[0])
+		prompt = configuredPrompt
 	}
-
 	return map[string]any{
 		"model": modelID,
 		"messages": []map[string]any{
@@ -314,7 +338,7 @@ func createClaudeAccountTestPayload(modelID string, prompt string, mode string) 
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": testPrompt,
+						"text": prompt,
 						"cache_control": map[string]string{
 							"type": "ephemeral",
 						},
@@ -325,7 +349,7 @@ func createClaudeAccountTestPayload(modelID string, prompt string, mode string) 
 		"system": []map[string]any{
 			{
 				"type": "text",
-				"text": systemPrompt,
+				"text": claudeCodeSystemPrompt,
 				"cache_control": map[string]string{
 					"type": "ephemeral",
 				},
@@ -334,16 +358,10 @@ func createClaudeAccountTestPayload(modelID string, prompt string, mode string) 
 		"metadata": map[string]string{
 			"user_id": sessionID,
 		},
-		"max_tokens":  1024,
-		"temperature": temperature,
+		"max_tokens":  accountTestMaxOutputTokens(configuredPrompt, 1024),
+		"temperature": 1,
 		"stream":      true,
 	}, nil
-}
-
-// createTestPayload preserves the default connection-test payload used by
-// internal probes that do not accept a prompt or mode.
-func createTestPayload(modelID string) (map[string]any, error) {
-	return createClaudeAccountTestPayload(modelID, "", AccountTestModeDefault)
 }
 
 // TestAccountConnection tests an account's connection by sending a test request
@@ -354,7 +372,6 @@ func createTestPayload(modelID string) (map[string]any, error) {
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
 	ctx := c.Request.Context()
 	testOpts := firstAccountTestOptions(opts)
-	accountTestMode := normalizeAccountTestMode(mode)
 
 	// Get account
 	account, err := s.accountRepo.GetByID(ctx, accountID)
@@ -380,24 +397,18 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if account.IsCNProvider() {
 		switch account.GetAPIProtocol() {
 		case APIProtocolAdaptive:
-			if accountTestMode == AccountTestModeBehavior {
-				if strings.HasPrefix(strings.ToLower(strings.TrimSpace(modelID)), "claude") {
-					return s.testCNProviderAnthropicConnection(c, account, modelID, prompt, accountTestMode)
-				}
-				return s.testOpenAIAccountConnection(c, account, modelID, prompt, accountTestMode)
-			}
 			return s.testCNProviderAdaptiveConnection(c, account, modelID, prompt)
 		case APIProtocolResponses:
-			return s.testOpenAIAccountConnection(c, account, modelID, prompt, accountTestMode)
+			return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 		case APIProtocolChatCompletions:
 			return s.testCNProviderChatCompletionsConnection(c, account, modelID, prompt)
 		case APIProtocolAnthropic:
-			return s.testCNProviderAnthropicConnection(c, account, modelID, prompt, accountTestMode)
+			return s.testCNProviderAnthropicConnection(c, account, modelID, prompt)
 		}
 	}
 
 	if account.IsOpenAI() {
-		return s.testOpenAIAccountConnection(c, account, modelID, prompt, accountTestMode)
+		return s.testOpenAIAccountConnection(c, account, modelID, prompt, normalizeAccountTestMode(mode))
 	}
 
 	if account.IsGemini() {
@@ -409,14 +420,14 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	}
 
 	if account.Platform == PlatformAntigravity {
-		return s.routeAntigravityTest(c, account, modelID, prompt, accountTestMode)
+		return s.routeAntigravityTest(c, account, modelID, prompt)
 	}
 
 	if account.IsOpenCodeGo() {
-		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt, accountTestMode)
+		return s.testOpenCodeGoAccountConnection(c, account, modelID, prompt)
 	}
 
-	return s.testClaudeAccountConnection(c, account, modelID, prompt, accountTestMode)
+	return s.testClaudeAccountConnection(c, account, modelID, prompt)
 }
 
 // testOpenCodeGoAccountConnection probes the native endpoint for the selected
@@ -426,7 +437,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 // overrides that catalog. Falling through to the generic Claude tester used
 // credentials.base_url + /v1/messages?beta=true, which 404s as HTML on
 // https://opencode.ai/zen/go/v1/v1/messages.
-func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	testModelID := strings.TrimSpace(modelID)
 	if testModelID == "" {
 		testModelID = DefaultOpenCodeGoTestModel
@@ -440,15 +451,15 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, acc
 	}
 	switch proto {
 	case APIProtocolAnthropic:
-		return s.testCNProviderAnthropicConnection(c, account, testModelID, prompt, mode)
+		return s.testCNProviderAnthropicConnection(c, account, testModelID, prompt)
 	case APIProtocolResponses:
-		return s.testOpenCodeGoResponsesConnection(c, account, testModelID)
+		return s.testOpenCodeGoResponsesConnection(c, account, testModelID, prompt)
 	default:
 		return s.testCNProviderChatCompletionsConnection(c, account, testModelID, prompt)
 	}
 }
 
-func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, account *Account, testModelID string) error {
+func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, account *Account, testModelID string, prompt string) error {
 	authToken := strings.TrimSpace(account.GetOpenAIProtocolAPIKey())
 	if authToken == "" {
 		return s.sendErrorAndEnd(c, "No API key available")
@@ -459,7 +470,7 @@ func (s *AccountTestService) testOpenCodeGoResponsesConnection(c *gin.Context, a
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
-	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken)
+	return s.testCNProviderAdaptiveResponsesConnection(c, account, testModelID, authToken, prompt)
 }
 
 func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
@@ -484,7 +495,7 @@ func (s *AccountTestService) testCNProviderChatCompletionsConnection(c *gin.Cont
 }
 
 // testClaudeAccountConnection tests an Anthropic Claude account's connection
-func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	// Determine the model to use
@@ -500,10 +511,10 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 	// Bedrock accounts use a separate test path
 	if account.IsBedrock() {
-		return s.testBedrockAccountConnection(c, ctx, account, testModelID, prompt, mode)
+		return s.testBedrockAccountConnection(c, ctx, account, testModelID, prompt)
 	}
 	if account.Type == AccountTypeServiceAccount {
-		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, testModelID, prompt, mode)
+		return s.testClaudeVertexServiceAccountConnection(c, ctx, account, testModelID, prompt)
 	}
 
 	// Determine authentication method and API URL
@@ -543,7 +554,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	c.Writer.Flush()
 
 	// Create Claude Code style payload (same for all account types)
-	payload, err := createClaudeAccountTestPayload(testModelID, prompt, mode)
+	payload, err := createTestPayload(testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -586,11 +597,15 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
 
 	if resp.StatusCode != http.StatusOK {
 		body, _ := io.ReadAll(resp.Body)
@@ -608,7 +623,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 	return s.processClaudeStream(c, resp.Body)
 }
 
-func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string, mode string) error {
+func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string) error {
 	if mappedModel, matched := account.ResolveMappedModel(testModelID); matched {
 		testModelID = mappedModel
 	} else {
@@ -621,7 +636,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 	c.Writer.Header().Set("X-Accel-Buffering", "no")
 	c.Writer.Flush()
 
-	payload, err := createClaudeAccountTestPayload(testModelID, prompt, mode)
+	payload, err := createTestPayload(testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create test payload")
 	}
@@ -658,7 +673,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -677,7 +692,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 }
 
 // testBedrockAccountConnection tests a Bedrock (SigV4 or API Key) account using non-streaming invoke
-func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string, mode string) error {
+func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx context.Context, account *Account, testModelID string, prompt string) error {
 	region := bedrockRuntimeRegion(account)
 	resolvedModelID, ok := ResolveBedrockModelID(account, testModelID)
 	if !ok {
@@ -693,19 +708,6 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 	c.Writer.Flush()
 
 	// Create a minimal Bedrock-compatible payload (no stream, no cache_control)
-	testPrompt := "hi"
-	systemPrompt := ""
-	temperature := 1
-	maxTokens := 256
-	if normalizeAccountTestMode(mode) == AccountTestModeBehavior {
-		testPrompt = strings.TrimSpace(prompt)
-		if testPrompt == "" {
-			testPrompt = "hi"
-		}
-		systemPrompt = accountTestBehaviorInstructions
-		temperature = 0
-		maxTokens = 1024
-	}
 	bedrockPayload := map[string]any{
 		"anthropic_version": "bedrock-2023-05-31",
 		"messages": []map[string]any{
@@ -714,16 +716,18 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 				"content": []map[string]any{
 					{
 						"type": "text",
-						"text": testPrompt,
+						"text": func() string {
+							if value := strings.TrimSpace(prompt); value != "" {
+								return value
+							}
+							return "hi"
+						}(),
 					},
 				},
 			},
 		},
-		"max_tokens":  maxTokens,
-		"temperature": temperature,
-	}
-	if systemPrompt != "" {
-		bedrockPayload["system"] = systemPrompt
+		"max_tokens":  accountTestMaxOutputTokens(prompt, 256),
+		"temperature": 1,
 	}
 	bedrockBody, _ := json.Marshal(bedrockPayload)
 
@@ -760,7 +764,7 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, nil)
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, nil)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -889,7 +893,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if isOAuth {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
-	payload := createOpenAIAccountTestPayload(upstreamTestModelID, isOAuth, prompt, mode)
+	payload := createOpenAITestPayload(upstreamTestModelID, isOAuth, prompt)
+	applyAccountTestReasoningEffort(payload, accountTestReasoningEffort(ctx))
 	payloadBytes, _ := json.Marshal(payload)
 
 	// Send test_start event once. A task-invalid Agent Identity response may
@@ -954,7 +959,46 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
-	defer func() { _ = resp.Body.Close() }()
+	defer func() {
+		if resp != nil && resp.Body != nil {
+			_ = resp.Body.Close()
+		}
+	}()
+
+	// Some ChatGPT/Codex-compatible upstreams reject max_output_tokens even
+	// though it is valid for the public Responses API. Configurable tests add
+	// this budget automatically, so retry once without it just like the normal
+	// gateway compatibility path does.
+	if resp.StatusCode == http.StatusBadRequest && payload["max_output_tokens"] != nil {
+		probeBody, readErr := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if readErr == nil && isUnsupportedMaxOutputTokensError(probeBody) {
+			delete(payload, "max_output_tokens")
+			retryBody, marshalErr := json.Marshal(payload)
+			if marshalErr == nil {
+				retryReq, requestErr := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(retryBody))
+				if requestErr == nil {
+					retryReq = retryReq.WithContext(WithHTTPUpstreamProfile(retryReq.Context(), HTTPUpstreamProfileOpenAI))
+					for key, values := range req.Header {
+						for _, value := range values {
+							retryReq.Header.Add(key, value)
+						}
+					}
+					retryReq.Host = req.Host
+					resp, err = s.doOpenAIAccountTestUpstream(retryReq, proxyURL, account, true)
+					if err != nil {
+						return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
+					}
+				} else {
+					resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+				}
+			} else {
+				resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+			}
+		} else {
+			resp.Body = io.NopCloser(bytes.NewReader(probeBody))
+		}
+	}
 
 	if isOAuth && s.accountRepo != nil {
 		if updates, err := extractOpenAICodexProbeUpdates(resp); err == nil && len(updates) > 0 {
@@ -984,11 +1028,9 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
+
 	// Process SSE stream
-	if err := s.processOpenAIStream(c, resp.Body); err != nil {
-		return err
-	}
-	return nil
+	return s.processOpenAIStream(c, resp.Body)
 }
 
 // testGrokAccountConnection routes Grok admin connectivity tests by explicit mode first,
@@ -1269,7 +1311,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json, text/event-stream")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok Responses API request failed: %s", err.Error()))
 	}
@@ -1357,7 +1399,7 @@ func (s *AccountTestService) testGrokImageGeneration(c *gin.Context, ctx context
 			s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 			req.ContentLength = int64(len(payloadBytes))
 		}
-		resp, doErr = doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+		resp, doErr = s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if doErr == nil {
 			break
 		}
@@ -1448,7 +1490,7 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video request failed: %s", err.Error()))
 	}
@@ -1489,7 +1531,7 @@ func (s *AccountTestService) testGrokVideoGeneration(c *gin.Context, ctx context
 			return s.sendErrorAndEnd(c, "Failed to create Grok video status request")
 		}
 		s.applyGrokTestRequestHeaders(statusReq, account, authToken, "application/json")
-		statusResp, err := doAccountHTTPUpstream(s.httpUpstream, statusReq, s.grokTestProxyURL(account), account)
+		statusResp, err := s.httpUpstream.Do(statusReq, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video status failed: %s", err.Error()))
 		}
@@ -1546,7 +1588,7 @@ func (s *AccountTestService) emitGrokVideoResult(c *gin.Context, ctx context.Con
 		return s.sendErrorAndEnd(c, "Failed to create Grok video content request")
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "video/*, application/octet-stream, */*")
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok video content download failed: %s", err.Error()))
 	}
@@ -1618,7 +1660,7 @@ User query:
 	}
 	s.applyGrokTestRequestHeaders(req, account, authToken, "application/json")
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("standalone web_search probe failed: %s", err.Error()))
 	}
@@ -1699,7 +1741,7 @@ func (s *AccountTestService) testGrokTTS(c *gin.Context, ctx context.Context, ac
 			return s.sendErrorAndEnd(c, "Failed to create Grok TTS request")
 		}
 		s.applyGrokTestRequestHeaders(req, account, authToken, "audio/*, application/json, */*")
-		resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+		resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 		if err != nil {
 			return s.sendErrorAndEnd(c, fmt.Sprintf("Grok TTS failed: %s", err.Error()))
 		}
@@ -1790,7 +1832,7 @@ func (s *AccountTestService) testGrokSTT(c *gin.Context, ctx context.Context, ac
 	}
 	account.ApplyHeaderOverrides(req.Header)
 
-	resp, err := doAccountHTTPUpstream(s.httpUpstream, req, s.grokTestProxyURL(account), account)
+	resp, err := s.httpUpstream.Do(req, s.grokTestProxyURL(account), account.ID, account.Concurrency)
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Grok STT failed: %s", err.Error()))
 	}
@@ -1868,21 +1910,10 @@ func (s *AccountTestService) testGrokRealtime(c *gin.Context, ctx context.Contex
 		dialer = newDefaultOpenAIWSClientDialer()
 	}
 
-	// 429 只可能在握手阶段被安全重放。每次拨号仍有独立超时，外层总
-	// budget 则覆盖账号配置的额外重试和 Retry-After 退避，避免单次测试
-	// 因重试把请求上下文提前截断。
-	dialBudget := account429RetryTotalTimeout(grokRealtimeProbeTimeout, account)
-	if dialBudget <= 0 {
-		dialBudget = grokRealtimeProbeTimeout
-	}
-	dialCtx, cancel := context.WithTimeout(ctx, dialBudget)
+	dialCtx, cancel := context.WithTimeout(ctx, grokRealtimeProbeTimeout)
 	defer cancel()
 
-	conn, status, _, _, dialErr := dialAccount429Retry(dialCtx, account, func(attemptCtx context.Context) (openAIWSClientConn, int, http.Header, error) {
-		attemptDialCtx, cancelAttempt := context.WithTimeout(attemptCtx, grokRealtimeProbeTimeout)
-		defer cancelAttempt()
-		return dialer.Dial(attemptDialCtx, wsURL, headers, s.grokTestProxyURL(account))
-	})
+	conn, status, _, dialErr := dialer.Dial(dialCtx, wsURL, headers, s.grokTestProxyURL(account))
 	if dialErr != nil {
 		detail := dialErr.Error()
 		var hs *openAIWSHandshakeError
@@ -2145,6 +2176,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 	c.Writer.Flush()
 
 	payload := createOpenAIChatCompletionsTestPayload(testModelID, prompt)
+	applyAccountTestReasoningEffort(payload, accountTestReasoningEffort(ctx))
 	payloadBytes, _ := json.Marshal(payload)
 
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
@@ -2168,7 +2200,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) request failed: %s", err.Error()))
 	}
@@ -2288,7 +2320,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		// 指纹收敛：探测与真实转发走同一个 /responses 端点，身份也必须同构，
 		// 否则探测流量会以「缺 x-codex-installation-id + 非收敛 session」的
 		// 形态暴露在上游眼里。账号关闭收敛（off）时返回 nil，探测保持原样。
-		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled); fpIDs != nil {
+		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled); fpIDs != nil {
 			applyCodexFingerprintHeaders(req.Header, fpIDs)
 		}
 	}
@@ -2449,7 +2481,7 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -2466,19 +2498,19 @@ func (s *AccountTestService) testGeminiAccountConnection(c *gin.Context, account
 
 // routeAntigravityTest 路由 Antigravity 账号的测试请求。
 // APIKey 类型走原生协议（与 gateway_handler 路由一致），OAuth/Upstream 走 CRS 中转。
-func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string, mode string) error {
+func (s *AccountTestService) routeAntigravityTest(c *gin.Context, account *Account, modelID string, prompt string) error {
 	if account.Type == AccountTypeAPIKey {
 		if strings.HasPrefix(modelID, "gemini-") {
 			return s.testGeminiAccountConnection(c, account, modelID, prompt)
 		}
-		return s.testClaudeAccountConnection(c, account, modelID, prompt, mode)
+		return s.testClaudeAccountConnection(c, account, modelID, prompt)
 	}
-	return s.testAntigravityAccountConnection(c, account, modelID)
+	return s.testAntigravityAccountConnection(c, account, modelID, prompt)
 }
 
 // testAntigravityAccountConnection tests an Antigravity account's connection
 // 支持 Claude 和 Gemini 两种协议，使用非流式请求
-func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string) error {
+func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, account *Account, modelID string, prompt string) error {
 	ctx := c.Request.Context()
 
 	testModelID := antigravityConnectionTestModel(modelID)
@@ -2498,7 +2530,7 @@ func (s *AccountTestService) testAntigravityAccountConnection(c *gin.Context, ac
 	s.sendEvent(c, TestEvent{Type: "test_start", Model: testModelID})
 
 	// 调用 AntigravityGatewayService.TestConnection（复用协议转换逻辑）
-	result, err := s.antigravityGatewayService.TestConnection(ctx, account, testModelID)
+	result, err := s.antigravityGatewayService.TestConnectionWithPrompt(ctx, account, testModelID, prompt)
 	if err != nil {
 		return s.sendErrorAndEnd(c, err.Error())
 	}
@@ -2781,20 +2813,10 @@ func (s *AccountTestService) processGeminiStream(c *gin.Context, body io.Reader)
 }
 
 // createOpenAITestPayload creates a test payload for OpenAI Responses API
-func createOpenAITestPayload(modelID string, isOAuth bool) map[string]any {
-	return createOpenAIAccountTestPayload(modelID, isOAuth, "", AccountTestModeDefault)
-}
-
-func createOpenAIAccountTestPayload(modelID string, isOAuth bool, prompt string, mode string) map[string]any {
-	testPrompt := "hi"
-	instructions := openai.DefaultInstructions
-	behaviorMode := normalizeAccountTestMode(mode) == AccountTestModeBehavior
-	if behaviorMode {
-		testPrompt = strings.TrimSpace(prompt)
-		if testPrompt == "" {
-			testPrompt = "hi"
-		}
-		instructions = accountTestBehaviorInstructions
+func createOpenAITestPayload(modelID string, isOAuth bool, customPrompt ...string) map[string]any {
+	prompt := "hi"
+	if len(customPrompt) > 0 && strings.TrimSpace(customPrompt[0]) != "" {
+		prompt = strings.TrimSpace(customPrompt[0])
 	}
 	payload := map[string]any{
 		"model": modelID,
@@ -2805,7 +2827,7 @@ func createOpenAIAccountTestPayload(modelID string, isOAuth bool, prompt string,
 				"content": []map[string]any{
 					{
 						"type": "input_text",
-						"text": testPrompt,
+						"text": prompt,
 					},
 				},
 			},
@@ -2819,12 +2841,40 @@ func createOpenAIAccountTestPayload(modelID string, isOAuth bool, prompt string,
 	}
 
 	// All accounts require instructions for Responses API
-	payload["instructions"] = instructions
-	if behaviorMode {
-		payload["temperature"] = 0
+	payload["instructions"] = openai.DefaultInstructions
+	if len(customPrompt) > 0 && strings.TrimSpace(customPrompt[0]) != "" {
+		// Keep the legacy probe payload unchanged, while allowing configured
+		// tests to return structured output such as HTML/SVG in full.
+		payload["max_output_tokens"] = accountTestMaxOutputTokens(customPrompt[0], 0)
 	}
 
 	return payload
+}
+
+func isUnsupportedMaxOutputTokensError(body []byte) bool {
+	message := strings.ToLower(string(body))
+	return strings.Contains(message, "unsupported parameter") && strings.Contains(message, "max_output_tokens")
+}
+
+// applyAccountTestReasoningEffort uses the native Responses shape for OpenAI
+// probes and the legacy top-level field for Chat Completions-compatible
+// upstreams. Empty keeps the provider's default behavior for old plans.
+func applyAccountTestReasoningEffort(payload map[string]any, effort string) {
+	effort = strings.ToLower(strings.TrimSpace(effort))
+	if payload == nil || effort == "" || effort == "none" {
+		return
+	}
+	if _, isChatCompletions := payload["messages"]; isChatCompletions {
+		payload["reasoning_effort"] = effort
+		return
+	}
+	// Codex exposes the richer "ultra" alias, while the public Responses
+	// contract used by several OAuth/API-key upstreams accepts "max" as its
+	// highest value. Keep the UI alias but send the wire-compatible value.
+	if effort == "ultra" {
+		effort = "max"
+	}
+	payload["reasoning"] = map[string]any{"effort": effort}
 }
 
 func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[string]any {
@@ -2845,58 +2895,151 @@ func createOpenAIChatCompletionsTestPayload(modelID string, prompt string) map[s
 	}
 }
 
-// processClaudeStream processes the SSE stream from Claude API
-func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
-	reader := bufio.NewReader(body)
+// isAccountTestTruncationFinishReason identifies terminal reasons that mean
+// the provider stopped because the output budget was exhausted. A probe that
+// ends this way must be recorded as failed: a partial HTML document can look
+// superficially successful while being unusable to the scheduled test.
+func isAccountTestTruncationFinishReason(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	reason = strings.ReplaceAll(reason, "-", "_")
+	switch reason {
+	case "length", "max_tokens", "max_output_tokens", "max_output", "truncated", "incomplete", "content_filter":
+		return true
+	default:
+		return false
+	}
+}
 
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
-				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-				return nil
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", err.Error()))
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" || !sseDataPrefix.MatchString(line) {
-			continue
-		}
-
-		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
-		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			continue
-		}
-
-		eventType, _ := data["type"].(string)
-
-		switch eventType {
-		case "content_block_delta":
-			if delta, ok := data["delta"].(map[string]any); ok {
-				if text, ok := delta["text"].(string); ok {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
-				}
-			}
-		case "message_stop":
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		case "error":
-			errorMsg := "Unknown error"
-			if errData, ok := data["error"].(map[string]any); ok {
-				if msg, ok := errData["message"].(string); ok {
-					errorMsg = msg
-				}
-			}
-			return s.sendErrorAndEnd(c, errorMsg)
+// processClaudeJSONResponse handles a provider that ignored stream=true and
+// returned a normal Claude JSON response. It requires an explicit terminal
+// stop_reason, and rejects max_tokens so a non-SSE truncated document cannot
+// be mistaken for a successful test.
+func (s *AccountTestService) processClaudeJSONResponse(c *gin.Context, body []byte) error {
+	var response struct {
+		Type       string `json:"type"`
+		StopReason string `json:"stop_reason"`
+		Error      *struct {
+			Message string `json:"message"`
+		} `json:"error,omitempty"`
+		Content []struct {
+			Type string `json:"type"`
+			Text string `json:"text"`
+		} `json:"content"`
+	}
+	if err := json.Unmarshal(body, &response); err != nil {
+		return s.sendErrorAndEnd(c, "Invalid Claude response: expected SSE or JSON message")
+	}
+	if response.Error != nil && strings.TrimSpace(response.Error.Message) != "" {
+		return s.sendErrorAndEnd(c, response.Error.Message)
+	}
+	if isAccountTestTruncationFinishReason(response.StopReason) {
+		return s.sendErrorAndEnd(c, fmt.Sprintf("Claude response truncated (stop_reason=%s)", response.StopReason))
+	}
+	if strings.TrimSpace(response.StopReason) == "" {
+		return s.sendErrorAndEnd(c, "Claude response ended without a terminal stop_reason")
+	}
+	for _, content := range response.Content {
+		if content.Type == "text" && content.Text != "" {
+			s.sendEvent(c, TestEvent{Type: "content", Text: content.Text})
 		}
 	}
+	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+	return nil
+}
+
+// processClaudeStream processes the SSE stream from Claude API. Completion is
+// tied to message_stop/[DONE] (or an explicit non-truncating stop_reason at
+// EOF); a clean EOF after only partial deltas is an upstream truncation.
+func (s *AccountTestService) processClaudeStream(c *gin.Context, body io.Reader) error {
+	reader := bufio.NewReader(body)
+	seenSSEData := false
+	seenStopReason := ""
+
+	for {
+		line, readErr := reader.ReadString('\n')
+		trimmed := strings.TrimSpace(line)
+		if trimmed != "" {
+			if sseDataPrefix.MatchString(trimmed) {
+				seenSSEData = true
+				jsonStr := sseDataPrefix.ReplaceAllString(trimmed, "")
+				if jsonStr == "[DONE]" {
+					if isAccountTestTruncationFinishReason(seenStopReason) {
+						return s.sendErrorAndEnd(c, fmt.Sprintf("Claude response truncated (stop_reason=%s)", seenStopReason))
+					}
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+					return nil
+				}
+
+				var data map[string]any
+				if err := json.Unmarshal([]byte(jsonStr), &data); err == nil {
+					eventType, _ := data["type"].(string)
+					switch eventType {
+					case "content_block_delta":
+						if delta, ok := data["delta"].(map[string]any); ok {
+							if text, ok := delta["text"].(string); ok && text != "" {
+								s.sendEvent(c, TestEvent{Type: "content", Text: text})
+							}
+						}
+					case "message_delta":
+						if delta, ok := data["delta"].(map[string]any); ok {
+							if reason, ok := delta["stop_reason"].(string); ok {
+								seenStopReason = strings.TrimSpace(reason)
+							}
+						}
+					case "message_start":
+						if message, ok := data["message"].(map[string]any); ok {
+							if reason, ok := message["stop_reason"].(string); ok {
+								seenStopReason = strings.TrimSpace(reason)
+							}
+						}
+					case "message_stop":
+						if isAccountTestTruncationFinishReason(seenStopReason) {
+							return s.sendErrorAndEnd(c, fmt.Sprintf("Claude response truncated (stop_reason=%s)", seenStopReason))
+						}
+						s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+						return nil
+					case "error":
+						errorMsg := "Unknown error"
+						if errData, ok := data["error"].(map[string]any); ok {
+							if msg, ok := errData["message"].(string); ok && msg != "" {
+								errorMsg = msg
+							}
+						}
+						return s.sendErrorAndEnd(c, errorMsg)
+					}
+				}
+			} else if !seenSSEData && (strings.HasPrefix(trimmed, "{") || strings.HasPrefix(trimmed, "[")) {
+				// A few compatible endpoints ignore stream=true. Consume and parse
+				// that complete JSON response instead of silently treating EOF as
+				// success.
+				rest, _ := io.ReadAll(reader)
+				raw := append([]byte(line), rest...)
+				return s.processClaudeJSONResponse(c, bytes.TrimSpace(raw))
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				if isAccountTestTerminalStopReason(seenStopReason) {
+					if isAccountTestTruncationFinishReason(seenStopReason) {
+						return s.sendErrorAndEnd(c, fmt.Sprintf("Claude response truncated (stop_reason=%s)", seenStopReason))
+					}
+					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+					return nil
+				}
+				if seenSSEData {
+					return s.sendErrorAndEnd(c, "Claude stream ended before message_stop")
+				}
+				return s.sendErrorAndEnd(c, "Invalid Claude response: expected SSE or JSON message")
+			}
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Stream read error: %s", readErr.Error()))
+		}
+	}
+}
+
+func isAccountTestTerminalStopReason(reason string) bool {
+	reason = strings.ToLower(strings.TrimSpace(reason))
+	return reason == "end_turn" || reason == "stop_sequence" || reason == "stop"
 }
 
 // processOpenAIChatCompletionsStream processes SSE chunks from the
@@ -2905,11 +3048,70 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 	reader := bufio.NewReader(body)
 	seenJSON := false
 	seenFinish := false
+	finishReason := ""
 
 	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			if err == io.EOF {
+		line, readErr := reader.ReadString('\n')
+
+		line = strings.TrimSpace(line)
+		if line != "" && sseDataPrefix.MatchString(line) {
+			jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+			if jsonStr == "[DONE]" {
+				if isAccountTestTruncationFinishReason(finishReason) {
+					return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions response truncated (finish_reason=%s)", finishReason))
+				}
+				if !seenFinish {
+					return s.sendErrorAndEnd(c, "Chat Completions stream ended before finish_reason")
+				}
+				s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
+				s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
+				return nil
+			}
+
+			var data map[string]any
+			if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
+				return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected JSON data")
+			}
+			seenJSON = true
+
+			if errData, ok := data["error"].(map[string]any); ok {
+				errorMsg := "Chat Completions API (/v1/chat/completions) returned an error"
+				if msg, ok := errData["message"].(string); ok && msg != "" {
+					errorMsg = msg
+				}
+				return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) error: %s", errorMsg))
+			}
+
+			choices, ok := data["choices"].([]any)
+			if ok {
+				for _, choiceValue := range choices {
+					choice, ok := choiceValue.(map[string]any)
+					if !ok {
+						continue
+					}
+					if delta, ok := choice["delta"].(map[string]any); ok {
+						if text, ok := delta["content"].(string); ok && text != "" {
+							s.sendEvent(c, TestEvent{Type: "content", Text: text})
+						}
+					}
+					if message, ok := choice["message"].(map[string]any); ok {
+						if text, ok := message["content"].(string); ok && text != "" {
+							s.sendEvent(c, TestEvent{Type: "content", Text: text})
+						}
+					}
+					if reason, ok := choice["finish_reason"].(string); ok && reason != "" {
+						seenFinish = true
+						finishReason = reason
+					}
+				}
+			}
+		}
+
+		if readErr != nil {
+			if readErr == io.EOF {
+				if isAccountTestTruncationFinishReason(finishReason) {
+					return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions response truncated (finish_reason=%s)", finishReason))
+				}
 				if seenFinish {
 					s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
 					s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
@@ -2920,57 +3122,7 @@ func (s *AccountTestService) processOpenAIChatCompletionsStream(c *gin.Context, 
 				}
 				return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected SSE JSON data")
 			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions stream read error from /v1/chat/completions: %s", err.Error()))
-		}
-
-		line = strings.TrimSpace(line)
-		if line == "" || !sseDataPrefix.MatchString(line) {
-			continue
-		}
-
-		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
-		if jsonStr == "[DONE]" {
-			s.sendEvent(c, TestEvent{Type: "status", Text: "已通过 /v1/chat/completions 验证"})
-			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
-			return nil
-		}
-
-		var data map[string]any
-		if err := json.Unmarshal([]byte(jsonStr), &data); err != nil {
-			return s.sendErrorAndEnd(c, "Invalid Chat Completions response from /v1/chat/completions: expected JSON data")
-		}
-		seenJSON = true
-
-		if errData, ok := data["error"].(map[string]any); ok {
-			errorMsg := "Chat Completions API (/v1/chat/completions) returned an error"
-			if msg, ok := errData["message"].(string); ok && msg != "" {
-				errorMsg = msg
-			}
-			return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) error: %s", errorMsg))
-		}
-
-		choices, ok := data["choices"].([]any)
-		if !ok {
-			continue
-		}
-		for _, choiceValue := range choices {
-			choice, ok := choiceValue.(map[string]any)
-			if !ok {
-				continue
-			}
-			if delta, ok := choice["delta"].(map[string]any); ok {
-				if text, ok := delta["content"].(string); ok && text != "" {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
-				}
-			}
-			if message, ok := choice["message"].(map[string]any); ok {
-				if text, ok := message["content"].(string); ok && text != "" {
-					s.sendEvent(c, TestEvent{Type: "content", Text: text})
-				}
-			}
-			if finishReason, ok := choice["finish_reason"].(string); ok && finishReason != "" {
-				seenFinish = true
-			}
+			return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions stream read error from /v1/chat/completions: %s", readErr.Error()))
 		}
 	}
 }
@@ -3021,8 +3173,15 @@ func (s *AccountTestService) processOpenAIStream(c *gin.Context, body io.Reader)
 				s.sendEvent(c, TestEvent{Type: "content", Text: delta})
 			}
 		case "response.completed", "response.done":
+			if responseData, ok := data["response"].(map[string]any); ok {
+				if status, _ := responseData["status"].(string); isAccountTestTruncationFinishReason(status) {
+					return s.sendErrorAndEnd(c, fmt.Sprintf("OpenAI response incomplete (status=%s)", status))
+				}
+			}
 			s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 			return nil
+		case "response.incomplete":
+			return s.sendErrorAndEnd(c, "OpenAI response incomplete")
 		case "response.failed":
 			errorMsg := "OpenAI response failed"
 			if responseData, ok := data["response"].(map[string]any); ok {
@@ -3095,7 +3254,7 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 		proxyURL = account.Proxy.URL()
 	}
 
-	resp, err := doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+	resp, err := s.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, s.tlsFPProfileService.ResolveTLSProfile(account))
 	if err != nil {
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 	}
@@ -3319,13 +3478,25 @@ func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) er
 // RunTestBackground executes an account test in-memory (no real HTTP client),
 // capturing SSE output via httptest.NewRecorder, then parses the result.
 func (s *AccountTestService) RunTestBackground(ctx context.Context, accountID int64, modelID string) (*ScheduledTestResult, error) {
+	return s.RunTestBackgroundWithPrompt(ctx, accountID, modelID, "")
+}
+
+// RunTestBackgroundWithPrompt executes a configurable test prompt while
+// retaining the legacy account-test behavior when prompt is empty.
+func (s *AccountTestService) RunTestBackgroundWithPrompt(ctx context.Context, accountID int64, modelID, prompt string) (*ScheduledTestResult, error) {
+	return s.RunTestBackgroundWithPromptAndReasoning(ctx, accountID, modelID, prompt, "")
+}
+
+// RunTestBackgroundWithPromptAndReasoning is the scheduled-test entrypoint
+// that forwards an explicitly selected Codex-style reasoning effort.
+func (s *AccountTestService) RunTestBackgroundWithPromptAndReasoning(ctx context.Context, accountID int64, modelID, prompt, reasoningEffort string) (*ScheduledTestResult, error) {
 	startedAt := time.Now()
 
 	w := httptest.NewRecorder()
 	ginCtx, _ := gin.CreateTestContext(w)
-	ginCtx.Request = (&http.Request{}).WithContext(ctx)
+	ginCtx.Request = (&http.Request{}).WithContext(withAccountTestReasoningEffort(ctx, reasoningEffort))
 
-	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, "", AccountTestModeDefault)
+	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault)
 
 	finishedAt := time.Now()
 	body := w.Body.String()

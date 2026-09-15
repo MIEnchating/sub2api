@@ -1643,59 +1643,13 @@
         </div>
       </div>
 
-      <div
-        v-if="!isSparkShadow"
-        class="rounded-lg border border-gray-200 p-4 dark:border-dark-600"
-        data-testid="multi-ip-egress-section"
-      >
-        <div class="mb-4">
-          <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
-            {{ t('admin.accounts.proxyPoolSectionTitle') }}
-          </h3>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.proxyPoolSectionDescription') }}
-          </p>
+      <div v-if="!isSparkShadow">
+        <div class="mb-1 flex items-center gap-2">
+          <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
+          <ProxyAdBanner />
         </div>
-        <div class="mb-2 flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 dark:bg-dark-700">
-          <div>
-            <span class="text-sm text-gray-700 dark:text-gray-200">{{ t('admin.accounts.proxyConcurrencyLimitEnabled') }}</span>
-            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.proxyConcurrencyLimitEnabledHint') }}</p>
-          </div>
-          <button type="button" role="switch" :aria-checked="form.proxy_concurrency_limit_enabled" @click="toggleProxyPoolMode"
-            :class="['relative inline-flex h-6 w-11 flex-shrink-0 rounded-full border-2 border-transparent transition-colors', form.proxy_concurrency_limit_enabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600']">
-             <span :class="['pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow transition', form.proxy_concurrency_limit_enabled ? 'translate-x-5' : 'translate-x-0']" />
-           </button>
-         </div>
-        <div v-if="form.proxy_concurrency_limit_enabled">
-          <div class="mb-1 flex items-center gap-2">
-            <label class="input-label mb-0">{{ t('admin.accounts.proxyConcurrencyPool') }}</label>
-            <ProxyAdBanner />
-          </div>
-          <ProxySelector v-model="form.proxy_pool_ids" :proxies="proxies" multiple />
-        </div>
-        <template v-else>
-          <div class="mb-1 flex items-center gap-2">
-            <label class="input-label mb-0">{{ t('admin.accounts.primaryProxy') }}</label>
-            <ProxyAdBanner />
-          </div>
-          <ProxySelector v-model="form.proxy_id" :proxies="proxies" />
-          <div class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
-            <label class="input-label">{{ t('admin.accounts.proxyPool') }}</label>
-            <ProxyPoolSelector v-model="form.proxy_ids" :proxies="proxies" :primary-proxy-id="form.proxy_id" :disabled="form.proxy_id === null" />
-            <p class="input-hint">{{ form.proxy_id === null ? t('admin.accounts.proxyPoolPrimaryRequired') : t('admin.accounts.proxyPoolHint') }}</p>
-          </div>
-          <div class="mt-4 grid gap-4 border-t border-gray-100 pt-4 dark:border-dark-700 sm:grid-cols-2">
-            <div>
-              <label class="input-label">{{ t('admin.accounts.proxyEgressMode') }}</label>
-              <Select v-model="form.proxy_egress_mode" :options="proxyEgressModeOptions" />
-            </div>
-            <div v-if="form.proxy_egress_mode === 'session_sticky'">
-              <label class="input-label">{{ t('admin.accounts.proxyStickyTTLMinutes') }}</label>
-              <input v-model.number="form.proxy_sticky_ttl_minutes" type="number" min="1" max="10080" class="input" @input="form.proxy_sticky_ttl_minutes = Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120))" />
-            </div>
-          </div>
-          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t(`admin.accounts.proxyEgressModeHints.${form.proxy_egress_mode}`) }}</p>
-        </template>
+        <ProxySelector v-model="form.proxy_ids" :proxies="proxies" multiple />
+        <p class="input-hint">{{ t('admin.accounts.proxyPoolHint') }}</p>
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -1784,12 +1738,7 @@
           @change="form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count)"
         />
         <p class="input-hint">
-          {{
-            t('admin.accounts.rateLimit429RetryCountHint', {
-              default: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
-              max: MAX_RATE_LIMIT_429_RETRY_COUNT
-            })
-          }}
+          {{ t('admin.accounts.rateLimit429RetryCountHint', { default: DEFAULT_RATE_LIMIT_429_RETRY_COUNT, max: MAX_RATE_LIMIT_429_RETRY_COUNT }) }}
         </p>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
@@ -1839,7 +1788,7 @@
         </div>
       </div>
 
-      <!-- OpenAI OAuth 模型名称归一化 -->
+      <!-- OpenAI OAuth model-name normalization -->
       <div
         v-if="account?.platform === 'openai' && account?.type === 'oauth'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -3136,7 +3085,6 @@ import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestId
 import Toggle from '@/components/common/Toggle.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
-import ProxyPoolSelector from '@/components/common/ProxyPoolSelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
@@ -3941,10 +3889,6 @@ const form = reactive({
   notes: '',
   proxy_id: null as number | null,
   proxy_ids: [] as number[],
-  proxy_egress_mode: 'session_sticky' as 'session_sticky' | 'round_robin' | 'primary',
-  proxy_sticky_ttl_minutes: 120,
-  proxy_concurrency_limit_enabled: false,
-  proxy_pool_ids: [] as number[],
   concurrency: 1,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -3955,32 +3899,9 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-const proxyEgressModeOptions = computed(() => [
-  { value: 'session_sticky', label: t('admin.accounts.proxyEgressModes.sessionSticky') },
-  { value: 'round_robin', label: t('admin.accounts.proxyEgressModes.roundRobin') },
-  { value: 'primary', label: t('admin.accounts.proxyEgressModes.primary') }
-])
-
-watch(
-  () => form.proxy_id,
-  (primaryProxyID) => {
-    if (primaryProxyID === null) {
-      form.proxy_ids = []
-      return
-    }
-    form.proxy_ids = form.proxy_ids.filter((id) => id !== primaryProxyID)
-  }
-)
-
-const toggleProxyPoolMode = () => {
-  form.proxy_concurrency_limit_enabled = !form.proxy_concurrency_limit_enabled
-}
-
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
   const parsed = Number(value)
-  if (!Number.isFinite(parsed)) {
-    return DEFAULT_RATE_LIMIT_429_RETRY_COUNT
-  }
+  if (!Number.isFinite(parsed)) return DEFAULT_RATE_LIMIT_429_RETRY_COUNT
   return Math.min(MAX_RATE_LIMIT_429_RETRY_COUNT, Math.max(0, Math.trunc(parsed)))
 }
 
@@ -4083,19 +4004,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.name = newAccount.name
   form.notes = newAccount.notes || ''
   form.proxy_id = newAccount.proxy_id
-  form.proxy_ids = [...(newAccount.proxy_ids || [])]
-  const proxyMode = (newAccount.extra as Record<string, unknown> | undefined)?.proxy_egress_mode
-  form.proxy_egress_mode = proxyMode === 'round_robin' || proxyMode === 'primary'
-    ? proxyMode
-    : 'session_sticky'
-  const stickyTTLSeconds = Number(
-    (newAccount.extra as Record<string, unknown> | undefined)?.proxy_sticky_ttl_seconds
-  )
-  form.proxy_sticky_ttl_minutes = Number.isFinite(stickyTTLSeconds) && stickyTTLSeconds >= 60
-    ? Math.min(10080, Math.max(1, Math.round(stickyTTLSeconds / 60)))
-    : 120
-  form.proxy_concurrency_limit_enabled = newAccount.proxy_concurrency_limit_enabled === true
-  form.proxy_pool_ids = [...(newAccount.proxy_pool_ids || [])]
+  form.proxy_ids = newAccount.proxy_ids?.length ? [...newAccount.proxy_ids] : (newAccount.proxy_id ? [newAccount.proxy_id] : [])
   form.concurrency = newAccount.concurrency
   form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
     newAccount.rate_limit_429_retry_count ?? DEFAULT_RATE_LIMIT_429_RETRY_COUNT
@@ -4158,7 +4067,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
   codexCLIOnlyAppServerEnabled.value = false
-  codexFingerprintMode.value = 'single_machine_multi_window'
+  codexFingerprintMode.value = 'off'
   codexImageToolMode.value = 'inherit'
   anthropicPassthroughEnabled.value = false
   anthropicAPIKeyAuthScheme.value = 'x_api_key'
@@ -4213,7 +4122,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
     if (newAccount.type === 'oauth') {
       const fpMode = extra?.codex_fingerprint_mode as string | undefined
-      // 缺省/非法值使用统一的单机多窗口模式。
+      // 缺省/非法值按 off 呈现，与后端 GetCodexFingerprintMode 的 opt-in 语义一致（#5610）
       codexFingerprintMode.value = (['off', 'account_device', 'single_machine_multi_window', 'device', 'session', 'full'].includes(fpMode || '')
         ? fpMode as CodexFingerprintMode
         : 'single_machine_multi_window')
@@ -5120,23 +5029,15 @@ const handleSubmit = async () => {
 
   const updatePayload: Record<string, unknown> = { ...form }
   try {
-    if (isSparkShadow.value) {
-      delete updatePayload.proxy_ids
-    }
     updatePayload.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
       form.rate_limit_429_retry_count
     )
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
-    if (!isSparkShadow.value && updatePayload.proxy_id === null) {
+    if (updatePayload.proxy_id === null) {
       updatePayload.proxy_id = 0
-      updatePayload.proxy_ids = []
     }
-    if (form.proxy_concurrency_limit_enabled) {
-      updatePayload.proxy_id = 0
-      updatePayload.proxy_ids = []
-    }
-    updatePayload.proxy_concurrency_limit_enabled = form.proxy_concurrency_limit_enabled
-    updatePayload.proxy_pool_ids = form.proxy_concurrency_limit_enabled ? form.proxy_pool_ids : []
+    updatePayload.proxy_id = form.proxy_ids[0] ?? 0
+    updatePayload.proxy_ids = [...form.proxy_ids]
     if (form.expires_at === null) {
       updatePayload.expires_at = 0
     }
@@ -5763,8 +5664,6 @@ const handleSubmit = async () => {
         }
       }
 
-      // 指纹收敛模式：默认 off（不写入）；account_device/device/session/full 是显式 opt-in，
-      // 必须落键，否则管理员的选择会被后端当作"未设置"而回落到 off（#5610）。
       if (props.account.type === 'oauth') {
         if (codexFingerprintMode.value !== 'off') {
           newExtra.codex_fingerprint_mode = codexFingerprintMode.value
@@ -5834,21 +5733,6 @@ const handleSubmit = async () => {
       // Quota notify config
       writeQuotaNotifyToExtra(newExtra, 'update')
       updatePayload.extra = newExtra
-    }
-
-    if (!isSparkShadow.value) {
-      const proxyExtra: Record<string, unknown> = {
-        ...((updatePayload.extra as Record<string, unknown>) ||
-          (props.account.extra as Record<string, unknown>) || {})
-      }
-      proxyExtra.proxy_egress_mode = form.proxy_egress_mode
-      if (form.proxy_egress_mode === 'session_sticky') {
-        proxyExtra.proxy_sticky_ttl_seconds =
-          Math.min(10080, Math.max(1, form.proxy_sticky_ttl_minutes || 120)) * 60
-      } else {
-        delete proxyExtra.proxy_sticky_ttl_seconds
-      }
-      updatePayload.extra = proxyExtra
     }
 
     // 上游ID头名只在改动时写回 extra，避免用弹窗打开时的快照覆盖运行态键。

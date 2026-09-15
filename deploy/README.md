@@ -16,8 +16,11 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 |------|-------------|
 | `docker-compose.yml` | Docker Compose configuration (named volumes) |
 | `docker-compose.local.yml` | Docker Compose configuration (local directories, easy migration) |
-| `docker-compose.custom.yml` | Generic source-build overlay with `sub2api-custom` image and container names |
-| `docker-deploy.sh` | **One-click Docker deployment script (recommended)** |
+| `docker-compose.custom.yml` | Generic source-build overlay with the `sub2api-custom` image |
+| `install-custom-docker.sh` | One-command custom Docker deployment plus host updater installation |
+| `install-source-updater.sh` | Installs the restricted systemd updater for an existing Compose instance |
+| `Dockerfile.updater` | Reproducible builder image for the host updater binary |
+| `docker-deploy.sh` | Legacy upstream preparation script |
 | `apple-container.sh` | Native Apple `container` lifecycle script |
 | `APPLE_CONTAINER.md` | Apple `container` deployment and operations guide |
 | `.env.example` | Container environment variables template |
@@ -51,6 +54,32 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 
 ## Docker Deployment (Recommended)
 
+### 后台一键更新（源码 Docker 部署）
+
+源码构建使用宿主机更新器，避免把 `/var/run/docker.sock` 暴露给主应用容器。全新 Linux
+部署直接执行：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/DeanZFC/sub2api-custom/sub2api-custom/deploy/install-custom-docker.sh \
+  -o /tmp/install-custom-docker.sh
+sudo bash /tmp/install-custom-docker.sh
+```
+
+已有部署在仓库根目录执行：
+
+```bash
+sudo ./deploy/install-source-updater.sh \
+  --repo-dir /opt/sub2api-custom \
+  --container "$(docker compose -f deploy/docker-compose.local.yml -f deploy/docker-compose.custom.yml ps -q sub2api)"
+```
+
+安装器会读取容器 Compose labels，固定更新 `origin/sub2api-custom`，然后构建、重建应用容器并执行
+健康检查。管理员在页面版本菜单点击“立即更新”即可。更新流程默认不执行 PostgreSQL 备份，
+PostgreSQL、Redis、`.env`、`data/` 和数据库目录不会被删除；更新失败时会尝试恢复源码和旧应用镜像。
+数据库迁移是前向变更，生产环境请在更新前自行保留可恢复的数据库备份或快照。
+
+同一台服务器上的多实例需要为每个实例单独安装更新器，并分别传入各自的仓库目录和应用容器 ID。Compose 会按项目名自动隔离应用、PostgreSQL 和 Redis 容器；已有固定容器名的部署也可以直接安装，更新时会自动重新解析新容器。
+
 ### 与现有脚本版共存（Fork）
 
 如果服务器已经通过脚本安装了 Sub2API，请使用独立目录、Compose 项目名和数据目录，
@@ -62,7 +91,7 @@ See [APPLE_CONTAINER.md](./APPLE_CONTAINER.md) for configuration, upgrades, pers
 command -v docker >/dev/null 2>&1 || curl -fsSL https://get.docker.com | sh
 sudo systemctl enable --now docker
 
-git clone https://github.com/MIEnchating/sub2api.git /opt/sub2api-custom
+git clone -b sub2api-custom https://github.com/DeanZFC/sub2api-custom.git /opt/sub2api-custom
 cd /opt/sub2api-custom/deploy
 cp .env.example .env
 chmod 600 .env
@@ -105,10 +134,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
 
 # Or download first, then run
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -141,7 +170,7 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/MIEnchating/sub2api.git
+git clone https://github.com/Wei-Shaw/sub2api.git
 cd sub2api/deploy
 
 # Configure environment
@@ -447,12 +476,12 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/MIEnchating/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
 ```
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/MIEnchating/sub2api/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:

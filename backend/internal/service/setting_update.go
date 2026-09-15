@@ -479,6 +479,13 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
 	// Gateway forwarding behavior
+	if settings.UpstreamErrorRetry != nil {
+		value, err := marshalUpstreamErrorRetrySettings(settings.UpstreamErrorRetry)
+		if err != nil {
+			return nil, err
+		}
+		updates[SettingKeyUpstreamErrorRetry] = value
+	}
 	mode := normalizeOpenAITTFTMode(settings.OpenAITTFTMode)
 	if strings.TrimSpace(settings.OpenAITTFTMode) != "" && strings.ToLower(strings.TrimSpace(settings.OpenAITTFTMode)) != OpenAITTFTModeSemantic && strings.ToLower(strings.TrimSpace(settings.OpenAITTFTMode)) != OpenAITTFTModeVisible {
 		return nil, fmt.Errorf("%s must be one of: %s/%s", SettingKeyOpenAITTFTMode, OpenAITTFTModeSemantic, OpenAITTFTModeVisible)
@@ -718,6 +725,8 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 		return
 	}
 	s.storeGatewayRuntimePolicy(settings)
+
+	s.publishUpstreamErrorRetrySettings(settings.UpstreamErrorRetry)
 
 	// 先使 inflight singleflight 失效，再刷新缓存，缩小旧值覆盖新值的竞态窗口
 	versionBoundsSF.Forget("version_bounds")

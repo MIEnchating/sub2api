@@ -251,13 +251,20 @@ export default {
         hint: 'Displayed as "group / base score / sticky bonus". The base score is computed within the current filtered candidate set and includes priority, load, queue depth, error rate, first-token latency, reset window, quota headroom, billing rate, and related factors. The sticky bonus applies only when sticky weighting is enabled for previous_response_id or session_hash. Higher scores are preferred.'
       },
       recentRequests: {
-        summary: '{count} recent requests',
-        empty: 'No requests',
-        unknownError: 'Unknown error',
-        errorPrefix: 'HTTP {status}',
+        success: 'Successful request',
+        error: 'Failed request',
         user: 'User',
         group: 'Group',
-        latency: 'Latency'
+        account: 'Account',
+        apiKey: 'API key',
+        requestId: 'Request ID',
+        reason: 'Error reason',
+        viewDetails: 'View request details: {time}',
+        summary: '{count} recent requests',
+        empty: 'No requests',
+        loadFailed: 'Load failed',
+        unknownError: 'Unknown error',
+        errorPrefix: 'HTTP {status}'
       },
       usageWindowsHint: '"5h / 7d" are the upstream account\'s official rolling usage windows (e.g. OpenAI ChatGPT, Claude). They are imposed by the upstream provider on the account itself — not configured by sub2api, and unrelated to the models you map. Usage resets automatically once each window rolls over, and the limit cannot be lifted from within sub2api.',
       ollamaCloud: {
@@ -684,7 +691,7 @@ export default {
         codexFingerprintDevice: 'Device only',
         codexFingerprintSession: 'Device + Session',
         codexFingerprintFull: 'Full convergence',
-        codexFingerprintSingleMachineMultiWindow: 'Enable single machine, multiple windows',
+        codexFingerprintSingleMachineMultiWindow: 'Single machine, multiple windows (chats + subagents)',
         codexImageTool: 'Codex image bridge policy',
         codexImageToolDesc:
           'Controls the hosted image_generation bridge and client-declared image tools on Codex /responses text requests. Hosted auto-injection applies only to non-Responses Lite requests. Account policy takes precedence over channel and global settings; standalone image-generation endpoints are unaffected.',
@@ -825,7 +832,7 @@ export default {
       poolMode: 'Pool Mode',
       poolModeHint: 'Enable when upstream is an account pool; errors won\'t mark local account status',
       poolModeInfo:
-        'When enabled, upstream 429/403/401 errors will auto-retry without marking the account as rate-limited or errored. Suitable for upstream pointing to another sub2api instance.',
+        'When enabled, upstream errors will not mark the local account as rate-limited or errored. Suitable for upstream pointing to another sub2api instance.',
       poolModeRetryCount: 'Same-Account Retries',
       poolModeRetryCountHint:
         'Only applies in pool mode. Use 0 to disable in-place retry. Default {default}, maximum {max}.',
@@ -1013,33 +1020,14 @@ export default {
       affinityBufferInfinite: 'Unlimited',
       expired: 'Expired',
       proxy: 'Proxy',
-      proxyConcurrencyLimitEnabled: 'Use independent concurrency per proxy',
-      proxyConcurrencyLimitEnabledHint: 'Each selected proxy exit gets its own concurrency allowance when enabled.',
-      proxyConcurrencyPool: 'Concurrency proxy pool',
+      proxyPool: 'Proxy exits (multi-select)',
+      proxyPoolHint: 'One proxy keeps the existing behavior. With multiple proxies, requests rotate evenly and each proxy uses the account concurrency configured below.',
       proxyPoolCount: '{count} proxies selected',
-      noProxy: 'No Proxy',
-      primaryProxy: 'Primary Proxy',
-      proxyPoolSectionTitle: 'Multi-IP Egress',
-      proxyPoolSectionDescription: 'Assign one primary proxy and up to 20 additional proxies to this account.',
-      proxyPool: 'Additional Proxies',
       proxyPoolEmpty: 'No additional proxies',
       proxyPoolSelected: '{count} additional proxies selected',
       proxyPoolNoOptions: 'No other proxies available. Add more proxies in IP Management first.',
       proxyPoolClear: 'Clear additional proxies',
-      proxyPoolPrimaryRequired: 'Select a primary proxy first. If none are available, add one in IP Management.',
-      proxyPoolHint: 'The primary and additional proxies form the request egress pool. OAuth, tests, and quota probes always use the primary proxy.',
-      proxyEgressMode: 'Egress Strategy',
-      proxyStickyTTLMinutes: 'Session Stickiness (minutes)',
-      proxyEgressModes: {
-        sessionSticky: 'Sticky by session',
-        roundRobin: 'Round robin per request',
-        primary: 'Primary proxy only'
-      },
-      proxyEgressModeHints: {
-        session_sticky: 'The same account and session keep one egress. Requests without a session identifier fall back to round robin.',
-        round_robin: 'Each new request selects the next egress and keeps it until the request completes.',
-        primary: 'All business requests use the primary proxy; additional proxies remain idle.'
-      },
+      noProxy: 'No Proxy',
       concurrency: 'Concurrency',
       rateLimit429RetryCount: '429 Auto-Retry Count',
       rateLimit429RetryCountHint:

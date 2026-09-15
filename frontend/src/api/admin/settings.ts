@@ -11,6 +11,13 @@ import type {
   NotifyEmailEntry,
 } from "@/types";
 
+export interface UpstreamErrorRetrySettings {
+  enabled: boolean;
+  max_retries: number;
+  delay_ms: number;
+  errors: string;
+}
+
 export interface DefaultSubscriptionSetting {
   group_id: number;
   validity_days: number;
@@ -624,6 +631,7 @@ export interface SystemSettings {
   allow_ungrouped_key_scheduling: boolean;
 
   // Gateway forwarding behavior
+  upstream_error_retry: UpstreamErrorRetrySettings;
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   gateway_stream_data_interval_timeout_seconds: number;
@@ -954,6 +962,7 @@ export interface UpdateSettingsRequest {
   min_claude_code_version?: string;
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
+  upstream_error_retry?: UpstreamErrorRetrySettings;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   gateway_stream_data_interval_timeout_seconds?: number;
@@ -1357,6 +1366,24 @@ export interface PanelRateLimitSettings {
   public_ip_rpm: number;
 }
 
+export interface CodexPreOutputRetrySettings {
+  enabled: boolean;
+  max_retries: number;
+  retry_interval_ms: number;
+  max_retry_window_seconds: number;
+  keywords: string[];
+}
+
+export async function getCodexPreOutputRetrySettings(): Promise<CodexPreOutputRetrySettings> {
+  const { data } = await apiClient.get<CodexPreOutputRetrySettings>("/admin/settings/codex-pre-output-retry");
+  return data;
+}
+
+export async function updateCodexPreOutputRetrySettings(settings: CodexPreOutputRetrySettings): Promise<CodexPreOutputRetrySettings> {
+  const { data } = await apiClient.put<CodexPreOutputRetrySettings>("/admin/settings/codex-pre-output-retry", settings);
+  return data;
+}
+
 export async function getPanelRateLimitSettings(): Promise<PanelRateLimitSettings> {
   const { data } = await apiClient.get<PanelRateLimitSettings>(
     "/admin/settings/panel-rate-limit",
@@ -1603,6 +1630,8 @@ export const settingsAPI = {
   updateRateLimit429CooldownSettings,
   getPanelRateLimitSettings,
   updatePanelRateLimitSettings,
+  getCodexPreOutputRetrySettings,
+  updateCodexPreOutputRetrySettings,
   getStreamTimeoutSettings,
   updateStreamTimeoutSettings,
   getRectifierSettings,

@@ -36,11 +36,10 @@ func TestBatchImagePublicService_SelectAccountPriority(t *testing.T) {
 			accounts[0].Schedulable = !tt.firstBlocked
 			svc.AccountRepo = &publicBatchImageAccountRepo{accounts: accounts}
 
-			provider, account, routedGroupID, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), BatchImageProviderGeminiAPI, "gemini-2.5-flash-image")
+			provider, account, _, err := svc.selectProviderAndAccount(context.Background(), testBatchImageOwner(), BatchImageProviderGeminiAPI, "gemini-2.5-flash-image")
 			require.NoError(t, err)
 			require.NotNil(t, provider)
 			require.NotNil(t, account)
-			require.Nil(t, routedGroupID)
 			require.Equal(t, tt.wantID, account.ID)
 		})
 	}
@@ -94,23 +93,6 @@ func TestBatchImagePublicService_Submit(t *testing.T) {
 		require.InDelta(t, 0.125, job.BillableUnitPrice, 1e-12)
 		require.InDelta(t, 0.15, job.HoldUnitPrice, 1e-12)
 		require.Equal(t, "batch-session-123", batchImageDerefString(job.SessionID))
-	})
-
-	t.Run("risk routing forces one account and fails closed", func(t *testing.T) {
-		svc, repo, _, _, _ := newTestBatchImagePublicService(true)
-		routeCtx := WithRiskRoutingTarget(ctx, RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 101})
-
-		got, err := svc.Submit(routeCtx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
-		require.NoError(t, err)
-		require.NotNil(t, repo.jobs[got.ID].AccountID)
-		require.Equal(t, int64(101), *repo.jobs[got.ID].AccountID)
-
-		svc, repo, _, _, _ = newTestBatchImagePublicService(true)
-		accountRepo := svc.AccountRepo.(*publicBatchImageAccountRepo)
-		accountRepo.accounts[0].Schedulable = false
-		_, err = svc.Submit(routeCtx, testBatchImageOwner(), validBatchImageSubmitRequest(), "")
-		require.ErrorIs(t, err, ErrBatchImageNoAccountAvailable)
-		require.Empty(t, repo.jobs)
 	})
 
 	t.Run("combines user group image rate account rate discount and hold margin", func(t *testing.T) {

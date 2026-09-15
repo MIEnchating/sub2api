@@ -572,9 +572,9 @@ export interface Group {
   platform: GroupPlatform
   rate_multiplier: number
   rpm_limit?: number // Group-level RPM cap (0 = unlimited); overrides user-level rpm_limit when set
-  user_concurrency_limit?: number // Per-user concurrent request cap inside this group (0 = unlimited)
-  max_reasoning_effort?: string // Anthropic/OpenAI reasoning ceiling; empty means unlimited
-  max_reasoning_effort_over_limit?: string // downgrade (default) or deny when over the ceiling
+	max_reasoning_effort?: string // Anthropic/OpenAI reasoning ceiling; empty means unlimited
+	max_reasoning_effort_over_limit?: string // downgrade (default) or deny when over the ceiling
+	user_concurrency_limit?: number // Per-user concurrent request cap inside this group (0 = unlimited)
   reasoning_effort_mappings?: ReasoningEffortMapping[]
   is_exclusive: boolean
   status: 'active' | 'inactive'
@@ -1205,8 +1205,6 @@ export interface Account {
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_ids?: number[]
-  proxy_concurrency_limit_enabled?: boolean
-  proxy_pool_ids?: number[]
   proxy_pool?: Array<{ proxy_id: number; proxy_name: string; current_concurrency: number; max_concurrency: number }>
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
@@ -1496,8 +1494,6 @@ export interface CreateAccountRequest {
   extra?: Record<string, unknown>
   proxy_id?: number | null
   proxy_ids?: number[]
-  proxy_concurrency_limit_enabled?: boolean
-  proxy_pool_ids?: number[]
   concurrency?: number
   rate_limit_429_retry_count?: number
   load_factor?: number | null
@@ -1518,8 +1514,6 @@ export interface UpdateAccountRequest {
   extra?: Record<string, unknown>
   proxy_id?: number | null
   proxy_ids?: number[]
-  proxy_concurrency_limit_enabled?: boolean
-  proxy_pool_ids?: number[]
   concurrency?: number
   rate_limit_429_retry_count?: number
   load_factor?: number | null
@@ -1651,8 +1645,7 @@ export interface CodexSessionImportRequest {
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
-  proxy_concurrency_limit_enabled?: boolean
-  proxy_pool_ids?: number[]
+  proxy_ids?: number[]
   concurrency?: number
   rate_limit_429_retry_count?: number
   priority?: number
@@ -1668,13 +1661,12 @@ export interface CodexSessionImportRequest {
 }
 
 export interface OpenAICodexPATCreateRequest {
+  proxy_ids?: number[]
   access_token: string
   name?: string
   notes?: string | null
   group_ids?: number[]
   proxy_id?: number | null
-  proxy_concurrency_limit_enabled?: boolean
-  proxy_pool_ids?: number[]
   concurrency?: number
   rate_limit_429_retry_count?: number
   priority?: number
@@ -2463,6 +2455,103 @@ export interface UpdateScheduledTestPlanRequest {
   max_results?: number
   auto_recover?: boolean
 }
+
+/** Generalized configurable health-test definitions and execution history. */
+export interface TestType {
+  id: number
+  name: string
+  key: string
+  description?: string | null
+  output_kind: 'html' | 'number' | 'text' | string
+  prompt: string
+  enabled: boolean
+  /** Controls the order of test type tabs shown to end users. */
+  sort_order?: number
+  created_at?: string
+  updated_at?: string
+}
+
+export interface TestPlan {
+  id: number
+  name?: string
+  /** Controls the order of this rule's group in user-facing test results. */
+  sort_order?: number
+  test_definition_id?: number | null
+  group_id?: number | null
+  account_id?: number | null
+  /** Execution target selected by the administrator. */
+  target_mode?: 'group' | 'all_accounts' | 'account'
+  test_definition?: TestType | null
+  model_id?: string
+  /** Optional effort forwarded to the selected model (Codex-style). */
+  reasoning_effort?: string | null
+  cron_expression?: string
+  enabled: boolean
+  max_results?: number
+  last_run_at?: string | null
+  next_run_at?: string | null
+  created_at?: string
+  updated_at?: string
+}
+
+export interface TestResult {
+  plan_name?: string
+  test_name?: string
+  /** Configured test type order for the user-facing tabs. */
+  test_order?: number
+  /** Configured test rule/plan order used to derive group display order. */
+  plan_order?: number
+  group_name?: string
+  account_id?: number | null
+  target_mode?: 'group' | 'all_accounts' | 'account'
+  id: number
+  plan_id?: number
+  test_definition_id?: number
+  test_definition?: TestType | null
+  plan?: TestPlan | null
+  group_id?: number | null
+  model_id?: string
+  /** Reasoning level used for this test execution, when explicitly selected. */
+  reasoning_effort?: string | null
+  status: string
+  output_kind: 'html' | 'number' | 'text' | string
+  output_html?: string | null
+  output_numeric?: number | null
+  response_text?: string | null
+  error_message?: string | null
+  latency_ms?: number | null
+  started_at?: string
+  finished_at?: string
+  created_at?: string
+}
+
+export interface CreateTestTypeRequest {
+  name: string
+  key: string
+  description?: string
+  output_kind: string
+  prompt: string
+  enabled?: boolean
+  sort_order?: number
+}
+
+export interface UpdateTestTypeRequest extends Partial<CreateTestTypeRequest> {}
+
+export interface CreateTestPlanRequest {
+  name?: string
+  sort_order?: number
+  test_definition_id: number
+  group_id?: number | null
+  account_id?: number | null
+  target_mode?: 'group' | 'all_accounts' | 'account'
+  model_id: string
+  reasoning_effort?: string | null
+  cron_expression?: string
+  enabled?: boolean
+  max_results?: number
+}
+
+export type UpdateTestPlanRequest = Partial<CreateTestPlanRequest>
 
 // Payment types
 export type { SubscriptionPlan, PaymentOrder, CheckoutInfoResponse } from './payment'
