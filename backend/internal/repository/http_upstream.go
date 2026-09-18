@@ -100,6 +100,7 @@ const (
 	upstreamProtocolModeOpenAIH1         = "openai_h1"
 	upstreamProtocolModeOpenAIH2         = "openai_h2"
 	upstreamProtocolModeOpenAIH1Fallback = "openai_h1_fallback"
+	upstreamProtocolModeOpenAIH1NoReuse  = "openai_h1_noreuse"
 	upstreamProtocolModeGrok             = "grok"
 )
 
@@ -198,9 +199,11 @@ func NewHTTPUpstream(cfg *config.Config) service.HTTPUpstream {
 //   - 调用方必须关闭 resp.Body，否则会导致 inFlight 计数泄漏
 //   - inFlight > 0 的客户端不会被淘汰，确保活跃请求不被中断
 func (s *httpUpstreamService) Do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
-	return service.DoWithConfiguredUpstreamRetry(req, func(attempt *http.Request) (*http.Response, error) {
+	resp, err := service.DoWithConfiguredUpstreamRetry(req, func(attempt *http.Request) (*http.Response, error) {
 		return s.do(attempt, proxyURL, accountID, accountConcurrency)
 	})
+	observeAccountProtectionFinalOutcome(req, accountID, resp, err)
+	return resp, err
 }
 
 func (s *httpUpstreamService) do(req *http.Request, proxyURL string, accountID int64, accountConcurrency int) (*http.Response, error) {
@@ -250,9 +253,11 @@ func (s *httpUpstreamService) do(req *http.Request, proxyURL string, accountID i
 // profile 为 nil 时不启用 TLS 指纹，行为与 Do 方法相同。
 // profile 非 nil 时使用指定的 Profile 进行 TLS 指纹伪装。
 func (s *httpUpstreamService) DoWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
-	return service.DoWithConfiguredUpstreamRetry(req, func(attempt *http.Request) (*http.Response, error) {
+	resp, err := service.DoWithConfiguredUpstreamRetry(req, func(attempt *http.Request) (*http.Response, error) {
 		return s.doWithTLS(attempt, proxyURL, accountID, accountConcurrency, profile)
 	})
+	observeAccountProtectionFinalOutcome(req, accountID, resp, err)
+	return resp, err
 }
 
 func (s *httpUpstreamService) doWithTLS(req *http.Request, proxyURL string, accountID int64, accountConcurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
@@ -299,7 +304,6 @@ func (s *httpUpstreamService) doWithTLS(req *http.Request, proxyURL string, acco
 		slog.Debug("tls_fingerprint_request_failed", "account_id", accountID, "error", err)
 		return nil, err
 	}
-
 	decompressResponseBody(resp)
 
 	resp.Body = wrapTrackedBody(resp.Body, func() {
@@ -308,6 +312,29 @@ func (s *httpUpstreamService) doWithTLS(req *http.Request, proxyURL string, acco
 	})
 
 	return resp, nil
+}
+
+// observeAccountProtectionFinalOutcome is deliberately called around the
+// public retry wrapper.  The lower-level request function can be invoked more
+// than once by configured upstream retries; recording there would count an
+// intermediate 5xx/429 as a real account failure even when the retry succeeds.
+func observeAccountProtectionFinalOutcome(req *http.Request, accountID int64, resp *http.Response, err error) {
+	if req != nil && service.AccountProtectionOutcomeExcluded(req.Context()) {
+		return
+	}
+	// A caller cancelling its request is not evidence that the upstream
+	// account is unhealthy.  In particular, streaming clients can disconnect
+	// while the gateway deliberately drains the upstream response for billing.
+	if err != nil && errors.Is(err, context.Canceled) {
+		return
+	}
+	if err != nil {
+		service.ObserveAccountProtectionOutcome(accountID, 0, true)
+		return
+	}
+	if resp != nil {
+		service.ObserveAccountProtectionOutcome(accountID, resp.StatusCode, false)
+	}
 }
 
 // httpClientForUpstreamRequest 按请求上下文的标记派生客户端：禁用重定向，或对重定向的每一跳做主机校验。
@@ -1026,6 +1053,9 @@ func (s *httpUpstreamService) resolveProtocolMode(profile service.HTTPUpstreamPr
 	if profile == service.HTTPUpstreamProfileGrok {
 		return upstreamProtocolModeGrok
 	}
+	if profile == service.HTTPUpstreamProfileOpenAIHarvest {
+		return upstreamProtocolModeOpenAIH1NoReuse
+	}
 	if profile != service.HTTPUpstreamProfileOpenAI {
 		return upstreamProtocolModeDefault
 	}
@@ -1357,6 +1387,13 @@ func buildUpstreamTransport(settings poolSettings, proxyURL *url.URL, protocolMo
 		}
 	case upstreamProtocolModeOpenAIH1:
 		transport.ForceAttemptHTTP2 = false
+		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
+	case upstreamProtocolModeOpenAIH1NoReuse:
+		// Harvest must open a fresh CONNECT each attempt so the harvest proxy can rotate egress IPs.
+		transport.ForceAttemptHTTP2 = false
+		transport.DisableKeepAlives = true
+		transport.MaxIdleConns = 0
+		transport.MaxIdleConnsPerHost = 0
 		transport.TLSNextProto = make(map[string]func(string, *tls.Conn) http.RoundTripper)
 	case upstreamProtocolModeOpenAIH1Fallback:
 		// 显式禁用 HTTP/2，确保代理不兼容场景回退到 HTTP/1.1。

@@ -267,6 +267,8 @@ type SystemSettings struct {
 	CodexCLIOnlyWhitelist                     string          // codex_cli_only 全局白名单 JSON（[]AllowedClientEntry，AND allow）
 	CodexCLIOnlyAllowAppServerClients         bool            // codex_cli_only App Server 开关：对未列名客户端开闸（默认 false）
 	CodexCLIOnlyEngineFingerprintSignals      string          // codex_cli_only 引擎指纹门信号列表 JSON（[]EngineFingerprintSignal）
+	OpenAICodexTicketEnabled                  bool            // Codex 292 打票总开关；关闭则不打票不注入
+	OpenAICodexTicketHarvestProxyURL          string          // Codex 292 打票代理 URL；空则回退 yaml/env
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
