@@ -290,7 +290,26 @@ func marshalUpstreamErrorRetrySettings(v *UpstreamErrorRetrySettings) (string, e
 // A failed response can still report consumed tokens or generated output. Never
 // add a replay to such a response; the existing partial-usage path must own it.
 func upstreamErrorRetryHasUsage(body []byte) bool {
-	for _, path := range []string{"usage.input_tokens", "usage.output_tokens", "usage.prompt_tokens", "usage.completion_tokens", "usage.total_tokens", "response.usage.input_tokens", "response.usage.output_tokens", "response.output.#", "usageMetadata.totalTokenCount"} {
+	for _, root := range []string{"usage", "response.usage"} {
+		usage := gjson.GetBytes(body, root)
+		if !usage.Exists() {
+			continue
+		}
+		for _, path := range []string{
+			"input_tokens", "output_tokens", "prompt_tokens", "completion_tokens", "total_tokens",
+			"cache_creation_input_tokens", "cache_read_input_tokens", "cached_tokens",
+			"input_tokens_details.cached_tokens", "input_tokens_details.text_tokens", "input_tokens_details.image_tokens", "input_tokens_details.audio_tokens",
+			"output_tokens_details.reasoning_tokens", "output_tokens_details.text_tokens", "output_tokens_details.image_tokens", "output_tokens_details.audio_tokens",
+			"prompt_tokens_details.cached_tokens", "prompt_tokens_details.audio_tokens", "prompt_tokens_details.image_tokens",
+			"completion_tokens_details.reasoning_tokens", "completion_tokens_details.audio_tokens", "completion_tokens_details.image_tokens",
+			"completion_tokens_details.accepted_prediction_tokens", "completion_tokens_details.rejected_prediction_tokens",
+		} {
+			if usage.Get(path).Int() > 0 {
+				return true
+			}
+		}
+	}
+	for _, path := range []string{"output.#", "response.output.#", "usageMetadata.totalTokenCount"} {
 		if gjson.GetBytes(body, path).Int() > 0 {
 			return true
 		}
@@ -302,7 +321,7 @@ func upstreamErrorRetryHasUsage(body []byte) bool {
 // text before the protocol reader releases its initial event buffer.
 func configuredOpenAIStreamRetryFailure(ctx context.Context, payload []byte, message string, usage *OpenAIUsage) *UpstreamFailoverError {
 	state := upstreamErrorRetryFromContext(ctx)
-	if state == nil || ctx.Err() != nil || state.clientCtx.Err() != nil || openAIUsageHasTokens(usage) {
+	if state == nil || ctx.Err() != nil || state.clientCtx.Err() != nil || openAIUsageHasTokens(usage) || upstreamErrorRetryHasUsage(payload) {
 		return nil
 	}
 	code := openAIStreamFailedEventErrorCode(payload)

@@ -24,6 +24,10 @@ type FrameConn interface {
 	Close() error
 }
 
+type bufferedFrameReader interface {
+	ReadBufferedFrame() (coderws.MessageType, []byte, bool)
+}
+
 type Usage struct {
 	InputTokens              int
 	OutputTokens             int
@@ -282,11 +286,15 @@ func Relay(
 	exitCh := make(chan relayExitSignal, 3)
 	dropDownstreamWrites := atomic.Bool{}
 	clientReaderStarted := atomic.Bool{}
+	clientDone := make(chan struct{})
 	startClientReader := func() {
 		if !clientReaderStarted.CompareAndSwap(false, true) {
 			return
 		}
-		go runClientToUpstream(relayCtx, clientConn, options.ReadClientFrame, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
+		go func() {
+			defer close(clientDone)
+			runClientToUpstream(relayCtx, clientConn, options.ReadClientFrame, writeClientFrameUpstream, markActivity, clientToUpstreamFrames, onTrace, exitCh)
+		}()
 	}
 	if !options.StartClientAfterFirstDownstream {
 		startClientReader()
@@ -376,7 +384,33 @@ func Relay(
 	// fallback. Join the reader before touching relayState or firing the final
 	// turn callback; otherwise a late read can race Relay's result settlement.
 	<-upstreamDone
+	if clientReaderStarted.Load() {
+		<-clientDone
+	}
 
+	// Staging may already hold terminal usage when a preceding metadata write
+	// fails. Consume only that memory after joining the reader, without more I/O.
+	if buffered, ok := upstreamConn.(bufferedFrameReader); ok {
+		for {
+			msgType, payload, found := buffered.ReadBufferedFrame()
+			if !found {
+				break
+			}
+			if msgType != coderws.MessageText {
+				continue
+			}
+			if options.BeforeWriteClient != nil {
+				// Keep failure attribution before billing; the original exit owns
+				// retry decisions and no buffered frame is written to the client.
+				_ = options.BeforeWriteClient(msgType, payload, combinedWroteDownstream)
+			}
+			eventType := strings.TrimSpace(gjson.GetBytes(payload, "type").String())
+			if shouldFinalizePendingBareError(state, payload, eventType) {
+				emitTurnComplete(options.OnTurnComplete, state, finalizePendingBareError(state, nowFn()))
+			}
+			emitTurnComplete(options.OnTurnComplete, state, observeUpstreamMessage(state, payload, startAt, nowFn, options.OnUsageParseFailure))
+		}
+	}
 	emitTurnComplete(options.OnTurnComplete, state, finalizePendingBareError(state, nowFn()))
 	enrichResult(&result, state, nowFn().Sub(startAt))
 	result.ClientToUpstreamFrames = clientToUpstreamFrames.Load()

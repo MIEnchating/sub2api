@@ -490,14 +490,12 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	}
 
 	buildUpstreamRequest := func(requestBody []byte) (*http.Request, error) {
-		upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
-		defer releaseUpstreamCtx()
 		var upstreamReq *http.Request
 		var buildErr error
 		if account.Platform == PlatformGrok {
-			upstreamReq, buildErr = buildGrokResponsesRequest(upstreamCtx, c, account, requestBody, token, grokCacheIdentity, s.cfg, s.settingService)
+			upstreamReq, buildErr = buildGrokResponsesRequest(ctx, c, account, requestBody, token, grokCacheIdentity, s.cfg, s.settingService)
 		} else {
-			upstreamReq, buildErr = s.buildUpstreamRequestOpenAIPassthrough(upstreamCtx, c, account, requestBody, token)
+			upstreamReq, buildErr = s.buildUpstreamRequestOpenAIPassthrough(ctx, c, account, requestBody, token)
 		}
 		if buildErr != nil {
 			return nil, buildErr
@@ -592,6 +590,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			upstreamMsg = http.StatusText(resp.StatusCode)
 		}
 		shouldFailover := s.shouldFailoverOpenAIUpstreamResponse(account, resp.StatusCode, upstreamMsg, respBody)
+		capacityRetry := isOpenAIRequestScopedCapacityShed(upstreamMsg, respBody) &&
+			!upstreamErrorRetryHasUsage(respBody) && !openAIWSRawPayloadHasToolCallOutput(body)
+		if isOpenAIRequestScopedCapacityShed(upstreamMsg, respBody) && !capacityRetry {
+			shouldFailover = false
+		}
 		if account.Platform == PlatformGrok {
 			shouldFailover = s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody)
 			s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, resolveGrokWSUpstreamModel(account, body, originalModel)), account, resp.StatusCode, resp.Header, respBody)
@@ -601,7 +604,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMsg, false),
 				)
 			}
-		} else if shouldFailover && (turn == 1 || resp.StatusCode == http.StatusTooManyRequests) {
+		} else if shouldFailover && (turn == 1 || resp.StatusCode == http.StatusTooManyRequests || capacityRetry) {
 			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body, respBody)
 		}
 		if account.Platform != PlatformGrok && (shouldFailover || shouldCooldownOpenAITransientUpstreamError(resp.StatusCode, respBody)) {
@@ -634,6 +637,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	upstreamTerminalEvent := ""
 	sawDone := false
 	wroteDownstream := false
+	capacityReplayUnsafe := false
 	pendingClientMessages := make([][]byte, 0, 4)
 	pendingClientMessageBytes := int64(0)
 	capacityFailoverSuppressedLogged := false
@@ -760,6 +764,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			upstreamMessage = normalized
 		}
 		eventType, eventResponseID, _ := parseOpenAIWSEventEnvelope(upstreamMessage)
+		capacityReplayUnsafe = capacityReplayUnsafe || upstreamErrorRetryHasUsage(upstreamMessage)
 		responseModelObserver.ObserveOpenAI(upstreamMessage, eventType)
 		if responseID == "" && eventResponseID != "" {
 			responseID = eventResponseID
@@ -826,6 +831,11 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				}
 			}
 			requestScopedCapacity := isOpenAIUpstreamCapacityShedEvent(upstreamMessage)
+			capacityRetry := requestScopedCapacity && !capacityReplayUnsafe &&
+				!openAIUsageHasTokens(&usage) && !openAIWSRawPayloadHasToolCallOutput(body)
+			if requestScopedCapacity && !capacityRetry {
+				shouldFailover = false
+			}
 			if account.Platform == PlatformGrok && eventType == "error" {
 				// SSE error events do not carry an HTTP status. The local status
 				// mapper therefore defaults unknown xAI codes (for example
@@ -838,7 +848,8 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					s.handleGrokAccountUpstreamError(ctx, account, statusCode, resp.Header, upstreamMessage)
 				}
 			}
-			if !wroteDownstream && shouldFailover && (turn == 1 || statusCode == http.StatusTooManyRequests) {
+			retryBeforeOutput := !wroteDownstream && (turn == 1 || len(pendingClientMessages) == 0 || capacityRetry)
+			if retryBeforeOutput && shouldFailover && (turn == 1 || statusCode == http.StatusTooManyRequests || capacityRetry) {
 				if account.Platform == PlatformGrok {
 					return nil, newOpenAIUpstreamFailoverError(statusCode, resp.Header, upstreamMessage, errMessage, false)
 				}
@@ -876,12 +887,15 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 		}
 		if !clientDisconnected && !suppressClientMessage {
-			stageBeforeSemanticOutput := turn == 1 && account.Platform == PlatformOpenAI && !wroteDownstream
+			stageBeforeSemanticOutput := account.Platform == PlatformOpenAI && !wroteDownstream
 			commitStagedMessages := !stageBeforeSemanticOutput ||
-				openAIStreamDataStartsClientOutput(string(clientMessage), eventType) ||
+				openAIWSCommitsCapacityAttempt(clientMessage, eventType) ||
 				isOpenAIWSTerminalEvent(eventType)
 			if stageBeforeSemanticOutput && !commitStagedMessages {
 				if pendingClientMessageBytes+int64(len(clientMessage)) > openAIFirstOutputStageMaxBytes {
+					if turn > 1 {
+						return nil, errors.New("OpenAI websocket first-output staging limit exceeded")
+					}
 					return nil, s.newOpenAIStreamFailoverError(
 						c,
 						account,

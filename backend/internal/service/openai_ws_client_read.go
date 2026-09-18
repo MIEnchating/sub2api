@@ -31,6 +31,7 @@ func ReadOpenAIWSClientMessage(
 		timeoutReason,
 		nil,
 		nil,
+		nil,
 	)
 }
 
@@ -45,6 +46,7 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	timeoutReason string,
 	timeoutStart <-chan struct{},
 	timeoutActive func() bool,
+	attemptCtx context.Context,
 ) (coderws.MessageType, []byte, error) {
 	if conn == nil {
 		return 0, nil, errors.New("openai websocket client connection is nil")
@@ -53,11 +55,22 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 		controlCtx = context.Background()
 	}
 
+	session := openAIWSClientSessionFromContext(controlCtx, conn)
 	readDone := make(chan openAIWSClientReadResult, 1)
-	go func() {
-		messageType, payload, err := conn.Read(context.Background())
-		readDone <- openAIWSClientReadResult{messageType: messageType, payload: payload, err: err}
-	}()
+	var sessionDone <-chan struct{}
+	var attemptDone <-chan struct{}
+	if session != nil {
+		readDone = session.frames
+		sessionDone = session.done
+		if attemptCtx != nil {
+			attemptDone = attemptCtx.Done()
+		}
+	} else {
+		go func() {
+			messageType, payload, err := conn.Read(context.Background())
+			readDone <- openAIWSClientReadResult{messageType: messageType, payload: payload, err: err}
+		}()
+	}
 
 	var timer *time.Timer
 	var timeoutCh <-chan time.Time
@@ -90,28 +103,66 @@ func readOpenAIWSClientMessageWithTimeoutStart(
 	closeAndJoin := func(status coderws.StatusCode, reason string, cause error) (coderws.MessageType, []byte, error) {
 		_ = conn.Close(status, reason)
 		_ = conn.CloseNow()
-		<-readDone
+		if session != nil {
+			<-session.done
+		} else {
+			<-readDone
+		}
 		return 0, nil, NewOpenAIWSClientCloseError(status, reason, cause)
+	}
+	closeForControlCancellation := func() (coderws.MessageType, []byte, error) {
+		if session != nil {
+			select {
+			case <-session.done:
+				return 0, nil, session.readErr
+			default:
+			}
+		}
+		cause := context.Cause(controlCtx)
+		if errors.Is(cause, ErrOpenAIWSIngressLeaseLost) {
+			return closeAndJoin(coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect", cause)
+		}
+		return closeAndJoin(coderws.StatusGoingAway, "websocket request canceled", cause)
 	}
 
 	for {
+		if attemptDone != nil && attemptCtx.Err() != nil && controlCtx.Err() == nil {
+			return 0, nil, attemptCtx.Err()
+		}
+		if session != nil {
+			select {
+			case <-session.done:
+				return 0, nil, session.readErr
+			default:
+			}
+		}
 		select {
 		case result := <-readDone:
+			if session != nil {
+				session.pendingBytes.Add(-int64(len(result.payload)))
+				select {
+				case <-session.done:
+					return 0, nil, session.readErr
+				default:
+				}
+				if err := controlCtx.Err(); err != nil {
+					return 0, nil, err
+				}
+			}
 			return result.messageType, result.payload, result.err
+		case <-sessionDone:
+			return 0, nil, session.readErr
 		case <-timeoutStart:
 			startTimeout()
 		case <-timeoutCh:
 			return closeAndJoin(timeoutStatus, timeoutReason, context.DeadlineExceeded)
-		case <-controlCtx.Done():
-			cause := context.Cause(controlCtx)
-			if errors.Is(cause, ErrOpenAIWSIngressLeaseLost) {
-				return closeAndJoin(
-					coderws.StatusTryAgainLater,
-					"websocket ingress capacity lease lost; please reconnect",
-					cause,
-				)
+		case <-attemptDone:
+			if controlCtx.Err() != nil {
+				return closeForControlCancellation()
 			}
-			return closeAndJoin(coderws.StatusGoingAway, "websocket request canceled", cause)
+			return 0, nil, attemptCtx.Err()
+		case <-controlCtx.Done():
+			return closeForControlCancellation()
 		}
 	}
 }

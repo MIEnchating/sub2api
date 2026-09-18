@@ -94,6 +94,7 @@ type openAIWSIngressTurnError struct {
 	stage           string
 	cause           error
 	wroteDownstream bool
+	retryUnsafe     bool
 }
 
 type openAIWSCurrentTurnFailoverError struct {
@@ -168,7 +169,7 @@ func isOpenAIWSIngressTurnRetryable(err error) bool {
 	if errors.Is(turnErr.cause, context.Canceled) || errors.Is(turnErr.cause, context.DeadlineExceeded) {
 		return false
 	}
-	if turnErr.wroteDownstream {
+	if turnErr.wroteDownstream || turnErr.retryUnsafe {
 		return false
 	}
 	switch turnErr.stage {

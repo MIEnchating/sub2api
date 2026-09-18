@@ -86,6 +86,34 @@ func TestSameAccountRetryAllowedRequiresOptInAndDefaultsToCountLimit(t *testing.
 	require.False(t, sameAccountRetryAllowed(err, maxSameAccountRetries, maxSameAccountRetries))
 }
 
+func TestRequestScopedCapacityRetryHonorsAccountBudget(t *testing.T) {
+	failoverErr := &service.UpstreamFailoverError{
+		StatusCode:             http.StatusServiceUnavailable,
+		RetryableOnSameAccount: true,
+		RequestScopedTransient: true,
+	}
+	for _, tc := range []struct {
+		name    string
+		account *service.Account
+		want    int
+	}{
+		{name: "OAuth default", account: &service.Account{Type: service.AccountTypeOAuth}, want: 3},
+		{name: "pool default", account: &service.Account{Type: service.AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true}}, want: 3},
+		{name: "disabled", account: &service.Account{Type: service.AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true, "pool_mode_retry_count": 0}}},
+		{name: "configured", account: &service.Account{Type: service.AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true, "pool_mode_retry_count": 2}}, want: 2},
+		{name: "capped", account: &service.Account{Type: service.AccountTypeAPIKey, Credentials: map[string]any{"pool_mode": true, "pool_mode_retry_count": 100}}, want: 10},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			limit := effectiveSameAccountRetryLimit(failoverErr, tc.account)
+			require.Equal(t, tc.want, limit)
+			if limit > 0 {
+				require.True(t, sameAccountRetryAllowed(failoverErr, limit-1, limit))
+			}
+			require.False(t, sameAccountRetryAllowed(failoverErr, limit, limit))
+		})
+	}
+}
+
 func TestSameAccountRetryAllowedPreservesOfficialRetryAfterTransparentBudget(t *testing.T) {
 	err := &service.UpstreamFailoverError{
 		StatusCode:               http.StatusTooManyRequests,

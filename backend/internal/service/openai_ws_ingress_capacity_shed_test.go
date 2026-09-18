@@ -38,7 +38,7 @@ func (r *openAIWSIngressCapacityShedRepo) UpdateExtra(context.Context, int64, ma
 // 客户端会打印 "Selected model is at capacity" 并直接终止会话而不是退避重试。
 //
 // 第二个用例锁住改写范围：非容量类错误码必须原样下发，客户端依赖原码各自处理。
-func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeForClient(t *testing.T) {
+func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeAfterOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	tests := []struct {
@@ -86,7 +86,7 @@ func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeForClient(t *
 			cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
 			cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
-			events := make([][]byte, 0, len(tt.upstreamEvents))
+			events := [][]byte{[]byte(`{"type":"response.output_text.delta","delta":"partial"}`)}
 			for _, event := range tt.upstreamEvents {
 				events = append(events, append([]byte(nil), event...))
 			}
@@ -155,7 +155,7 @@ func TestProxyResponsesWebSocketFromClient_RewritesCapacityShedCodeForClient(t *
 			require.NoError(t, err)
 
 			var frames []string
-			for len(frames) < len(tt.upstreamEvents) {
+			for len(frames) < len(tt.upstreamEvents)+1 {
 				readCtx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 				_, message, readErr := clientConn.Read(readCtx)
 				cancel()

@@ -2383,6 +2383,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		_ = wsConn.CloseNow()
 	}()
 	wsConn.SetReadLimit(service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
+	ctx, stopClientSession := service.BeginOpenAIWSClientSession(ctx, wsConn, service.ResolveOpenAIWSClientReadLimitBytes(h.cfg))
+	defer stopClientSession()
+	c.Request = c.Request.WithContext(ctx)
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
 	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
@@ -2574,19 +2577,46 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	var lastFailoverErr *service.UpstreamFailoverError
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	wsAttemptMessage := append([]byte(nil), firstMessage...)
+	capacityRetryWindow := openAIWSCapacityRetryWindow{}
 	waitForWSSameAccountRetry := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
-		if claimed, _ := service.TryConfiguredUpstreamErrorRetry(ctx, failoverErr); claimed {
+		if ctx.Err() != nil {
+			return false
+		}
+		capacityFailure := failoverErr.IsOpenAICapacityShed()
+		if capacityFailure && !capacityRetryWindow.allow(time.Now(), 0) {
+			failoverErr.NextAccountAction = service.NextAccountStop
+			return false
+		}
+		retryCtx := ctx
+		cancelRetry := func() {}
+		if capacityFailure {
+			retryCtx, cancelRetry = context.WithDeadline(ctx, capacityRetryWindow.deadline)
+		}
+		claimed, retryErr := service.TryConfiguredUpstreamErrorRetry(retryCtx, failoverErr)
+		cancelRetry()
+		if claimed {
+			if retryErr != nil {
+				failoverErr.NextAccountAction = service.NextAccountStop
+				return false
+			}
 			return ctx.Err() == nil
 		}
-		if account == nil || failoverErr == nil || failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero() {
+		if account == nil || failoverErr == nil {
+			return false
+		}
+		if !failoverErr.IsOpenAICapacityShed() && (failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero()) {
 			return false
 		}
 		retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 		if !sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
 			return false
 		}
+		retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID]+1)
+		if capacityFailure && !capacityRetryWindow.allow(time.Now(), retryDelay) {
+			failoverErr.NextAccountAction = service.NextAccountStop
+			return false
+		}
 		sameAccountRetryCount[account.ID]++
-		retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
 		reqLog.Warn("openai.websocket.same_account_retry",
 			zap.Int64("account_id", account.ID),
 			zap.Int("upstream_status", failoverErr.StatusCode),
@@ -2608,6 +2638,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, wsForwardModel, false, nil), false, nil, failoverErr)
 		}
 		releaseAccountSlot()
+		if failoverErr.IsOpenAICapacityShed() && !capacityRetryWindow.allow(time.Now(), 0) {
+			failoverErr.NextAccountAction = service.NextAccountStop
+		}
 		if !failoverErr.ShouldRetryNextAccount() {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 			return false
@@ -2934,6 +2967,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return nil
 			},
 			AfterTurn: func(turn int, result *service.OpenAIForwardResult, turnErr error) {
+				if turnErr == nil && result != nil {
+					capacityRetryWindow.deadline = time.Time{}
+					clear(sameAccountRetryCount)
+				}
 				turnStart := getTurnStart(turn)
 				cyberBlockBody := takeCyberTurnBody(turn)
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
@@ -3061,6 +3098,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
+			if capacityRetryWindow.expired(time.Now()) {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "upstream service temporarily unavailable")
+				return
+			}
 			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))

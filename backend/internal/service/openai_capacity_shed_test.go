@@ -16,6 +16,124 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+const openAIServiceBusyFailedEvent = `{"request_id":"713b7521-f8ba-4d7f-b2bd-76f91a4e7cd9","response":{"created_at":1789562042,"error":{"code":"server_error","message":"The service is busy. Please retry later.","request_id":"713b7521-f8ba-4d7f-b2bd-76f91a4e7cd9","type":"server_error"},"id":"resp_03295dfe983e821d016aaa8cb9e5b087d1a8c25de256f22b57","model":"gpt-5.6-sol","object":"response","status":"failed"},"sequence_number":3,"type":"response.failed"}`
+
+func TestOpenAIServiceBusyBeforeOutputReturnsCapacityFailover(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, passthrough := range []bool{false, true} {
+		for _, accountType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
+			name := accountType + "/native"
+			if passthrough {
+				name = accountType + "/passthrough"
+			}
+			t.Run(name, func(t *testing.T) {
+				repo := &capacityShedAccountRepoStub{}
+				cache := &openAIAPIKeyHealthCacheStub{tripped: true}
+				settings := NewSettingService(&openAIAPIKeyHealthSettingRepo{
+					value: `{"enabled":true,"window_minutes":1,"failure_threshold":1,"cooldown_minutes":5}`,
+				}, &config.Config{})
+				rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, cache)
+				rateLimits.SetSettingService(settings)
+				rateLimits.SetOpenAIAPIKeyHealthCache(cache)
+				svc := &OpenAIGatewayService{
+					cfg:              &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}},
+					rateLimitService: rateLimits,
+				}
+				account := &Account{ID: 42, Platform: PlatformOpenAI, Type: accountType, Credentials: map[string]any{"pool_mode": true}}
+				rec, err := runOpenAIServiceBusyStream(t, svc, account, passthrough, false)
+
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.Equal(t, http.StatusServiceUnavailable, failoverErr.StatusCode)
+				require.Equal(t, http.StatusServiceUnavailable, failoverErr.ClientStatusCode)
+				require.Equal(t, "The service is busy. Please retry later.", failoverErr.ClientMessage)
+				require.True(t, failoverErr.RetryableOnSameAccount)
+				require.True(t, failoverErr.RequestScopedTransient)
+				require.True(t, failoverErr.IsOpenAICapacityShed())
+				require.True(t, failoverErr.ShouldRetryNextAccount())
+				require.True(t, failoverErr.SameAccountRetryDeadline.IsZero())
+				require.False(t, failoverErr.IsCredentialFailure())
+				require.JSONEq(t, openAIServiceBusyFailedEvent, string(failoverErr.ResponseBody))
+				require.Empty(t, rec.Body.String())
+
+				(&GatewayService{accountRepo: repo}).TempUnscheduleRetryableError(context.Background(), account.ID, failoverErr)
+				require.False(t, rateLimits.ObserveOpenAIAPIKeyHealthFailure(context.Background(), account, failoverErr))
+				require.Zero(t, repo.tempUnschedCalls)
+				require.Zero(t, cache.recordCalls)
+				require.Zero(t, cache.setCalls)
+				require.Nil(t, account.TempUnschedulableUntil)
+			})
+		}
+	}
+}
+
+func TestOpenAIServiceBusyAfterOutputDoesNotFailOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, passthrough := range []bool{false, true} {
+		name := "native"
+		if passthrough {
+			name = "passthrough"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+			account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+			rec, err := runOpenAIServiceBusyStream(t, svc, account, passthrough, true)
+
+			require.Error(t, err)
+			var failoverErr *UpstreamFailoverError
+			require.False(t, errors.As(err, &failoverErr))
+			require.Contains(t, rec.Body.String(), `"delta":"partial"`)
+			require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed"))
+			require.Contains(t, rec.Body.String(), "The service is busy. Please retry later.")
+		})
+	}
+}
+
+func TestOpenAIServiceBusyCapacityRequiresTheKnownErrorMessage(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want bool
+	}{
+		{name: "exact upstream event", body: openAIServiceBusyFailedEvent, want: true},
+		{name: "normalized known message", body: `{"error":{"message":"  THE SERVICE IS BUSY. PLEASE RETRY LATER.  "}}`, want: true},
+		{name: "unrelated busy error", body: `{"error":{"message":"The account is busy. Please retry later."}}`},
+		{name: "other service failure", body: `{"error":{"message":"The service is busy processing an invalid request."}}`},
+		{name: "quoted request content", body: `{"error":{"message":"Invalid request"},"request":{"input":"The service is busy. Please retry later."}}`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			require.Equal(t, tc.want, isOpenAIRequestScopedCapacityShed("", []byte(tc.body)))
+		})
+	}
+}
+
+func runOpenAIServiceBusyStream(t *testing.T, svc *OpenAIGatewayService, account *Account, passthrough, outputStarted bool) (*httptest.ResponseRecorder, error) {
+	t.Helper()
+	stream := "event: response.created\ndata: {\"type\":\"response.created\",\"response\":{\"id\":\"resp_busy\"}}\n\n"
+	if outputStarted {
+		stream += "event: response.output_text.delta\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"
+	}
+	stream += "event: response.failed\ndata: " + openAIServiceBusyFailedEvent + "\n\n"
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+	resp := &http.Response{
+		StatusCode: http.StatusOK,
+		Body:       io.NopCloser(strings.NewReader(stream)),
+		Header:     http.Header{"X-Request-Id": []string{"713b7521-f8ba-4d7f-b2bd-76f91a4e7cd9"}},
+	}
+	var err error
+	if passthrough {
+		_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+	} else {
+		_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "gpt-5.6-sol", "gpt-5.6-sol")
+	}
+	if !outputStarted {
+		require.False(t, c.Writer.Written())
+	}
+	return rec, err
+}
+
 // --- mock: 只记录临时不可调度写入，其余方法不应被调用 ---
 
 type capacityShedAccountRepoStub struct {

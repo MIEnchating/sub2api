@@ -1886,6 +1886,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	capacityFailoverSuppressedLogged := false
 	failedMessage := ""
 	clientOutputStarted := false
+	capacityReplayUnsafe := false
 	codexFailureTerminal := account != nil && account.Platform == PlatformOpenAI
 	failureDelivered := false
 	suppressCurrentEvent := false
@@ -2012,6 +2013,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			trimmedData := strings.TrimSpace(data)
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
+			capacityReplayUnsafe = capacityReplayUnsafe || upstreamErrorRetryHasUsage(dataBytes)
 			if needModelReplace && strings.Contains(data, mappedModel) {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
@@ -2081,7 +2083,8 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 						UpstreamOutTok: usage.OutputTokens,
 					})
 				}
-				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted)
+				outputStarted := openAIStreamClientOutputStarted(c, clientOutputStarted) ||
+					(isOpenAIUpstreamCapacityShedEvent(dataBytes) && capacityReplayUnsafe)
 				if !outputStarted && !cyberHit {
 					if compactErr := newOpenAICompactFallbackSignal(c, dataBytes, failedMessage); compactErr != nil {
 						return resultWithUsage(), compactErr

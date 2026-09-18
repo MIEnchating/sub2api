@@ -574,6 +574,7 @@ func TestOpenAIWSPassthroughTurnLifecycle_SerializesTerminalCommitAndNextTurn(t 
 func TestPassthroughLifecycle_LeaseLossSendsRetryClose(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	controlCtx, cancelControl := context.WithCancelCause(context.Background())
+	defer cancelControl(context.Canceled)
 	upstream := newStagedPassthroughConn()
 	upstream.Send(`{"type":"response.created","response":{"id":"resp_lease","model":"gpt-5.1"}}`)
 	server, serverErr := startPassthroughLifecycleServer(t, controlCtx, newPassthroughLifecycleService(passthroughLifecycleConfig(), upstream), passthroughLifecycleAccount())
@@ -581,12 +582,10 @@ func TestPassthroughLifecycle_LeaseLossSendsRetryClose(t *testing.T) {
 	clientConn := dialPassthroughLifecycleClient(t, server)
 	defer func() { _ = clientConn.CloseNow() }()
 
-	event, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
-	require.NoError(t, err)
-	require.Equal(t, "response.created", gjson.GetBytes(event, "type").String())
+	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
 	cancelControl(ErrOpenAIWSIngressLeaseLost)
 
-	_, err = readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
+	_, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
 	var closeErr coderws.CloseError
 	require.ErrorAs(t, err, &closeErr)
 	require.Equal(t, coderws.StatusTryAgainLater, closeErr.Code)
@@ -668,11 +667,8 @@ func TestPassthroughLifecycle_PreambleAllowsPromptClientCancel(t *testing.T) {
 	defer func() { _ = clientConn.CloseNow() }()
 	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
 
-	created, err := readPassthroughLifecycleFrame(t, clientConn, time.Second)
-	require.NoError(t, err)
-	require.Equal(t, "response.created", gjson.GetBytes(created, "type").String())
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
-	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.cancel","response_id":"resp_cancel"}`))
+	err := clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.cancel"}`))
 	cancelWrite()
 	require.NoError(t, err)
 	cancelFrame := requirePassthroughUpstreamWrite(t, upstream, 500*time.Millisecond)
@@ -700,11 +696,8 @@ func TestPassthroughLifecycle_RejectsOverlappingResponseCreate(t *testing.T) {
 	defer func() { _ = clientConn.CloseNow() }()
 	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
 
-	created, err := readPassthroughLifecycleFrame(t, clientConn, time.Second)
-	require.NoError(t, err)
-	require.Equal(t, "response.created", gjson.GetBytes(created, "type").String())
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), time.Second)
-	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1"}`))
+	err := clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1"}`))
 	cancelWrite()
 	require.NoError(t, err)
 
@@ -842,10 +835,8 @@ func TestPassthroughLifecycle_ResponseCreatedTimeoutClosesWithoutFailover(t *tes
 	clientConn := dialPassthroughLifecycleClient(t, server)
 	defer func() { _ = clientConn.CloseNow() }()
 
-	created, err := readPassthroughLifecycleFrame(t, clientConn, 3*time.Second)
-	require.NoError(t, err)
-	require.Equal(t, "response.created", gjson.GetBytes(created, "type").String())
-	_, err = readPassthroughLifecycleFrame(t, clientConn, 2500*time.Millisecond)
+	require.Equal(t, "response.create", gjson.GetBytes(requirePassthroughUpstreamWrite(t, upstream, time.Second), "type").String())
+	_, err := readPassthroughLifecycleFrame(t, clientConn, 2500*time.Millisecond)
 	var websocketCloseErr coderws.CloseError
 	require.ErrorAs(t, err, &websocketCloseErr)
 	require.Equal(t, coderws.StatusGoingAway, websocketCloseErr.Code)
@@ -861,6 +852,7 @@ func TestPassthroughLifecycle_ResponseCreatedTimeoutClosesWithoutFailover(t *tes
 	case <-time.After(2500 * time.Millisecond):
 		t.Fatal("response.created timeout did not close the passthrough connection")
 	}
+	require.Empty(t, upstream.writes, "accepted metadata followed by an uncertain timeout must not replay the request")
 }
 
 func TestPassthroughLifecycle_SecondTurnTimeoutIsNotFailoverSafe(t *testing.T) {
