@@ -14,7 +14,7 @@ func TestPrismDuplicateDoesNotCopySessionOrOptIn(t *testing.T) {
 	source := newPrismTestAccount()
 	source.Name = "source"
 	source.Type = AccountTypeAPIKey // Disabled settings may remain on older account types.
-	source.Extra[PrismExtraKey].(map[string]any)["enabled"] = false
+	prismExtraForTest(source)["enabled"] = false
 	source.Credentials[PrismCookieConfiguredCredentialKey] = true
 	require.NoError(t, repo.Create(context.Background(), source))
 	svc := &adminServiceImpl{accountRepo: repo, accountDuplicateRepo: repo}

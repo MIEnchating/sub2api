@@ -357,7 +357,7 @@ func TestPrismGatewayStreamingAdapters(t *testing.T) {
 					require.Equal(t, want[i], event["type"])
 					require.Equal(t, float64(i), event["sequence_number"])
 				}
-				completed := events[len(events)-1]["response"].(map[string]any)
+				completed := requireStringAnyMap(t, events[len(events)-1]["response"])
 				require.Nil(t, completed["usage"])
 				require.Equal(t, "completed", completed["status"])
 			}

@@ -10,10 +10,11 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func protectionTransportAccount() *Account {
+func protectionTransportAccount(t *testing.T) *Account {
+	t.Helper()
 	a := protectedPoolKeyTestAccount(AntiDegradeModeTLSNode24, "nodejs24")
 	a.Concurrency = 3
-	a.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["max_concurrency"] = 8
+	requireStringAnyMap(t, a.Extra[AntiDegradeMarkerExtraKey])["max_concurrency"] = 8
 	a.Extra[codexFingerprintModeExtraKey] = "device"
 	a.Extra[codexFingerprintSeedExtraKey] = testCodexFingerprintSeed
 	a.Extra["enable_tls_fingerprint"] = true
@@ -39,8 +40,8 @@ func TestProtectionHTTPTransportKeepsPluginPolicyAndTLSKillSwitch(t *testing.T) 
 				path = "account-test/"
 			}
 			t.Run(path+tc.name, func(t *testing.T) {
-				a := protectionTransportAccount()
-				a.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["enabled"] = tc.protected
+				a := protectionTransportAccount(t)
+				requireStringAnyMap(t, a.Extra[AntiDegradeMarkerExtraKey])["enabled"] = tc.protected
 				cfg := &config.Config{}
 				cfg.Gateway.TLSFingerprint.Enabled = tc.tls
 				manager := &PluginManager{}
@@ -99,7 +100,7 @@ func TestProtectionWSConnectionReuseTracksActualTransport(t *testing.T) {
 			dialer := &protectionTLSCaptureDialer{}
 			pool.setClientDialerForTest(dialer)
 			req := openAIWSAcquireRequest{
-				Account: protectionTransportAccount(),
+				Account: protectionTransportAccount(t),
 				WSURL:   "wss://example.com/v1/responses",
 				Headers: http.Header{"Conversation_id": []string{"first"}},
 			}
@@ -135,13 +136,13 @@ func TestProtectionWSConnectionReuseTracksActualTransport(t *testing.T) {
 }
 
 func TestProtectionWSCompatibilityUsesProfileContents(t *testing.T) {
-	req := openAIWSAcquireRequest{Account: protectionTransportAccount(), WSURL: "wss://example.com/v1/responses"}
+	req := openAIWSAcquireRequest{Account: protectionTransportAccount(t), WSURL: "wss://example.com/v1/responses"}
 	req.protectionTLSProfile = &tlsfingerprint.Profile{Name: "same-name", CipherSuites: []uint16{0x1301}}
 	first := openAIWSAcquireCompatibility(req)
 	req.protectionTLSProfile = &tlsfingerprint.Profile{Name: "same-name", CipherSuites: []uint16{0x1302}}
 	require.NotEqual(t, first, openAIWSAcquireCompatibility(req))
 
-	req.Account.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["enabled"] = false
+	requireStringAnyMap(t, req.Account.Extra[AntiDegradeMarkerExtraKey])["enabled"] = false
 	first = openAIWSAcquireCompatibility(req)
 	req.WSURL = "wss://other.example.com/v1/responses"
 	req.protectionTLSProfile = nil
@@ -155,18 +156,19 @@ func TestProtectionWSRejectsMalformedStrategyBeforeReusingConnection(t *testing.
 	pool := newOpenAIWSConnPool(cfg)
 	defer pool.Close()
 	pool.setClientDialerForTest(&openAIWSFakeDialer{})
-	req := openAIWSAcquireRequest{Account: protectionTransportAccount(), WSURL: "wss://example.com/v1/responses"}
+	req := openAIWSAcquireRequest{Account: protectionTransportAccount(t), WSURL: "wss://example.com/v1/responses"}
 	lease, err := pool.Acquire(context.Background(), req)
 	require.NoError(t, err)
 	lease.Release()
-	req.Account.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["max_concurrency"] = 0
+	requireStringAnyMap(t, req.Account.Extra[AntiDegradeMarkerExtraKey])["max_concurrency"] = 0
 	lease, err = pool.Acquire(context.Background(), req)
 	require.Error(t, err)
 	require.Nil(t, lease)
 }
 
 func TestProtectionWSHTTPTransportDoesNotReuseChangedTLSProfile(t *testing.T) {
-	dialer := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	dialer, ok := newDefaultOpenAIWSClientDialer().(*coderOpenAIWSClientDialer)
+	require.True(t, ok)
 	firstProfile := &tlsfingerprint.Profile{Name: "same-name", CipherSuites: []uint16{0x1301}}
 	first, err := dialer.proxyHTTPClient("", firstProfile)
 	require.NoError(t, err)

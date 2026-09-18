@@ -37,7 +37,7 @@ func TestCapacityRecoveryWSRetriesOnlyCurrentTextTurn(t *testing.T) {
 					if err != nil {
 						return
 					}
-					defer conn.CloseNow()
+					defer func() { _ = conn.CloseNow() }()
 					ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 					defer cancel()
 					for {
@@ -66,7 +66,7 @@ func TestCapacityRecoveryWSRetriesOnlyCurrentTextTurn(t *testing.T) {
 			defer cancel()
 			client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 			require.NoError(t, err)
-			defer client.CloseNow()
+			defer func() { _ = client.CloseNow() }()
 			for _, request := range []string{
 				`{"type":"response.create","model":"gpt-5","input":[{"role":"user","content":"first question"}]}`,
 				`{"type":"response.create","model":"gpt-5","previous_response_id":"resp_ok","input":[{"role":"user","content":"second question"}]}`,
@@ -124,7 +124,7 @@ func TestCapacityRecoveryWSDoesNotReplayConsumedTurn(t *testing.T) {
 				defer cancel()
 				client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 				require.NoError(t, err)
-				defer client.CloseNow()
+				defer func() { _ = client.CloseNow() }()
 				request := tc.request
 				if request == "" {
 					request = `{"type":"response.create","model":"gpt-5","input":"hello"}`
@@ -155,7 +155,7 @@ func TestCapacityRecoveryWSPassthroughDoesNotReplayAnEarlierTurn(t *testing.T) {
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		for {
 			if _, _, err := conn.Read(r.Context()); err != nil {
 				return
@@ -177,7 +177,7 @@ func TestCapacityRecoveryWSPassthroughDoesNotReplayAnEarlierTurn(t *testing.T) {
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	for _, eventType := range []string{"response.completed", "response.failed"} {
 		require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5","input":"hello"}`)))
 		_, payload, err := client.Read(ctx)

@@ -318,7 +318,7 @@ WHERE a.deleted_at IS NULL
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	var out []accountHealthRow
 	for rows.Next() {
 		var row accountHealthRow

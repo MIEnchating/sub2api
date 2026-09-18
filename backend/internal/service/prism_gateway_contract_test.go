@@ -63,7 +63,7 @@ func TestPrismRejectsUnsupportedEntrypointsWithoutCodexCredentials(t *testing.T)
 	account.Credentials["access_token"] = "original-token"
 	svc := &OpenAIGatewayService{}
 	_, _, err := svc.GetAccessToken(context.Background(), account)
-	require.ErrorContains(t, err, "Prism")
+	require.Contains(t, strings.ToLower(err.Error()), "prism")
 	for _, endpoint := range []string{"messages", "input_tokens", "count_tokens", "images"} {
 		t.Run(endpoint, func(t *testing.T) {
 			rec := httptest.NewRecorder()

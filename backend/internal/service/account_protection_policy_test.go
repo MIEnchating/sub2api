@@ -52,7 +52,7 @@ func TestDisablingAccountProtectionRestoresConfiguredConcurrency(t *testing.T) {
 	if got := EffectiveAccountConcurrency(a, 3); got != 1 {
 		t.Fatalf("adaptive limit after failures = %d, want 1", got)
 	}
-	a.Extra[AccountProtectionPolicyKey].(map[string]any)["enabled"] = false
+	requireStringAnyMap(t, a.Extra[AccountProtectionPolicyKey])["enabled"] = false
 	if got := EffectiveAccountConcurrency(a, 3); got != 3 {
 		t.Fatalf("disabled protection retained runtime limit %d, want configured 3", got)
 	}

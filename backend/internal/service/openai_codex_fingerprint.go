@@ -98,7 +98,7 @@ func applyStagedCodexFingerprintClientMetadata(c *gin.Context, account *Account,
 // 初始化账号级指纹快照。快照放在 gin context 中，保证同一轮请求的请求体和
 // 握手头使用同一份 IDs；已有快照则复用，避免 session/full 模式生成两套随机 ID。
 func ensureStagedCodexFingerprintIDs(c *gin.Context, account *Account, enabled bool) *codexFingerprintIDs {
-	if account == nil || (!account.IsOpenAIOAuth() && !(account.IsOpenAIOAuthLike() && account.IdentityProtectionEnabled())) {
+	if account == nil || (!account.IsOpenAIOAuth() && (!account.IsOpenAIOAuthLike() || !account.IdentityProtectionEnabled())) {
 		return nil
 	}
 	if ids := stagedCodexFingerprintIDs(c, account); ids != nil {
@@ -154,7 +154,7 @@ const (
 // mode follow the same single-machine default as the request identity path.
 // Explicit off/device/session/full modes keep their existing TLS behavior.
 func resolveCodexMacTLSProfile(account *Account) *tlsfingerprint.Profile {
-	if account == nil || (!account.IsOpenAIOAuth() && !(account.IsOpenAIOAuthLike() && account.IdentityProtectionEnabled())) {
+	if account == nil || (!account.IsOpenAIOAuth() && (!account.IsOpenAIOAuthLike() || !account.IdentityProtectionEnabled())) {
 		return nil
 	}
 	mode, _ := resolveCodexFingerprintMode(account, true)
@@ -298,7 +298,7 @@ func (a *Account) GetCodexFingerprintMode() codexFingerprintMode {
 // per-account value always wins; when the global switch is enabled and the
 // account has no mode key, device-level convergence is enabled by default.
 func resolveCodexFingerprintMode(account *Account, _ bool) (codexFingerprintMode, bool) {
-	if account == nil || (!account.IsOpenAIOAuth() && !(account.IsOpenAIOAuthLike() && account.IdentityProtectionEnabled())) {
+	if account == nil || (!account.IsOpenAIOAuth() && (!account.IsOpenAIOAuthLike() || !account.IdentityProtectionEnabled())) {
 		return codexFingerprintOff, false
 	}
 	if account.Extra != nil {

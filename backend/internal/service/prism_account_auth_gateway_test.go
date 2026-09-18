@@ -11,7 +11,7 @@ import (
 )
 
 func enablePrismAccountAuthFixture(svc *OpenAIGatewayService, account *Account, upstream *prismGatewayUpstream) {
-	account.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = PrismAuthModeAccount
+	prismExtraForTest(account)["auth_mode"] = PrismAuthModeAccount
 	account.Credentials["access_token"] = "synthetic-private-stale-access"
 	account.Credentials["chatgpt_user_id"] = "synthetic-user"
 	// Keep the old manual Cookie saved, to prove it is ignored in account mode.

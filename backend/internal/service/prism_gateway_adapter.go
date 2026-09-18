@@ -42,7 +42,7 @@ func (t prismAccountTransport) Do(req *http.Request) (*http.Response, error) {
 
 func newPrismAccountClient(upstream HTTPUpstream, cfg *config.Config, account *Account, tokenProvider *OpenAITokenProvider) (*prism.Client, error) {
 	if upstream == nil {
-		return nil, errors.New("Prism transport is unavailable")
+		return nil, errors.New("prism transport is unavailable")
 	}
 	if err := ValidatePrismAccountConfiguration(account); err != nil {
 		return nil, err
@@ -52,15 +52,15 @@ func newPrismAccountClient(upstream HTTPUpstream, cfg *config.Config, account *A
 		return nil, err
 	}
 	if !prismConfig.Enabled {
-		return nil, errors.New("Prism is disabled for this account")
+		return nil, errors.New("prism is disabled for this account")
 	}
 	// Never silently connect directly if a selected proxy was not hydrated.
 	if account.ProxyID != nil && account.Proxy == nil {
-		return nil, errors.New("Prism account proxy is unavailable")
+		return nil, errors.New("prism account proxy is unavailable")
 	}
 	profile, err := resolveAccountTLSProfileForOpenAI(account, cfg)
 	if err != nil {
-		return nil, errors.New("Prism account transport configuration is invalid")
+		return nil, errors.New("prism account transport configuration is invalid")
 	}
 	cookie, _ := account.Credentials[PrismCookieCredentialKey].(string)
 	opts := prism.Options{
@@ -97,6 +97,12 @@ type prismIncomingRequest struct {
 type prismRequestError struct{ param, message string }
 
 func (e *prismRequestError) Error() string { return e.message }
+
+func prismProblemString(problem gin.H, key string) string {
+	value, _ := problem[key].(string)
+	return value
+}
+
 func prismUnsupported(param string) error {
 	return &prismRequestError{param, "Prism text mode does not support this parameter or content; send the complete text conversation without tools, media, or server-side continuation"}
 }
@@ -279,7 +285,7 @@ func parsePrismIncoming(body []byte, account *Account, chat bool, defaultModel s
 					if chat && kind != "text" || !chat && kind != "input_text" && kind != "output_text" {
 						return nil, prismUnsupported(inputKey)
 					}
-					b.WriteString(text)
+					_, _ = b.WriteString(text)
 				}
 				content = b.String()
 			}
@@ -331,7 +337,7 @@ func (s *OpenAIGatewayService) forwardPrism(ctx context.Context, c *gin.Context,
 	}
 	client, err := newPrismAccountClient(s.httpUpstream, s.cfg, account, s.openAITokenProvider)
 	if err != nil {
-		return nil, writePrismError(c, errors.New("Prism account configuration is invalid or incomplete"))
+		return nil, writePrismError(c, errors.New("prism account configuration is invalid or incomplete"))
 	}
 	beginUpstreamResponseModelObservation(c)
 	SetActualOpenAIUpstreamEndpoint(c, prismUpstreamEndpoint)
@@ -384,8 +390,9 @@ func (s *OpenAIGatewayService) forwardPrism(ctx context.Context, c *gin.Context,
 			if errors.Is(err, context.DeadlineExceeded) {
 				status = http.StatusGatewayTimeout
 			}
-			setOpsUpstreamError(c, status, problem["message"].(string), "")
-			MarkOpsStreamFailure(c, problem["type"].(string), problem["code"].(string), problem["message"].(string), status)
+			message := prismProblemString(problem, "message")
+			setOpsUpstreamError(c, status, message, "")
+			MarkOpsStreamFailure(c, prismProblemString(problem, "type"), prismProblemString(problem, "code"), message, status)
 			if chat {
 				_ = wire.data(gin.H{"error": problem})
 				_, _ = fmt.Fprint(c.Writer, "data: [DONE]\n\n")
@@ -517,7 +524,7 @@ func writePrismError(c *gin.Context, err error) error {
 		status = http.StatusTooManyRequests
 	}
 	problem := prismClientError(err)
-	setOpsUpstreamError(c, status, problem["message"].(string), "")
+	setOpsUpstreamError(c, status, prismProblemString(problem, "message"), "")
 	c.JSON(status, gin.H{"error": problem})
 	MarkResponseCommitted(c)
 	return err // Never an UpstreamFailoverError: do not resubmit on another account.
@@ -574,14 +581,28 @@ func (w *prismSSEWriter) response(final gin.H) error {
 	if err := w.start(final); err != nil {
 		return err
 	}
-	for index, raw := range final["output"].([]any) {
-		item := raw.(map[string]any)
+	output, ok := final["output"].([]any)
+	if !ok {
+		return errors.New("prism response output is invalid")
+	}
+	for index, raw := range output {
+		item, ok := raw.(map[string]any)
+		if !ok {
+			return errors.New("prism response output item is invalid")
+		}
 		added := gin.H{"id": item["id"], "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}
 		if e := w.event("response.output_item.added", gin.H{"output_index": index, "item": added}); e != nil {
 			return e
 		}
-		for partIndex, rawPart := range item["content"].([]any) {
-			part := rawPart.(map[string]any)
+		content, ok := item["content"].([]any)
+		if !ok {
+			return errors.New("prism response content is invalid")
+		}
+		for partIndex, rawPart := range content {
+			part, ok := rawPart.(map[string]any)
+			if !ok {
+				return errors.New("prism response content part is invalid")
+			}
 			base := func() gin.H { return gin.H{"item_id": item["id"], "output_index": index, "content_index": partIndex} }
 			v := base()
 			v["part"] = gin.H{"type": "output_text", "text": "", "annotations": []any{}}

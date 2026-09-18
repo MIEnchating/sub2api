@@ -21,14 +21,16 @@ func TestAntiDegradeMode1ApplyProtectsIdentityAndSnapshot(t *testing.T) {
 
 	updated, err := svc.ApplyAntiDegradeMode(context.Background(), account.ID, AntiDegradeMode1)
 	require.NoError(t, err)
-	require.Equal(t, string(AntiDegradeMode1), updated.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["mode"])
-	require.Equal(t, 3, updated.Extra[AntiDegradeMarkerExtraKey].(map[string]any)["policy_version"])
+	marker, ok := updated.Extra[AntiDegradeMarkerExtraKey].(map[string]any)
+	require.True(t, ok)
+	require.Equal(t, string(AntiDegradeMode1), marker["mode"])
+	require.Equal(t, 3, marker["policy_version"])
 	require.Equal(t, "device", updated.Extra[codexFingerprintModeExtraKey])
 	require.Equal(t, false, updated.Extra["enable_tls_fingerprint"])
 	require.Equal(t, "preserve", updated.Extra["custom_setting"])
 	require.Equal(t, 3, updated.Concurrency, "the administrator's configured ceiling is preserved")
-	_, ok := codexFingerprintSeed(updated.Extra)
-	require.True(t, ok, "applying a device strategy must mint a durable account seed")
+	_, seedOK := codexFingerprintSeed(updated.Extra)
+	require.True(t, seedOK, "applying a device strategy must mint a durable account seed")
 	// Identity/transport protection and adaptive traffic control are separate
 	// switches. Applying a strategy must not silently enable the latter.
 	_, policyPresent := updated.Extra[AccountProtectionPolicyKey]
@@ -42,7 +44,8 @@ func TestAntiDegradeOrdinaryAccountSaveCannotDisableProtection(t *testing.T) {
 	_, err := svc.ApplyAntiDegradeMode(context.Background(), account.ID, AntiDegradeMode1)
 	require.NoError(t, err)
 
-	admin := svc.admin.(*adminServiceImpl)
+	admin, ok := svc.admin.(*adminServiceImpl)
+	require.True(t, ok)
 	updated, err := admin.UpdateAccount(context.Background(), account.ID, &UpdateAccountInput{Extra: map[string]any{"custom_setting": "new"}})
 	require.NoError(t, err)
 	require.True(t, updated.AntiDegradationEnabled())

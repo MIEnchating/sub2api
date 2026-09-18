@@ -33,7 +33,7 @@ func TestOpenAIWSClientDisconnectBeforeOutputCancelsPendingUpstream(t *testing.T
 					if err != nil {
 						return
 					}
-					defer conn.CloseNow()
+					defer func() { _ = conn.CloseNow() }()
 					readCtx, cancelRead := context.WithCancel(r.Context())
 					defer cancelRead()
 					go func() {

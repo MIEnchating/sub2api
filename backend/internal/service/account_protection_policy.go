@@ -149,7 +149,11 @@ func RegisterAccountProtectionPolicy(account *Account) {
 		threshold: p.FailureThreshold, window: time.Duration(p.FailureWindowSeconds) * time.Second,
 		recovery: time.Duration(p.RecoverySeconds) * time.Second,
 	})
-	s := value.(*adaptiveAccountState)
+	s, ok := value.(*adaptiveAccountState)
+	if !ok {
+		adaptiveAccountStates.Delete(account.ID)
+		return
+	}
 	s.mu.Lock()
 	s.adminLimit = limit
 	s.minimum = protectionMinInt(protectionMaxInt(1, p.AdaptiveMinConcurrency), limit)
@@ -182,7 +186,11 @@ func EffectiveAccountConcurrency(account *Account, configured int) int {
 	if !ok {
 		return configured
 	}
-	s := value.(*adaptiveAccountState)
+	s, ok := value.(*adaptiveAccountState)
+	if !ok {
+		adaptiveAccountStates.Delete(account.ID)
+		return configured
+	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.limit <= 0 || s.limit > configured {
@@ -199,7 +207,11 @@ func ObserveAccountProtectionOutcome(accountID int64, statusCode int, networkErr
 	if !ok {
 		return
 	}
-	s := value.(*adaptiveAccountState)
+	s, ok := value.(*adaptiveAccountState)
+	if !ok {
+		adaptiveAccountStates.Delete(accountID)
+		return
+	}
 	now := time.Now()
 	s.mu.Lock()
 	defer s.mu.Unlock()

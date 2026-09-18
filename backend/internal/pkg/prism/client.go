@@ -426,7 +426,7 @@ func (s *generation) send(ctx context.Context, stage, method, path string, body 
 	resp, err := s.client.doer.Do(req)
 	if err != nil {
 		if resp != nil && resp.Body != nil {
-			resp.Body.Close()
+			_ = resp.Body.Close()
 		}
 		e := failure(stage, "transport_error", s.submitted)
 		if ctx.Err() != nil {
@@ -437,7 +437,7 @@ func (s *generation) send(ctx context.Context, stage, method, path string, body 
 	if resp == nil || resp.Body == nil {
 		return nil, nil, failure(stage, "invalid_response", s.submitted)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.Request != nil && (resp.Request.URL == nil || resp.Request.URL.Scheme != "https" || resp.Request.URL.Host != "prism.openai.com") {
 		return nil, nil, failure(stage, "unexpected_origin", s.submitted)
 	}
@@ -610,7 +610,7 @@ func parseResult(raw json.RawMessage, conversationID string) (*Result, error) {
 			if part.Type != "output_text" || part.Text == nil {
 				return nil, failure("result", "unsupported_output", true)
 			}
-			text.WriteString(*part.Text)
+			_, _ = text.WriteString(*part.Text)
 			content = append(content, map[string]any{"type": "output_text", "text": *part.Text, "annotations": []any{}})
 		}
 		output = append(output, map[string]any{"id": item.ID, "type": "message", "role": "assistant", "status": "completed", "content": content})

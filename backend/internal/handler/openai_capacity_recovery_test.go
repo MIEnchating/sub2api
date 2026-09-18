@@ -104,7 +104,7 @@ func TestCapacityRecoveryWSKeepsClientConnection(t *testing.T) {
 			defer cancel()
 			client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 			require.NoError(t, err)
-			defer client.CloseNow()
+			defer func() { _ = client.CloseNow() }()
 			require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5","input":"hello"}`)))
 			_, payload, err := client.Read(ctx)
 			require.NoError(t, err)
@@ -165,7 +165,7 @@ func TestCapacityRecoveryWSStopsAfterConfiguredRetries(t *testing.T) {
 			defer cancel()
 			client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 			require.NoError(t, err)
-			defer client.CloseNow()
+			defer func() { _ = client.CloseNow() }()
 			require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5","input":"hello"}`)))
 			_, _, err = client.Read(ctx)
 			require.Equal(t, coderws.StatusTryAgainLater, coderws.CloseStatus(err))
@@ -193,7 +193,7 @@ func serveCapacityRecoveryEvents(w http.ResponseWriter, r *http.Request, events 
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		ctx, cancel := context.WithTimeout(r.Context(), 5*time.Second)
 		defer cancel()
 		if _, _, err := conn.Read(ctx); err != nil {

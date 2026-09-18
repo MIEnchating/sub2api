@@ -1235,7 +1235,7 @@ func hashSensitiveValueForLog(raw string) string {
 // GetAccessToken gets the access token for an OpenAI account
 func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Account) (string, string, error) {
 	if account.IsPrismEnabled() {
-		return "", "", errors.New("Prism uses independent session credentials; Codex token forwarding is disabled")
+		return "", "", errors.New("prism uses independent session credentials; Codex token forwarding is disabled")
 	}
 	if account.IsShadow() {
 		credAccount, err := resolveCredentialAccount(ctx, s.accountRepo, account)

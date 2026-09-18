@@ -28,13 +28,6 @@ func stageMode1Request(c *gin.Context, a *Account, body []byte) {
 	}
 }
 
-// validateMode1RequestIntegrity rejects lossy compatibility transformations.
-// Identity metadata and transport control fields are deliberately outside this
-// comparison. A transport cannot pretend that stripped context was preserved.
-func validateMode1RequestIntegrity(original, forwarded []byte) error {
-	return validateMode1RequestIntegrityForAccount(nil, original, forwarded)
-}
-
 // Compare protocol semantics, not JSON shape. Only the documented Codex
 // compatibility conversions are allowed. Never run the full (lossy) transform
 // on the snapshot: doing so would conceal dropped tools or reasoning items.

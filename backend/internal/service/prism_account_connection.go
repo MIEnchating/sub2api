@@ -55,7 +55,7 @@ func (s *AccountTestService) testPrismAccountConnection(c *gin.Context, account 
 		if c.Request.Context().Err() != nil {
 			return c.Request.Context().Err()
 		}
-		return s.sendErrorAndEnd(c, prismClientError(err)["message"].(string))
+		return s.sendErrorAndEnd(c, prismProblemString(prismClientError(err), "message"))
 	}
 	s.sendEvent(c, TestEvent{Type: "content", Text: result.Text})
 	s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})

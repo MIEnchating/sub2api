@@ -66,11 +66,11 @@ func TestOpenAITokenRefresher_PrismAccountModeRefreshPolicy(t *testing.T) {
 	refresher := NewOpenAITokenRefresher(nil, nil)
 
 	manual := prismAuthRefreshAccount()
-	manual.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = PrismAuthModeCookie
+	prismExtraForTest(manual)["auth_mode"] = PrismAuthModeCookie
 	require.False(t, manual.UsesPrismAccountAuth())
 	require.False(t, refresher.CanRefresh(manual))
 	require.False(t, refresher.NeedsRefresh(manual, 5*time.Minute))
-	delete(manual.Extra[PrismExtraKey].(map[string]any), "auth_mode")
+	delete(prismExtraForTest(manual), "auth_mode")
 	require.False(t, refresher.CanRefresh(manual), "legacy Cookie mode remains isolated")
 	require.False(t, refresher.NeedsRefresh(manual, 5*time.Minute))
 
@@ -109,7 +109,7 @@ func TestOpenAITokenProvider_PrismRefreshPersistsRotationAndCachesAccessToken(t 
 			case "missing_expiry":
 				delete(account.Credentials, "expires_at")
 			case "Prism_disabled":
-				account.Extra[PrismExtraKey].(map[string]any)["enabled"] = false
+				prismExtraForTest(account)["enabled"] = false
 			}
 			staleSnapshot := snapshotOAuthRefreshAccount(account)
 			repo := &refreshAPIAccountRepo{account: account}
@@ -203,7 +203,7 @@ func TestTokenRefreshService_PrismDoesNotRunPrivacyHook(t *testing.T) {
 	for _, mode := range []string{PrismAuthModeAccount, PrismAuthModeCookie} {
 		t.Run(mode, func(t *testing.T) {
 			account := prismAuthRefreshAccount()
-			account.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = mode
+			prismExtraForTest(account)["auth_mode"] = mode
 			account.Extra["privacy_mode"] = PrivacyModeFailed
 			repo := &tokenRefreshAccountRepo{}
 			var privacyCalls int32
@@ -218,7 +218,7 @@ func TestTokenRefreshService_PrismDoesNotRunPrivacyHook(t *testing.T) {
 			require.Zero(t, atomic.LoadInt32(&privacyCalls))
 			require.Zero(t, repo.updateExtraCalls)
 
-			account.Extra[PrismExtraKey].(map[string]any)["enabled"] = false
+			prismExtraForTest(account)["enabled"] = false
 			svc.ensureOpenAIPrivacy(context.Background(), account)
 			require.Equal(t, int32(1), atomic.LoadInt32(&privacyCalls), "disabled Prism keeps the ordinary background privacy hook")
 			require.Equal(t, 1, repo.updateExtraCalls)

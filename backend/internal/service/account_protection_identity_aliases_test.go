@@ -8,6 +8,13 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+func requireStringAnyMap(t *testing.T, value any) map[string]any {
+	t.Helper()
+	mapped, ok := value.(map[string]any)
+	require.True(t, ok)
+	return mapped
+}
+
 func TestAccountProtectionIdentityAliasesStayConsistentAcrossTransports(t *testing.T) {
 	for _, mode := range []AntiDegradeMode{
 		AntiDegradeModeLegacy, AntiDegradeMode1, AntiDegradeMode2,
@@ -30,7 +37,7 @@ func TestAccountProtectionIdentityAliasesStayConsistentAcrossTransports(t *testi
 			body := []byte(`{"input":[{"role":"user","content":"Keep this prompt"}],"prompt_cache_key":"application-cache","client_metadata":{"installation_id":"caller-device","session_id":"caller-session","session-id":"caller-session","thread_id":"caller-thread","thread-id":"caller-thread","turn_id":"caller-turn","turn-id":"caller-turn","window_id":"caller-window","x-client-request-id":"caller-request","trace":"keep"}}`)
 			mapped, raw := applyMapAndRawFingerprintBodiesForTest(t, body, ids)
 			require.Equal(t, mapped, raw, "HTTP and raw JSON paths must project the same identity")
-			metadata := raw["client_metadata"].(map[string]any)
+			metadata := requireStringAnyMap(t, raw["client_metadata"])
 			headers := make(http.Header)
 			applyCodexFingerprintHeaders(headers, ids)
 			require.Equal(t, headers.Get("x-codex-installation-id"), metadata["installation_id"])
@@ -72,8 +79,8 @@ func TestAccountProtectionIdentityAliasesKeepDisabledBehavior(t *testing.T) {
 			require.NoError(t, json.Unmarshal(body, &original))
 			mapped, raw := applyMapAndRawFingerprintBodiesForTest(t, body, ids)
 			require.Equal(t, mapped, raw)
-			metadata := raw["client_metadata"].(map[string]any)
-			for key, value := range original["client_metadata"].(map[string]any) {
+			metadata := requireStringAnyMap(t, raw["client_metadata"])
+			for key, value := range requireStringAnyMap(t, original["client_metadata"]) {
 				require.Equal(t, value, metadata[key], "disabled protection must preserve the existing alias behavior for %s", key)
 			}
 		})
@@ -90,7 +97,7 @@ func TestAccountProtectionIdentityAliasesAreNotInvented(t *testing.T) {
 	require.NotNil(t, ids)
 	mapped, raw := applyMapAndRawFingerprintBodiesForTest(t, []byte(`{"client_metadata":{"trace":"keep"}}`), ids)
 	require.Equal(t, mapped, raw)
-	metadata := raw["client_metadata"].(map[string]any)
+	metadata := requireStringAnyMap(t, raw["client_metadata"])
 	for _, key := range []string{"installation_id", "session-id", "thread-id", "turn-id", "window_id", "x-client-request-id"} {
 		require.NotContains(t, metadata, key)
 	}

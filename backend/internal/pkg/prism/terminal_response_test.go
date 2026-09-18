@@ -133,7 +133,15 @@ func TestGenerateCompletedStartRejectsUnmatchedEnvelope(t *testing.T) {
 		{"blank_request_id", func(turn map[string]any) { turn["request_id"] = " \t" }, false},
 		{"outer_conversation_mismatch", func(turn map[string]any) { turn["conversation_id"] = "another-conversation" }, false},
 		{"payload_conversation_mismatch", func(turn map[string]any) {
-			turn["response"].(map[string]any)["payload"].(map[string]any)["conversationId"] = "another-conversation"
+			response, ok := turn["response"].(map[string]any)
+			if !ok {
+				panic("test response is not an object")
+			}
+			payload, ok := response["payload"].(map[string]any)
+			if !ok {
+				panic("test response payload is not an object")
+			}
+			payload["conversationId"] = "another-conversation"
 		}, true},
 		{"missing_result", func(turn map[string]any) { delete(turn, "response") }, true},
 	} {

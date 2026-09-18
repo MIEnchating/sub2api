@@ -35,7 +35,7 @@ type stagedUsageFailingConn struct {
 
 func (c *stagedUsageFailingConn) Write(payload []byte) (int, error) {
 	if c.failWrites.Load() {
-		_ = c.Conn.Close()
+		_ = c.Close()
 		return 0, net.ErrClosed
 	}
 	return c.Conn.Write(payload)
@@ -53,7 +53,7 @@ func TestOpenAIWSStagedMetadataWriteFailureKeepsReceivedTerminalUsage(t *testing
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		if _, _, err := conn.Read(r.Context()); err != nil {
 			return
 		}
@@ -80,7 +80,7 @@ func TestOpenAIWSStagedMetadataWriteFailureKeepsReceivedTerminalUsage(t *testing
 			t.Error(err)
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		ctx, stop := BeginOpenAIWSClientSession(r.Context(), conn, 1024)
 		defer stop()
 		_, first, err := ReadOpenAIWSClientMessage(ctx, conn, time.Second, coderws.StatusPolicyViolation, "first message")
@@ -102,7 +102,7 @@ func TestOpenAIWSStagedMetadataWriteFailureKeepsReceivedTerminalUsage(t *testing
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(downstream.URL, "http"), nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5.1","input":"hello"}`)))
 	select {
 	case <-done:

@@ -255,7 +255,9 @@ func TestInitializationFailuresNeverSubmit(t *testing.T) {
 					return false
 				}
 				w.WriteHeader(tc.status)
-				io.WriteString(w, tc.body)
+				if _, err := io.WriteString(w, tc.body); err != nil {
+					t.Fatal(err)
+				}
 				return true
 			})
 			_, err := generate(c, context.Background())
@@ -286,7 +288,9 @@ func TestSubmittedErrors(t *testing.T) {
 					return false
 				}
 				w.WriteHeader(tc.status)
-				io.WriteString(w, tc.body)
+				if _, err := io.WriteString(w, tc.body); err != nil {
+					t.Fatal(err)
+				}
 				return true
 			})
 			_, err := generate(c, context.Background())
@@ -487,7 +491,9 @@ func TestWorkspaceSessionMustRemainStable(t *testing.T) {
 		}
 		state := testState(1)
 		state["workspace_session_id"] = "aaaaaaaa-bbbb-4ccc-8ddd-eeeeeeeeeeee"
-		json.NewEncoder(w).Encode(map[string]any{"status": "pending", "request_id": "synthetic-request-id", "turn_state": state})
+		if err := json.NewEncoder(w).Encode(map[string]any{"status": "pending", "request_id": "synthetic-request-id", "turn_state": state}); err != nil {
+			t.Fatal(err)
+		}
 		return true
 	})
 	_, err := generate(c, context.Background())

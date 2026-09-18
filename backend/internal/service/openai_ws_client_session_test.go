@@ -50,7 +50,7 @@ func TestOpenAIWSClientSessionPreservesQueuedFrameOrderAndType(t *testing.T) {
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	for _, item := range want {
 		require.NoError(t, client.Write(ctx, item.kind, []byte(item.payload)))
 	}
@@ -81,7 +81,7 @@ func TestOpenAIWSClientSessionRejectsPendingPayloadBeyondBound(t *testing.T) {
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	_ = client.Write(ctx, coderws.MessageText, []byte("123456789"))
 	select {
 	case err := <-result:
@@ -115,7 +115,7 @@ func TestOpenAIWSClientSessionDoesNotDispatchQueuedFramesAfterDisconnect(t *test
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create"}`)))
 	require.NoError(t, client.CloseNow())
 	select {
@@ -151,7 +151,7 @@ func TestOpenAIWSClientAttemptCancellationKeepsSessionForNextReader(t *testing.T
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	select {
 	case stopAttempt := <-cancelAttempt:
 		stopAttempt()
@@ -242,7 +242,7 @@ func TestOpenAIWSClientSessionPreservesControlCloseFrames(t *testing.T) {
 			defer cancel()
 			client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 			require.NoError(t, err)
-			defer client.CloseNow()
+			defer func() { _ = client.CloseNow() }()
 			<-started
 			if test.leaseLost {
 				cancelParent(ErrOpenAIWSIngressLeaseLost)

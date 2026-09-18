@@ -12,7 +12,7 @@ import (
 
 func TestOpenAIWSCapacityBufferDiscardsMetadataBeforeFailover(t *testing.T) {
 	upstream := newStagedPassthroughConn()
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 	upstream.Send(`{"type":"response.created","response":{"id":"failed"}}`)
 	upstream.Send(openAIServiceBusyFailedEvent)
 	failure := errors.New("capacity failover")
@@ -35,7 +35,7 @@ func TestOpenAIWSCapacityBufferPreservesMetadataBeforeCommittedFrames(t *testing
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			upstream := newStagedPassthroughConn()
-			defer upstream.Close()
+			defer func() { _ = upstream.Close() }()
 			metadata := `{"type":"response.created","response":{"id":"committed"}}`
 			upstream.Send(metadata)
 			upstream.frames <- stagedPassthroughFrame{messageType: tc.kind, payload: []byte(tc.body)}
@@ -57,7 +57,7 @@ func TestOpenAIWSCapacityBufferPreservesMetadataBeforeCommittedFrames(t *testing
 
 func TestOpenAIWSCapacityBufferStopsAtMetadataLimit(t *testing.T) {
 	upstream := newStagedPassthroughConn()
-	defer upstream.Close()
+	defer func() { _ = upstream.Close() }()
 	upstream.Send(`{"type":"response.created","response":{"metadata":"` + strings.Repeat("x", openAIFirstOutputStageMaxBytes) + `"}}`)
 	conn := &openAIWSCapacityFrameConn{FrameConn: upstream}
 	_, payload, err := conn.ReadFrame(context.Background())

@@ -519,7 +519,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 
 	// Unknown Prism usage must not acquire a per-request account-stat cost either.
 	// 计算账号统计定价费用（使用最终上游模型匹配自定义规则）
-	if apiKey.GroupID != nil && !(result.UpstreamEndpoint == prismUpstreamEndpoint && result.UsageUnavailable) {
+	if apiKey.GroupID != nil && (result.UpstreamEndpoint != prismUpstreamEndpoint || !result.UsageUnavailable) {
 		accountStatsModel := result.UpstreamModel
 		if fallbackBilling && usageLog.ChannelID == nil {
 			// No fallback channel means a primary channel mapping must not drive

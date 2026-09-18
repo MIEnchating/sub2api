@@ -19,6 +19,14 @@ func newPrismTestAccount() *Account {
 		Extra:       map[string]any{PrismExtraKey: map[string]any{"enabled": true, "version": 1}}}
 }
 
+func prismExtraForTest(account *Account) map[string]any {
+	values, ok := account.Extra[PrismExtraKey].(map[string]any)
+	if !ok {
+		panic("test Prism extra is not an object")
+	}
+	return values
+}
+
 func TestPrismAccountConfigDefaultsAndValidation(t *testing.T) {
 	config, err := (*Account)(nil).PrismConfig()
 	require.NoError(t, err)
@@ -36,19 +44,19 @@ func TestPrismAccountConfigDefaultsAndValidation(t *testing.T) {
 		name   string
 		change func(*Account)
 	}{
-		{"flag string", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["enabled"] = "true" }},
+		{"flag string", func(a *Account) { prismExtraForTest(a)["enabled"] = "true" }},
 		{"object", func(a *Account) { a.Extra[PrismExtraKey] = true }},
-		{"unknown", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["cookie"] = prismTestCookie }},
-		{"version", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["version"] = 2 }},
-		{"auth mode type", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = true }},
-		{"auth mode unknown", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = "automatic" }},
-		{"auth mode empty", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = "" }},
-		{"short timeout", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["timeout_seconds"] = 29 }},
-		{"long timeout", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["timeout_seconds"] = 601 }},
-		{"fractional timeout", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["timeout_seconds"] = 30.5 }},
-		{"action", func(a *Account) { a.Extra[PrismExtraKey].(map[string]any)["conversation_action_id"] = "bad" }},
+		{"unknown", func(a *Account) { prismExtraForTest(a)["cookie"] = prismTestCookie }},
+		{"version", func(a *Account) { prismExtraForTest(a)["version"] = 2 }},
+		{"auth mode type", func(a *Account) { prismExtraForTest(a)["auth_mode"] = true }},
+		{"auth mode unknown", func(a *Account) { prismExtraForTest(a)["auth_mode"] = "automatic" }},
+		{"auth mode empty", func(a *Account) { prismExtraForTest(a)["auth_mode"] = "" }},
+		{"short timeout", func(a *Account) { prismExtraForTest(a)["timeout_seconds"] = 29 }},
+		{"long timeout", func(a *Account) { prismExtraForTest(a)["timeout_seconds"] = 601 }},
+		{"fractional timeout", func(a *Account) { prismExtraForTest(a)["timeout_seconds"] = 30.5 }},
+		{"action", func(a *Account) { prismExtraForTest(a)["conversation_action_id"] = "bad" }},
 		{"old action length", func(a *Account) {
-			a.Extra[PrismExtraKey].(map[string]any)["conversation_action_id"] = strings.Repeat("a1", 20)
+			prismExtraForTest(a)["conversation_action_id"] = strings.Repeat("a1", 20)
 		}},
 		{"platform", func(a *Account) { a.Platform = PlatformAnthropic }},
 		{"apikey", func(a *Account) { a.Type = AccountTypeAPIKey }},
@@ -75,8 +83,8 @@ func TestPrismAccountConfigDefaultsAndValidation(t *testing.T) {
 	}
 	for _, timeout := range []any{30, float64(600), json.Number("180")} {
 		account := newPrismTestAccount()
-		account.Extra[PrismExtraKey].(map[string]any)["timeout_seconds"] = timeout
-		account.Extra[PrismExtraKey].(map[string]any)["conversation_action_id"] = strings.Repeat("A1", 21)
+		prismExtraForTest(account)["timeout_seconds"] = timeout
+		prismExtraForTest(account)["conversation_action_id"] = strings.Repeat("A1", 21)
 		require.NoError(t, ValidatePrismAccountConfiguration(account))
 		config, err := account.PrismConfig()
 		require.NoError(t, err)
@@ -118,7 +126,7 @@ func TestPrismAccountAuthValidation(t *testing.T) {
 			account := newPrismTestAccount()
 			account.Type = tc.accountType
 			account.Credentials = tc.credentials
-			account.Extra[PrismExtraKey].(map[string]any)["auth_mode"] = PrismAuthModeAccount
+			prismExtraForTest(account)["auth_mode"] = PrismAuthModeAccount
 			require.True(t, account.UsesPrismAccountAuth())
 			err := ValidatePrismAccountConfiguration(account)
 			if tc.valid {
@@ -137,7 +145,7 @@ func TestPrismAccountAuthRequiresExplicitEnabledMode(t *testing.T) {
 	require.False(t, (*Account)(nil).UsesPrismAccountAuth())
 	account := newPrismTestAccount()
 	require.False(t, account.UsesPrismAccountAuth(), "legacy configurations keep cookie authentication")
-	values := account.Extra[PrismExtraKey].(map[string]any)
+	values := prismExtraForTest(account)
 	values["auth_mode"] = PrismAuthModeAccount
 	require.True(t, account.UsesPrismAccountAuth())
 	values["enabled"] = false

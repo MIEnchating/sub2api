@@ -24,7 +24,7 @@ func TestCapacityRecoveryWSDoesNotReplayAcceptedTurnAfterUpstreamDisconnect(t *t
 		if err != nil {
 			return
 		}
-		defer conn.CloseNow()
+		defer func() { _ = conn.CloseNow() }()
 		if _, _, err := conn.Read(r.Context()); err != nil {
 			return
 		}
@@ -38,7 +38,7 @@ func TestCapacityRecoveryWSDoesNotReplayAcceptedTurnAfterUpstreamDisconnect(t *t
 	defer cancel()
 	client, _, err := coderws.Dial(ctx, "ws"+strings.TrimPrefix(server.URL, "http")+"/v1/responses", nil)
 	require.NoError(t, err)
-	defer client.CloseNow()
+	defer func() { _ = client.CloseNow() }()
 	require.NoError(t, client.Write(ctx, coderws.MessageText, []byte(`{"type":"response.create","model":"gpt-5","input":"hello"}`)))
 	_, _, err = client.Read(ctx)
 	require.Error(t, err)

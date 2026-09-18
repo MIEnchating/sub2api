@@ -45,7 +45,7 @@ func TestOpenAIWSCapacityBufferedTerminalSettlesAfterMetadataWriteFails(t *testi
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			upstream := newStagedPassthroughConn()
-			defer upstream.Close()
+			defer func() { _ = upstream.Close() }()
 			upstream.Send(`{"type":"response.created","response":{"id":"buffered-terminal"}}`)
 			upstream.Send(`{"type":"response.in_progress","response":{"id":"buffered-terminal"}}`)
 			upstream.Send(fmt.Sprintf(`{"type":%q,"response":{"id":"buffered-terminal","model":"gpt-5.1","usage":{"input_tokens":7,"output_tokens":3}}}`, test.terminalType))

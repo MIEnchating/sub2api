@@ -6,8 +6,7 @@ import (
 
 const mode1PolicyVersion = 3
 
-func isOpenAIOAuthLike(a *Account) bool    { return a != nil && a.IsOpenAIOAuthLike() }
-func isAnthropicOAuthLike(a *Account) bool { return a != nil && a.IsAnthropicOAuthOrSetupToken() }
+func isOpenAIOAuthLike(a *Account) bool { return a != nil && a.IsOpenAIOAuthLike() }
 
 func mode1Marker(a *Account) map[string]any {
 	if a == nil || a.Extra == nil {
@@ -58,26 +57,6 @@ func antiDegradeAccountTLSProfile(a *Account) string {
 	}
 	return antiDegradeStrategyProfile(antiDegradeMode(a)).TLSProfile
 }
-func isLegacyProtectionEnabled(a *Account) bool {
-	m := mode1Marker(a)
-	return m != nil && m["enabled"] == true && m["mode"] == string(AntiDegradeModeLegacy)
-}
-func isMode1ProtectionRequested(a *Account) bool {
-	m := mode1Marker(a)
-	if m == nil {
-		return false
-	}
-	_, versionPresent := m["policy_version"]
-	return m["enabled"] != false && m["mode"] != string(AntiDegradeMode2) && versionPresent
-}
-func hasMode1ManagedUpdates(updates map[string]any) bool {
-	for _, key := range mode1ManagedExtraKeys {
-		if _, ok := updates[key]; ok {
-			return true
-		}
-	}
-	return false
-}
 func (a *Account) IsMode1ProtectionEnabled() bool { return isMode1ProtectionEnabled(a) }
 func (a *Account) Mode1EffectiveConcurrency() int {
 	if a == nil {
@@ -88,8 +67,6 @@ func (a *Account) Mode1EffectiveConcurrency() int {
 	}
 	return AntiDegradeConcurrencyCap
 }
-
-var mode1ManagedExtraKeys = []string{AntiDegradeMarkerExtraKey, codexFingerprintModeExtraKey, "enable_tls_fingerprint", "tls_fingerprint_builtin", "tls_fingerprint_profile_id", "proxy_mode"}
 
 // validateRegisteredAntiDegrade checks persisted strategy fields at runtime.
 // It is intentionally conservative: malformed protected state fails closed,
