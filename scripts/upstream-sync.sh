@@ -155,7 +155,9 @@ main() {
   validate_primary_worktree
 
   log "fetching $ORIGIN_REMOTE, $PRIMARY_REMOTE and $SECOND_REMOTE"
-  git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE" "$PRIMARY_REMOTE" "$SECOND_REMOTE"
+  git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE"
+  git -C "$REPO_DIR" fetch --prune "$PRIMARY_REMOTE"
+  git -C "$REPO_DIR" fetch --prune "$SECOND_REMOTE"
   validate_primary_worktree
 
   if git -C "$REPO_DIR" merge-base --is-ancestor "$PRIMARY_REF" "$ORIGIN_REF" && \
@@ -169,10 +171,14 @@ main() {
   git -C "$WORKTREE" switch -c "$SYNC_BRANCH"
 
   log "merging all primary upstream changes from $PRIMARY_REF"
-  git -C "$WORKTREE" merge --no-ff --no-commit "$PRIMARY_REF" || true
+  if ! git -C "$WORKTREE" merge --no-ff --no-commit "$PRIMARY_REF"; then
+    git -C "$WORKTREE" rev-parse -q --verify MERGE_HEAD >/dev/null || fail "unable to start merge for $PRIMARY_REF"
+  fi
   finish_merge_stage "$PRIMARY_REF"
   log "merging all second upstream changes from $SECOND_REF"
-  git -C "$WORKTREE" merge --no-ff --no-commit "$SECOND_REF" || true
+  if ! git -C "$WORKTREE" merge --no-ff --no-commit "$SECOND_REF"; then
+    git -C "$WORKTREE" rev-parse -q --verify MERGE_HEAD >/dev/null || fail "unable to start merge for $SECOND_REF"
+  fi
   finish_merge_stage "$SECOND_REF"
   run_codex_merge_review '最终双上游兼容审查'
 
