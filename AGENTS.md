@@ -12,9 +12,10 @@
 
 ## Upstream Merge Scope
 
-- Keep the primary upstream and the selected `sub2api-custom` upstream changes clearly separated during review.
-- Do not merge the shared account pool unless the user explicitly requests it.
-- Record excluded upstream changes and unresolved conflicts before finalizing a merge.
+- Merge all changes from the primary `upstream/main` branch without feature-by-feature filtering.
+- Merge all changes from the second `overdraft/sub2api-custom` branch except the shared account pool feature and its supporting implementation.
+- Do not selectively omit other second-upstream changes merely because they are large or unrelated; only the shared account pool is excluded by the current product decision.
+- Record the excluded shared-account-pool paths and any unresolved conflicts before finalizing a merge.
 
 ## Commits and Releases
 
