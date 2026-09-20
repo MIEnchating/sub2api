@@ -25,6 +25,11 @@ PNPM_VERSION="${SUB2API_PNPM_VERSION:-9.15.9}"
 VALIDATE="${SUB2API_VALIDATE:-true}"
 DRY_RUN="${SUB2API_DRY_RUN:-false}"
 VALIDATION_REPAIR_ATTEMPTS="${SUB2API_VALIDATION_REPAIR_ATTEMPTS:-3}"
+RELEASE_ENABLED="${SUB2API_RELEASE_ENABLED:-true}"
+RELEASE_MIN_UPSTREAM_COMMITS="${SUB2API_RELEASE_MIN_UPSTREAM_COMMITS:-3}"
+RELEASE_MIN_CHANGED_FILES="${SUB2API_RELEASE_MIN_CHANGED_FILES:-8}"
+RELEASE_MIN_DIFF_LINES="${SUB2API_RELEASE_MIN_DIFF_LINES:-150}"
+RELEASE_REQUIRE_NO_RISKS="${SUB2API_RELEASE_REQUIRE_NO_RISKS:-true}"
 EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
 EMAIL_TO="${EMAIL_TO:-}"
 SMTP_CONFIG_SOURCE="${SMTP_CONFIG_SOURCE:-environment}"
@@ -49,6 +54,8 @@ REPORT_FILE="$STATE_DIR/last-report.txt"
 FAILURE_SUMMARY_FILE="$STATE_DIR/$RUN_ID-failure-summary.txt"
 VALIDATION_FAILURES_FILE="$STATE_DIR/$RUN_ID-validation-failures.txt"
 REVIEW_SUMMARY_FILE="$STATE_DIR/$RUN_ID-review-summary.txt"
+REVIEW_DECISION_FILE="$STATE_DIR/$RUN_ID-review-decision.json"
+RELEASE_NOTES_FILE="$STATE_DIR/$RUN_ID-release-notes.txt"
 PRIMARY_REF="$PRIMARY_REMOTE/$PRIMARY_BRANCH"
 SECOND_REF="$SECOND_REMOTE/$SECOND_BRANCH"
 ORIGIN_REF="$ORIGIN_REMOTE/$TARGET_BRANCH"
@@ -65,6 +72,9 @@ VALIDATION_RESULT='未执行'
 VALIDATION_SUCCEEDED=false
 REPAIR_COUNT=0
 FAILED_COMMAND=''
+RELEASE_STATE='未评估'
+RELEASE_TAG=''
+RELEASE_REASON=''
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -173,6 +183,9 @@ write_report() {
     printf '已推送版本：%s\n' "${PUSHED_COMMIT:-未推送}"
     printf '全量验证：%s\n' "$VALIDATION_RESULT"
     printf 'Codex 集中修复次数：%s/%s\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
+    printf '版本发布：%s\n' "$RELEASE_STATE"
+    [[ -n "$RELEASE_TAG" ]] && printf '版本标签：%s\n' "$RELEASE_TAG"
+    [[ -n "$RELEASE_REASON" ]] && printf '发布判断：%s\n' "$RELEASE_REASON"
     if [[ -s "$FAILURE_SUMMARY_FILE" ]]; then
       printf '\n具体失败原因\n------------\n'
       cat "$FAILURE_SUMMARY_FILE"
@@ -225,12 +238,16 @@ EOF
 }
 
 notify_failure() {
-  local reason="$1" status="${2:-失败，未推送}"
+  local reason="$1" status="${2:-失败，未推送}" subject='【sub2api】双上游同步失败，代码未推送'
   [[ "$NOTIFIED" == 'true' ]] && return 0
   NOTIFIED=true
+  if [[ -n "$PUSHED_COMMIT" ]]; then
+    status='发布失败，代码已推送'
+    subject='【sub2api】代码已推送，但版本发布失败'
+  fi
   generate_failure_summary || true
   write_report "$status" "$reason"
-  send_email '【sub2api】双上游同步失败，代码未推送' "$REPORT_FILE" || true
+  send_email "$subject" "$REPORT_FILE" || true
 }
 
 fail() {
@@ -246,7 +263,11 @@ on_error() {
   trap - ERR
   FAILED_COMMAND="$command"
   log "FAILED at line $line during $CURRENT_STAGE: $command"
-  notify_failure "$CURRENT_STAGE 失败（状态码 $exit_code），候选代码未推送"
+  if [[ -n "$PUSHED_COMMIT" ]]; then
+    notify_failure "$CURRENT_STAGE 失败（状态码 $exit_code），主分支代码已推送但版本发布未完成"
+  else
+    notify_failure "$CURRENT_STAGE 失败（状态码 $exit_code），候选代码未推送"
+  fi
   exit "$exit_code"
 }
 
@@ -308,10 +329,28 @@ run_codex_merge_review() {
 - 保留本项目已有功能、权限、计费、数据库兼容性和测试不变量。
 - 不要 fetch、commit、push、打 tag、发布或重启服务；直接修改工作树。
 - 最终答复用中文列出：上游变化、冲突处理、共享账号池排除的文件/代码位置、保留的第二上游功能和剩余风险。
+- decision 仅可为 resolved 或 blocked；只有所有冲突已解决且产品规则均满足时才可 resolved。
+- risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
+- excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 EOF
   log "running Codex merge review: $phase"
   "$CODEX_BIN" exec --ephemeral --sandbox workspace-write --color never \
-    -C "$WORKTREE" --output-last-message "$REVIEW_SUMMARY_FILE" - < "$prompt_file"
+    -C "$WORKTREE" \
+    --output-schema "$REPO_DIR/.github/upstream-sync-decision-schema.json" \
+    --output-last-message "$REVIEW_DECISION_FILE" - < "$prompt_file"
+  python3 "$REPO_DIR/.github/render-upstream-sync-review.py" \
+    "$REVIEW_DECISION_FILE" > "$REVIEW_SUMMARY_FILE"
+  if ! python3 - "$REVIEW_DECISION_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    decision = json.load(source)
+raise SystemExit(0 if decision.get("decision") == "resolved" else 1)
+PY
+  then
+    fail "Codex 在 $phase 中发现无法安全自动解决的冲突"
+  fi
   rm -f "$prompt_file"
 }
 
@@ -504,6 +543,108 @@ create_final_merge_commit() {
   CANDIDATE_COMMIT="$commit"
 }
 
+evaluate_release_eligibility() {
+  local upstream_commits changed_files diff_lines review_decision risk_count
+  local merged_behavior_count release_check
+
+  CURRENT_STAGE='评估版本发布条件'
+  RELEASE_STATE='评估中'
+  if [[ "$RELEASE_ENABLED" != true ]]; then
+    RELEASE_STATE='未发布'
+    RELEASE_REASON='发布功能已由配置关闭'
+    return 0
+  fi
+
+  upstream_commits="$(git -C "$REPO_DIR" rev-list --count \
+    "$ORIGIN_HEAD..$PRIMARY_HEAD" "$ORIGIN_HEAD..$SECOND_HEAD")"
+  changed_files="$(git -C "$WORKTREE" diff --name-only "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | sed '/^$/d' | wc -l)"
+  diff_lines="$(git -C "$WORKTREE" diff --numstat "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | \
+    awk '{if ($1 ~ /^[0-9]+$/) added += $1; if ($2 ~ /^[0-9]+$/) removed += $2} END {print added + removed + 0}')"
+  read -r review_decision risk_count merged_behavior_count < <(
+    python3 - "$REVIEW_DECISION_FILE" <<'PY'
+import json
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    decision = json.load(source)
+print(
+    decision.get("decision", ""),
+    len(decision.get("risks", [])),
+    len(decision.get("merged_behavior", [])),
+)
+PY
+  )
+
+  release_check="提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 风险=${risk_count}"
+  log "release eligibility: $release_check"
+  if [[ "$review_decision" != resolved ]]; then
+    RELEASE_STATE='不发布'
+    RELEASE_REASON="自动审查未确认更新可安全发布（$release_check）"
+    return 0
+  fi
+  if [[ "$RELEASE_REQUIRE_NO_RISKS" == true && "$risk_count" != 0 ]]; then
+    RELEASE_STATE='不发布'
+    RELEASE_REASON="自动审查仍有未消除风险（$release_check）"
+    return 0
+  fi
+  if (( merged_behavior_count == 0 )); then
+    RELEASE_STATE='不发布'
+    RELEASE_REASON="审查报告没有确认合并后的实际行为（$release_check）"
+    return 0
+  fi
+  if (( upstream_commits < RELEASE_MIN_UPSTREAM_COMMITS ||
+    changed_files < RELEASE_MIN_CHANGED_FILES ||
+    diff_lines < RELEASE_MIN_DIFF_LINES )); then
+    RELEASE_STATE='不发布'
+    RELEASE_REASON="上游更新量未达到发布阈值（$release_check）"
+    return 0
+  fi
+
+  RELEASE_STATE='待发布'
+  RELEASE_REASON="更新量和兼容审查均达到发布条件（$release_check）"
+}
+
+next_release_tag() {
+  local offset candidate remote_tag
+
+  git -C "$REPO_DIR" fetch --tags "$ORIGIN_REMOTE" >/dev/null 2>&1 || true
+  for offset in {0..365}; do
+    candidate="v$(TZ=Asia/Shanghai date -d "+$offset day" +'%Y.%-m.%-d')"
+    if git -C "$REPO_DIR" show-ref --verify --quiet "refs/tags/$candidate"; then
+      continue
+    fi
+    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$candidate" | awk 'NR == 1 {print $1}')"
+    if [[ -z "$remote_tag" ]]; then
+      printf '%s' "$candidate"
+      return 0
+    fi
+  done
+  return 1
+}
+
+prepare_release_notes() {
+  local tag="$1"
+  CURRENT_STAGE='生成版本说明'
+  python3 "$REPO_DIR/.github/render-upstream-sync-review.py" \
+    --release-tag "$tag" "$REVIEW_DECISION_FILE" > "$RELEASE_NOTES_FILE"
+  [[ -s "$RELEASE_NOTES_FILE" ]] || fail '版本说明为空，停止发布'
+}
+
+publish_release() {
+  local tag="$1" release_commit
+  CURRENT_STAGE='推送版本标签'
+  RELEASE_STATE='发布中'
+  release_commit="$(git -C "$WORKTREE" rev-parse HEAD)"
+  git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit"
+  if ! git -C "$WORKTREE" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
+    git -C "$WORKTREE" tag -d "$tag" >/dev/null 2>&1 || true
+    return 1
+  fi
+  RELEASE_TAG="$tag"
+  RELEASE_STATE='已触发发布'
+  RELEASE_REASON="版本标签已推送，GitHub 发布工作流已触发（提交 $release_commit）"
+}
+
 main() {
   require_command git
   require_command docker
@@ -513,6 +654,9 @@ main() {
   require_command /usr/bin/curl
   require_command /usr/bin/base64
   [[ "$VALIDATION_REPAIR_ATTEMPTS" =~ ^[0-9]+$ ]] || fail 'SUB2API_VALIDATION_REPAIR_ATTEMPTS 必须为非负整数'
+  [[ "$RELEASE_MIN_UPSTREAM_COMMITS" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_UPSTREAM_COMMITS 必须为非负整数'
+  [[ "$RELEASE_MIN_CHANGED_FILES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_CHANGED_FILES 必须为非负整数'
+  [[ "$RELEASE_MIN_DIFF_LINES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_DIFF_LINES 必须为非负整数'
   find "$LOG_DIR" -type f -mtime +30 -delete
   CURRENT_STAGE='检查主工作区'
   validate_primary_worktree
@@ -565,6 +709,14 @@ main() {
 
   CURRENT_STAGE='生成保留双上游祖先关系的候选提交'
   create_final_merge_commit
+  evaluate_release_eligibility
+  if [[ "$RELEASE_STATE" == '待发布' ]]; then
+    RELEASE_TAG="$(next_release_tag)" || fail '无法生成下一个可用的日期版本标签，停止发布'
+    prepare_release_notes "$RELEASE_TAG"
+    log "release candidate $RELEASE_TAG prepared"
+  else
+    log "release skipped: $RELEASE_REASON"
+  fi
   CURRENT_STAGE='整套验证与 Codex 集中修复'
   run_validation_with_repairs
   if [[ "$VALIDATION_SUCCEEDED" != true ]]; then
@@ -576,10 +728,13 @@ main() {
   log "pushing validated candidate $CANDIDATE_COMMIT to $ORIGIN_REF"
   git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
   PUSHED_COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
+  if [[ "$RELEASE_STATE" == '待发布' ]]; then
+    publish_release "$RELEASE_TAG"
+  fi
   git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH"
   git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
   CURRENT_STAGE='完成'
-  write_report '成功' '两个上游已按规则合并，全部检查通过，代码已一次性推送'
+  write_report '成功' "两个上游已按规则合并，全部检查通过，代码已一次性推送；$RELEASE_REASON"
   send_email '【sub2api】双上游代码合并成功报告' "$REPORT_FILE" || \
     log "success email delivery failed; report retained at $REPORT_FILE"
   log "upstream sync completed: $PUSHED_COMMIT"

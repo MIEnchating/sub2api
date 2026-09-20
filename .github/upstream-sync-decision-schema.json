@@ -1,0 +1,46 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "decision",
+    "summary",
+    "upstream_changes",
+    "impacts",
+    "merged_behavior",
+    "conflicts",
+    "excluded_shared_account_pool_paths",
+    "risks"
+  ],
+  "properties": {
+    "decision": {
+      "type": "string",
+      "enum": ["resolved", "blocked"]
+    },
+    "summary": { "type": "string" },
+    "upstream_changes": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "impacts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "merged_behavior": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "conflicts": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "excluded_shared_account_pool_paths": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "risks": {
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}
