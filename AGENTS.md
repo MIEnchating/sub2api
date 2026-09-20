@@ -9,6 +9,8 @@
 - Create one cohesive commit for the complete update and push it once. Do not use a fix-push-fix-push cycle for the same update.
 - After pushing, wait for the complete remote CI and release workflows before reporting completion.
 - Confirm the working tree is clean and the local branch is synchronized with its remote branch after any automated release-version commit.
+- Scheduled upstream jobs must finish a complete validation pass and collect all failures before invoking Codex for one concentrated repair pass. After each repair, rerun the complete validation set.
+- On final failure, email the exact failed checks, key errors, likely direct causes, repair-attempt count, and confirmation that no candidate was pushed. On successful merge and push, email a success report.
 
 ## Upstream Merge Scope
 
