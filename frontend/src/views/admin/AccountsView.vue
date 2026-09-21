@@ -294,6 +294,12 @@
               :load-error="recentRequestsErrorByAccountId[String(row.id)] === true"
             />
           </template>
+          <template #cell-tool_diagnostics="{ row }">
+            <button type="button" class="inline-flex max-w-[9rem] items-center gap-1 rounded px-1.5 py-1 text-xs hover:bg-gray-100 dark:hover:bg-dark-700" :title="t('admin.accounts.toolDiagnostics.open')" @click="handleToolDiagnostics(row)">
+              <span :class="['h-1.5 w-1.5 flex-shrink-0 rounded-full', toolStatusDot(row.id)]" />
+              <span class="truncate" :class="toolStatusTextClass(row.id)">{{ toolStatusLabel(row.id) }}</span>
+            </button>
+          </template>
           <template #cell-status="{ row }">
             <div class="flex items-center gap-1.5">
               <AccountStatusIndicator :account="row" @show-temp-unsched="handleShowTempUnsched" />
@@ -463,8 +469,9 @@
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
+    <AccountToolDiagnosticsModal :show="showToolDiagnostics" :account="toolDiagnosticsAcc" @close="closeToolDiagnostics" />
     <ScheduledTestsPanel :show="showSchedulePanel" :account-id="scheduleAcc?.id ?? null" :model-options="scheduleModelOptions" @close="closeSchedulePanel" />
-    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
+    <AccountActionMenu :show="menu.show" :account="menu.acc" :anchor-rect="menu.anchorRect" @close="menu.show = false" @test="handleTest" @stats="handleViewStats" @tool-diagnostics="handleToolDiagnostics" @schedule="handleSchedule" @duplicate="handleDuplicateAccount" @reauth="handleReAuth" @refresh-token="handleRefresh" @recover-state="handleRecoverState" @reset-quota="handleResetQuota" @set-privacy="handleSetPrivacy" @create-spark-shadow="handleCreateSparkShadow" />
     <SyncFromCrsModal :show="showSync" @close="showSync = false" @synced="reload" />
     <ImportDataModal :show="showImportData" @close="showImportData = false" @imported="handleDataImported" />
     <BulkEditAccountModal
@@ -520,6 +527,7 @@ import ImportDataModal from '@/components/admin/account/ImportDataModal.vue'
 import ReAuthAccountModal from '@/components/admin/account/ReAuthAccountModal.vue'
 import AccountTestModal from '@/components/admin/account/AccountTestModal.vue'
 import AccountStatsModal from '@/components/admin/account/AccountStatsModal.vue'
+import AccountToolDiagnosticsModal from '@/components/admin/account/AccountToolDiagnosticsModal.vue'
 import ScheduledTestsPanel from '@/components/admin/account/ScheduledTestsPanel.vue'
 import type { SelectOption } from '@/components/common/Select.vue'
 import AccountStatusIndicator from '@/components/account/AccountStatusIndicator.vue'
@@ -541,7 +549,7 @@ import { extractApiErrorMessage } from '@/utils/apiError'
 import { sanitizeUrl } from '@/utils/url'
 import { getFloatingPanelPosition } from '@/utils/floatingPanel'
 import { formatMultiplier } from '@/utils/formatters'
-import type { OpsRequestDetail } from '@/api/admin/ops'
+import { opsAPI, type OpsRequestDetail, type OpsSystemLog } from '@/api/admin/ops'
 import type { Account, AccountListItem, AccountPlatform, AccountSchedulerGroupScore, AccountType, AccountUsageInfo, Proxy as AccountProxy, AdminGroup, WindowStats, ClaudeModel, UpstreamBillingProbeSnapshot } from '@/types'
 
 const { t } = useI18n()
@@ -611,6 +619,7 @@ const showCreateShadowDialog = ref(false)
 const showReAuth = ref(false)
 const showTest = ref(false)
 const showStats = ref(false)
+const showToolDiagnostics = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
 const edAcc = ref<Account | null>(null)
@@ -620,6 +629,7 @@ const creatingShadowAcc = ref<Account | null>(null)
 const reAuthAcc = ref<Account | null>(null)
 const testingAcc = ref<Account | null>(null)
 const statsAcc = ref<Account | null>(null)
+const toolDiagnosticsAcc = ref<Account | null>(null)
 const showSchedulePanel = ref(false)
 const scheduleAcc = ref<Account | null>(null)
 const scheduleModelOptions = ref<SelectOption[]>([])
@@ -717,6 +727,8 @@ const usageManualRefreshToken = ref(0)
 const recentRequestsByAccountId = ref<Record<string, OpsRequestDetail[]>>({})
 const recentRequestsLoadingByAccountId = ref<Record<string, boolean>>({})
 const recentRequestsErrorByAccountId = ref<Record<string, boolean>>({})
+const toolDiagnosticsByAccountId = ref<Record<string, OpsSystemLog>>({})
+const toolDiagnosticsLoading = ref(false)
 let recentRequestsReqSeq = 0
 let recentRequestsRefreshTimer: ReturnType<typeof setInterval> | null = null
 
@@ -1403,6 +1415,7 @@ watch(loading, (isLoading, wasLoading) => {
   if (wasLoading && !isLoading) {
     upstreamBillingNow.value = Date.now()
     void refreshRecentRequests()
+    void refreshToolDiagnostics()
   }
   if (wasLoading && !isLoading && pendingTodayStatsRefresh.value) {
     pendingTodayStatsRefresh.value = false
@@ -1450,6 +1463,7 @@ const isAnyModalOpen = computed(() => {
     showReAuth.value ||
     showTest.value ||
     showStats.value ||
+    showToolDiagnostics.value ||
     showSchedulePanel.value ||
     showErrorPassthrough.value ||
     showTLSFingerprintProfiles.value
@@ -1873,6 +1887,7 @@ const allColumns = computed(() => {
     { key: 'platform_type', label: t('admin.accounts.columns.platformType'), sortable: false },
     { key: 'capacity', label: t('admin.accounts.columns.capacity'), sortable: false },
     { key: 'recent_requests', label: t('admin.accounts.columns.recentRequests'), sortable: false },
+    { key: 'tool_diagnostics', label: t('admin.accounts.columns.toolDiagnostics'), sortable: false },
     { key: 'status', label: t('admin.accounts.columns.status'), sortable: true },
     { key: 'schedulable', label: t('admin.accounts.columns.schedulable'), sortable: true },
     { key: 'today_stats', label: t('admin.accounts.columns.todayStats'), sortable: false }
@@ -2394,8 +2409,34 @@ const handleExportData = async () => {
   }
 }
 const accountExportStepUp = useStepUp()
+const toolDiagnosis = (accountID: number): string => String(toolDiagnosticsByAccountId.value[String(accountID)]?.extra?.diagnosis || 'unknown')
+const toolStatusLabel = (accountID: number): string => t(`admin.accounts.toolDiagnostics.diagnoses.${toolDiagnosis(accountID)}`, t('admin.accounts.toolDiagnostics.unknown'))
+const toolStatusTextClass = (accountID: number): string => toolDiagnosis(accountID) === 'tools_present' ? 'text-emerald-700 dark:text-emerald-300' : toolDiagnosis(accountID) === 'unknown' ? 'text-gray-400 dark:text-gray-500' : 'text-amber-700 dark:text-amber-300'
+const toolStatusDot = (accountID: number): string => toolDiagnosis(accountID) === 'tools_present' ? 'bg-emerald-500' : toolDiagnosis(accountID) === 'unknown' ? 'bg-gray-300 dark:bg-dark-500' : 'bg-amber-500'
+
+const refreshToolDiagnostics = async () => {
+  if (toolDiagnosticsLoading.value || accounts.value.length === 0) return
+  toolDiagnosticsLoading.value = true
+  try {
+    const result = await opsAPI.listSystemLogs({ q: 'openai_tool_diagnostics', time_range: '24h', page: 1, page_size: 200 })
+    const next: Record<string, OpsSystemLog> = {}
+    for (const log of result?.items || []) {
+      if (log.account_id == null) continue
+      const key = String(log.account_id)
+      const current = next[key]
+      if (!current || new Date(log.created_at).getTime() > new Date(current.created_at).getTime()) next[key] = log
+    }
+    toolDiagnosticsByAccountId.value = next
+  } catch (cause) {
+    console.error('Failed to load tool diagnostics:', cause)
+  } finally {
+    toolDiagnosticsLoading.value = false
+  }
+}
+
 const closeTestModal = () => { showTest.value = false; testingAcc.value = null }
 const closeStatsModal = () => { showStats.value = false; statsAcc.value = null }
+const closeToolDiagnostics = () => { showToolDiagnostics.value = false; toolDiagnosticsAcc.value = null }
 const closeReAuthModal = () => { showReAuth.value = false; reAuthAcc.value = null }
 const handleTest = async (a: AccountListItem) => {
   const account = await loadAccountDetails(a)
@@ -2408,6 +2449,10 @@ const handleViewStats = async (a: AccountListItem) => {
   if (!account) return
   statsAcc.value = account
   showStats.value = true
+}
+const handleToolDiagnostics = (a: AccountListItem) => {
+  toolDiagnosticsAcc.value = a as Account
+  showToolDiagnostics.value = true
 }
 const handleSchedule = async (a: Account) => {
   scheduleAcc.value = a

@@ -144,7 +144,7 @@
             </div>
           </div>
 
-          <div v-if="enableTierMultipliers" class="mt-3 grid max-w-2xl grid-cols-1 gap-2 sm:grid-cols-3">
+          <div v-if="enableTierMultipliers" class="mt-3 grid max-w-md grid-cols-1 gap-2 sm:grid-cols-2">
             <div>
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.fastMultiplier') }}</label>
               <input :value="entry.fast_multiplier" @input="emitField('fast_multiplier', ($event.target as HTMLInputElement).value)"
@@ -154,11 +154,6 @@
               <label class="text-xs text-gray-400">{{ t('admin.channels.form.flexMultiplier') }}</label>
               <input :value="entry.flex_multiplier" @input="emitField('flex_multiplier', ($event.target as HTMLInputElement).value)"
                 type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="t('admin.channels.form.multiplierPlaceholder')" />
-            </div>
-            <div>
-              <label class="text-xs text-gray-400">{{ t('admin.channels.form.maxReasoningEffortMultiplier') }}</label>
-              <input :value="entry.max_reasoning_effort_multiplier" @input="emitField('max_reasoning_effort_multiplier', ($event.target as HTMLInputElement).value)"
-                type="number" step="any" min="0.000001" class="input mt-0.5 text-sm" :placeholder="maxReasoningEffortMultiplierPlaceholder" />
             </div>
           </div>
 
@@ -261,6 +256,43 @@
             />
           </div>
         </div>
+
+        <div class="mt-3 border-t border-gray-200 pt-3 dark:border-dark-600" data-testid="reasoning-effort-multipliers">
+          <div class="flex items-center justify-between gap-2">
+            <label class="text-xs font-medium text-gray-500 dark:text-gray-400">
+              {{ t('admin.channels.form.reasoningEffortMultipliers') }}
+            </label>
+            <button
+              v-if="Object.keys(entry.reasoning_effort_multipliers || {}).length"
+              type="button"
+              class="text-xs text-gray-500 hover:text-red-500"
+              @click="emitEntryUpdate({ ...entry, reasoning_effort_multipliers: null })"
+            >
+              {{ t('admin.channels.form.clearReasoningEffortMultipliers') }}
+            </button>
+          </div>
+          <p class="mt-1 text-xs text-gray-400">{{ t('admin.channels.form.reasoningEffortMultipliersHint') }}</p>
+          <div class="mt-2 grid grid-cols-2 gap-2 sm:grid-cols-4 lg:grid-cols-7">
+            <label v-for="effort in REASONING_EFFORT_LEVELS" :key="effort" class="text-xs text-gray-500 dark:text-gray-400">
+              {{ effort }}
+              <input
+                :value="entry.reasoning_effort_multipliers?.[effort]"
+                :aria-label="t('admin.channels.form.reasoningEffortMultiplierLabel', { effort })"
+                :aria-invalid="!isValidPositiveMultiplier(entry.reasoning_effort_multipliers?.[effort])"
+                :data-reasoning-effort="effort"
+                @input="updateReasoningEffortMultiplier(effort, ($event.target as HTMLInputElement).value)"
+                type="number"
+                step="any"
+                min="0"
+                class="input mt-0.5 text-sm"
+                :placeholder="t('admin.channels.form.reasoningEffortMultiplierDefault')"
+              />
+            </label>
+          </div>
+          <p v-if="reasoningEffortMultiplierError" role="alert" class="mt-1 text-xs text-red-500">
+            {{ reasoningEffortMultiplierError }}
+          </p>
+        </div>
       </div>
     </div>
   </div>
@@ -275,7 +307,8 @@ import IntervalRow from './IntervalRow.vue'
 import ModelTagInput from './ModelTagInput.vue'
 import TimePricingSection from './TimePricingSection.vue'
 import type { PricingFormEntry, IntervalFormEntry } from './types'
-import { perTokenToMTok, getPlatformTagClass } from './types'
+import { perTokenToMTok, getPlatformTagClass, isValidPositiveMultiplier, validateReasoningEffortMultipliers } from './types'
+import { REASONING_EFFORT_LEVELS, type ReasoningEffortLevel } from '@/constants/channel'
 import type { BillingMode } from '@/api/admin/channels'
 import channelsAPI from '@/api/admin/channels'
 
@@ -313,10 +346,8 @@ const billingModeLabel = computed(() => {
   return opt ? opt.label : props.entry.billing_mode
 })
 
-const maxReasoningEffortMultiplierPlaceholder = computed(() =>
-  props.entry.models.some(model => /fable(?:-5-1|-5\.1|5\.1|51)(?!\d)/i.test(model))
-    ? t('admin.channels.form.fable51DefaultMaxReasoningMultiplier')
-    : t('admin.channels.form.multiplierPlaceholder')
+const reasoningEffortMultiplierError = computed(() =>
+  validateReasoningEffortMultipliers(props.entry.reasoning_effort_multipliers, t)
 )
 
 // A pricing lookup is best-effort convenience only. Every local edit bumps this
@@ -358,7 +389,21 @@ function hasManualPricing(entry: PricingFormEntry): boolean {
 
   if (scalarFields.some(field => hasMeaningfulValue(entry[field]))) return true
   if (entry.intervals?.length) return true
-  return Boolean(entry.time_pricing?.periods?.length)
+  // Effort multipliers are independent overrides; allow the default token
+  // lookup to fill alongside them even when the shared time-pricing form has
+  // its default preview period.
+  if (entry.time_pricing?.periods?.length && !Object.keys(entry.reasoning_effort_multipliers || {}).length) return true
+  return false
+}
+
+function updateReasoningEffortMultiplier(effort: ReasoningEffortLevel, value: string) {
+  const multipliers = { ...props.entry.reasoning_effort_multipliers }
+  if (value === '') delete multipliers[effort]
+  else multipliers[effort] = value
+  emitEntryUpdate({
+    ...props.entry,
+    reasoning_effort_multipliers: Object.keys(multipliers).length ? multipliers : null,
+  })
 }
 
 function emitField(field: keyof PricingFormEntry, value: string) {
@@ -435,17 +480,18 @@ async function onModelsUpdate(newModels: string[]) {
     // in flight. Re-check both the generation and current values before
     // applying the response, so manual edits and model changes always win.
     const current = props.entry
+    const effectiveCurrent = current.models.length === 0 ? { ...current, models: newModels } : current
     if (lookupGeneration !== pricingLookupGeneration ||
-        current.billing_mode !== 'token' ||
-        current.models.length !== 1 ||
-        current.models[0] !== model ||
-        hasManualPricing(current)) {
+        effectiveCurrent.billing_mode !== 'token' ||
+        effectiveCurrent.models.length !== 1 ||
+        effectiveCurrent.models[0] !== model ||
+        hasManualPricing(effectiveCurrent)) {
       return
     }
 
     if (result.found) {
-      emit('update', {
-        ...current,
+      emitEntryUpdate({
+        ...effectiveCurrent,
         models: newModels,
         input_price: perTokenToMTok(result.input_price ?? null),
         output_price: perTokenToMTok(result.output_price ?? null),
@@ -454,7 +500,8 @@ async function onModelsUpdate(newModels: string[]) {
         cache_read_price: perTokenToMTok(result.cache_read_price ?? null),
         image_input_price: perTokenToMTok(result.image_input_price ?? null),
         image_output_price: perTokenToMTok(result.image_output_price ?? null),
-        max_reasoning_effort_multiplier: result.max_reasoning_effort_multiplier ?? null,
+        reasoning_effort_multipliers: props.entry.reasoning_effort_multipliers ?? result.reasoning_effort_multipliers ?? null,
+        max_reasoning_effort_multiplier: (result as typeof result & { max_reasoning_effort_multiplier?: number | null }).max_reasoning_effort_multiplier ?? null,
       })
     }
   } catch {

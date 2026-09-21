@@ -73,6 +73,11 @@ func TestOpsSystemLogSink_ShouldIndex(t *testing.T) {
 			event: &logger.LogEvent{Level: "info", Component: "app"},
 			want:  false,
 		},
+		{
+			name:  "openai tool diagnostics",
+			event: &logger.LogEvent{Level: "info", Message: "openai_tool_diagnostics", Component: "service.openai_tool_diagnostics"},
+			want:  true,
+		},
 	}
 
 	for _, tc := range cases {

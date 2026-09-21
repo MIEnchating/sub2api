@@ -19,6 +19,8 @@ import (
 
 // Forward forwards request to OpenAI API
 func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*OpenAIForwardResult, error) {
+	clientBody := append([]byte(nil), body...)
+	RecordOpenAIToolIngressDiagnostics(c, clientBody, openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")))
 	stageMode1Request(c, account, body)
 	defer releaseStagedCodexFingerprintLease(c)
 	beginUpstreamResponseModelObservation(c)
@@ -1373,6 +1375,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if err := validateMode1StagedRequest(c, account, body); err != nil {
 		return nil, err
 	}
+	RecordOpenAIToolEgressDiagnostics(c, body)
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {

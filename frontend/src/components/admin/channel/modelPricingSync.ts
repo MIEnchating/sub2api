@@ -22,6 +22,7 @@ export async function loadModelDefaultPrices(
 }
 
 function defaultPriceFields(pricing?: ModelDefaultPricing | null) {
+  const legacy = pricing as (ModelDefaultPricing & { max_reasoning_effort_multiplier?: number | null }) | null | undefined
   return {
     input_price: perTokenToMTok(pricing?.input_price),
     output_price: perTokenToMTok(pricing?.output_price),
@@ -30,7 +31,10 @@ function defaultPriceFields(pricing?: ModelDefaultPricing | null) {
     cache_read_price: perTokenToMTok(pricing?.cache_read_price),
     image_input_price: perTokenToMTok(pricing?.image_input_price),
     image_output_price: perTokenToMTok(pricing?.image_output_price),
-    max_reasoning_effort_multiplier: pricing?.max_reasoning_effort_multiplier ?? null,
+    reasoning_effort_multipliers: pricing?.reasoning_effort_multipliers
+      ? { ...pricing.reasoning_effort_multipliers }
+      : null,
+    max_reasoning_effort_multiplier: legacy?.max_reasoning_effort_multiplier ?? null,
   }
 }
 

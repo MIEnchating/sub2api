@@ -176,6 +176,9 @@ func (s *OpsSystemLogSink) shouldIndex(event *logger.LogEvent) bool {
 			component = fc
 		}
 	}
+	if strings.Contains(component, "openai_tool_diagnostics") || event.Message == "openai_tool_diagnostics" {
+		return true
+	}
 	if strings.Contains(component, "http.access") {
 		return s.persistAccessLogs.Load()
 	}
