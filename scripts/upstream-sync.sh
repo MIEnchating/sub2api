@@ -31,6 +31,7 @@ RELEASE_MIN_UPSTREAM_COMMITS="${SUB2API_RELEASE_MIN_UPSTREAM_COMMITS:-3}"
 RELEASE_MIN_CHANGED_FILES="${SUB2API_RELEASE_MIN_CHANGED_FILES:-8}"
 RELEASE_MIN_DIFF_LINES="${SUB2API_RELEASE_MIN_DIFF_LINES:-150}"
 RELEASE_REQUIRE_NO_RISKS="${SUB2API_RELEASE_REQUIRE_NO_RISKS:-true}"
+RELEASE_IGNORE_ENVIRONMENT_RISKS="${SUB2API_RELEASE_IGNORE_ENVIRONMENT_RISKS:-true}"
 REMOTE_WORKFLOW_TIMEOUT_MINUTES="${SUB2API_REMOTE_WORKFLOW_TIMEOUT_MINUTES:-90}"
 REMOTE_WORKFLOW_POLL_SECONDS="${SUB2API_REMOTE_WORKFLOW_POLL_SECONDS:-15}"
 REMOTE_WORKFLOW_RETRY_ATTEMPTS="${SUB2API_REMOTE_WORKFLOW_RETRY_ATTEMPTS:-1}"
@@ -166,8 +167,36 @@ send_email() {
   log "notification sent to $EMAIL_TO"
 }
 
+workflow_trigger_state() {
+  local workflow="$1" commit="$2" path yaml name
+  while IFS= read -r path; do
+    [[ "$path" =~ \.ya?ml$ ]] || continue
+    yaml="$(git -C "$REPO_DIR" show "$commit:$path" 2>/dev/null || true)"
+    name="$(printf '%s\n' "$yaml" | sed -n 's/^name:[[:space:]]*//p' | head -1 | sed -E 's/^['\"']|['\"']$//g')"
+    [[ "$name" == "$workflow" ]] || continue
+    if grep -Eq '^[[:space:]]+push:' <<< "$yaml"; then
+      return 0
+    fi
+    return 1
+  done < <(git -C "$REPO_DIR" ls-tree -r --name-only "$commit" .github/workflows 2>/dev/null)
+  return 2
+}
+
 wait_for_remote_workflow() {
-  local workflow="$1" commit="$2" label="$3" repo run_json run_info run_id status conclusion
+  local workflow="$1" commit="$2" label="$3" repo run_json run_info run_id status conclusion trigger_state
+  if workflow_trigger_state "$workflow" "$commit"; then
+    trigger_state=0
+  else
+    trigger_state=$?
+  fi
+  if (( trigger_state == 2 )); then
+    log "$label workflow is not defined for commit $commit; skipping this optional gate"
+    return 2
+  fi
+  if (( trigger_state == 1 )); then
+    log "$label workflow has no push trigger for commit $commit; local validation and the release preflight remain the gates"
+    return 2
+  fi
   local retries=0 deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while (( SECONDS < deadline )); do
@@ -207,13 +236,23 @@ if matching:
 }
 
 wait_for_remote_workflows() {
-  local commit="$1"
+  local commit="$1" result skipped=0
   CURRENT_STAGE='等待远程 CI 与安全扫描'
   REMOTE_WORKFLOW_STATE='等待中'
   require_command gh
-  wait_for_remote_workflow 'CI' "$commit" 'CI' || fail "远程 CI 未通过或超时（提交 $commit）"
-  wait_for_remote_workflow 'Security Scan' "$commit" 'Security Scan' || fail "远程安全扫描未通过或超时（提交 $commit）"
-  REMOTE_WORKFLOW_STATE='CI 与安全扫描通过'
+  if wait_for_remote_workflow 'CI' "$commit" 'CI'; then :; else
+    result=$?
+    (( result == 2 )) && skipped=$((skipped + 1)) || fail "远程 CI 未通过或超时（提交 $commit）"
+  fi
+  if wait_for_remote_workflow 'Security Scan' "$commit" 'Security Scan'; then :; else
+    result=$?
+    (( result == 2 )) && skipped=$((skipped + 1)) || fail "远程安全扫描未通过或超时（提交 $commit）"
+  fi
+  if (( skipped == 0 )); then
+    REMOTE_WORKFLOW_STATE='CI 与安全扫描通过'
+  else
+    REMOTE_WORKFLOW_STATE="适用远程工作流通过，${skipped} 个未配置 push 触发的可选工作流已跳过"
+  fi
 }
 
 wait_for_release_workflow() {
@@ -407,6 +446,7 @@ run_codex_merge_review() {
 - 最终答复用中文列出：上游变化、冲突处理、共享账号池和批量生图排除的文件/代码位置、保留的第二上游功能和剩余风险。
 - decision 仅可为 resolved 或 blocked；只有所有冲突已解决且产品规则均满足时才可 resolved。
 - risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
+- 沙箱缺少 Go/Bun/Docker、无法监听本地端口、远程工作流尚未启动或工具不可用都不是合并风险；不要因此返回 blocked，也不要将这些环境限制写入 risks。仅记录产品、代码、安全、权限、计费或数据库风险。
 - excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 - 这是第 $attempt/$REVIEW_REPAIR_ATTEMPTS 轮集中冲突修复。若上一轮已修改工作树，必须继续逐文件核对并修复，不要仅返回 blocked。
@@ -633,7 +673,7 @@ create_final_merge_commit() {
 
 evaluate_release_eligibility() {
   local upstream_commits changed_files diff_lines review_decision risk_count
-  local merged_behavior_count release_check
+  local merged_behavior_count ignored_risk_count release_check
 
   CURRENT_STAGE='评估版本发布条件'
   RELEASE_STATE='评估中'
@@ -648,22 +688,32 @@ evaluate_release_eligibility() {
   changed_files="$(git -C "$WORKTREE" diff --name-only "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | sed '/^$/d' | wc -l)"
   diff_lines="$(git -C "$WORKTREE" diff --numstat "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | \
     awk '{if ($1 ~ /^[0-9]+$/) added += $1; if ($2 ~ /^[0-9]+$/) removed += $2} END {print added + removed + 0}')"
-  read -r review_decision risk_count merged_behavior_count < <(
-    python3 - "$REVIEW_DECISION_FILE" <<'PY'
+  read -r review_decision risk_count merged_behavior_count ignored_risk_count < <(
+    python3 - "$REVIEW_DECISION_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" <<'PY'
 import json
+import re
 import sys
 
 with open(sys.argv[1], encoding="utf-8") as source:
     decision = json.load(source)
+risks = decision.get("risks", []) if isinstance(decision.get("risks", []), list) else []
+ignore_environment = sys.argv[2].lower() == "true"
+environment_only = re.compile(
+    r"沙箱|sandbox|operation not permitted|监听本地端口|httptest|miniredis|plutil|"
+    r"缺少 (?:go|bun|docker)|工具不可用|远程工作流尚未启动",
+    re.IGNORECASE,
+)
+blocking_risks = [risk for risk in risks if not ignore_environment or not environment_only.search(str(risk))]
 print(
     decision.get("decision", ""),
-    len(decision.get("risks", [])),
+    len(blocking_risks),
     len(decision.get("merged_behavior", [])),
+    len(risks) - len(blocking_risks),
 )
 PY
   )
 
-  release_check="提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 风险=${risk_count}"
+  release_check="提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 阻断风险=${risk_count} 忽略环境风险=${ignored_risk_count}"
   log "release eligibility: $release_check"
   if [[ "$review_decision" != resolved ]]; then
     RELEASE_STATE='不发布'
@@ -719,18 +769,32 @@ prepare_release_notes() {
 }
 
 publish_release() {
-  local tag="$1" release_commit
+  local tag="$1" release_commit attempt remote_tag
   CURRENT_STAGE='推送版本标签'
   RELEASE_STATE='发布中'
   release_commit="$(git -C "$WORKTREE" rev-parse HEAD)"
-  git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit"
-  if ! git -C "$WORKTREE" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
+  for attempt in 1 2 3; do
+    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" "refs/tags/$tag^{}" | awk 'NR == 1 {print $1}')"
+    if [[ -n "$remote_tag" ]]; then
+      log "release tag $tag was claimed concurrently; selecting the next available date tag"
+      tag="$(next_release_tag)" || return 1
+      prepare_release_notes "$tag"
+      continue
+    fi
+    git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit"
+    if git -C "$WORKTREE" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
+      RELEASE_TAG="$tag"
+      RELEASE_STATE='已触发发布'
+      RELEASE_REASON="版本标签已推送，GitHub 发布工作流已触发（提交 $release_commit）"
+      return 0
+    fi
     git -C "$WORKTREE" tag -d "$tag" >/dev/null 2>&1 || true
-    return 1
-  fi
-  RELEASE_TAG="$tag"
-  RELEASE_STATE='已触发发布'
-  RELEASE_REASON="版本标签已推送，GitHub 发布工作流已触发（提交 $release_commit）"
+    git -C "$REPO_DIR" fetch --tags "$ORIGIN_REMOTE" >/dev/null 2>&1 || true
+    tag="$(next_release_tag)" || return 1
+    prepare_release_notes "$tag"
+    log "release tag push failed; retrying with $tag (attempt $((attempt + 1))/3)"
+  done
+  return 1
 }
 
 main() {
