@@ -51,6 +51,7 @@ RUN_ID="$(date -u +'%Y%m%dT%H%M%SZ')-$$"
 WORKTREE="$WORKTREE_ROOT/$RUN_ID"
 LOG_FILE="$LOG_DIR/$RUN_ID.log"
 REPORT_FILE="$STATE_DIR/last-report.txt"
+HTML_REPORT_FILE="$STATE_DIR/last-report.html"
 FAILURE_SUMMARY_FILE="$STATE_DIR/$RUN_ID-failure-summary.txt"
 VALIDATION_FAILURES_FILE="$STATE_DIR/$RUN_ID-validation-failures.txt"
 REVIEW_SUMMARY_FILE="$STATE_DIR/$RUN_ID-review-summary.txt"
@@ -106,7 +107,7 @@ load_smtp_config() {
 
 send_email() {
   local subject="$1" body_file="$2"
-  local message_file curl_config smtp_scheme escaped_user encoded_subject
+  local message_file curl_config smtp_scheme escaped_user
   if [[ "$EMAIL_ENABLED" != 'true' ]]; then
     log "email disabled; report retained at $REPORT_FILE"
     return 0
@@ -130,17 +131,13 @@ send_email() {
   curl_config="$STATE_DIR/$RUN_ID-curl.conf"
   smtp_scheme='smtp'
   [[ "${SMTP_SSL_ENABLED:-false}" == 'true' ]] && smtp_scheme='smtps'
-  encoded_subject="$(printf '%s' "$subject" | /usr/bin/base64 -w 0)"
-  {
-    printf 'From: %s\r\n' "$EMAIL_FROM"
-    printf 'To: %s\r\n' "$EMAIL_TO"
-    printf 'Subject: =?UTF-8?B?%s?=\r\n' "$encoded_subject"
-    printf 'Date: %s\r\n' "$(LC_ALL=C date -R)"
-    printf 'MIME-Version: 1.0\r\n'
-    printf 'Content-Type: text/plain; charset=UTF-8\r\n'
-    printf 'Content-Transfer-Encoding: 8bit\r\n\r\n'
-    cat "$body_file"
-  } > "$message_file"
+  if ! python3 "$SCRIPT_DIR/../.github/render-upstream-sync-email.py" message \
+    --text "$body_file" --html "$HTML_REPORT_FILE" --output "$message_file" \
+    --subject "$subject" --sender "$EMAIL_FROM" --recipient "$EMAIL_TO"; then
+    log 'unable to compose email; local report retained'
+    rm -f "$message_file"
+    return 1
+  fi
   escaped_user="${SMTP_USERNAME//\\/\\\\}:${SMTP_AUTH_CODE//\\/\\\\}"
   escaped_user="${escaped_user//\"/\\\"}"
   {
@@ -202,6 +199,12 @@ write_report() {
     fi
     printf '\n完整日志：%s\n' "$LOG_FILE"
   } > "$REPORT_FILE"
+  # A rendering error must not prevent the failure notification itself.
+  if ! python3 "$SCRIPT_DIR/../.github/render-upstream-sync-email.py" render \
+    --text "$REPORT_FILE" --output "$HTML_REPORT_FILE"; then
+    rm -f "$HTML_REPORT_FILE"
+    log 'HTML rendering failed; email will use the plain-text report'
+  fi
 }
 
 generate_failure_summary() {

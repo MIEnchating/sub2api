@@ -1167,6 +1167,50 @@ export interface OllamaCloudUsageSettings {
   debounce_minutes: number
 }
 
+export interface CodexTurnTicketStatus {
+  model: string
+  length?: number
+  target_length: number
+  ready: boolean
+  remaining_seconds: number
+  blocked: boolean
+  expires_at?: string
+  attempts?: number
+  successes?: number
+  failures?: number
+  inject_misses?: number
+  last_inject_miss_at?: string | null
+  consecutive_failures?: number
+  in_progress?: boolean
+  last_attempt_at?: string | null
+  next_retry_at?: string | null
+  last_error_code?: string
+  last_error?: string
+  last_http_status?: number
+  last_length?: number
+  last_proxy_index?: number
+  paused?: boolean
+  plan_known?: boolean
+}
+
+export interface CodexTicketHistoryEvent {
+  id: number
+  at: string
+  model: string
+  outcome: 'success' | 'failure' | 'canceled'
+  error_code: string
+  http_status: number
+  length: number
+  target_length: number
+  proxy_index: number
+  duration_ms: number
+}
+
+export interface CodexTicketHistoryResponse {
+  events: CodexTicketHistoryEvent[]
+  limit: number
+}
+
 export interface Account {
   id: number
   name: string
@@ -1180,14 +1224,15 @@ export interface Account {
   credentials?: Record<string, unknown>
   credentials_status?: Record<string, boolean>
   ollama_cloud_usage?: OllamaCloudUsageState
-  codex_turn_tickets?: Array<{
-    model: string
-    length?: number
-    ready: boolean
-    remaining_seconds: number
-    blocked: boolean
-    expires_at?: string
-  }>
+  codex_turn_tickets?: CodexTurnTicketStatus[]
+  /** Resolved gateway and account policy for Codex 292 / 332 tickets. */
+  codex_ticket_config?: {
+    gateway_enabled: boolean
+    account_enabled: boolean
+    enabled: boolean
+    fail_closed: boolean
+    target_length: number
+  }
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
@@ -1199,9 +1244,16 @@ export interface Account {
       available_count?: number
       credits?: { expires_at?: string }[]
     }
+    codex_credits_snapshot?: {
+      credits: { has_credits: boolean; unlimited: boolean; balance: string | null } | null
+      fetched_at: number
+    }
+    codex_referral_snapshot?: import('./openaiReferrals').OpenAIReferralEligibility | null
     auto_reset_credit_enabled?: boolean
     auto_reset_credit_5h_threshold?: number
     auto_reset_credit_7d_threshold?: number
+    codex_ticket_enabled?: boolean
+    codex_ticket_fail_closed?: boolean
     codex_auto_reset_credit_state?: {
       status?: 'checking' | 'available' | 'resetting' | 'success' | 'no_credit' | 'failed'
       trigger_window?: string
@@ -1478,7 +1530,7 @@ export interface CodexUsageSnapshot {
 
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
-export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings'
+export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'seedance'
 
 export interface OpenAICompactState {
   openai_compact_mode?: OpenAICompactMode

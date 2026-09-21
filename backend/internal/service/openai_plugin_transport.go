@@ -12,7 +12,7 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err := validateRegisteredAntiDegrade(account); err != nil {
 		return nil, err
 	}
-	profile, err := resolveProtectionTransport(account, s.cfg)
+	profile, err := resolveAccountTLSProfileForOpenAI(account, s.cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -46,11 +46,11 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	if err := validateRegisteredAntiDegrade(account); err != nil {
 		return nil, err
 	}
-	profile, err := resolveProtectionTransport(account, s.cfg)
+	profile, err := resolveAccountTLSProfileForOpenAI(account, s.cfg)
 	if err != nil {
 		return nil, err
 	}
-	return doAccount429Retry(request, account, func(attemptRequest *http.Request) (*http.Response, error) {
+	perform := func(attemptRequest *http.Request) (*http.Response, error) {
 		if profile != nil && (s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
 			return s.httpUpstream.DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
@@ -73,5 +73,9 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 			)
 		}
 		return s.httpUpstream.Do(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
-	})
+	}
+	if request.Context().Value(generationPreviewContextKey{}) == true {
+		return perform(request)
+	}
+	return doAccount429Retry(request, account, perform)
 }

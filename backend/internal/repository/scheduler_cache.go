@@ -959,7 +959,7 @@ func filterSchedulerCredentials(credentials map[string]any) map[string]any {
 	}
 	// Candidate-list admission evaluates the account override before hydrating
 	// the full account. Dropping it silently falls back to the platform threshold.
-	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "account_scheduling_threshold"}
+	keys := []string{"model_mapping", "compact_model_mapping", "api_key", "project_id", "oauth_type", "plan_type", "chatgpt_plan_type", "account_scheduling_threshold"}
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := credentials[key]; ok && value != nil {
@@ -1019,9 +1019,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		// 走网关报 no available accounts"。
 		"openai_passthrough",
 		"openai_oauth_passthrough",
-		// Prism routing must remain visible before the full account is hydrated.
-		// Its authentication remains exclusively in the full credentials payload.
-		service.PrismExtraKey,
 		// Account protection is resolved at admission time. Keep this small
 		// policy object and its identity/transport controls in the scheduler
 		// projection so a newly enabled strategy takes effect on the very next
@@ -1044,6 +1041,10 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"codex_5h_reset_after_seconds",
 		"codex_7d_reset_after_seconds",
 		"codex_usage_updated_at",
+		// Account-scoped Codex ticket switches must survive scheduler snapshots. These
+		// are deliberately separate from ProxyIDs, which route business traffic.
+		service.OpenAICodexTicketEnabledExtraKey,
+		service.OpenAICodexTicketFailClosedExtraKey,
 		"auto_pause_5h_threshold",
 		"auto_pause_7d_threshold",
 		"auto_pause_5h_disabled",
@@ -1057,19 +1058,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 	filtered := make(map[string]any)
 	for _, key := range keys {
 		if value, ok := extra[key]; ok && value != nil {
-			if key == service.PrismExtraKey {
-				config, ok := value.(map[string]any)
-				if !ok {
-					continue
-				}
-				projected := make(map[string]any, 5)
-				for _, name := range []string{"enabled", "version", "auth_mode", "conversation_action_id", "timeout_seconds"} {
-					if field, exists := config[name]; exists {
-						projected[name] = field
-					}
-				}
-				value = projected
-			}
 			if key == service.UpstreamBillingProbeExtraKey {
 				filteredProbe := filterSchedulerUpstreamBillingProbe(value)
 				if filteredProbe == nil {

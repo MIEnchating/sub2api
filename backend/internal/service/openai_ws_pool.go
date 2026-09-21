@@ -95,6 +95,7 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	tlsProfile          string
 	betaFeatures        string
 	codexInstallationID string
 	sessionIDHyphen     string
@@ -1189,7 +1190,7 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 retryAcquire:
 	accountID := req.Account.ID
 	proxyKey := openAIWSRequestProxyKey(req)
-	compatibility := openAIWSAcquireCompatibility(req, p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	compatibility := openAIWSAcquireCompatibility(req)
 	routingAffinity := normalizeOpenAIWSRoutingAffinity(req.Headers)
 	effectiveMaxConns := p.effectiveMaxConnsByAccount(req.Account)
 	if effectiveMaxConns <= 0 {
@@ -2114,7 +2115,7 @@ func (p *openAIWSConnPool) prewarmConns(accountID int64, req openAIWSAcquireRequ
 			conn.close()
 			continue
 		}
-		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire, p != nil && p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled) {
+		if !sameOpenAIWSPrewarmTarget(req, *ap.lastAcquire) {
 			staleTarget = true
 			ap.signalChangedLocked()
 			ap.mu.Unlock()
@@ -2312,7 +2313,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConnWithProxy(id, req.Account.ID, conn, handshakeHeaders, openAIWSRequestProxyKey(req))
-	pooledConn.handshakeCompatibility = openAIWSAcquireCompatibility(req, p.cfg != nil && p.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	pooledConn.handshakeCompatibility = openAIWSAcquireCompatibility(req)
 	accountID := req.Account.ID
 	evict := func() { p.evictConn(accountID, id) }
 	pooledConn.onPeerClosed.Store(&evict)
@@ -2559,7 +2560,7 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 	return strings.Join(normalized, ",")
 }
 
-func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header, uniqueFingerprintEnabled ...bool) openAIWSHandshakeCompatibilityKey {
+func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header, _ ...bool) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
 	}
@@ -2575,16 +2576,21 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 			key.protectionTLS = strings.TrimSpace(antiDegradeStrategyProfile(antiDegradeMode(account)).TLSProfile)
 		}
 	}
-	mode, isDefault := resolveCodexFingerprintMode(account, len(uniqueFingerprintEnabled) > 0 && uniqueFingerprintEnabled[0])
+	// Even identical application headers cannot reuse a socket established
+	// with another TLS identity after the account's fingerprint mode changes.
+	if profile := resolveCodexMacTLSProfile(account); profile != nil {
+		key.tlsProfile = profile.Name
+	}
+	mode, allowDerivedSeed := resolveCodexFingerprintMode(account)
 	if mode == codexFingerprintOff {
 		return key
 	}
-	if !isDefault {
+	if !allowDerivedSeed {
 		if _, ok := codexFingerprintSeed(account.Extra); !ok {
 			return key
 		}
 	}
-	if isDefault {
+	if allowDerivedSeed {
 		seed := deriveAccountCodexFingerprintSeed(account)
 		if persisted, ok := codexFingerprintSeed(account.Extra); ok {
 			seed = persisted
@@ -2593,7 +2599,7 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 	} else {
 		key.codexInstallationID = normalizeOpenAIWSStableIdentityHeader(headers, "x-codex-installation-id")
 	}
-	if (mode == codexFingerprintAccountDevice || mode == codexFingerprintDevice) && !account.IdentityProtectionEnabled() {
+	if mode == codexFingerprintDevice && !account.IdentityProtectionEnabled() {
 		return key
 	}
 	key.sessionIDHyphen = normalizeOpenAIWSStableIdentityHeader(headers, "session-id")

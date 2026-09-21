@@ -398,6 +398,22 @@ func (s *RateLimitService) HandleUpstreamError(ctx context.Context, account *Acc
 	if upstreamMsg != "" {
 		upstreamMsg = truncateForLog([]byte(upstreamMsg), 512)
 	}
+	// Providers sometimes encode an exhausted account balance/quota as 400,
+	// 403, or 429 instead of 402. Once the shared classifier has confirmed an
+	// account billing condition, stop scheduling this account just as the
+	// existing 402 path does. Local user billing errors never call this method.
+	if statusCode != http.StatusPaymentRequired && IsUpstreamBillingError(statusCode, responseBody) {
+		if account.IsCNProvider() || account.IsOpenCodeZen() {
+			s.handleCNProviderInsufficientBalance(ctx, account, upstreamMsg)
+		} else {
+			msg := fmt.Sprintf("Upstream billing limit (%d): insufficient balance or quota", statusCode)
+			if upstreamMsg != "" {
+				msg += ": " + upstreamMsg
+			}
+			s.handleAuthError(ctx, account, msg)
+		}
+		return true
+	}
 
 	switch statusCode {
 	case 400:
@@ -990,6 +1006,14 @@ func (s *RateLimitService) handle403(ctx context.Context, account *Account, upst
 	// into the escalating 403 counter that can permanently mark the account error.
 	if isCNProviderConcurrencyLimit403(account, upstreamMsg) {
 		s.handleCNProviderConcurrencyLimit403(ctx, account)
+		return true
+	}
+	// Kimi 等 CN 供应商把 Coding Plan 配额窗口耗尽打成 403
+	// （error.type=access_terminated_error），这是窗口到期后自动恢复的限流
+	// 信号而非封禁：按 429 口径冷却到真实窗口重置点，避免落入下方通用 403
+	// 升级计数后被永久 SetError。
+	if isCNProviderQuotaExhausted403(account, responseBody, upstreamMsg) {
+		s.handleCNProviderQuotaExhausted403(ctx, account, upstreamMsg)
 		return true
 	}
 	// 国产供应商与 openai 同口径:HTML 403(CDN/代理拦截页)不构成账号失效证据,

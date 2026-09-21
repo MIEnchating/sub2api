@@ -213,9 +213,6 @@ func (s *AccountTestService) SetOpenAIGatewayService(gateway *OpenAIGatewayServi
 // It only fills picker-only gaps (local display-name fallbacks, OAuth image choices)
 // on its own copy; the shared catalog and its cache stay untouched.
 func (s *AccountTestService) FetchOpenAIAccountModels(ctx context.Context, account *Account) ([]openai.Model, error) {
-	if account.IsPrismEnabled() {
-		return PrismAccountModels(account), nil
-	}
 	if s == nil || s.openaiGatewayService == nil {
 		return nil, errors.New("OpenAI model discovery service is unavailable")
 	}
@@ -380,6 +377,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	testCtx := WithAccountProtectionOutcomeExcluded(c.Request.Context())
 	c.Request = c.Request.WithContext(testCtx)
 	ctx := testCtx
+	defer releaseStagedCodexFingerprintLease(c)
 	testOpts := firstAccountTestOptions(opts)
 
 	// Get account
@@ -400,10 +398,6 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		s.sendEvent(c, TestEvent{Type: "content", Text: "Synthetic Anthropic OAuth account is healthy and interactive."})
 		s.sendEvent(c, TestEvent{Type: "test_complete", Success: true})
 		return nil
-	}
-
-	if account.IsPrismEnabled() {
-		return s.testPrismAccountConnection(c, account, modelID, prompt, mode, testOpts)
 	}
 
 	// Route to platform-specific test method
@@ -2347,10 +2341,8 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 		// 指纹收敛：探测与真实转发走同一个 /responses 端点，身份也必须同构，
 		// 否则探测流量会以「缺 x-codex-installation-id + 非收敛 session」的
 		// 形态暴露在上游眼里。账号关闭收敛（off）时返回 nil，探测保持原样。
-		if stagedCodexFingerprintIDs(c, account) == nil {
-			if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header, s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled); fpIDs != nil {
-				applyCodexFingerprintHeaders(req.Header, fpIDs)
-			}
+		if fpIDs := resolveCodexFingerprintIDsFromRequest(account, req.Header); fpIDs != nil && stagedCodexFingerprintIDs(c, account) == nil {
+			applyCodexFingerprintHeaders(req.Header, fpIDs)
 		}
 	}
 

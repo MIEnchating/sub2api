@@ -78,7 +78,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		turnMetadata = strings.TrimSpace(c.GetHeader(openAIWSTurnMetadataHeader))
 	}
 	setOpenAIWSTurnMetadata(payload, turnMetadata)
-	ensureStagedCodexFingerprintIDs(c, account, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+	ensureStagedCodexFingerprintIDs(c, account)
 	applyStagedCodexFingerprintClientMetadata(c, account, payload)
 	if err := validateMode1StagedRequest(c, account, payloadAsJSONBytes(payload)); err != nil {
 		return nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
@@ -401,6 +401,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	firstEventType := ""
 	lastEventType := ""
 	upstreamTerminalEvent := ""
+	billingAccountSideEffectsApplied := false
 	clientDisconnected := false
 	clientDisconnectDrainStartedAt := time.Time{}
 	readTimeout := s.openAIWSReadTimeout()
@@ -687,7 +688,7 @@ readLoop:
 			markOpenAICyberPolicyEvent(c, message, http.StatusOK, usage)
 		}
 		if !wroteDownstream && (eventType == "error" || eventType == "response.failed") {
-			if hit, _, _ := detectOpenAICyberPolicy(message); !hit {
+			if hit, _, _ := detectOpenAICyberPolicy(message); !hit && openAIWSBillingStatus(message, extractOpenAISSEErrorMessage(message)) == 0 {
 				if retryFailure := configuredOpenAIStreamRetryFailure(ctx, message, extractOpenAISSEErrorMessage(message), usage); retryFailure != nil {
 					lease.MarkBroken()
 					return nil, retryFailure
@@ -696,9 +697,36 @@ readLoop:
 		}
 
 		if eventType == "error" {
-			s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
 			errCodeRaw, errTypeRaw, errMsgRaw := parseOpenAIWSErrorEventFields(message)
-			s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw, mappedModel)
+			billingStatus := openAIWSBillingStatus(message, errMsgRaw)
+			if billingStatus != 0 {
+				if !billingAccountSideEffectsApplied {
+					s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+				}
+			} else {
+				s.handleOpenAIWSErrorEventTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+			}
+			if billingStatus != 0 {
+				// A semantic billing rejection is an account failure even though
+				// the websocket itself was established with HTTP 200. Before any
+				// downstream output, return a failover so the handler can try the
+				// next account; after output, only expose the safe event message.
+				if !wroteDownstream {
+					lease.MarkBroken()
+					return nil, newUpstreamBillingFailoverError(
+						billingStatus,
+						lease.HandshakeHeaders(),
+						message,
+						false,
+					)
+				}
+				if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(message, "error", true); changed {
+					message = sanitized
+				}
+			}
+			if billingStatus == 0 {
+				s.persistOpenAIWSRateLimitSignal(ctx, account, lease.HandshakeHeaders(), message, errCodeRaw, errTypeRaw, errMsgRaw, mappedModel)
+			}
 			errMsg := strings.TrimSpace(errMsgRaw)
 			if errMsg == "" {
 				errMsg = "Upstream websocket error"
@@ -749,19 +777,53 @@ readLoop:
 			}
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)
 			setOpsUpstreamError(c, statusCode, errMsg, "")
+			clientStatusCode, clientMessage := statusCode, errMsg
+			if billingStatus != 0 {
+				clientStatusCode = http.StatusBadGateway
+				clientMessage = UpstreamBillingExhaustedClientMessage
+			}
 			if reqStream && !clientDisconnected {
 				flushBufferedStreamEvents("error_event")
 				emitStreamMessage(message, true)
 			}
 			if !reqStream {
-				c.JSON(statusCode, gin.H{
+				c.JSON(clientStatusCode, gin.H{
 					"error": gin.H{
 						"type":    "upstream_error",
-						"message": errMsg,
+						"message": clientMessage,
 					},
 				})
 			}
-			return nil, fmt.Errorf("openai ws error event: %s", errMsg)
+			return nil, fmt.Errorf("openai ws error event: %s", clientMessage)
+		}
+		if eventType == "response.failed" {
+			if billingStatus := openAIWSBillingStatus(message, extractOpenAISSEErrorMessage(message)); billingStatus != 0 {
+				if !wroteDownstream {
+					// response.failed is terminal and normally handled after the
+					// event is written. Billing failures must fail over first so
+					// the provider account balance is never exposed downstream.
+					if !billingAccountSideEffectsApplied {
+						s.handleOpenAIWSFailureAccountSideEffects(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+					}
+					lease.MarkBroken()
+					return nil, newUpstreamBillingFailoverError(
+						billingStatus,
+						lease.HandshakeHeaders(),
+						message,
+						false,
+					)
+				}
+				// Keep account health decisions based on the provider payload. The
+				// client copy is sanitized below and no longer contains the billing
+				// code needed by the classifier.
+				if !billingAccountSideEffectsApplied {
+					s.handleOpenAIWSFailureAccountSideEffects(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+					billingAccountSideEffectsApplied = true
+				}
+				if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(message, "response.failed", true); changed {
+					message = sanitized
+				}
+			}
 		}
 
 		if reqStream {
@@ -798,7 +860,11 @@ readLoop:
 			if !clientDisconnected {
 				markOpenAIWSClientVisibleFailure(c, eventType, message)
 			}
-			upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+			if eventType == "response.failed" && billingAccountSideEffectsApplied {
+				upstreamTerminalEvent = normalizeOpenAIWSTerminalEvent(eventType)
+			} else {
+				upstreamTerminalEvent = s.handleOpenAIWSTerminalTransientFailure(ctx, account, mappedModel, lease.HandshakeHeaders(), message)
+			}
 			// A terminal event must be the final JSON document in its WS message.
 			// Ignore any tail for the completed client turn, but never reuse the
 			// ambiguous upstream connection for another request.

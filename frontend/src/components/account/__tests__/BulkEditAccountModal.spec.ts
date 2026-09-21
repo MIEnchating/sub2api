@@ -572,6 +572,18 @@ describe('BulkEditAccountModal', () => {
     })
   })
 
+  it('persists Seedance in a two-capability bulk update', async () => {
+    const wrapper = mountModal({ selectedPlatforms: ['openai'], selectedTypes: ['apikey'] })
+    await wrapper.get('#bulk-edit-openai-endpoint-capabilities-enabled').setValue(true)
+    await wrapper.get('[data-testid="bulk-edit-openai-endpoint-capability-embeddings"]').setValue(false)
+    await wrapper.get('[data-testid="bulk-edit-openai-endpoint-capability-seedance"]').setValue(true)
+    await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
+      credentials: { openai_capabilities: ['chat_completions', 'seedance'] }
+    })
+  })
+
   it('关闭端点能力修改后 Responses 路由恢复独立可编辑', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
@@ -935,13 +947,13 @@ describe('BulkEditAccountModal', () => {
       status: 'active'
     })
   })
-  it('OpenAI OAuth 批量编辑默认提交单机多窗口指纹模式', async () => {
+  it('OpenAI OAuth 批量编辑默认显式关闭指纹模式', async () => {
     const wrapper = mountModal({
       selectedPlatforms: ['openai'],
       selectedTypes: ['oauth']
     })
 
-    // 用户只勾选「编辑该项」时，应提交当前推荐的默认方案。
+    // 用户只勾选「编辑该项」时，应保持退役后的 opt-in 语义。
     await wrapper.get('#bulk-edit-openai-codex-fingerprint-mode-enabled').setValue(true)
     await wrapper.get('#bulk-edit-account-form').trigger('submit.prevent')
     await flushPromises()
@@ -949,7 +961,7 @@ describe('BulkEditAccountModal', () => {
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledTimes(1)
     expect(adminAPI.accounts.bulkUpdate).toHaveBeenCalledWith([1, 2], {
       extra: {
-        codex_fingerprint_mode: 'single_machine_multi_window'
+        codex_fingerprint_mode: 'off'
       }
     })
 

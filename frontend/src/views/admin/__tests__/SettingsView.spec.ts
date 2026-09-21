@@ -11,6 +11,7 @@ import SettingsView from "../SettingsView.vue";
 const {
   getSettings,
   updateSettings,
+  testCodexTicketProxy,
   getWebSearchEmulationConfig,
   updateWebSearchEmulationConfig,
   getAdminApiKey,
@@ -39,6 +40,7 @@ const {
 } = vi.hoisted(() => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  testCodexTicketProxy: vi.fn(),
   getWebSearchEmulationConfig: vi.fn(),
   updateWebSearchEmulationConfig: vi.fn(),
   getAdminApiKey: vi.fn(),
@@ -86,6 +88,7 @@ vi.mock("@/api", () => ({
     settings: {
       getSettings,
       updateSettings,
+      testCodexTicketProxy,
       getWebSearchEmulationConfig,
       updateWebSearchEmulationConfig,
       getAdminApiKey,
@@ -638,6 +641,7 @@ describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();
+    testCodexTicketProxy.mockReset().mockResolvedValue({ proxy_index: 1, success: true, exit_ip: "198.51.100.1", latency_ms: 50 });
     getWebSearchEmulationConfig.mockReset();
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
@@ -754,6 +758,17 @@ describe("admin SettingsView payment visible method controls", () => {
         .findAll('[data-testid="navigation-page-item"] .toggle-stub')
         .every((toggle) => (toggle.element as HTMLInputElement).checked),
     ).toBe(true);
+
+    await wrapper.get('[data-testid="navigation-hide-all"]').trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        navigation_item_visibility: expect.objectContaining({
+          "/admin/users": false,
+        }),
+      }),
+    );
   });
 
   it("submits the Codex ticket harvest toggle", async () => {
@@ -787,6 +802,47 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(updateSettings.mock.calls[0]?.[0].openai_codex_ticket_harvest_proxy_url)
       .toBe("socks5h://user:new-secret@new.example.com:1080");
     expect(updateSettings.mock.calls[0]?.[0]).not.toHaveProperty("openai_codex_ticket_harvest_proxy_configured");
+    wrapper.unmount();
+  });
+
+  it("submits blank single proxy input for server-side preservation", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_enabled: true,
+      openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    await wrapper.get("#codex-ticket-harvest-proxy").setValue("");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]?.openai_codex_ticket_harvest_proxy_url).toBe("");
+    wrapper.unmount();
+  });
+
+  it("tests the saved single proxy and updates the test snapshot after saving", async () => {
+    const storedPool = "http://user:***@old.example.com:8080";
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_codex_ticket_harvest_proxy_url: storedPool });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const button = wrapper.get('[data-testid="codex-ticket-test-exit"]');
+    expect(button.attributes("disabled")).toBeUndefined();
+    await button.trigger("click");
+    await flushPromises();
+    expect(testCodexTicketProxy).toHaveBeenCalledWith(1, expect.any(AbortSignal));
+    const changedPool = "http://new:password@new.example.com:8080";
+    await wrapper.get("#codex-ticket-harvest-proxy").setValue(changedPool);
+    expect(button.attributes("disabled")).toBeDefined();
+    expect(wrapper.text()).toContain("codexTicketProxyTest.saveFirst");
+    const savedPool = "http://new:***@new.example.com:8080";
+    updateSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_codex_ticket_harvest_proxy_url: savedPool });
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy").element.value).toBe(savedPool);
+    expect(button.attributes("disabled")).toBeUndefined();
+    expect(wrapper.find("#codex-ticket-proxy-index").exists()).toBe(false);
     wrapper.unmount();
   });
 

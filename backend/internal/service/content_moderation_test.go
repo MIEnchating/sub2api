@@ -1360,6 +1360,7 @@ func TestContentModerationGeneralModelUsesStructuredChatCompletion(t *testing.T)
 		content, err := json.Marshal(moderationAPIResult{Flagged: true, CategoryScores: scores})
 		require.NoError(t, err)
 		require.NoError(t, json.NewEncoder(w).Encode(map[string]any{
+			"model":   "gpt-5.5-resolved",
 			"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}}},
 		}))
 	}))
@@ -1376,6 +1377,7 @@ func TestContentModerationGeneralModelUsesStructuredChatCompletion(t *testing.T)
 	require.NoError(t, err)
 	require.Equal(t, http.StatusOK, status)
 	require.Equal(t, 0.9, result.CategoryScores["sexual"])
+	require.Equal(t, &ContentModerationEngineMeta{Engine: ContentModerationEngineOpenAI, Model: "gpt-5.5-resolved"}, result.EngineMeta)
 }
 
 func TestContentModerationGeneralModelFallsBackToJSONMode(t *testing.T) {
@@ -1425,6 +1427,29 @@ func TestContentModerationGeneralModelRejectsIncompleteScores(t *testing.T) {
 
 	_, err = parseGeneralModerationChatResponse(body)
 	require.ErrorContains(t, err, "every category score")
+}
+
+func TestContentModerationGeneralModelPreservesEngineMetadata(t *testing.T) {
+	scores := make(map[string]float64, len(contentModerationCategoryOrder))
+	for _, category := range contentModerationCategoryOrder {
+		scores[category] = 0.01
+	}
+	content, err := json.Marshal(moderationAPIResult{CategoryScores: scores})
+	require.NoError(t, err)
+	for _, model := range []string{"gpt-5.5-resolved", ""} {
+		t.Run(model, func(t *testing.T) {
+			body, err := json.Marshal(map[string]any{
+				"model":   model,
+				"choices": []any{map[string]any{"message": map[string]any{"content": string(content)}}},
+			})
+			require.NoError(t, err)
+			result, err := parseGeneralModerationChatResponse(body)
+			require.NoError(t, err)
+			want := &ContentModerationEngineMeta{Engine: ContentModerationEngineOpenAI, Model: model}
+			require.Equal(t, want, result.EngineMeta)
+			require.Equal(t, want, buildContentModerationTestAuditResult(result, ContentModerationDefaultThresholds()).EngineMeta)
+		})
+	}
 }
 
 func TestIsNativeModerationModel(t *testing.T) {

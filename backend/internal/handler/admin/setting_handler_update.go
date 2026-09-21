@@ -348,6 +348,11 @@ type UpdateSettingsRequest struct {
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
 
+	// Sidebar navigation item visibility. A nil map means the caller omitted
+	// this field and the existing value should be preserved by omitted-key
+	// handling; an empty map is an explicit reset.
+	NavigationItemVisibility map[string]bool `json:"navigation_item_visibility"`
+
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
@@ -1961,6 +1966,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.AvailableChannelsEnabled
 			}
 			return previousSettings.AvailableChannelsEnabled
+		}(),
+		NavigationItemVisibility: func() map[string]bool {
+			if req.NavigationItemVisibility != nil {
+				return req.NavigationItemVisibility
+			}
+			return previousSettings.NavigationItemVisibility
 		}(),
 		SubscriptionEnabled: func() bool {
 			if req.SubscriptionEnabled != nil {

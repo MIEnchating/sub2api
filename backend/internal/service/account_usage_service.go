@@ -349,9 +349,6 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	if account == nil {
 		return nil, fmt.Errorf("account is required")
 	}
-	if account.IsPrismEnabled() {
-		return &UsageInfo{Source: "prism", ErrorCode: "not_supported", Error: "Prism quota information is not available"}, nil
-	}
 	accountID := account.ID
 
 	// Dedicated UI load-test accounts must remain fully interactive without ever
@@ -362,11 +359,9 @@ func (s *AccountUsageService) getUsageForAccount(ctx context.Context, account *A
 	}
 
 	if account.Platform == PlatformOpenAI && account.Type == AccountTypeOAuth {
-		usage, err := s.getOpenAIUsage(ctx, account, forceProbe)
-		if err == nil {
-			s.tryClearRecoverableAccountError(ctx, account)
-		}
-		return usage, err
+		// Usage can come from a stored snapshot even when a probe fails. Neither
+		// that nor a working access token proves a rejected refresh token recovered.
+		return s.getOpenAIUsage(ctx, account, forceProbe)
 	}
 
 	if account.Platform == PlatformGemini {

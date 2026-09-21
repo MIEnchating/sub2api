@@ -199,7 +199,7 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 			if c != nil && c.Request != nil {
 				clientHeaders = c.Request.Header
 			}
-			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders, s != nil && s.cfg != nil && s.cfg.Gateway.OpenAIAccountUniqueFingerprintEnabled)
+			fpIDs := resolveCodexFingerprintIDsFromRequest(account, clientHeaders)
 			if fpIDs != nil {
 				fpBody, fpChanged, fpErr := applyCodexFingerprintClientMetadataRaw(body, fpIDs)
 				if fpErr != nil {
@@ -772,6 +772,9 @@ func stripOpenAILegacyResponsesBeta(headers http.Header) {
 func shouldFailoverOpenAIPassthroughResponse(account *Account, statusCode int, responseBody []byte) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(responseBody); hit {
 		return false
+	}
+	if IsUpstreamBillingError(statusCode, responseBody) {
+		return true
 	}
 	if isOpenAIContextWindowError("", responseBody) {
 		return false
@@ -1377,6 +1380,13 @@ func openAIStreamFailedEventSemanticStatus(payload []byte, message string) int {
 	if isOpenAIContextWindowError(message, payload) {
 		return http.StatusBadRequest
 	}
+	// Responses/WebSocket terminal events arrive inside HTTP 200. A structured
+	// billing code is an account failure, not a user request error; assign the
+	// explicit payment-required status so account failover and health handling
+	// do not treat it as a generic 502.
+	if IsUpstreamBillingError(http.StatusOK, payload) {
+		return http.StatusPaymentRequired
+	}
 
 	code := openAIStreamFailedEventErrorCode(payload)
 	errType := strings.ToLower(strings.TrimSpace(gjson.GetBytes(payload, "response.error.type").String()))
@@ -1414,7 +1424,7 @@ func openAIStreamFailureStatus(payload []byte, message string) int {
 	}
 	semanticStatus := openAIStreamFailedEventSemanticStatus(payload, message)
 	switch semanticStatus {
-	case http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
+	case http.StatusPaymentRequired, http.StatusUnauthorized, http.StatusForbidden, http.StatusTooManyRequests, 529:
 		return semanticStatus
 	case http.StatusServiceUnavailable:
 		if isOpenAIUpstreamCapacityShedEvent(payload) {
@@ -1534,6 +1544,9 @@ func openAIStreamFailedEventShouldFailover(payload []byte, message string) bool 
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false
 	}
+	if IsUpstreamBillingError(openAIStreamFailureStatus(payload, message), payload) {
+		return true
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
@@ -1586,6 +1599,9 @@ func openAIStreamErrorEventShouldFailover(payload []byte, message string) bool {
 	if hit, _, _ := detectOpenAICyberPolicy(payload); hit {
 		return false
 	}
+	if IsUpstreamBillingError(openAIStreamFailureStatus(payload, message), payload) {
+		return true
+	}
 	if isOpenAIContextWindowError(message, payload) {
 		return false
 	}
@@ -1618,6 +1634,14 @@ func (s *OpenAIGatewayService) handleOpenAIStreamTerminalAccountSideEffects(
 	canonicalModel ...string,
 ) (int, bool) {
 	statusCode := openAIStreamFailureStatus(payload, message)
+	if IsUpstreamBillingError(statusCode, payload) {
+		ctx := context.Background()
+		if c != nil && c.Request != nil {
+			ctx = c.Request.Context()
+		}
+		model := firstNonEmpty(canonicalModel...)
+		return statusCode, s.handleOpenAIAccountUpstreamError(ctx, account, statusCode, headers, payload, model)
+	}
 	switch statusCode {
 	case http.StatusForbidden:
 		if !openAIStream403AccountFailure(payload, message) {
@@ -1840,6 +1864,32 @@ func (s *OpenAIGatewayService) nonStreamingTerminalFailureFailover(
 	return failure
 }
 
+func (s *OpenAIGatewayService) nonStreamingJSONBillingError(
+	resp *http.Response,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	model string,
+	passthrough bool,
+) error {
+	message := firstStructuredUpstreamBillingMessage(body)
+	if message == "" {
+		message = "Upstream account billing failed"
+	}
+	if account != nil {
+		failure := s.newOpenAIStreamFailoverErrorWithModel(
+			c, account, passthrough, resp.Header.Get("x-request-id"), body, message, model, resp.Header,
+		)
+		if !IsResponseCommitted(c) {
+			// Keep the provider evidence available to internal failover/Ops handling.
+			// The billing reason overrides all client-facing passthrough rules.
+			failure.ResponseBody = append([]byte(nil), body...)
+			return failure
+		}
+	}
+	return s.writeOpenAINonStreamingProtocolError(resp, c, UpstreamBillingExhaustedClientMessage)
+}
+
 func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	ctx context.Context,
 	resp *http.Response,
@@ -2014,7 +2064,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 			rawEventType := effectiveOpenAISSEEventType(dataBytes, pendingSSEEventType)
 			observer.ObserveOpenAI(dataBytes, rawEventType)
 			capacityReplayUnsafe = capacityReplayUnsafe || upstreamErrorRetryHasUsage(dataBytes)
-			if needModelReplace && strings.Contains(data, mappedModel) {
+			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 				if replacedData, replaced := extractOpenAISSEDataLine(line); replaced {
 					dataBytes = []byte(replacedData)
@@ -2315,6 +2365,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponsePassthrough(
 	// receive raw SSE text or a terminal event with empty output.
 	if isEventStreamResponse(resp.Header) {
 		return s.handlePassthroughSSEToJSON(resp, c, account, body, originalModel, mappedModel)
+	}
+	if IsUpstreamBillingError(resp.StatusCode, body) {
+		return nil, s.nonStreamingJSONBillingError(resp, c, account, body, mappedModel, true)
 	}
 
 	usage := &OpenAIUsage{}

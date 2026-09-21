@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
@@ -8,10 +9,22 @@ import (
 	"github.com/gin-gonic/gin"
 )
 
-// ListAntiDegradeStrategies returns the server-owned account protection
-// strategy registry. The route is static and is registered before /:id.
+// Retired endpoints remain explicit for cached clients. Only restoration of
+// previously enabled presets is supported; no new preset may be applied.
+func retiredAccountProtection(c *gin.Context) {
+	response.Error(c, http.StatusGone, "Account protection presets have been retired; configure fingerprint, TLS, and concurrency independently")
+}
+
 func (h *AccountHandler) ListAntiDegradeStrategies(c *gin.Context) {
-	response.Success(c, gin.H{"strategies": service.ListAntiDegradeStrategyProfiles()})
+	retiredAccountProtection(c)
+}
+
+func (h *AccountHandler) PreviewAntiDegrade(c *gin.Context) {
+	retiredAccountProtection(c)
+}
+
+func (h *AccountHandler) ApplyAntiDegrade(c *gin.Context) {
+	retiredAccountProtection(c)
 }
 
 func (h *AccountHandler) antiDegradeService() *service.AntiDegradeService {
@@ -30,46 +43,6 @@ func parseAntiDegradeAccountID(c *gin.Context) (int64, bool) {
 	return id, true
 }
 
-// PreviewAntiDegrade computes the requested strategy without writing account
-// state. mode is optional; the service applies its legacy default.
-func (h *AccountHandler) PreviewAntiDegrade(c *gin.Context) {
-	id, ok := parseAntiDegradeAccountID(c)
-	if !ok {
-		return
-	}
-	svc := h.antiDegradeService()
-	if svc == nil {
-		response.BadRequest(c, "account protection service unavailable")
-		return
-	}
-	preview, err := svc.PreviewMode(c.Request.Context(), id, service.AntiDegradeMode(c.Query("mode")))
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, preview)
-}
-
-// ApplyAntiDegrade applies a strategy immediately. It changes the persisted
-// account configuration and does not require credential re-import.
-func (h *AccountHandler) ApplyAntiDegrade(c *gin.Context) {
-	id, ok := parseAntiDegradeAccountID(c)
-	if !ok {
-		return
-	}
-	svc := h.antiDegradeService()
-	if svc == nil {
-		response.BadRequest(c, "account protection service unavailable")
-		return
-	}
-	account, err := svc.ApplyAntiDegradeMode(c.Request.Context(), id, service.AntiDegradeMode(c.Query("mode")))
-	if err != nil {
-		response.ErrorFrom(c, err)
-		return
-	}
-	response.Success(c, h.buildAccountResponseWithRuntime(c.Request.Context(), account))
-}
-
 // RevertAntiDegrade restores the snapshot captured when protection was
 // applied. The explicit confirmation prevents accidental disabling.
 func (h *AccountHandler) RevertAntiDegrade(c *gin.Context) {
@@ -81,7 +54,7 @@ func (h *AccountHandler) RevertAntiDegrade(c *gin.Context) {
 		ConfirmDisable bool `json:"confirm_disable"`
 	}
 	if err := c.ShouldBindJSON(&req); err != nil || !req.ConfirmDisable {
-		response.BadRequest(c, "关闭防降智模式需要管理员明确确认")
+		response.BadRequest(c, "恢复旧版预设配置需要管理员明确确认")
 		return
 	}
 	svc := h.antiDegradeService()

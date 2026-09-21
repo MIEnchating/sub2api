@@ -1616,7 +1616,25 @@ export async function resetWebSearchUsage(payload: {
   );
 }
 
+export interface CodexTicketProxyTestResult {
+  proxy_index: number;
+  success: boolean;
+  exit_ip?: string;
+  latency_ms: number;
+  error_code?: string;
+}
+
+export async function testCodexTicketProxy(proxyIndex: number, signal?: AbortSignal): Promise<CodexTicketProxyTestResult> {
+  const { data } = await apiClient.post<CodexTicketProxyTestResult>(
+    "/admin/settings/openai-codex-ticket/test-proxy",
+    { proxy_index: proxyIndex },
+    { signal },
+  );
+  return data;
+}
+
 export const settingsAPI = {
+  testCodexTicketProxy,
   getSettings,
   updateSettings,
   testSmtpConnection,

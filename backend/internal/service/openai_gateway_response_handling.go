@@ -669,8 +669,7 @@ func (s *OpenAIGatewayService) handleStreamingResponseWithReasoning(ctx context.
 				line = "data: " + data
 			}
 			// Replace model in response if needed.
-			// Fast path: most events do not contain model field values.
-			if needModelReplace && mappedModel != "" && strings.Contains(line, mappedModel) {
+			if needModelReplace {
 				line = s.replaceModelInSSELine(line, mappedModel, originalModel)
 			}
 			startsClientOutput := forceFlushFailedEvent || openAIStreamDataStartsClientOutput(data, eventType)
@@ -1076,33 +1075,28 @@ func effectiveOpenAISSEEventType(payload []byte, eventType string) string {
 }
 
 func (s *OpenAIGatewayService) replaceModelInSSELine(line, fromModel, toModel string) string {
+	if fromModel == "" || toModel == "" || fromModel == toModel {
+		return line
+	}
 	data, ok := extractOpenAISSEDataLine(line)
-	if !ok {
+	if !ok || !gjson.Valid(data) {
 		return line
 	}
-	if data == "" || data == "[DONE]" {
+	updated := data
+	// Only protocol model fields are rewritten; text and tool payloads are untouched.
+	for _, path := range []string{"model", "response.model"} {
+		if m := gjson.Get(updated, path); m.Type == gjson.String {
+			var err error
+			updated, err = sjson.Set(updated, path, toModel)
+			if err != nil {
+				return line
+			}
+		}
+	}
+	if updated == data {
 		return line
 	}
-
-	// 使用 gjson 精确检查 model 字段，避免全量 JSON 反序列化
-	if m := gjson.Get(data, "model"); m.Exists() && m.Str == fromModel {
-		newData, err := sjson.Set(data, "model", toModel)
-		if err != nil {
-			return line
-		}
-		return "data: " + newData
-	}
-
-	// 检查嵌套的 response.model 字段
-	if m := gjson.Get(data, "response.model"); m.Exists() && m.Str == fromModel {
-		newData, err := sjson.Set(data, "response.model", toModel)
-		if err != nil {
-			return line
-		}
-		return "data: " + newData
-	}
-
-	return line
+	return "data: " + updated
 }
 
 // correctToolCallsInResponseBody 修正响应体中的工具调用
@@ -1621,6 +1615,9 @@ func (s *OpenAIGatewayService) handleNonStreamingResponse(ctx context.Context, r
 	if account.Type == AccountTypeOAuth && bodyLooksLikeSSE {
 		return s.handleSSEToJSON(resp, c, account, body, originalModel, mappedModel)
 	}
+	if IsUpstreamBillingError(resp.StatusCode, body) {
+		return nil, s.nonStreamingJSONBillingError(resp, c, account, body, mappedModel, false)
+	}
 	if account != nil && account.IsGrok() && isOpenAIResponsesCompactPath(c) {
 		body, err = convertGrokResponseToOpenAICompact(body)
 		if err != nil {
@@ -1839,6 +1836,11 @@ func buildOpenAIResponseFailedSSE(responseID, model string, source []byte, fallb
 	if message == "" {
 		message = "Upstream response failed"
 	}
+	if IsUpstreamBillingError(http.StatusOK, source) {
+		errorType = "upstream_error"
+		code = "upstream_account_unavailable"
+		message = UpstreamBillingExhaustedClientMessage
+	}
 	errorBody := gin.H{"code": code, "message": message}
 	if errorType != "" {
 		errorBody["type"] = errorType
@@ -1871,6 +1873,36 @@ func sanitizeOpenAIResponseFailedEventForClient(payload []byte, eventType string
 		return payload, false
 	}
 	updated := payload
+	if IsUpstreamBillingError(openAIStreamFailureStatus(updated, extractOpenAISSEErrorMessage(updated)), updated) {
+		// Rebuild a minimal protocol envelope. Providers sometimes repeat their
+		// billing message in top-level details or custom response fields.
+		safeError := gin.H{
+			"type": "upstream_error", "code": "upstream_account_unavailable",
+			"message": UpstreamBillingExhaustedClientMessage,
+		}
+		safe := gin.H{"type": eventType}
+		if seq := gjson.GetBytes(payload, "sequence_number"); seq.Type == gjson.Number {
+			safe["sequence_number"] = seq.Int()
+		}
+		if isFailedEvent || gjson.GetBytes(payload, "response").IsObject() {
+			response := gin.H{"status": "failed", "error": safeError}
+			for _, key := range []string{"id", "object", "model"} {
+				if value := gjson.GetBytes(payload, "response."+key); value.Type == gjson.String {
+					response[key] = value.String()
+				}
+			}
+			if created := gjson.GetBytes(payload, "response.created_at"); created.Type == gjson.Number {
+				response["created_at"] = created.Int()
+			}
+			safe["response"] = response
+		}
+		if !isFailedEvent || gjson.GetBytes(payload, "error").Exists() {
+			safe["error"] = safeError
+		}
+		// Values are limited to JSON primitives and maps, so marshaling cannot fail.
+		sanitized, _ := json.Marshal(safe)
+		return sanitized, !bytes.Equal(sanitized, payload)
+	}
 	// 容量降载码对 Codex CLI 是致命错误；事件既然要写给客户端（failover 已不可用），
 	// 就改写为客户端可重试的错误码。error 帧与 response.failed 都要改：上游降载
 	// 总是先推 error 帧再收 failed，两帧携带同一个错误。

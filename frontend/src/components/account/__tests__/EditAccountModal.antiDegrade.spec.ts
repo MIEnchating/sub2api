@@ -96,7 +96,6 @@ function mountModal(account = buildAccount()) {
       stubs: {
         BaseDialog: BaseDialogStub,
         ConfirmDialog: ConfirmDialogStub,
-        Select: true,
         Icon: true,
         ProxySelector: true,
         GroupSelector: true,
@@ -106,156 +105,176 @@ function mountModal(account = buildAccount()) {
   })
 }
 
+async function chooseFingerprint(wrapper: ReturnType<typeof mountModal>, label: string) {
+  await wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"] button').trigger('click')
+  const option = Array.from(document.querySelectorAll<HTMLElement>('[role="option"]'))
+    .find(option => option.textContent?.trim() === `admin.accounts.openai.${label}`)
+  expect(option).toBeDefined()
+  option!.click()
+  await flushPromises()
+}
+
+async function restoreLegacySettings(wrapper: ReturnType<typeof mountModal>) {
+  await wrapper.get('[data-testid="legacy-protection-restore"]').trigger('click')
+  await wrapper.get('[data-testid="confirm"]').trigger('click')
+  await flushPromises()
+}
+
 enableAutoUnmount(afterEach)
 
-describe('EditAccountModal account protection', () => {
+describe('EditAccountModal independent settings and legacy restoration', () => {
   beforeEach(() => {
     Object.values(mocks).forEach(mock => mock.mockReset())
-    mocks.strategies.mockResolvedValue([
-      { id: 'generic', name: 'Generic protection', identity_mode: 'account', tls_profile: 'account', apply_supported: true },
-      { id: 'legacy', name: 'Legacy policy', identity_mode: 'session', tls_profile: 'nodejs24', apply_supported: true },
-      { id: 'mode1', name: 'Compatibility v3', identity_mode: 'device', tls_profile: 'standard', apply_supported: true }
-    ])
-    mocks.preview.mockResolvedValue({ eligible: true, issues: [], changes: [] })
     mocks.update.mockResolvedValue(buildAccount())
     mocks.getById.mockResolvedValue(buildAccount())
   })
 
-  it('defaults to legacy and waits for the server before showing protection as enabled', async () => {
-    let finishApply!: (account: Account) => void
-    mocks.apply.mockReturnValue(new Promise<Account>(resolve => { finishApply = resolve }))
+  it('shows independent fingerprint and adaptive concurrency settings without preset controls or requests', async () => {
     const wrapper = mountModal()
     await flushPromises()
 
-    expect(wrapper.get<HTMLSelectElement>('[data-testid="anti-degrade-mode"]').element.value).toBe('legacy')
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('false')
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-
-    expect(mocks.apply).toHaveBeenCalledWith(71, 'legacy')
-    expect(wrapper.find('[data-testid="anti-degrade-status"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('disabled')).toBeDefined()
-
-    finishApply(protectedAccount())
-    await flushPromises()
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('true')
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Legacy policy')
-    expect(mocks.update).not.toHaveBeenCalled()
-  })
-
-  it('uses the server-returned active strategy rather than the requested selection', async () => {
-    const returned = protectedAccount('mode1')
-    mocks.apply.mockResolvedValue(returned)
-    const wrapper = mountModal()
-    await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.apply).toHaveBeenCalledWith(71, 'legacy')
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Compatibility v3')
-    expect(wrapper.get<HTMLSelectElement>('[data-testid="anti-degrade-mode"]').element.value).toBe('mode1')
-    expect(wrapper.emitted('updated')?.[0]).toEqual([returned])
-  })
-
-  it('previews a different strategy without changing the active policy until applied', async () => {
-    mocks.apply.mockResolvedValue(protectedAccount('mode1'))
-    const wrapper = mountModal(protectedAccount())
-    await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-mode"]').setValue('mode1')
-    await flushPromises()
-
-    expect(mocks.preview).toHaveBeenCalledWith(71, 'mode1')
+    expect(wrapper.find('[data-testid="account-anti-degrade"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="anti-degrade-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(false)
+    expect(wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"] button').attributes('disabled')).toBeUndefined()
+    expect(wrapper.get('[data-testid="adaptive-concurrency"]').text()).toContain('adaptiveConcurrencyTitle')
+    expect(mocks.strategies).not.toHaveBeenCalled()
+    expect(mocks.preview).not.toHaveBeenCalled()
     expect(mocks.apply).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Legacy policy')
-    await wrapper.get('[data-testid="anti-degrade-apply-strategy"]').trigger('click')
-    await flushPromises()
-    expect(mocks.apply).toHaveBeenCalledWith(71, 'mode1')
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Compatibility v3')
   })
 
-  it('keeps protection enabled until disabling is confirmed and persisted', async () => {
-    mocks.revert.mockResolvedValue(buildAccount({ anti_degradation: false, protection_scope: 'disabled' }))
-    const wrapper = mountModal(protectedAccount())
+  it('persists an explicit off fingerprint instead of re-enabling the default', async () => {
+    const wrapper = mountModal(buildAccount({ codex_fingerprint_mode: 'single_machine_multi_window' }))
     await flushPromises()
-
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    expect(wrapper.get('[data-testid="confirmation"]').text()).toContain('antiDegradeDisableTitle')
-    expect(mocks.revert).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('true')
-    await wrapper.get('[data-testid="cancel"]').trigger('click')
-    expect(mocks.revert).not.toHaveBeenCalled()
-
-    await wrapper.get('[data-testid="anti-degrade-revert"]').trigger('click')
-    await wrapper.get('[data-testid="confirm"]').trigger('click')
+    await chooseFingerprint(wrapper, 'codexFingerprintOff')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(mocks.revert).toHaveBeenCalledWith(71, true)
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('false')
-    expect(wrapper.find('[data-testid="anti-degrade-current-mode"]').exists()).toBe(false)
+    expect(mocks.update.mock.calls[0][1].extra.codex_fingerprint_mode).toBe('off')
+    expect(mocks.update.mock.calls[0][1].extra).not.toHaveProperty('anti_degrade')
   })
 
-  it('does not leave a failed apply visually enabled and reloads the committed state', async () => {
-    mocks.apply.mockRejectedValue(new Error('Protection save failed'))
-    const wrapper = mountModal()
+  it('saves adaptive concurrency independently and only when Update is pressed', async () => {
+    const wrapper = mountModal(buildAccount({ codex_fingerprint_mode: 'device', unrelated: 'keep' }))
     await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    await flushPromises()
-
-    expect(mocks.showError).toHaveBeenCalled()
-    expect(mocks.getById).toHaveBeenCalledWith(71)
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('false')
-    expect(wrapper.find('[data-testid="anti-degrade-status"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('disabled')).toBeUndefined()
-    expect(mocks.showSuccess).not.toHaveBeenCalled()
-  })
-
-  it('preserves the latest applied policy on ordinary save while retaining unsaved adaptive edits', async () => {
-    const initial = buildAccount({ codex_fingerprint_mode: 'off', unrelated: 'keep' })
-    const returned = protectedAccount()
-    mocks.apply.mockResolvedValue(returned)
-    const wrapper = mountModal(initial)
-    await flushPromises()
-
-    const adaptive = wrapper.get('[data-testid="account-protection-policy"]')
+    const adaptive = wrapper.get('[data-testid="adaptive-concurrency"]')
     await adaptive.get('[role="switch"]').trigger('click')
     await adaptive.get('input[type="checkbox"]').setValue(true)
     await adaptive.findAll('input[type="checkbox"]')[1].setValue(true)
     await adaptive.get('input[type="number"]').setValue(2)
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    await flushPromises()
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(mocks.apply).not.toHaveBeenCalled()
 
-    // A parent list may immediately echo the committed protection response.
-    // That echo must not discard unrelated edits already entered in the form.
-    await wrapper.setProps({ account: returned })
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-
-    expect(mocks.update).toHaveBeenCalledTimes(1)
-    const payload = mocks.update.mock.calls[0][1]
-    expect(payload.extra).toMatchObject(returned.extra)
-    expect(payload.extra.account_protection_policy).toMatchObject({
-      enabled: true,
-      adaptive_concurrency: true,
-      adaptive_mode: 'automatic',
-      adaptive_min_concurrency: 2
+    expect(mocks.update.mock.calls[0][1].extra).toMatchObject({
+      codex_fingerprint_mode: 'device', unrelated: 'keep',
+      account_protection_policy: {
+        enabled: true, adaptive_concurrency: true, adaptive_mode: 'automatic', adaptive_min_concurrency: 2
+      }
     })
-    expect(payload.concurrency).toBe(3)
-    expect(mocks.apply).toHaveBeenCalledTimes(1)
+    expect(mocks.update.mock.calls[0][1].extra).not.toHaveProperty('anti_degrade')
+  })
+
+  it('loads and disables existing adaptive concurrency without changing a legacy preset', async () => {
+    const initial = protectedAccount()
+    initial.extra = { ...initial.extra, account_protection_policy: {
+      enabled: true, adaptive_concurrency: true, adaptive_mode: 'automatic', adaptive_min_concurrency: 2
+    } }
+    const wrapper = mountModal(initial)
+    await flushPromises()
+    const adaptive = wrapper.get('[data-testid="adaptive-concurrency"]')
+    expect(adaptive.get('[role="switch"]').attributes('aria-checked')).toBe('true')
+    expect(adaptive.get<HTMLInputElement>('input[type="number"]').element.value).toBe('2')
+    await adaptive.get('[role="switch"]').trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    const extra = mocks.update.mock.calls[0][1].extra
+    expect(extra).not.toHaveProperty('account_protection_policy')
+    expect(extra.anti_degrade).toEqual(initial.extra?.anti_degrade)
     expect(mocks.revert).not.toHaveBeenCalled()
   })
 
-  it('does not implicitly enable adaptive concurrency when applying identity protection', async () => {
-    mocks.apply.mockResolvedValue(protectedAccount())
-    const wrapper = mountModal()
+  it('requires confirmation and waits for restoration before unlocking identity settings', async () => {
+    let finishRestore!: (account: Account) => void
+    mocks.revert.mockReturnValue(new Promise<Account>(resolve => { finishRestore = resolve }))
+    const wrapper = mountModal(protectedAccount())
     await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    await flushPromises()
-    expect(wrapper.get('[data-testid="account-protection-policy"] [role="switch"]').attributes('aria-checked')).toBe('false')
+    const fingerprint = () => wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"] button')
+    expect(fingerprint().attributes('disabled')).toBeDefined()
+    await wrapper.get('[data-testid="legacy-protection-restore"]').trigger('click')
+    expect(mocks.revert).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="cancel"]').trigger('click')
+    expect(mocks.revert).not.toHaveBeenCalled()
+    await wrapper.get('[data-testid="legacy-protection-restore"]').trigger('click')
+    await wrapper.get('[data-testid="confirm"]').trigger('click')
+    expect(mocks.revert).toHaveBeenCalledWith(71, true)
+    expect(wrapper.get('[data-tour="account-form-submit"]').attributes('disabled')).toBeDefined()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(mocks.update).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(true)
 
+    finishRestore(buildAccount({ anti_degradation: false, protection_scope: 'disabled', codex_fingerprint_mode: 'off' }))
+    await flushPromises()
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(false)
+    expect(fingerprint().attributes('disabled')).toBeUndefined()
+    expect(fingerprint().text()).toContain('codexFingerprintOff')
+  })
+
+  it('retains a failed restoration and reports the error', async () => {
+    const initial = protectedAccount()
+    mocks.revert.mockRejectedValue(new Error('restore failed'))
+    mocks.getById.mockResolvedValue(initial)
+    const wrapper = mountModal(initial)
+    await flushPromises()
+    await restoreLegacySettings(wrapper)
+    expect(mocks.getById).toHaveBeenCalledWith(71)
+    expect(mocks.showError).toHaveBeenCalled()
+    expect(mocks.showSuccess).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(true)
+    expect(wrapper.get('[data-testid="legacy-protection-restore"]').attributes('disabled')).toBeUndefined()
+  })
+
+  it('keeps unrelated draft edits after restoration and saves subsequent fingerprint edits', async () => {
+    const restored = buildAccount({ anti_degradation: false, protection_scope: 'disabled', codex_fingerprint_mode: 'off', unrelated: 'keep' })
+    restored.concurrency = 8
+    mocks.revert.mockResolvedValue(restored)
+    const wrapper = mountModal(protectedAccount())
+    await flushPromises()
+    await wrapper.get('[data-tour="edit-account-form-name"]').setValue('Unsaved name')
+    const adaptive = wrapper.get('[data-testid="adaptive-concurrency"]')
+    await adaptive.get('[role="switch"]').trigger('click')
+    await adaptive.get('input[type="checkbox"]').setValue(true)
+    await restoreLegacySettings(wrapper)
+    await wrapper.setProps({ account: restored })
+    await chooseFingerprint(wrapper, 'codexFingerprintDevice')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(mocks.update).toHaveBeenCalledTimes(1)
     const payload = mocks.update.mock.calls[0][1]
-    expect(payload.extra).toMatchObject(protectedAccount().extra)
-    expect(payload.extra).not.toHaveProperty('account_protection_policy')
+    expect(payload.name).toBe('Unsaved name')
+    expect(payload.concurrency).toBe(8)
+    expect(payload.extra).toMatchObject({
+      codex_fingerprint_mode: 'device', anti_degradation: false, unrelated: 'keep',
+      account_protection_policy: { enabled: true, adaptive_concurrency: true, adaptive_mode: 'observe' }
+    })
+    expect(payload.extra).not.toHaveProperty('anti_degrade')
+    expect(payload.extra).not.toHaveProperty('tls_fingerprint_builtin')
+  })
+
+  it('uses fresh account data after the restoration response has been echoed', async () => {
+    const restored = buildAccount({ anti_degradation: false, protection_scope: 'disabled', codex_fingerprint_mode: 'off', unrelated: 'old' })
+    mocks.revert.mockResolvedValue(restored)
+    const wrapper = mountModal(protectedAccount())
+    await flushPromises()
+    await restoreLegacySettings(wrapper)
+    await wrapper.setProps({ account: restored })
+
+    const refreshed = buildAccount({ ...restored.extra, codex_fingerprint_mode: 'full', unrelated: 'fresh' })
+    await wrapper.setProps({ account: refreshed })
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(mocks.update.mock.calls[0][1].extra).toMatchObject({
+      codex_fingerprint_mode: 'full', unrelated: 'fresh', anti_degradation: false
+    })
   })
 
   it.each([
@@ -264,107 +283,49 @@ describe('EditAccountModal account protection', () => {
     ['shadow account', { parent_account_id: 9 }],
     ['multiple proxies', { proxy_ids: [4, 5] }],
     ['random proxy', { extra: { proxy_mode: 'random' } }]
-  ] as const)('offers generic protection for %s without an identity override', async (_name, overrides) => {
-    const account = { ...buildAccount(), ...overrides } as Account
-    const wrapper = mountModal(account)
+  ] as const)('does not expose presets for %s', async (_name, overrides) => {
+    const wrapper = mountModal({ ...buildAccount(), ...overrides } as Account)
     await flushPromises()
-
-    const selector = wrapper.get<HTMLSelectElement>('[data-testid="anti-degrade-mode"]')
-    expect(selector.element.value).toBe('generic')
-    expect(selector.findAll('option').map(option => option.attributes('value'))).toEqual(['generic'])
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('false')
-    expect(mocks.apply).not.toHaveBeenCalled()
+    expect(wrapper.find('[data-testid="anti-degrade-mode"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(false)
+    expect(mocks.strategies).not.toHaveBeenCalled()
   })
 
-  it('retains generic protection during ordinary saves for other providers', async () => {
-    const initial = { ...buildAccount({ custom_setting: 'keep' }), platform: 'gemini' } as Account
-    const returned = {
-      ...initial,
-      extra: { ...initial.extra, anti_degradation: true, anti_degrade: { enabled: true, mode: 'generic', prev: { concurrency: 3 } }, protection_scope: 'generic_v1' }
-    }
-    mocks.apply.mockResolvedValue(returned)
+  it('preserves existing generic protection on ordinary saves without locking fingerprints', async () => {
+    const initial = protectedAccount('generic')
     const wrapper = mountModal(initial)
     await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-toggle"]').trigger('click')
-    await flushPromises()
-    expect(mocks.apply).toHaveBeenCalledWith(71, 'generic')
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Generic protection')
-
+    expect(wrapper.find('[data-testid="legacy-account-protection"]').exists()).toBe(true)
+    await chooseFingerprint(wrapper, 'codexFingerprintOff')
     await wrapper.get('form#edit-account-form').trigger('submit.prevent')
     await flushPromises()
-    expect(mocks.update).toHaveBeenCalledTimes(1)
-    expect(mocks.update.mock.calls[0][1].extra).toMatchObject(returned.extra)
-  })
-
-  it.each([false, true])('keeps native identity editable after generic protection, disable=%s', async (disable) => {
-    const initial = buildAccount({
-      codex_fingerprint_mode: 'off',
-      anti_degradation: true,
-      anti_degrade: { enabled: true, mode: 'generic', prev: { concurrency: 3 } },
-      protection_scope: 'generic_v1'
-    })
-    const wrapper = mountModal(initial)
-    await flushPromises()
-    const identity = wrapper.getComponent('[data-testid="edit-codex-fingerprint-mode-select"]')
-    identity.vm.$emit('update:modelValue', 'session')
-    await flushPromises()
-
-    if (disable) {
-      mocks.revert.mockResolvedValue(buildAccount({ codex_fingerprint_mode: 'off', anti_degradation: false, protection_scope: 'disabled' }))
-      await wrapper.get('[data-testid="anti-degrade-revert"]').trigger('click')
-      await wrapper.get('[data-testid="confirm"]').trigger('click')
-      await flushPromises()
-    }
-
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-    expect(mocks.update).toHaveBeenCalledTimes(1)
     const extra = mocks.update.mock.calls[0][1].extra
-    expect(extra.codex_fingerprint_mode).toBe('session')
-    expect(extra.anti_degradation).toBe(!disable)
-    if (disable) expect(extra).not.toHaveProperty('anti_degrade')
-    else expect(extra.anti_degrade.mode).toBe('generic')
+    expect(extra.anti_degrade).toEqual(initial.extra?.anti_degrade)
+    expect(extra.codex_fingerprint_mode).toBe('off')
+    expect(mocks.revert).not.toHaveBeenCalled()
   })
 
-  it('does not resurrect identity fields after switching an active identity strategy to generic', async () => {
-    const returned = buildAccount({
-      codex_fingerprint_mode: 'off',
-      anti_degradation: true,
-      anti_degrade: { enabled: true, mode: 'generic', prev: { concurrency: 3 } },
-      protection_scope: 'generic_v1'
-    })
-    mocks.apply.mockResolvedValue(returned)
+  it('preserves active identity presets on ordinary saves', async () => {
+    const initial = protectedAccount('mode1')
+    const wrapper = mountModal(initial)
+    await flushPromises()
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    await flushPromises()
+    expect(mocks.update.mock.calls[0][1].extra).toMatchObject(initial.extra!)
+    expect(mocks.revert).not.toHaveBeenCalled()
+  })
+
+  it('does not apply a completed restore response to another account', async () => {
+    let finishRestore!: (account: Account) => void
+    mocks.revert.mockReturnValue(new Promise<Account>(resolve => { finishRestore = resolve }))
     const wrapper = mountModal(protectedAccount())
     await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-mode"]').setValue('generic')
+    await wrapper.get('[data-testid="legacy-protection-restore"]').trigger('click')
+    await wrapper.get('[data-testid="confirm"]').trigger('click')
+    await wrapper.setProps({ account: { ...buildAccount({ codex_fingerprint_mode: 'full' }), id: 72 } })
+    finishRestore(buildAccount({ anti_degradation: false, codex_fingerprint_mode: 'off' }))
     await flushPromises()
-    await wrapper.get('[data-testid="anti-degrade-apply-strategy"]').trigger('click')
-    await flushPromises()
-    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
-    await flushPromises()
-
-    const extra = mocks.update.mock.calls[0][1].extra
-    expect(extra.codex_fingerprint_mode ?? 'off').toBe('off')
-    expect(extra).not.toHaveProperty('enable_tls_fingerprint')
-    expect(extra).not.toHaveProperty('tls_fingerprint_builtin')
-    expect(extra).toMatchObject({ anti_degradation: true, anti_degrade: { mode: 'generic' } })
-  })
-
-  it('offers an explicit upgrade for a persisted mode1 v2 account', async () => {
-    const initial = protectedAccount('mode1')
-    initial.extra!.anti_degrade = { enabled: true, mode: 'mode1', policy_version: 2, max_concurrency: 3 }
-    const returned = protectedAccount('mode1')
-    returned.extra!.anti_degrade = { enabled: true, mode: 'mode1', policy_version: 3, max_concurrency: 3 }
-    mocks.apply.mockResolvedValue(returned)
-    const wrapper = mountModal(initial)
-    await flushPromises()
-    expect(mocks.apply).not.toHaveBeenCalled()
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Compatibility v2')
-    await wrapper.get('[data-testid="anti-degrade-apply-strategy"]').trigger('click')
-    await flushPromises()
-    expect(mocks.apply).toHaveBeenCalledWith(71, 'mode1')
-    expect(wrapper.find('[data-testid="anti-degrade-apply-strategy"]').exists()).toBe(false)
-    expect(wrapper.get('[data-testid="anti-degrade-toggle"]').attributes('aria-checked')).toBe('true')
-    expect(wrapper.get('[data-testid="anti-degrade-current-mode"]').text()).toContain('Compatibility v3')
+    expect(wrapper.emitted('updated')).toBeUndefined()
+    expect(wrapper.get('[data-testid="edit-codex-fingerprint-mode-select"] button').text()).toContain('codexFingerprintFull')
   })
 })

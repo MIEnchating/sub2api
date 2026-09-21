@@ -230,3 +230,27 @@ func TestUpdateSettingsSubscriptionEnabledIsWritableAndKeptWhenOmitted(t *testin
 	require.Equal(t, "false", repo.values[service.SettingKeySubscriptionEnabled],
 		"a payload without subscription_enabled must not flip the stored value back to true")
 }
+
+func TestUpdateSettingsNavigationItemVisibilityIsWritableAndKeptWhenOmitted(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{
+		service.SettingKeyNavigationItemVisibility: `{"/usage":true,"/admin/users":false}`,
+	})
+
+	rec := doUpdateSettings(t, h, map[string]any{
+		"navigation_item_visibility": map[string]bool{
+			"/usage":       false,
+			"/admin/users": true,
+		},
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+
+	var stored map[string]bool
+	require.NoError(t, json.Unmarshal([]byte(repo.values[service.SettingKeyNavigationItemVisibility]), &stored))
+	require.Equal(t, map[string]bool{"/usage": false, "/admin/users": true}, stored)
+
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "Example Gateway"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.NoError(t, json.Unmarshal([]byte(repo.values[service.SettingKeyNavigationItemVisibility]), &stored))
+	require.Equal(t, map[string]bool{"/usage": false, "/admin/users": true}, stored,
+		"a payload without navigation_item_visibility must preserve the stored visibility map")
+}

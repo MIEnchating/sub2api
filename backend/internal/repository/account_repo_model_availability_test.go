@@ -26,9 +26,10 @@ func TestListModelAvailabilityCandidates_GroupQueryIgnoresTransientState(t *test
 	t.Cleanup(func() { _ = client.Close() })
 	repo := newAccountRepositoryWithSQL(client, db, nil)
 
-	mock.ExpectQuery("model availability candidates").
-		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	groupID := int64(42)
+	mock.ExpectQuery("model availability candidates").
+		WithArgs(groupID, service.StatusActive, service.PlatformAnthropic).
+		WillReturnRows(sqlmock.NewRows([]string{"id"}))
 	accounts, err := repo.ListModelAvailabilityCandidates(
 		context.Background(),
 		&groupID,
