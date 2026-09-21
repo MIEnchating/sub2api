@@ -84,7 +84,8 @@ const createAdminUser = (overrides: Partial<AdminUser> = {}): AdminUser => ({
 })
 
 const DataTableStub = {
-  props: ['columns', 'data', 'selectedKeys'],
+  name: 'DataTable',
+  props: ['columns', 'data', 'selectedKeys', 'loading'],
   emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
@@ -193,6 +194,48 @@ describe('admin UsersView', () => {
 
   afterEach(() => {
     vi.useRealTimers()
+  })
+
+  it('loads users and saved attribute filters without waiting for attribute definitions', async () => {
+    vi.useFakeTimers()
+    localStorage.setItem('user-filter-values', JSON.stringify({ attributes: { 7: 'team' } }))
+    let resolveDefinitions!: (value: unknown) => void
+    listEnabledDefinitions.mockReturnValueOnce(new Promise(resolve => { resolveDefinitions = resolve }))
+    listUsers.mockImplementation(async (page: number) => ({
+      items: [createAdminUser({ id: page === 2 ? 43 : 42 })],
+      total: 2, page, page_size: 20, pages: 2
+    }))
+    getBatchUserAttributes.mockResolvedValue({ attributes: {} })
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    expect(listUsers).toHaveBeenCalledWith(1, 20,
+      expect.objectContaining({ attributes: { 7: 'team' } }), expect.any(Object))
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.get('[data-test="row-order"]').text()).toBe('scoped@example.com')
+    await vi.advanceTimersByTimeAsync(60)
+    expect(getBatchUserAttributes).not.toHaveBeenCalled()
+
+    await wrapper.get('[data-test="next-page"]').trigger('click')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    resolveDefinitions([{ id: 7, name: 'Team', enabled: true, type: 'text' }])
+    await flushPromises()
+    expect(getBatchUserAttributes).toHaveBeenCalledOnce()
+    expect(getBatchUserAttributes).toHaveBeenCalledWith([43])
+    wrapper.unmount()
+  })
+
+  it('does not request attribute values after leaving while definitions are pending', async () => {
+    vi.useFakeTimers()
+    let resolveDefinitions!: (value: unknown) => void
+    listEnabledDefinitions.mockReturnValueOnce(new Promise(resolve => { resolveDefinitions = resolve }))
+    const wrapper = mountBulkDeleteView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(60)
+    wrapper.unmount()
+    resolveDefinitions([{ id: 7, name: 'Team', enabled: true, type: 'text' }])
+    await flushPromises()
+    expect(getBatchUserAttributes).not.toHaveBeenCalled()
   })
 
   it('cancels bulk deletion without deleting or clearing selected users', async () => {

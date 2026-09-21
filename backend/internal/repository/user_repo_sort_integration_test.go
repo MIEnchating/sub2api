@@ -117,20 +117,28 @@ func (s *UserRepoSuite) TestListWithFilters_SortByLastActiveAtAsc() {
 }
 
 func (s *UserRepoSuite) TestGetLatestUsedAtByUserIDs_UsesUsageLogs() {
-	older := time.Now().Add(-4 * time.Hour).UTC().Truncate(time.Second)
+	older := time.Now().Add(-90 * 24 * time.Hour).UTC().Truncate(time.Second)
 	newer := time.Now().Add(-90 * time.Minute).UTC().Truncate(time.Second)
 
 	userWithUsage := s.mustCreateUser(&service.User{Email: "usage-source@example.com"})
 	userWithoutUsage := s.mustCreateUser(&service.User{Email: "usage-missing@example.com"})
-	s.mustInsertUsageLog(userWithUsage.ID, older)
 	s.mustInsertUsageLog(userWithUsage.ID, newer)
+	s.mustInsertUsageLog(userWithUsage.ID, older)
+	historicalUser := s.mustCreateUser(&service.User{Email: "historical@example.com"})
+	s.mustInsertUsageLog(historicalUser.ID, older)
 
-	got, err := s.repo.GetLatestUsedAtByUserIDs(s.ctx, []int64{userWithUsage.ID, userWithoutUsage.ID})
+	got, err := s.repo.GetLatestUsedAtByUserIDs(s.ctx, []int64{userWithUsage.ID, userWithoutUsage.ID, historicalUser.ID, userWithUsage.ID})
 	s.Require().NoError(err)
 	s.Require().Contains(got, userWithUsage.ID)
 	s.Require().NotContains(got, userWithoutUsage.ID)
 	s.Require().NotNil(got[userWithUsage.ID])
 	s.Require().True(got[userWithUsage.ID].Equal(newer))
+	s.Require().Len(got, 2)
+	s.Require().True(got[historicalUser.ID].Equal(older))
+
+	empty, err := s.repo.GetLatestUsedAtByUserIDs(s.ctx, nil)
+	s.Require().NoError(err)
+	s.Require().Empty(empty)
 }
 
 func (s *UserRepoSuite) TestListWithFilters_SortByLastUsedAtDesc_UsesUsageLogsNotLastActiveAt() {
@@ -159,6 +167,33 @@ func (s *UserRepoSuite) TestListWithFilters_SortByLastUsedAtDesc_UsesUsageLogsNo
 	s.Require().Equal(rightSource.ID, users[0].ID)
 	s.Require().Equal(wrongSource.ID, users[1].ID)
 	s.Require().Equal(nilUsage.ID, users[2].ID)
+}
+
+func (s *UserRepoSuite) TestListWithFilters_LastUsedAtStablePagination() {
+	latest := time.Now().Add(-time.Hour).UTC().Truncate(time.Second)
+	noUsage := s.mustCreateUser(&service.User{Email: "no-usage@example.com"})
+	first := s.mustCreateUser(&service.User{Email: "first-tie@example.com"})
+	second := s.mustCreateUser(&service.User{Email: "second-tie@example.com"})
+	s.mustInsertUsageLog(first.ID, latest)
+	s.mustInsertUsageLog(first.ID, latest.Add(-90*24*time.Hour))
+	s.mustInsertUsageLog(second.ID, latest)
+
+	for _, tc := range []struct {
+		order string
+		ids   []int64
+	}{
+		{order: "asc", ids: []int64{noUsage.ID, first.ID, second.ID}},
+		{order: "desc", ids: []int64{second.ID, first.ID, noUsage.ID}},
+	} {
+		for i, id := range tc.ids {
+			users, _, err := s.repo.ListWithFilters(s.ctx, pagination.PaginationParams{
+				Page: i + 1, PageSize: 1, SortBy: "last_used_at", SortOrder: tc.order,
+			}, service.UserListFilters{})
+			s.Require().NoError(err)
+			s.Require().Len(users, 1)
+			s.Require().Equal(id, users[0].ID, "order=%s page=%d", tc.order, i+1)
+		}
+	}
 }
 
 func TestUserRepoSortSuiteSmoke(_ *testing.T) {}

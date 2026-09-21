@@ -1364,6 +1364,7 @@ const closePlatformQuotaModal = () => {
 }
 let abortController: AbortController | null = null
 let secondaryDataSeq = 0
+let attributeDefinitionsReady: Promise<void> | null = null
 
 const loadUsersSecondaryData = async (
   userIds: number[],
@@ -1390,21 +1391,22 @@ const loadUsersSecondaryData = async (
     )
   }
 
-  if (attributeDefinitions.value.length > 0 && hasVisibleAttributeColumns.value) {
-    tasks.push(
-      (async () => {
-        try {
-          const attrResponse = await adminAPI.userAttributes.getBatchUserAttributes(userIds)
-          if (signal?.aborted) return
-          if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
-          userAttributeValues.value = attrResponse.attributes
-        } catch (e) {
-          if (signal?.aborted) return
-          console.error('Failed to load user attribute values:', e)
-        }
-      })()
-    )
-  }
+  tasks.push(
+    (async () => {
+      try {
+        await attributeDefinitionsReady
+        if (signal?.aborted || (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq)) return
+        if (!hasVisibleAttributeColumns.value) return
+        const attrResponse = await adminAPI.userAttributes.getBatchUserAttributes(userIds)
+        if (signal?.aborted) return
+        if (typeof expectedSeq === 'number' && expectedSeq !== secondaryDataSeq) return
+        userAttributeValues.value = attrResponse.attributes
+      } catch (e) {
+        if (signal?.aborted) return
+        console.error('Failed to load user attribute values:', e)
+      }
+    })()
+  )
 
   if (hasVisiblePlatformQuotaColumn.value) {
     tasks.push(
@@ -1878,10 +1880,10 @@ const handleScroll = () => {
   closeActionMenu()
 }
 
-onMounted(async () => {
-  await loadAttributeDefinitions()
+onMounted(() => {
   loadSavedFilters()
   loadSavedColumns()
+  attributeDefinitionsReady = loadAttributeDefinitions()
   loadUsers()
   if (hasVisibleGroupsColumn.value || visibleFilters.has('group')) {
     loadAllGroups()

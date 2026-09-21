@@ -320,7 +320,7 @@
                   >{{ t("keys.today") }}:</span
                 >
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.today_actual_cost ?? 0).toFixed(4) }}
+                  {{ usageStats[row.id] ? `$${usageStats[row.id].today_actual_cost.toFixed(4)}` : "—" }}
                 </span>
               </div>
               <div class="mt-0.5 flex items-center gap-1.5">
@@ -328,7 +328,7 @@
                   >{{ t("keys.total") }}:</span
                 >
                 <span class="font-medium text-gray-900 dark:text-white">
-                  ${{ (usageStats[row.id]?.total_actual_cost ?? 0).toFixed(4) }}
+                  {{ usageStats[row.id] ? `$${usageStats[row.id].total_actual_cost.toFixed(4)}` : "—" }}
                 </span>
               </div>
               <!-- Quota progress (if quota is set) -->
@@ -2223,8 +2223,33 @@ const isAbortError = (error: unknown) => {
   return name === "AbortError" || code === "ERR_CANCELED";
 };
 
+// Usage is optional secondary data: never hold the table's loading state open.
+let usageAbortController: AbortController | null = null;
+watch(
+  [apiKeys, () => isColumnVisible("usage")],
+  async ([keys, visible]) => {
+    usageAbortController?.abort();
+    const controller = new AbortController();
+    usageAbortController = controller;
+    usageStats.value = {};
+    if (!visible || keys.length === 0) return;
+    try {
+      const response = await usageAPI.getDashboardApiKeysUsage(
+        keys.map((key) => key.id),
+        { signal: controller.signal },
+      );
+      if (!controller.signal.aborted) usageStats.value = response.stats;
+    } catch (error) {
+      if (!controller.signal.aborted && !isAbortError(error)) {
+        console.error("Failed to load usage stats:", error);
+      }
+    }
+  },
+);
+
 const loadApiKeys = async () => {
   abortController?.abort();
+  usageAbortController?.abort();
   const controller = new AbortController();
   abortController = controller;
   const { signal } = controller;
@@ -2257,22 +2282,6 @@ const loadApiKeys = async () => {
     handleSelectionChange(selectedIds.value);
     pagination.value.total = response.total;
     pagination.value.pages = response.pages;
-
-    // Load usage stats for all API keys in the list
-    if (response.items.length > 0) {
-      const keyIds = response.items.map((k) => k.id);
-      try {
-        const usageResponse = await usageAPI.getDashboardApiKeysUsage(keyIds, {
-          signal,
-        });
-        if (signal.aborted) return;
-        usageStats.value = usageResponse.stats;
-      } catch (e) {
-        if (!isAbortError(e)) {
-          console.error("Failed to load usage stats:", e);
-        }
-      }
-    }
   } catch (error) {
     if (isAbortError(error)) {
       return;
@@ -2871,6 +2880,8 @@ onMounted(() => {
 });
 
 onUnmounted(() => {
+  abortController?.abort();
+  usageAbortController?.abort();
   document.removeEventListener("click", closeGroupSelector);
   if (resetTimer) clearInterval(resetTimer);
 });

@@ -178,7 +178,7 @@ const TablePageLayoutStub = {
 
 const DataTableStub = {
   name: 'DataTable',
-  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean },
+  props: { columns: Array, data: Array, selectedKeys: Array, selectable: Boolean, loading: Boolean },
   emits: ['sort', 'update:selectedKeys'],
   template: `
     <div>
@@ -193,6 +193,9 @@ const DataTableStub = {
           data-test="key-id"
         >
           <slot name="cell-id" :value="row.id" :row="row" />
+        </div>
+        <div v-if="columns.some((col) => col.key === 'usage')" data-test="usage">
+          <slot name="cell-usage" :row="row" />
         </div>
         <slot name="cell-name" :value="row.name" :row="row" />
         <div data-test="group-cell">
@@ -330,6 +333,70 @@ describe('user KeysView', () => {
     getUserGroupRates.mockResolvedValue({})
     updateKey.mockResolvedValue(createApiKey())
     isCurrentStep.mockReturnValue(false)
+  })
+
+  it('renders keys before slow usage statistics finish', async () => {
+    let resolveUsage!: (value: unknown) => void
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise(resolve => { resolveUsage = resolve }))
+    const wrapper = await mountView()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.text()).toContain('test-key')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$0.0000')
+
+    resolveUsage({ stats: { 1: { today_actual_cost: 1.25, total_actual_cost: 8 } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$1.2500')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$8.0000')
+    wrapper.unmount()
+  })
+
+  it('keeps keys available when usage statistics fail', async () => {
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {})
+    getDashboardApiKeysUsage.mockRejectedValueOnce(new Error('usage timeout'))
+    const wrapper = await mountView()
+    expect(wrapper.findComponent({ name: 'DataTable' }).props('loading')).toBe(false)
+    expect(wrapper.text()).toContain('test-key')
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('—')
+    expect(showError).not.toHaveBeenCalled()
+    wrapper.unmount()
+    log.mockRestore()
+  })
+
+  it('only requests usage when its column is visible and cancels on unmount', async () => {
+    localStorage.setItem('api-key-hidden-columns', JSON.stringify(['usage']))
+    localStorage.setItem('api-key-column-settings-version', '3')
+    const wrapper = await mountView()
+    expect(getDashboardApiKeysUsage).not.toHaveBeenCalled()
+
+    await wrapper.get('button[title="Column Settings"]').trigger('click')
+    await getButtonByText(wrapper, 'Usage').trigger('click')
+    await flushPromises()
+    expect(getDashboardApiKeysUsage).toHaveBeenCalledOnce()
+    const signal = getDashboardApiKeysUsage.mock.calls[0][1].signal as AbortSignal
+    wrapper.unmount()
+    expect(signal.aborted).toBe(true)
+  })
+
+  it('ignores outdated usage results after the list is refreshed', async () => {
+    let resolveOldUsage!: (value: unknown) => void
+    getDashboardApiKeysUsage.mockReturnValueOnce(new Promise(resolve => { resolveOldUsage = resolve }))
+    const wrapper = await mountView()
+    const oldSignal = getDashboardApiKeysUsage.mock.calls[0][1].signal as AbortSignal
+    getDashboardApiKeysUsage.mockResolvedValueOnce({
+      stats: { 1: { today_actual_cost: 2, total_actual_cost: 3 } }
+    })
+    listKeys.mockResolvedValueOnce({ items: [createApiKey()], total: 1, pages: 1 })
+    await wrapper.get('[data-test="page-size-50"]').trigger('click')
+    await flushPromises()
+    expect(oldSignal.aborted).toBe(true)
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$2.0000')
+
+    resolveOldUsage({ stats: { 1: { today_actual_cost: 99, total_actual_cost: 99 } } })
+    await flushPromises()
+    expect(wrapper.get('[data-test="usage"]').text()).toContain('$2.0000')
+    expect(wrapper.get('[data-test="usage"]').text()).not.toContain('$99.0000')
+    wrapper.unmount()
   })
 
   it.each([

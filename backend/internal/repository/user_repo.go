@@ -720,11 +720,17 @@ func (r *userRepository) GetLatestUsedAtByUserIDs(ctx context.Context, userIDs [
 		return nil, fmt.Errorf("sql executor is not configured")
 	}
 
+	// One bounded probe per user using idx_usage_logs_user_created.
 	const query = `
-		SELECT user_id, MAX(created_at) AS last_used_at
-		FROM usage_logs
-		WHERE user_id = ANY($1)
-		GROUP BY user_id
+		SELECT requested.user_id, latest.created_at
+		FROM unnest($1::bigint[]) AS requested(user_id)
+		CROSS JOIN LATERAL (
+			SELECT created_at
+			FROM usage_logs
+			WHERE user_id = requested.user_id
+			ORDER BY created_at DESC
+			LIMIT 1
+		) AS latest
 	`
 
 	rows, err := r.sql.QueryContext(ctx, query, pq.Array(userIDs))
@@ -761,7 +767,7 @@ func (r *userRepository) GetLatestUsedAtByUserID(ctx context.Context, userID int
 func userLastUsedAtOrder(sortOrder string) []func(*entsql.Selector) {
 	orderExpr := func(direction, nulls string, tieOrder func(string) string) func(*entsql.Selector) {
 		return func(s *entsql.Selector) {
-			subquery := fmt.Sprintf("(SELECT MAX(created_at) FROM usage_logs WHERE user_id = %s)", s.C(dbuser.FieldID))
+			subquery := fmt.Sprintf("(SELECT created_at FROM usage_logs WHERE user_id = %s ORDER BY created_at DESC LIMIT 1)", s.C(dbuser.FieldID))
 			s.OrderExpr(entsql.Expr(subquery + " " + direction + " NULLS " + nulls))
 			s.OrderBy(tieOrder(s.C(dbuser.FieldID)))
 		}
