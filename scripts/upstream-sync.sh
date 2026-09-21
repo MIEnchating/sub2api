@@ -25,11 +25,15 @@ PNPM_VERSION="${SUB2API_PNPM_VERSION:-9.15.9}"
 VALIDATE="${SUB2API_VALIDATE:-true}"
 DRY_RUN="${SUB2API_DRY_RUN:-false}"
 VALIDATION_REPAIR_ATTEMPTS="${SUB2API_VALIDATION_REPAIR_ATTEMPTS:-3}"
+REVIEW_REPAIR_ATTEMPTS="${SUB2API_REVIEW_REPAIR_ATTEMPTS:-3}"
 RELEASE_ENABLED="${SUB2API_RELEASE_ENABLED:-true}"
 RELEASE_MIN_UPSTREAM_COMMITS="${SUB2API_RELEASE_MIN_UPSTREAM_COMMITS:-3}"
 RELEASE_MIN_CHANGED_FILES="${SUB2API_RELEASE_MIN_CHANGED_FILES:-8}"
 RELEASE_MIN_DIFF_LINES="${SUB2API_RELEASE_MIN_DIFF_LINES:-150}"
 RELEASE_REQUIRE_NO_RISKS="${SUB2API_RELEASE_REQUIRE_NO_RISKS:-true}"
+REMOTE_WORKFLOW_TIMEOUT_MINUTES="${SUB2API_REMOTE_WORKFLOW_TIMEOUT_MINUTES:-90}"
+REMOTE_WORKFLOW_POLL_SECONDS="${SUB2API_REMOTE_WORKFLOW_POLL_SECONDS:-15}"
+REMOTE_WORKFLOW_RETRY_ATTEMPTS="${SUB2API_REMOTE_WORKFLOW_RETRY_ATTEMPTS:-1}"
 EMAIL_ENABLED="${EMAIL_ENABLED:-false}"
 EMAIL_TO="${EMAIL_TO:-}"
 SMTP_CONFIG_SOURCE="${SMTP_CONFIG_SOURCE:-environment}"
@@ -76,6 +80,7 @@ FAILED_COMMAND=''
 RELEASE_STATE='未评估'
 RELEASE_TAG=''
 RELEASE_REASON=''
+REMOTE_WORKFLOW_STATE='未执行'
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -161,6 +166,68 @@ send_email() {
   log "notification sent to $EMAIL_TO"
 }
 
+wait_for_remote_workflow() {
+  local workflow="$1" commit="$2" label="$3" repo run_json run_info run_id status conclusion
+  local retries=0 deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
+  repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+  while (( SECONDS < deadline )); do
+    run_json="$(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
+      --json databaseId,status,conclusion,headSha 2>/dev/null || true)"
+    run_info="$(printf '%s' "$run_json" | python3 -c '
+import json, sys
+try:
+    rows = json.load(sys.stdin)
+except Exception:
+    rows = []
+sha = sys.argv[1]
+matching = [row for row in rows if row.get("headSha") == sha]
+if matching:
+    row = max(matching, key=lambda item: int(item.get("databaseId", 0)))
+    print(row.get("databaseId"), row.get("status"), row.get("conclusion") or "")
+' "$commit")"
+    if [[ -n "$run_info" ]]; then
+      read -r run_id status conclusion <<< "$run_info"
+      log "$label workflow $run_id: $status ${conclusion:-}"
+      if [[ "$status" == completed ]]; then
+        if [[ "$conclusion" == success ]]; then return 0; fi
+        if (( retries < REMOTE_WORKFLOW_RETRY_ATTEMPTS )); then
+          retries=$((retries + 1))
+          log "$label workflow failed; rerunning failed jobs ($retries/$REMOTE_WORKFLOW_RETRY_ATTEMPTS)"
+          gh run rerun "$run_id" --repo "$repo" --failed >/dev/null
+        else
+          return 1
+        fi
+      fi
+    else
+      log "waiting for $label workflow for commit $commit"
+    fi
+    sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
+  done
+  return 1
+}
+
+wait_for_remote_workflows() {
+  local commit="$1"
+  CURRENT_STAGE='等待远程 CI 与安全扫描'
+  REMOTE_WORKFLOW_STATE='等待中'
+  require_command gh
+  wait_for_remote_workflow 'CI' "$commit" 'CI' || fail "远程 CI 未通过或超时（提交 $commit）"
+  wait_for_remote_workflow 'Security Scan' "$commit" 'Security Scan' || fail "远程安全扫描未通过或超时（提交 $commit）"
+  REMOTE_WORKFLOW_STATE='CI 与安全扫描通过'
+}
+
+wait_for_release_workflow() {
+  local tag="$1" commit="$2" repo release_json
+  repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+  CURRENT_STAGE='等待远程 Release 工作流'
+  wait_for_remote_workflow 'Release' "$commit" 'Release' || fail "远程 Release 工作流未通过或超时（标签 $tag）"
+  release_json="$(gh release view "$tag" --repo "$repo" --json isDraft,isPrerelease,assets 2>/dev/null || true)"
+  python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if not d.get("isDraft") and not d.get("isPrerelease") and d.get("assets") else 1)' <<< "$release_json" || \
+    fail "远程 Release 工作流虽结束，但正式 Release 或资产未确认（标签 $tag）"
+  RELEASE_STATE='已完成发布'
+  REMOTE_WORKFLOW_STATE='CI、安全扫描与 Release 全部通过'
+}
+
 write_report() {
   local status="$1" reason="$2"
   {
@@ -181,6 +248,7 @@ write_report() {
     printf '全量验证：%s\n' "$VALIDATION_RESULT"
     printf 'Codex 集中修复次数：%s/%s\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
     printf '版本发布：%s\n' "$RELEASE_STATE"
+    printf '远程工作流：%s\n' "${REMOTE_WORKFLOW_STATE:-未执行}"
     [[ -n "$RELEASE_TAG" ]] && printf '版本标签：%s\n' "$RELEASE_TAG"
     [[ -n "$RELEASE_REASON" ]] && printf '发布判断：%s\n' "$RELEASE_REASON"
     if [[ -s "$FAILURE_SUMMARY_FILE" ]]; then
@@ -311,6 +379,10 @@ validate_primary_worktree() {
 
 run_codex_merge_review() {
   local phase="${1:-最终双上游合并}" prompt_file="$STATE_DIR/$RUN_ID-review-prompt.txt"
+  local attempt attempt_decision review_resolved=false
+  [[ "$REVIEW_REPAIR_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || fail 'SUB2API_REVIEW_REPAIR_ATTEMPTS 必须为正整数'
+  for ((attempt = 1; attempt <= REVIEW_REPAIR_ATTEMPTS; attempt++)); do
+    attempt_decision="$STATE_DIR/$RUN_ID-review-decision-$attempt.json"
   cat > "$prompt_file" <<EOF
 审查并完成当前临时工作树中的${phase}。
 
@@ -337,15 +409,17 @@ run_codex_merge_review() {
 - risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
 - excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
+- 这是第 $attempt/$REVIEW_REPAIR_ATTEMPTS 轮集中冲突修复。若上一轮已修改工作树，必须继续逐文件核对并修复，不要仅返回 blocked。
 EOF
-  log "running Codex merge review: $phase"
-  "$CODEX_BIN" exec --ephemeral --sandbox workspace-write --color never \
+    log "running Codex merge review: $phase (attempt $attempt/$REVIEW_REPAIR_ATTEMPTS)"
+    if ! "$CODEX_BIN" exec --ephemeral --sandbox workspace-write --color never \
     -C "$WORKTREE" \
     --output-schema "$REPO_DIR/.github/upstream-sync-decision-schema.json" \
-    --output-last-message "$REVIEW_DECISION_FILE" - < "$prompt_file"
-  python3 "$REPO_DIR/.github/render-upstream-sync-review.py" \
-    "$REVIEW_DECISION_FILE" > "$REVIEW_SUMMARY_FILE"
-  if ! python3 - "$REVIEW_DECISION_FILE" <<'PY'
+    --output-last-message "$attempt_decision" - < "$prompt_file"; then
+      log "Codex merge review invocation failed on attempt $attempt"
+      continue
+    fi
+    if python3 - "$attempt_decision" <<'PY'
 import json
 import sys
 
@@ -353,10 +427,17 @@ with open(sys.argv[1], encoding="utf-8") as source:
     decision = json.load(source)
 raise SystemExit(0 if decision.get("decision") == "resolved" else 1)
 PY
-  then
-    fail "Codex 在 $phase 中发现无法安全自动解决的冲突"
-  fi
+    then
+      cp "$attempt_decision" "$REVIEW_DECISION_FILE"
+      review_resolved=true
+      break
+    fi
+    log "Codex reported unresolved conflicts on attempt $attempt; preserving worktree for another repair pass"
+  done
   rm -f "$prompt_file"
+  [[ "$review_resolved" == true ]] || fail "Codex 在 $phase 中经过 $REVIEW_REPAIR_ATTEMPTS 轮仍未能安全解决冲突"
+  python3 "$REPO_DIR/.github/render-upstream-sync-review.py" \
+    "$REVIEW_DECISION_FILE" > "$REVIEW_SUMMARY_FILE"
 }
 
 finish_merge_stage() {
@@ -658,9 +739,14 @@ main() {
   require_command "$CODEX_BIN"
   require_command "$COREPACK_BIN"
   require_command python3
+  require_command gh
   require_command /usr/bin/curl
   require_command /usr/bin/base64
   [[ "$VALIDATION_REPAIR_ATTEMPTS" =~ ^[0-9]+$ ]] || fail 'SUB2API_VALIDATION_REPAIR_ATTEMPTS 必须为非负整数'
+  [[ "$REVIEW_REPAIR_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || fail 'SUB2API_REVIEW_REPAIR_ATTEMPTS 必须为正整数'
+  [[ "$REMOTE_WORKFLOW_TIMEOUT_MINUTES" =~ ^[1-9][0-9]*$ ]] || fail 'SUB2API_REMOTE_WORKFLOW_TIMEOUT_MINUTES 必须为正整数'
+  [[ "$REMOTE_WORKFLOW_POLL_SECONDS" =~ ^[1-9][0-9]*$ ]] || fail 'SUB2API_REMOTE_WORKFLOW_POLL_SECONDS 必须为正整数'
+  [[ "$REMOTE_WORKFLOW_RETRY_ATTEMPTS" =~ ^[0-9]+$ ]] || fail 'SUB2API_REMOTE_WORKFLOW_RETRY_ATTEMPTS 必须为非负整数'
   [[ "$RELEASE_MIN_UPSTREAM_COMMITS" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_UPSTREAM_COMMITS 必须为非负整数'
   [[ "$RELEASE_MIN_CHANGED_FILES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_CHANGED_FILES 必须为非负整数'
   [[ "$RELEASE_MIN_DIFF_LINES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_DIFF_LINES 必须为非负整数'
@@ -736,11 +822,18 @@ main() {
   log "pushing validated candidate $CANDIDATE_COMMIT to $ORIGIN_REF"
   git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
   PUSHED_COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
+  wait_for_remote_workflows "$PUSHED_COMMIT"
   if [[ "$RELEASE_STATE" == '待发布' ]]; then
     publish_release "$RELEASE_TAG"
+    wait_for_release_workflow "$RELEASE_TAG" "$PUSHED_COMMIT"
   fi
-  git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH"
-  git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
+  git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE" "$TARGET_BRANCH" --tags
+  if [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]] && \
+    git -C "$REPO_DIR" merge-base --is-ancestor "HEAD" "$ORIGIN_REF"; then
+    git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
+  else
+    log 'candidate pushed; primary worktree was left unchanged because it has local changes'
+  fi
   CURRENT_STAGE='完成'
   write_report '成功' "两个上游已按规则合并，全部检查通过，代码已一次性推送；$RELEASE_REASON"
   send_email '【sub2api】双上游代码合并成功报告' "$REPORT_FILE" || \
