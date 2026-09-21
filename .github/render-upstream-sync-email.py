@@ -12,7 +12,7 @@ from pathlib import Path
 
 
 SECTION_TITLES = {
-    "具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录",
+    "具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录", "Codex 合并审查及功能排除记录",
 }
 FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif"
 
@@ -127,7 +127,7 @@ def render_report(text, preview=False):
     cards_html = ''.join(f'<td width="33%" valign="top" style="padding:14px 12px;border:1px solid #e6ecf3;background:#f8fafc;"><div style="font-size:12px;color:#64748b;margin-bottom:7px;">{escape(label)}</div><div style="font-size:14px;font-weight:600;line-height:22px;color:{tone};word-break:break-word;">{escape(value)}</div></td>' for label, value, tone in cards)
     execution = [("执行时间", data.get("执行时间", "未记录")), ("当前阶段", data.get("失败/当前阶段", "未记录")), ("自动修复", data.get("Codex 集中修复次数", "未记录") + " 轮")]
     content = section("本次执行", '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + table_rows(execution) + '</table>')
-    for name in ("具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录"):
+    for name in ("具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录", "Codex 合并审查及功能排除记录"):
         lines = sections.get(name, [])
         if any(line.strip() for line in lines):
             label = "合并审查与排除记录" if name.startswith("Codex") else name

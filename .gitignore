@@ -85,6 +85,7 @@ temp/
 *.log
 *.bak
 .cache/
+__pycache__/
 .dev/
 .serena/
 
@@ -141,7 +142,7 @@ docs/*
 !docs/PAYMENT_CN.md
 !docs/ADMIN_PAYMENT_INTEGRATION_API.md
 !docs/ASYNC_IMAGE_TASKS.md
-!docs/BATCH_IMAGE_MVP.md
+!docs/UPSTREAM_EXCLUSIONS.md
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/channel-monitor-v2-safe-defaults.md

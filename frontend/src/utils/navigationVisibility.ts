@@ -7,7 +7,6 @@ export interface NavigationPageDefinition {
 
 export const USER_NAVIGATION_PAGES: readonly NavigationPageDefinition[] = [
   { path: '/keys', labelKey: 'nav.apiKeys' },
-  { path: '/batch-image', labelKey: 'nav.batchImage' },
   { path: '/usage', labelKey: 'nav.usage' },
   { path: '/available-channels', labelKey: 'nav.availableChannels' },
   { path: '/monitor', labelKey: 'nav.channelStatus' },
@@ -49,7 +48,6 @@ export const ALL_CONFIGURABLE_NAVIGATION_PAGES = [
 ] as const
 
 const routeAliases: Readonly<Record<string, string>> = {
-  '/docs/batch-image': '/batch-image',
 }
 
 const protectedNavigationPaths = new Set([

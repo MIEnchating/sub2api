@@ -213,33 +213,3 @@ func TestFilterUpstreamGeminiModelsBody(t *testing.T) {
 		require.False(t, dropped)
 	})
 }
-
-func TestFilterBatchImageModelsByAllowlist(t *testing.T) {
-	models := []service.BatchImagePublicModel{
-		{ID: "gemini-2.5-flash-image", Object: "image.batch.model", Provider: "gemini_api"},
-		{ID: "gemini-3-pro-image", Object: "image.batch.model", Provider: "vertex"},
-		{ID: "gpt-image-1", Object: "image.batch.model", Provider: "openai"},
-	}
-
-	t.Run("disabled allowlist keeps everything", func(t *testing.T) {
-		got := filterBatchImageModelsByAllowlist(models, service.GroupModelAllowlist{Enabled: false})
-		require.Equal(t, models, got)
-	})
-
-	t.Run("exact and wildcard entries filter by model id", func(t *testing.T) {
-		got := filterBatchImageModelsByAllowlist(models, service.GroupModelAllowlist{
-			Enabled: true,
-			Models:  []string{"gemini-3-*", "gpt-image-1"},
-		})
-		require.Equal(t, []string{"gemini-3-pro-image", "gpt-image-1"}, []string{got[0].ID, got[1].ID})
-		require.Len(t, got, 2)
-	})
-
-	t.Run("no match yields empty list", func(t *testing.T) {
-		got := filterBatchImageModelsByAllowlist(models, service.GroupModelAllowlist{
-			Enabled: true,
-			Models:  []string{"claude-*"},
-		})
-		require.Empty(t, got)
-	})
-}

@@ -423,7 +423,7 @@ func TestGroupModelAllowlistNilGroupPasses(t *testing.T) {
 	}
 }
 
-// encoding/json 绑定系 handler（如批量生图 ShouldBindJSON）对键名大小写不敏感：
+// encoding/json 绑定系 handler（如异步生图 ShouldBindJSON）对键名大小写不敏感：
 // {"Model":"blocked"} 会绑定为 blocked，准入必须拒绝。
 func TestGroupModelAllowlistCaseVariantModelKeyRejected(t *testing.T) {
 	router, calls := newGroupModelAllowlistTestRouter(allowlistAPIKey(true, "claude-sonnet-4.5"), "/v1")

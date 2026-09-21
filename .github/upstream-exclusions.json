@@ -1,0 +1,37 @@
+{
+  "features": [
+    {
+      "name": "共享账号池",
+      "path_pattern": "(^|/)(shared.?pool|shared_account|shared-account|SharedPool|add-shared-account-pool)"
+    },
+    {
+      "name": "批量生图",
+      "path_pattern": "(^|/)(?:batch[_-]?image|useBatchImage|\\d+_.*batch_image)",
+      "content_pattern": "batch[_-]?image|/images/batches|批量生图|批量图片生成",
+      "content_roots": [
+        "frontend/src/",
+        "backend/internal/",
+        "backend/cmd/",
+        "backend/ent/",
+        "backend/migrations/",
+        "deploy/"
+      ],
+      "preserved_paths": [
+        "backend/internal/repository/migrations_runner.go",
+        "backend/migrations/159_batch_image_foundation.sql",
+        "backend/migrations/160_batch_image_provider_refs.sql",
+        "backend/migrations/161_batch_image_pricing_snapshot.sql",
+        "backend/migrations/162_add_group_batch_image_generation_gate.sql",
+        "backend/migrations/163_batch_image_default_discount_and_hold_ratio.sql",
+        "backend/migrations/164_batch_image_download_and_user_delete.sql",
+        "backend/migrations/165_hide_pre_upstream_batch_image_failures.sql",
+        "backend/migrations/166_batch_image_task_name.sql",
+        "backend/migrations/167_clear_auto_batch_image_task_names.sql",
+        "backend/migrations/168_restore_empty_batch_image_task_names.sql",
+        "backend/migrations/169_batch_image_parent_batch.sql",
+        "backend/migrations/187_add_usage_log_session_id.sql",
+        "backend/migrations/234_batch_image_routed_group.sql"
+      ]
+    }
+  ]
+}

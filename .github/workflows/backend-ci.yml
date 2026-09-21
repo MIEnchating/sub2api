@@ -14,6 +14,11 @@ jobs:
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
+      - name: Check upstream feature exclusions
+        run: |
+          python3 .github/check-upstream-exclusions.py .
+          python3 -m unittest discover -s .github -p 'test_upstream*.py'
+          /bin/bash -n scripts/upstream-sync.sh
       - name: Check deployment scripts
         run: |
           /bin/bash -n deploy/apple-container.sh

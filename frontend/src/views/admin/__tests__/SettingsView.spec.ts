@@ -737,7 +737,8 @@ describe("admin SettingsView payment visible method controls", () => {
     await flushPromises();
 
     await wrapper.get("#settings-tab-features").trigger("click");
-    expect(wrapper.findAll('[data-testid="navigation-page-item"]')).toHaveLength(11);
+    expect(wrapper.findAll('[data-testid="navigation-page-item"]')).toHaveLength(10);
+    expect(wrapper.findAll('[data-testid="navigation-page-item"]').some(item => item.text().includes('/batch-image'))).toBe(false);
     expect(
       wrapper.get('[data-testid="navigation-scope-userPages"]').attributes("aria-selected"),
     ).toBe("true");

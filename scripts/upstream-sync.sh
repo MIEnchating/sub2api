@@ -172,7 +172,7 @@ write_report() {
     printf '失败/当前阶段：%s\n' "$CURRENT_STAGE"
     printf '目标分支：%s\n' "$ORIGIN_REF"
     printf '主上游：%s\n' "$PRIMARY_REF"
-    printf '第二上游：%s（仅排除共享账号池）\n' "$SECOND_REF"
+    printf '第二上游：%s（排除共享账号池和批量生图）\n' "$SECOND_REF"
     [[ -n "$ORIGIN_HEAD" ]] && printf '合并前版本：%s\n' "$ORIGIN_HEAD"
     [[ -n "$PRIMARY_HEAD" ]] && printf '主上游版本：%s\n' "$PRIMARY_HEAD"
     [[ -n "$SECOND_HEAD" ]] && printf '第二上游版本：%s\n' "$SECOND_HEAD"
@@ -193,7 +193,7 @@ write_report() {
       cat "$VALIDATION_FAILURES_FILE"
     fi
     if [[ -s "$REVIEW_SUMMARY_FILE" ]]; then
-      printf '\nCodex 合并审查及共享账号池排除记录\n----------------------------------\n'
+      printf '\nCodex 合并审查及功能排除记录\n----------------------------------\n'
       cat "$REVIEW_SUMMARY_FILE"
       printf '\n'
     fi
@@ -321,19 +321,21 @@ run_codex_merge_review() {
 第二上游：$SECOND_REF
 
 产品决策：
-1. $PRIMARY_REF 的所有代码和功能都无条件保留并合并。
-2. $SECOND_REF 的所有代码和功能都无条件保留并合并，唯一例外是共享账号池功能及其支持实现。
+1. $PRIMARY_REF 的所有代码和功能都保留并合并，但不得重新引入已退役的批量生图。
+2. $SECOND_REF 的所有代码和功能都无条件保留并合并，例外是共享账号池、批量生图功能及其支持实现。
 3. 共享账号池包括其用户/管理员页面、API、数据库迁移、账号调度、权限、计费支持、测试、文档和专属资源；普通账号池和同名但无关功能必须保留。
 
 要求：
 - 阅读 AGENTS.md、两上游提交记录、双方差异和当前合并结果。
 - 处理所有文本及语义冲突，禁止简单选择 ours/theirs。
-- 删除或恢复仅属于共享账号池的实现，保留第二上游的其他全部更新。
+- 按 docs/UPSTREAM_EXCLUSIONS.md 删除或恢复仅属于共享账号池、批量生图的实现，保留第二上游的其他全部更新。
+- 批量生图的历史 SQL 迁移及校验和兼容记录必须保留；不得删除历史数据或冻结余额。普通生图和异步单图任务必须保留。
 - 保留本项目已有功能、权限、计费、数据库兼容性和测试不变量。
 - 不要 fetch、commit、push、打 tag、发布或重启服务；直接修改工作树。
-- 最终答复用中文列出：上游变化、冲突处理、共享账号池排除的文件/代码位置、保留的第二上游功能和剩余风险。
+- 最终答复用中文列出：上游变化、冲突处理、共享账号池和批量生图排除的文件/代码位置、保留的第二上游功能和剩余风险。
 - decision 仅可为 resolved 或 blocked；只有所有冲突已解决且产品规则均满足时才可 resolved。
 - risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
+- excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 EOF
   log "running Codex merge review: $phase"
@@ -448,6 +450,8 @@ run_validation_pass() {
   : > "$VALIDATION_FAILURES_FILE"
   VALIDATION_RESULT="第 $pass 轮全量验证进行中"
   log "starting complete validation pass $pass"
+  record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE"
+  record_check '上游排除规则及报告测试' python3 -m unittest discover -s "$WORKTREE/.github" -p 'test_upstream*.py'
   record_check '后端普通测试' docker_go go test ./...
   record_check '后端单元测试' docker_go go test -tags=unit ./...
   record_check '后端集成测试' docker_go go test -tags=integration ./...
@@ -479,12 +483,12 @@ run_codex_validation_repair() {
 完整日志：$LOG_FILE
 本轮全量失败清单：$VALIDATION_FAILURES_FILE
 这是第 $attempt/$VALIDATION_REPAIR_ATTEMPTS 次集中修复。
-主上游：$PRIMARY_REF（全部保留）
-第二上游：$SECOND_REF（除共享账号池外全部保留）
+主上游：$PRIMARY_REF（保留全部非退役功能）
+第二上游：$SECOND_REF（除共享账号池和批量生图外全部保留）
 
 要求：
 1. 先读取失败清单中每个检查的独立日志，归纳共同原因后一次性修复全部可修问题。
-2. 不得回退任一主上游功能；不得删除第二上游中共享账号池以外的功能；不得重新引入共享账号池。
+2. 按 docs/UPSTREAM_EXCLUSIONS.md 保留两个上游的非排除功能；不得重新引入共享账号池或批量生图；保留历史数据库迁移和校验和兼容记录。
 3. 保留本项目权限、计费、数据库兼容、账号调度、日志隐私和测试不变量。
 4. 可运行针对性检查辅助定位，但外层脚本会在修复结束后重新执行整套验证。
 5. 不要 fetch、commit、push、打 tag、发布、重启服务或访问密钥。直接修改工作树并检查 diff。
@@ -705,6 +709,7 @@ main() {
   if git -C "$WORKTREE" ls-files | grep -Eiq '(^|/)(shared.?pool|shared_account|shared-account|SharedPool|add-shared-account-pool)'; then
     fail '候选合并中仍有共享账号池专属路径'
   fi
+  python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE" || fail '候选合并重新引入了已排除功能'
   if [[ "$DRY_RUN" == true ]]; then
     log 'dry run completed; candidate was not committed, validated, or pushed'
     exit 0

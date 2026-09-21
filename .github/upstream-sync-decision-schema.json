@@ -10,6 +10,7 @@
     "merged_behavior",
     "conflicts",
     "excluded_shared_account_pool_paths",
+    "excluded_batch_image_paths",
     "risks"
   ],
   "properties": {
@@ -35,6 +36,10 @@
       "items": { "type": "string" }
     },
     "excluded_shared_account_pool_paths": {
+      "type": "array",
+      "items": { "type": "string" }
+    },
+    "excluded_batch_image_paths": {
       "type": "array",
       "items": { "type": "string" }
     },

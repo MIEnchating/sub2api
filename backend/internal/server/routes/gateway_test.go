@@ -466,3 +466,29 @@ func TestGatewayRoutesOpenAICountTokensPathIsRegistered(t *testing.T) {
 	router.ServeHTTP(w, req)
 	require.NotEqual(t, http.StatusNotFound, w.Code)
 }
+
+func TestGatewayRoutesRetiredBatchImagesAreUnavailable(t *testing.T) {
+	router := newGatewayRoutesTestRouter(service.PlatformGemini)
+	for _, route := range router.Routes() {
+		require.NotContains(t, route.Path, "/images/batches")
+	}
+	for _, method := range []string{http.MethodGet, http.MethodPost, http.MethodDelete} {
+		for _, path := range []string{
+			"/v1/images/batches", "/v1/images/batches/models", "/v1/images/batches/old-job",
+			"/v1/images/batches/old-job/items", "/v1/images/batches/old-job/items/item/content",
+			"/v1/images/batches/old-job/download", "/v1/images/batches/old-job/cancel",
+			"/v1/images/batches/old-job/outputs",
+		} {
+			w := httptest.NewRecorder()
+			router.ServeHTTP(w, httptest.NewRequest(method, path, nil))
+			require.Equal(t, http.StatusNotFound, w.Code, "%s %s", method, path)
+		}
+	}
+	registered := make(map[string]bool)
+	for _, route := range router.Routes() {
+		registered[route.Method+" "+route.Path] = true
+	}
+	for _, path := range []string{"/v1/images/generations", "/v1/images/edits", "/v1/images/generations/async", "/v1/images/edits/async"} {
+		require.True(t, registered[http.MethodPost+" "+path], "normal image route must remain: %s", path)
+	}
+}

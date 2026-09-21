@@ -14,13 +14,19 @@
 
 ## Upstream Merge Scope
 
-- Merge all changes from the primary `upstream/main` branch without feature-by-feature filtering.
-- Merge all changes from the second `overdraft/sub2api-custom` branch except the shared account pool feature and its supporting implementation.
-- Do not selectively omit other second-upstream changes merely because they are large or unrelated; only the shared account pool is excluded by the current product decision.
-- Record the excluded shared-account-pool paths and any unresolved conflicts before finalizing a merge.
+- Merge all changes from the primary `upstream/main` branch without feature-by-feature filtering, except retired batch image generation as specified below.
+- Merge all changes from the second `overdraft/sub2api-custom` branch except the shared account pool and batch image generation features and their supporting implementation.
+- Do not selectively omit other second-upstream changes merely because they are large or unrelated; the shared account pool and batch image generation are excluded by the current product decision.
+- Record the excluded shared-account-pool and batch-image-generation paths and any unresolved conflicts before finalizing a merge.
 
 ## Commits and Releases
 
 - Keep release-related fixes in the same pre-release commit when they belong to the same update.
 - Never move or overwrite an existing release tag. Use the next valid date version when the current date tag is already occupied.
 - Use SSH for repository pushes when the configured remote supports it.
+
+## Retired Features
+
+- Batch image generation must not be reintroduced from either upstream. Exclude its UI, navigation, API, worker/queue, billing, configuration, tests, docs, and generated ORM implementation. Ordinary image generation and asynchronous single-image tasks remain supported.
+- Preserve already shipped SQL migrations and their checksum compatibility entries; do not drop historical tables, records, or frozen balances as part of feature removal.
+- Follow `docs/UPSTREAM_EXCLUSIONS.md` and run `python3 .github/check-upstream-exclusions.py .` after each merge and repair.

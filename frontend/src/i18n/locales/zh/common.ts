@@ -167,7 +167,6 @@ export default {
     dashboard: '仪表盘',
     announcements: '公告',
     apiKeys: 'API 密钥',
-    batchImage: '批量生图',
     usage: '使用记录',
     testResults: '渠道测试',
     tests: '渠道测试管理',

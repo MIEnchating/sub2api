@@ -167,7 +167,6 @@ export default {
     dashboard: 'Dashboard',
     announcements: 'Announcements',
     apiKeys: 'API Keys',
-    batchImage: 'Batch Images',
     usage: 'Usage',
     testResults: 'Channel Tests',
     tests: 'Channel Test Management',

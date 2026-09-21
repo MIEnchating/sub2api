@@ -1,11 +1,17 @@
 import { describe, expect, it } from 'vitest'
 
 import {
+  ALL_CONFIGURABLE_NAVIGATION_PAGES,
   isNavigationItemVisible,
   normalizeNavigationItemVisibility,
 } from '@/utils/navigationVisibility'
 
 describe('navigation visibility', () => {
+  it('does not offer the retired batch image page in menu settings', () => {
+    expect(ALL_CONFIGURABLE_NAVIGATION_PAGES.some(page => page.path === '/batch-image')).toBe(false)
+    expect(normalizeNavigationItemVisibility({})['/batch-image']).toBeUndefined()
+  })
+
   it('keeps missing routes visible and honors any configured path', () => {
     const settings = {
       navigation_item_visibility: {

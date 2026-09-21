@@ -43,6 +43,7 @@ def main() -> None:
     add_section(lines, "合并后行为", decision["merged_behavior"])
     add_section(lines, "冲突处理", decision["conflicts"])
     add_section(lines, "共享账号池排除路径", decision["excluded_shared_account_pool_paths"])
+    add_section(lines, "批量生图排除路径", decision.get("excluded_batch_image_paths", []))
     add_section(lines, "剩余风险", decision["risks"])
     print("\n".join(lines))
 
