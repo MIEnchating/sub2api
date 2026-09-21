@@ -627,6 +627,7 @@
       </div>
 
       <!-- Zhipu 团队版 Coding Plan：组织/项目 ID（可选，填写后额度探测走团队版端点） -->
+
       <div v-if="form.platform === 'zhipu' && accountMode === 'coding'" class="mt-4">
         <div class="flex items-center">
           <label class="input-label">{{ t('admin.accounts.cnProviders.zhipuTeam.title') }}</label>
@@ -928,6 +929,7 @@
           </div>
 
           <!-- Custom OAuth Client (Advanced) -->
+
           <div v-if="showAdvancedOAuth" class="mt-3 group relative">
             <button
               type="button"
@@ -1004,6 +1006,7 @@
         </div>
 
         <!-- Tier selection (used as fallback when auto-detection is unavailable/fails) -->
+
         <div v-if="accountCategory !== 'service_account'" class="mt-4">
           <label class="input-label">{{ t('admin.accounts.gemini.tier.label') }}</label>
           <div class="mt-2">
@@ -1097,6 +1100,7 @@
         </div>
       </div>
 
+
       <div v-if="form.platform === 'antigravity' && antigravityAccountType === 'oauth'">
         <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
         <input
@@ -1133,20 +1137,11 @@
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.apiKeyHint') }}</p>
         </div>
-        <!-- 上游倍率自动探测：antigravity upstream 也是 API-key 账号 -->
-        <div class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600">
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="upstreamBillingAutoProbeEnabled"
-            data-testid="upstream-billing-auto-probe-antigravity"
-            :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          />
-        </div>
+        <UpstreamBillingProbeSettings
+          v-model:auto-probe-enabled="upstreamBillingAutoProbeEnabled"
+          v-model:rate-limit="upstreamBillingRateLimit"
+          toggle-test-id="upstream-billing-auto-probe-antigravity"
+        />
       </div>
 
       <!-- Vertex Service Account -->
@@ -1419,22 +1414,10 @@
           <p v-if="apiKeyHint" class="input-hint">{{ apiKeyHint }}</p>
         </div>
 
-        <!-- 上游倍率自动探测：全部 API-key 平台可用（所在区块已限定 apikey 类型） -->
-        <div
-          class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-        >
-          <div>
-            <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-              {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-            </p>
-          </div>
-          <Toggle
-            v-model="upstreamBillingAutoProbeEnabled"
-            data-testid="upstream-billing-auto-probe"
-            :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          />
-        </div>
+        <UpstreamBillingProbeSettings
+          v-model:auto-probe-enabled="upstreamBillingAutoProbeEnabled"
+          v-model:rate-limit="upstreamBillingRateLimit"
+        />
 
         <!-- Gemini API Key tier selection -->
         <div v-if="form.platform === 'gemini'">
@@ -1801,6 +1784,7 @@
 
         <!-- Header Override Section (eligible API-key platforms) -->
         <div
+
           v-if="isHeaderOverrideCapable(form.platform, 'apikey')"
           class="border-t border-gray-200 pt-4 dark:border-dark-600"
         >
@@ -2110,6 +2094,7 @@
 
       <!-- 配额控制 (Anthropic apikey/bedrock: 配额限制 + 亲和) -->
       <div
+
         v-if="form.platform === 'anthropic' && (form.type === 'apikey' || form.type === 'bedrock')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
@@ -2162,6 +2147,7 @@
 
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
+
         v-else-if="form.type === 'apikey' || form.type === 'bedrock'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
@@ -2214,6 +2200,7 @@
 
       <!-- Grok OAuth Custom Upstream URL (仅改写转发端点，OAuth 授权/刷新不受影响) -->
       <div
+
         v-if="form.platform === 'grok' && isOAuthFlow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -2255,6 +2242,7 @@
 
       <!-- Grok OAuth Header Override (OAuth 类型没有 apikey 容器，需要独立区域) -->
       <div
+
         v-if="form.platform === 'grok' && isOAuthFlow"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -2588,6 +2576,7 @@
 
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
+
         v-if="form.platform === 'anthropic' || form.platform === 'antigravity'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -2620,6 +2609,7 @@
 
       <!-- 配额控制 (Anthropic OAuth/SetupToken: 亲和 + 窗口费用 + 会话 + RPM 等) -->
       <div
+
         v-if="form.platform === 'anthropic' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
@@ -3044,6 +3034,7 @@
         </div>
       </div>
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
+
         <label class="input-label" for="create-rate-limit-429-retry-count">
           {{ t('admin.accounts.rateLimit429RetryCount') }}
         </label>
@@ -3080,6 +3071,7 @@
 
       <!-- OpenAI 自动透传开关（OAuth/API Key） -->
       <div
+
         v-if="form.platform === 'openai'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3197,6 +3189,7 @@
 
       <!-- OpenAI WS Mode 三态（off/ctx_pool/passthrough） -->
       <div
+
         v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         data-testid="create-openai-ws-mode"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
@@ -3219,6 +3212,7 @@
 
       <!-- Anthropic API Key 自动透传开关 -->
       <div
+
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3248,6 +3242,7 @@
       </div>
 
       <div
+
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3267,6 +3262,7 @@
 
       <!-- Anthropic API Key: Web Search Emulation (hidden when global disabled) -->
       <div
+
         v-if="form.platform === 'anthropic' && accountCategory === 'apikey' && webSearchGlobalEnabled"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3287,6 +3283,7 @@
 
       <!-- OpenAI API 长上下文计费开关 -->
       <div
+
         v-if="form.platform === 'openai' && !hideAccountLongContextBilling && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3319,6 +3316,7 @@
       </div>
 
       <div
+
         v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3375,6 +3373,7 @@
 
       <!-- Codex 指纹收敛（仅 OpenAI OAuth） -->
       <div
+
         v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3393,6 +3392,7 @@
 
       <!-- OpenAI Compact 能力配置 -->
       <div
+
         v-if="form.platform === 'openai' && (accountCategory === 'oauth-based' || accountCategory === 'apikey')"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
@@ -3432,6 +3432,7 @@
 
       <!-- OpenAI APIKey Responses API support mode -->
       <div
+
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
         class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -3482,6 +3483,7 @@
 
       <!-- OpenAI APIKey images: backfill b64_json from url -->
       <div
+
         v-if="form.platform === 'openai' && accountCategory === 'apikey'"
         class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -4011,6 +4013,7 @@ import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
 import QuotaLimitCard from '@/components/account/QuotaLimitCard.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import UpstreamBillingProbeSettings from '@/components/account/UpstreamBillingProbeSettings.vue'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
 import CnBaseUrlPresets from '@/components/account/CnBaseUrlPresets.vue'
 import OpenCodeGoProtocolRulesEditor from '@/components/account/OpenCodeGoProtocolRulesEditor.vue'
@@ -4228,6 +4231,7 @@ const addMethod = ref<AddMethod>('oauth') // For oauth-based: 'oauth' or 'setup-
 const apiKeyBaseUrl = ref('https://api.anthropic.com')
 const apiKeyValue = ref('')
 const upstreamBillingAutoProbeEnabled = ref(true)
+const upstreamBillingRateLimit = ref<number | null>(null)
 
 // ── 国产供应商（Kimi / Zhipu / DeepSeek）账号类型、API 协议与端点 ──
 const accountMode = ref<CnAccountMode>('payg')
@@ -5345,6 +5349,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
   submitting.value = true
   try {
     const account = await adminAPI.accounts.create(
+
       withAntigravityConfirmFlag(withRateLimit429RetryCount(payload))
     )
     const modelMapping = payload.credentials.model_mapping
@@ -5425,6 +5430,7 @@ const resetForm = () => {
   apiKeyValue.value = ''
   upstreamRequestIdHeader.value = ''
   upstreamBillingAutoProbeEnabled.value = true
+  upstreamBillingRateLimit.value = null
   editQuotaLimit.value = null
   editQuotaDailyLimit.value = null
   editQuotaWeeklyLimit.value = null
@@ -5648,6 +5654,18 @@ const buildAnthropicExtra = (base?: Record<string, unknown>): Record<string, unk
 
 // Helper function to create account with mixed channel warning handling
 const doCreateAccount = async (payload: CreateAccountRequest) => {
+  if (payload.type === 'apikey') {
+    const limit = upstreamBillingRateLimit.value
+    if (limit != null && (!Number.isFinite(limit) || limit < 0)) {
+      appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
+      return
+    }
+    payload = {
+      ...payload,
+      upstream_billing_probe_enabled: limit != null || upstreamBillingAutoProbeEnabled.value,
+      extra: { ...payload.extra, upstream_billing_rate_limit: limit }
+    }
+  }
   const canContinue = await ensureAntigravityMixedChannelConfirmed(async () => {
     await submitCreateAccount(payload)
   })
@@ -6839,7 +6857,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
 
         const credentials = antigravityOAuth.buildCredentials(tokenInfo, refreshTokens[i])
         applyAntigravityProjectID(credentials, antigravityProjectId.value, 'create')
-        
+
         // Generate account name with index for batch
         const accountName = refreshTokens.length > 1 ? `${form.name} #${i + 1}` : form.name
 

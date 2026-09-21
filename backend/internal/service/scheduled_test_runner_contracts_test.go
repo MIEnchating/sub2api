@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -43,10 +44,12 @@ func (r *runnerPlanRepoStub) UpdateAfterRun(ctx context.Context, _ int64, _, _ t
 }
 
 type runnerResultRepoStub struct {
+	mu              sync.Mutex
 	created         []*ScheduledTestResult
 	createdStatuses []string
 	createdEfforts  []string
 	updatedIDs      []int64
+	onCreate        func()
 }
 
 func (r *runnerResultRepoStub) GetByID(context.Context, int64) (*ScheduledTestResult, error) {
@@ -58,6 +61,8 @@ func (r *runnerResultRepoStub) RestartFailed(context.Context, *ScheduledTestResu
 }
 
 func (r *runnerResultRepoStub) Create(ctx context.Context, result *ScheduledTestResult) (*ScheduledTestResult, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if ctx.Err() != nil {
 		return nil, ctx.Err()
 	}
@@ -68,9 +73,14 @@ func (r *runnerResultRepoStub) Create(ctx context.Context, result *ScheduledTest
 	r.created = append(r.created, &copy)
 	r.createdStatuses = append(r.createdStatuses, copy.Status)
 	r.createdEfforts = append(r.createdEfforts, copy.ReasoningEffort)
+	if r.onCreate != nil {
+		r.onCreate()
+	}
 	return &copy, nil
 }
 func (r *runnerResultRepoStub) Update(ctx context.Context, result *ScheduledTestResult) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
 	if ctx.Err() != nil {
 		return ctx.Err()
 	}
@@ -87,6 +97,9 @@ func (r *runnerResultRepoStub) ListByPlanID(context.Context, int64, int) ([]*Sch
 	return nil, nil
 }
 func (r *runnerResultRepoStub) ListVisible(context.Context, int64, int) ([]*ScheduledTestResult, error) {
+	return nil, nil
+}
+func (r *runnerResultRepoStub) ListVisibleHistory(context.Context, int64, int64, int64, int) ([]*ScheduledTestResult, error) {
 	return nil, nil
 }
 func (r *runnerResultRepoStub) Delete(context.Context, int64) error { return nil }
@@ -265,7 +278,10 @@ func TestScheduledTestRunnerPersistsFailureAndAdvancesAfterCancellation(t *testi
 	accountID := int64(17)
 	plan := &ScheduledTestPlan{ID: 9, AccountID: &accountID, ModelID: "model", ReasoningEffort: "high", CronExpression: "*/5 * * * *", MaxResults: 3}
 	ctx, cancel := context.WithCancel(context.Background())
-	cancel()
+	defer cancel()
+	// Cancellation after the visible row is created must still persist a
+	// failure; cancellation before dispatch must not create unused rows.
+	resultRepo.onCreate = cancel
 
 	runner.runOnePlan(ctx, plan)
 	if planRepo.updated != 1 {

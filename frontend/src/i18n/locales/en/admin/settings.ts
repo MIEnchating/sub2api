@@ -598,6 +598,8 @@ export default {
         codexTicketEnabled: 'Codex 292 / 332 tickets',
         codexTicketEnabledDesc:
           'Gateway master switch. Enable tickets separately for each account when on. Turning off stops harvesting and missing-ticket blocking for every account and hides account ticket controls and status. Pro uses 292 tickets; Team uses 332 tickets.',
+        codexTicketAccountRouteHint: 'Account ticket controls and status are available when the gateway switch is enabled.',
+
         codexTicketHarvestProxy: "292 harvest proxy",
         codexTicketHarvestProxyDesc:
           "Used only for minting 292 tickets when the ticket feature is enabled. Changes apply to subsequent probes without a restart. Production traffic still uses each account's residential proxy. Paste a full HTTP or SOCKS5h proxy URL including username and password. The proxy provider must handle IP rotation. Leave blank when saving to keep the stored value.",

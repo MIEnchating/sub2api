@@ -1541,6 +1541,7 @@ func (s *SchedulerSnapshotService) bucketFor(groupID *int64, platform string, mo
 }
 
 func (s *SchedulerSnapshotService) normalizeGroupID(groupID *int64) int64 {
+
 	if s.isRunModeSimple() {
 		return 0
 	}

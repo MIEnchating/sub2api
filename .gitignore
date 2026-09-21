@@ -120,6 +120,8 @@ backend/.installed
 tests
 !deploy/tests/
 !deploy/tests/**
+!frontend/src/components/tests/
+!frontend/src/components/tests/**
 CLAUDE.md
 .claude
 scripts
@@ -136,7 +138,9 @@ vite.config.js
 docs/*
 !docs/codex-fingerprint.md
 !docs/codex-ticket-diagnostics.md
+
 !docs/upstream-merge-2026-09-21.md
+ overdraft/sub2api-custom
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md

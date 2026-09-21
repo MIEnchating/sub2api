@@ -367,6 +367,42 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('preserves quality protection when saving unrelated account settings', async () => {
+    const account = { ...buildAccount(), status: 'quality_paused', schedulable: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    expect(wrapper.get<HTMLSelectElement>('[data-testid="account-status"]').element.value).toBe('quality_paused')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('status')
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('schedulable')
+    wrapper.unmount()
+  })
+
+  it.each(['active', 'inactive'])('allows manually changing quality-paused account status to %s', async (status) => {
+    const account = { ...buildAccount(), status: 'quality_paused', schedulable: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+
+    await wrapper.get('[data-testid="account-status"]').setValue(status)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.status).toBe(status)
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('schedulable')
+    wrapper.unmount()
+  })
+
+  it('does not resend an unchanged active status when saving an older account snapshot', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset().mockResolvedValue({ ...account, status: 'quality_paused' })
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]).not.toHaveProperty('status')
+    wrapper.unmount()
+  })
+
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2028-02-29T12:34:00'))
@@ -1189,6 +1225,52 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty(
       'upstream_billing_probe_enabled'
     )
+  })
+
+  it('setting an upstream rate limit enables and locks probing without enabling billing rate sync', async () => {
+    const account = buildAccount()
+    account.extra = { quota_limit: 100 }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="upstream-billing-rate-limit"]').setValue('0.75')
+    const probe = wrapper.get<HTMLButtonElement>('[data-testid="upstream-billing-auto-probe"]')
+    expect(probe.attributes('aria-checked')).toBe('true')
+    expect(probe.element.disabled).toBe(true)
+    await probe.trigger('click')
+    expect(probe.attributes('aria-checked')).toBe('true')
+    expect(wrapper.get('[data-testid="upstream-billing-rate-sync"]').attributes('aria-checked')).toBe('false')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const payload = updateAccountMock.mock.calls[0]?.[1]
+    expect(payload?.extra).toMatchObject({ upstream_billing_rate_limit: 0.75, quota_limit: 100 })
+    expect(payload?.upstream_billing_probe_enabled).toBe(true)
+    expect(payload?.upstream_billing_rate_sync_enabled).toBe(false)
+    expect(payload?.rate_multiplier).toBe(1)
+  })
+
+  it('loads a zero limit, then explicitly clears it and allows probing to be disabled', async () => {
+    const account = buildAccount()
+    account.extra = { upstream_billing_rate_limit: 0, upstream_billing_probe_enabled: false }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    const input = wrapper.get<HTMLInputElement>('[data-testid="upstream-billing-rate-limit"]')
+    const probe = wrapper.get<HTMLButtonElement>('[data-testid="upstream-billing-auto-probe"]')
+    expect(input.element.value).toBe('0')
+    expect(probe.element.disabled).toBe(true)
+    expect(probe.attributes('aria-checked')).toBe('true')
+    await input.setValue('')
+    expect(probe.element.disabled).toBe(false)
+    await probe.trigger('click')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.upstream_billing_rate_limit).toBeNull()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.upstream_billing_probe_enabled).toBe(false)
+  })
+
+  it('rejects a negative upstream rate limit', async () => {
+    updateAccountMock.mockReset()
+    const wrapper = mountModal(buildAccount())
+    await wrapper.get('[data-testid="upstream-billing-rate-limit"]').setValue('-0.1')
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
   })
 
   it('exposes the upstream billing auto-probe toggle for non-OpenAI API-key accounts', async () => {

@@ -2,11 +2,11 @@
 
 ## 基准与范围
 
-- 本地原始基准：`6ba4b829ce0060967cdef01bac762da759b20c8e`。
-- 主上游：`7c700729c23187d31ed320f6b19c790e2f194826`，保留其全部变化。
-- 第二上游：`f0b2c0dce2707771edbaeb386bd572cdd8f41995`。
+- 本轮审查基准：`origin/main` `3233df636`。
+- 主上游：`upstream/main` `1c0a69c0c`，其全部变化已包含在最终树中。
+- 第二上游：`overdraft/sub2api-custom` `5e1584ff6`。
 - 保留临时快照中的账号生成预览、HTML 同步邮件报告；第二上游已退役的 Prism 实现完整移除。
-- 本次仅修改临时工作树和合并索引；不 fetch、commit、push、打 tag、发布或重启服务。发布版本仍为本地 `2026.9.20`，`FORK_VERSION` 更新为第二上游 `v0.2.7-custom.1`。
+- 本次仅修改临时工作树；不 fetch、commit、push、打 tag、发布或重启服务。服务版本保留 `2026.9.22`，`FORK_VERSION` 保留第二上游版本。
 
 ## 功能与语义处理
 
@@ -72,6 +72,8 @@ backend/internal/service/shared_api_key.go
 backend/internal/service/shared_api_key_schedule_test.go
 backend/internal/service/shared_api_key_test.go
 backend/internal/service/shared_pool_abuse_test.go
+backend/migrations/255_retire_shared_account_pool.sql
+backend/migrations/retire_shared_account_pool_integration_test.go
 backend/migrations/238_shared_account_pool.sql
 backend/migrations/239_enable_shared_account_pool.sql
 backend/migrations/239_shared_pool_api_keys.sql
@@ -123,6 +125,16 @@ bb7cdbd2a feat: add account protection adaptive concurrency
 
 ## 冲突与验证
 
+### 本轮 overdraft/sub2api-custom 冲突修复（第 1/3 轮）
+
+本轮复核了 `origin/main` `3233df636`、`upstream/main` `1c0a69c0c` 和 `overdraft/sub2api-custom` `5e1584ff6`，以既有合并树 `c5e76798b` 的逐项语义处理结果为基础。发现第二上游删除了已发布的 `backend/migrations/241_channel_monitor_v2_cache_eligibility.sql`，已按基准内容恢复；源码中的文本冲突标记已清除，`python3 .github/check-upstream-exclusions.py .` 通过。
+
+批量生图排除范围为 `frontend/src/views/user/BatchImageGuideView.vue`、`frontend/src/api/batchImage.ts`、`frontend/src/composables/useBatchImageAccess.ts`、`frontend/src/i18n/locales/{en,zh}/batchImage.ts`、`backend/ent/{batchimageevent,batchimageitem,batchimagejob}*`、`backend/ent/schema/batch_image_*.go`、`backend/internal/{handler,repository,service}/batch_image*.go`、`docs/BATCH_IMAGE_MVP.md` 及其路由、配置、队列、worker、计费和测试接线；历史迁移 `159–169`、`234` 与迁移校验兼容记录保留。
+
+共享账号池专属页面、API、Ent 模型、服务、仓储、权限/计费接线、测试、文档和迁移 `238–246` 维持排除；第二上游新增但未发布的 `backend/migrations/255_retire_shared_account_pool.sql` 及其集成测试也排除，避免把退役操作当作新版本迁移执行。普通账号池、多代理、Gemini shared quota 和同名通用调度逻辑保留。
+
+后端 `go test -run '^$' ./...` 和 `go vet ./...` 编译通过。针对性测试中涉及 `httptest`/miniredis 的用例因当前沙箱禁止监听本地端口而失败；前端 typecheck、Vitest 和 ESLint 因临时工作树没有 `node_modules` 未能启动。
+
 最初的 63 个索引冲突已逐项消解；先清空未合并索引，再处理自动合并语义问题。没有遗留文本冲突。
 
-最终候选已通过后端 unit/integration、`go vet`、golangci-lint v2.13.0、`govulncheck` 和生产构建；前端 frozen install、ESLint、typecheck、完整 Vitest（314 个文件、2399 项）与生产构建；pnpm 生产依赖审计例外校验、Linux 部署脚本、release matrix 单测及 release shell 语法检查。macOS 专用 Apple Container 测试已通过 shell 语法检查，但当前 Linux 主机缺少 `plutil`，运行时测试留给远程 macOS CI。
+既有候选已通过后端 unit/integration、`go vet`、golangci-lint、`govulncheck` 和生产构建；本轮恢复迁移及账号测试选择器后重新通过编译、vet、排除检查和差异检查。前端 frozen install、ESLint、typecheck、完整 Vitest（320 个文件、2549 项）和生产构建均通过。

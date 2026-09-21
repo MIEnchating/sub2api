@@ -591,6 +591,8 @@ export default {
         codexTicketEnabled: 'Codex 292 / 332 打票',
         codexTicketEnabledDesc:
           '网关总开关。开启后可在账号中独立启用打票；关闭后所有账号停止打票和缺票拦截，并隐藏账号打票设置及状态。Pro 使用 292 门票，Team 使用 332 门票。',
+        codexTicketAccountRouteHint: '开启网关总开关后，才可配置账号打票和查看打票状态。',
+
         codexTicketHarvestProxy: '292 打票代理',
         codexTicketHarvestProxyDesc:
           '仅在门票功能开启时用于打票，保存后后续探测会使用新代理，无需重启。日常业务仍走账号自己的住宅代理。填写完整代理 URL（http 或 socks5h，含用户名和密码）。代理服务商需自行负责出口 IP 轮换。留空并保存表示不改已保存的值。',

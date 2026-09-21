@@ -2,7 +2,16 @@
   "features": [
     {
       "name": "共享账号池",
-      "path_pattern": "(^|/)(shared.?pool|shared_account|shared-account|SharedPool|add-shared-account-pool)"
+      "path_pattern": "(^|/)[^/]*(?:shared[_-]?account|shared[_-]?pool|shared[_-]?api[_-]?key|shared[_-]?listing|shared_proxy_credentials|add-shared-account-pool)",
+      "content_pattern": "shared[_-]?account[_-]?(?:pool|listing|wallet|usage|revenue|fee|freeze)|shared[_-]pool(?:[_-](?:enabled|fee|api|account|listing|wallet|usage|revenue|freeze))|SharedPool(?:Enabled|Fee|Handler|Service)|shared[_-]?api[_-]?key|is_shared_pool|account_scope",
+      "content_roots": [
+        "frontend/src/",
+        "backend/internal/",
+        "backend/cmd/",
+        "backend/ent/",
+        "backend/migrations/",
+        "deploy/"
+      ]
     },
     {
       "name": "批量生图",

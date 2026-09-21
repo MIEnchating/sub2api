@@ -14,7 +14,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 25 // v25: official model_allowlist semantics with custom fallback billing and concurrency fields
+const apiKeyAuthSnapshotVersion = 26 // v26: reload authorization after legacy shared-pool keys are retired.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int

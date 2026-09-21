@@ -417,6 +417,9 @@ func openAICompatibleAccountEligibilityFailureReasonBeforeProfit(ctx context.Con
 		return "platform_mismatch"
 	}
 	if !account.IsSchedulableForModelWithContext(ctx, requestedModel) {
+		if account.IsUpstreamBillingRateLimited() {
+			return "upstream_billing_rate_limit"
+		}
 		if account.IsSchedulable() {
 			return "model_rate_limited"
 		}
@@ -1807,6 +1810,9 @@ func (s *OpenAIGatewayService) isOpenAIAccountBlockedBySchedulingThreshold(ctx c
 }
 
 func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, account *Account) (*Account, error) {
+	if account != nil && account.IsUpstreamBillingRateLimited() {
+		return nil, ErrNoAvailableAccounts
+	}
 	if account == nil || s.schedulerSnapshot == nil {
 		return account, nil
 	}
@@ -1816,6 +1822,9 @@ func (s *OpenAIGatewayService) hydrateSelectedAccount(ctx context.Context, accou
 	}
 	if hydrated == nil {
 		return nil, fmt.Errorf("selected openai account %d not found during hydration", account.ID)
+	}
+	if hydrated.IsUpstreamBillingRateLimited() {
+		return nil, ErrNoAvailableAccounts
 	}
 	if account.SelectedProxyID > 0 {
 		return hydrated.WithProxyRoute(account.SelectedProxyID)

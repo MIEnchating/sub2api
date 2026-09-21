@@ -507,6 +507,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
 	updates[SettingKeyOpenAICodexClientVersion] = NormalizeCodexClientVersion(settings.OpenAICodexClientVersion)
 	updates[SettingKeyOpenAICodexVersionAutoSyncEnabled] = strconv.FormatBool(settings.OpenAICodexVersionAutoSyncEnabled)
+
 	updates[SettingKeyGatewayStreamDataIntervalTimeoutSeconds] = strconv.Itoa(settings.GatewayStreamDataIntervalTimeoutSeconds)
 	updates[SettingKeyOpenAIFirstOutputTimeoutSeconds] = strconv.Itoa(settings.OpenAIFirstOutputTimeoutSeconds)
 	updates[SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds] = strconv.Itoa(settings.OpenAIHighEffortFirstOutputTimeoutSeconds)

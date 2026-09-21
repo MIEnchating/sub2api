@@ -52,6 +52,29 @@ class UpstreamExclusionsTest(unittest.TestCase):
         self.assertFalse(self.check('backend/internal/server/routes/gateway_test.go', 'assert absent /images/batches'))
         self.assertFalse(self.check('frontend/src/utils/__tests__/navigationVisibility.spec.ts', 'assert absent /batch-image'))
 
+    def test_shared_pool_exclusion_covers_migrations_and_embedded_wiring(self):
+        for path, content in (
+            ('backend/migrations/255_retire_shared_account_pool.sql', ''),
+            ('backend/migrations/retire_shared_account_pool_integration_test.go', ''),
+            ('backend/ent/sharedaccountwallet.go', ''),
+            ('backend/internal/handler/shared_api_key_handler.go', ''),
+            ('frontend/src/api/__tests__/admin.sharedPool.spec.ts', ''),
+            ('backend/migrations/999_other.sql', 'ALTER TABLE shared_account_wallets'),
+            ('backend/internal/service/group.go', 'IsSharedPool bool `json:"is_shared_pool"`'),
+        ):
+            with self.subTest(path=path):
+                self.assertTrue(self.check(path, content))
+
+    def test_preserves_unrelated_pools_and_account_test_picker(self):
+        for path, content in (
+            ('backend/internal/service/account_test_picker.go', 'type TestPickerModel struct {}'),
+            ('backend/migrations/240_add_account_proxy_pool.sql', 'CREATE TABLE account_proxy_pool'),
+            ('backend/internal/service/gemini_quota.go', '// Google One (shared pool)'),
+            ('backend/internal/service/token_refresh_pool_health_test.go', 'sharedPoolGate := pool'),
+        ):
+            with self.subTest(path=path):
+                self.assertFalse(self.check(path, content))
+
     def test_merge_report_includes_retired_feature_paths(self):
         decision = {
             'decision': 'resolved', 'summary': '功能排除完成',
