@@ -51,6 +51,45 @@ function makeAccount(overrides: Partial<Account>): Account {
 }
 
 describe('AccountStatusIndicator', () => {
+  it('shows quality protection and its reason ahead of transient cooldowns', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: makeAccount({
+        status: 'quality_paused',
+        extra: { quality_protection_reason: '最近一小时成功率低于阈值' },
+        rate_limit_reset_at: '2099-01-01T00:00:00Z'
+      }) }
+    })
+    const status = wrapper.get('[data-testid="quality-paused-status"]')
+    expect(status.get('.badge').text()).toBe('admin.accounts.status.qualityPaused')
+    expect(status.text()).toContain('最近一小时成功率低于阈值')
+    expect(status.get('.badge').attributes('title')).toBe('最近一小时成功率低于阈值')
+    expect(status.text()).not.toContain('qualityPausedManualStop')
+  })
+
+  it('distinguishes a manual scheduling stop while quality protection remains active', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: makeAccount({ status: 'quality_paused', schedulable: false }) }
+    })
+    expect(wrapper.text()).toContain('admin.accounts.status.qualityPaused')
+    expect(wrapper.text()).toContain('admin.accounts.status.qualityPausedManualStop')
+  })
+
+  it('shows upstream rate protection and returns to active when it clears', async () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: makeAccount({ upstream_billing_rate_limited: true }) }
+    })
+    expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.rateLimited')
+    await wrapper.setProps({ account: makeAccount({ upstream_billing_rate_limited: false }) })
+    expect(wrapper.text()).not.toContain('admin.accounts.upstreamBilling.rateLimited')
+    expect(wrapper.text()).toContain('admin.accounts.status.active')
+  })
+
+  it('keeps a manual scheduling pause visible while upstream rate protection is active', () => {
+    const wrapper = mount(AccountStatusIndicator, {
+      props: { account: makeAccount({ schedulable: false, upstream_billing_rate_limited: true }) }
+    })
+    expect(wrapper.text()).toContain('admin.accounts.status.paused')
+  })
   it('Claude 5 模型限流时显示 Opus 和 Sonnet 的短别名', () => {
     const wrapper = mount(AccountStatusIndicator, {
       props: {

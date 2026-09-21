@@ -881,6 +881,7 @@ const startTest = async () => {
     const url = buildApiUrl(`/admin/accounts/${props.account.id}/test`)
 
     // Use fetch with streaming for SSE since EventSource doesn't support POST
+
     const response = await fetch(url, {
       method: 'POST',
       headers: {

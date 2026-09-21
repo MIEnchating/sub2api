@@ -236,7 +236,8 @@ type Account struct {
 	UpdatedAt               time.Time                               `json:"updated_at"`
 	CodexTicketConfig       *service.OpenAICodexTicketAccountConfig `json:"codex_ticket_config,omitempty"`
 
-	Schedulable bool `json:"schedulable"`
+	Schedulable                bool `json:"schedulable"`
+	UpstreamBillingRateLimited bool `json:"upstream_billing_rate_limited,omitempty"`
 
 	RateLimitedAt    *time.Time `json:"rate_limited_at"`
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at"`
@@ -364,7 +365,8 @@ type AccountListItem struct {
 	CreatedAt               time.Time  `json:"created_at"`
 	UpdatedAt               time.Time  `json:"updated_at"`
 
-	Schedulable bool `json:"schedulable"`
+	Schedulable                bool `json:"schedulable"`
+	UpstreamBillingRateLimited bool `json:"upstream_billing_rate_limited,omitempty"`
 
 	RateLimitedAt    *time.Time `json:"rate_limited_at"`
 	RateLimitResetAt *time.Time `json:"rate_limit_reset_at"`

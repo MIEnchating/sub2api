@@ -311,25 +311,20 @@ gateway:
   # Use this to avoid compact failures when newer models are not yet supported by the compact endpoint.
   # 当 compact 端点暂未支持更新模型时，可通过这里降级规避失败。
   openai_compact_model: "gpt-5.5"
-  # ChatGPT OAuth x-codex-turn-state ticket: harvest a 292-length header via a
-  # dedicated HTTP(S)/SOCKS proxy, store it for ttl_seconds (default 3600), then inject
-  # it on residential-IP production requests. Off by default.
-  # ChatGPT OAuth 门票：用独立 HTTP(S)/SOCKS 代理打到 292 长度的 x-codex-turn-state，默认缓存 1 小时，
-  # 再在住宅 IP 业务请求中覆盖该头。默认关闭。
-  # Env: GATEWAY_OPENAI_CODEX_TICKET_ENABLED=true
-  #      GATEWAY_OPENAI_CODEX_TICKET_HARVEST_PROXY_URL=socks5h://user:pass@host:port
-  # Admin UI 开关（系统设置 → 网关 → Codex 设置 → 292 打票）可覆盖 enabled，无需重启。
-  # Off: do not harvest or inject. On: harvest in the background and inject on production requests.
-  # The harvest proxy should rotate egress IPs itself (fresh CONNECT per request).
-  # Credential shadow accounts retain their existing forwarding policy and are not ticket-gated.
-  # Pro tickets use 292 bytes; Team/Business use 332. Account policy controls enable/fail-closed.
+
+  # Codex tickets: gateway master switch + account enable/fail-closed switches.
+  # 系统设置 → 网关 → Codex 门票：总开关。
+  # 总开关关闭后所有账号停止打票、注入和缺票拦截，账号配置/状态在界面隐藏。
+  # 账号管理仅设置是否启用、缺票是否禁用模型（默认开启）；不改变业务请求的代理选路。
+  # Pro 门票长度 292；Team/Business 332；target_length 仅作为其他/未知套餐默认值。
+  # 打票始终使用账号业务代理；未配置代理的账号直连，代理缺失或无效时暂停打票。
+  # 旧 harvest_proxy_url / harvest_proxy_mode 配置已停用，不再使用独立打票代理池。
   openai_codex_ticket:
     enabled: false
     target_length: 292
     ttl_seconds: 3600
     refresh_before_seconds: 600
-    # 后台可覆盖此单个 HTTP(S)/SOCKS5(h) 打票代理；代理服务商负责出口轮换。
-    harvest_proxy_url: ""
+
     # 每个账号/模型独立重试，普通未命中在完成后至少等 6 秒，并加少量抖动。
     # 429 遵守 Retry-After；认证/权限/额度错误冷却，明确不支持的模型暂停 30 分钟。
     # 配置/认证修改或重新启用账号后可提前恢复。业务并发设置不受影响。
@@ -338,6 +333,9 @@ gateway:
     harvest_attempt_timeout_seconds: 25
     harvest_max_concurrent: 8
     harvest_account_concurrency: 1
+
+    # 多个账号使用同一出口代理时，该代理的打票并发上限（直连账号共用直连上限）。
+    harvest_proxy_concurrency: 2
     fail_closed: true
     models:
       - gpt-6-astra

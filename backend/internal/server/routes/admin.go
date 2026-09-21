@@ -581,7 +581,6 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	{
 		adminSettings.GET("", h.Admin.Setting.GetSettings)
 		adminSettings.PUT("", h.Admin.Setting.UpdateSettings)
-		adminSettings.POST("/openai-codex-ticket/test-proxy", h.Admin.Setting.TestOpenAICodexTicketProxy)
 		adminSettings.POST("/test-smtp", h.Admin.Setting.TestSMTPConnection)
 		adminSettings.POST("/send-test-email", h.Admin.Setting.SendTestEmail)
 		adminSettings.GET("/email-templates", h.Admin.Setting.ListEmailTemplates)
@@ -764,6 +763,8 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.POST("/test-plans/:id/run", h.Admin.ScheduledTest.RunNow)
 	admin.DELETE("/test-results/:id", h.Admin.ScheduledTest.DeleteResult)
 	admin.POST("/test-results/:id/retry", h.Admin.ScheduledTest.RetryResult)
+	admin.GET("/test-reviews", h.Admin.ScheduledTest.ListAdminReviews)
+	admin.POST("/test-results/:id/decision", h.Admin.ScheduledTest.DecideResult)
 	admin.DELETE("/scheduled-test-results/:id", h.Admin.ScheduledTest.DeleteResult)
 	admin.POST("/scheduled-test-results/:id/retry", h.Admin.ScheduledTest.RetryResult)
 	// Nested under accounts

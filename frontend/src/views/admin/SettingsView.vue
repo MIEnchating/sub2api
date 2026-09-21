@@ -4551,7 +4551,8 @@
                     v-model="form.openai_codex_ticket_enabled"
                   />
                 </div>
-                <div>
+
+                <div v-if="form.openai_codex_ticket_enabled">
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
                   </h3>
@@ -4578,6 +4579,13 @@
                     :disabled="loading || saving || loadFailed"
                   />
                 </div>
+                <p
+                  v-else
+                  data-testid="codex-ticket-account-route-hint"
+                  class="text-sm text-gray-500 dark:text-gray-400"
+                >
+                  {{ t("admin.settings.gatewayForwarding.codexTicketAccountRouteHint") }}
+                </p>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexClientRestrictionTitle") }}
@@ -9382,6 +9390,7 @@ const { copyToClipboard } = useClipboard();
 const loading = ref(true);
 const loadFailed = ref(false);
 const saving = ref(false);
+
 const savedCodexTicketProxyURL = ref("");
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
@@ -10249,6 +10258,7 @@ const form = reactive<SettingsForm>({
   openai_codex_client_version_synced: "",
   openai_codex_version_auto_sync_enabled: true,
   openai_codex_ticket_enabled: false,
+
   openai_codex_ticket_harvest_proxy_url: "",
   openai_codex_ticket_harvest_proxy_configured: false,
   // codex_cli_only 加固
@@ -11251,6 +11261,7 @@ async function loadSettings() {
   loadFailed.value = false;
   try {
     const settings = await adminAPI.settings.getSettings();
+
     savedCodexTicketProxyURL.value = settings.openai_codex_ticket_harvest_proxy_url ?? "";
     settings.payment_load_balance_strategy =
       settings.payment_load_balance_strategy || "round-robin";
@@ -11919,8 +11930,11 @@ async function saveSettings() {
       openai_codex_version_auto_sync_enabled:
         form.openai_codex_version_auto_sync_enabled,
       openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
+
       openai_codex_ticket_harvest_proxy_url:
-        form.openai_codex_ticket_harvest_proxy_url?.trim() || "",
+        form.openai_codex_ticket_enabled
+          ? form.openai_codex_ticket_harvest_proxy_url?.trim() || ""
+          : "",
       min_codex_version: form.min_codex_version?.trim() || "",
       max_codex_version: form.max_codex_version?.trim() || "",
       codex_cli_only_allow_app_server_clients:
@@ -12076,6 +12090,7 @@ async function saveSettings() {
     const updated = await settingsStepUp.run(() =>
       adminAPI.settings.updateSettings(payload),
     );
+
     savedCodexTicketProxyURL.value = updated.openai_codex_ticket_harvest_proxy_url ?? "";
     for (const [key, value] of Object.entries(updated)) {
       if (key === "openai_fast_policy_settings") continue;

@@ -1,7 +1,19 @@
 <template>
   <div class="flex items-center gap-2">
+    <div v-if="isQualityPaused" class="flex flex-col items-center gap-1" data-testid="quality-paused-status">
+      <span class="badge text-xs badge-warning" :title="qualityPauseReason">
+        {{ t('admin.accounts.status.qualityPaused') }}
+      </span>
+      <span v-if="!account.schedulable" class="text-[11px] text-gray-500 dark:text-gray-400">
+        {{ t('admin.accounts.status.qualityPausedManualStop') }}
+      </span>
+      <span v-if="qualityPauseReason" class="line-clamp-2 max-w-[180px] break-words text-center text-[11px] leading-4 text-gray-500 dark:text-gray-400" :title="qualityPauseReason">
+        {{ qualityPauseReason }}
+      </span>
+    </div>
+
     <!-- Rate Limit Display (429) - Two-line layout -->
-    <div v-if="isRateLimited" class="flex flex-col items-center gap-1">
+    <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
       <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
       <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
     </div>
@@ -175,6 +187,12 @@ const emit = defineEmits<{
   (e: 'show-temp-unsched', account: Account): void
 }>()
 
+const isQualityPaused = computed(() => props.account.status === 'quality_paused')
+const qualityPauseReason = computed(() => {
+  const reason = props.account.extra?.quality_protection_reason
+  return typeof reason === 'string' ? reason.trim() : ''
+})
+
 // Computed: is rate limited (429)
 const isRateLimited = computed(() => {
   if (!props.account.rate_limit_reset_at) return false
@@ -331,6 +349,9 @@ const statusClass = computed(() => {
   if (!props.account.schedulable) {
     return 'badge-gray'
   }
+  if (props.account.upstream_billing_rate_limited) {
+    return 'badge-warning'
+  }
   return 'badge-success'
 })
 
@@ -350,6 +371,9 @@ const statusText = computed(() => {
   }
   if (!props.account.schedulable) {
     return t('admin.accounts.status.paused')
+  }
+  if (props.account.upstream_billing_rate_limited) {
+    return t('admin.accounts.upstreamBilling.rateLimited')
   }
   return t(`admin.accounts.status.${props.account.status}`)
 })

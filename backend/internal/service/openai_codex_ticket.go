@@ -85,6 +85,9 @@ func (s *OpenAIGatewayService) openAICodexTicketConfig() config.OpenAICodexTicke
 	if cfg.HarvestAccountConcurrency <= 0 {
 		cfg.HarvestAccountConcurrency = 1
 	}
+	if cfg.HarvestProxyConcurrency <= 0 {
+		cfg.HarvestProxyConcurrency = 2
+	}
 	cfg.HarvestMaxConcurrent = min(cfg.HarvestMaxConcurrent, 128)
 	cfg.HarvestAccountConcurrency = min(cfg.HarvestAccountConcurrency, cfg.HarvestMaxConcurrent)
 	if len(cfg.Models) == 0 {
@@ -554,7 +557,8 @@ func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, a
 	if model == "" {
 		return
 	}
-	s.startOpenAICodexTicketProbe(ctx, account, model, s.openAICodexTicketConfig(), s.openAICodexTicketHarvestProxyURLContext(ctx), time.Now(), false)
+
+	s.startOpenAICodexTicketProbe(ctx, account, model, s.openAICodexTicketConfig(), time.Now(), false)
 }
 
 // IsOpenAICodexTicketExtraKey identifies server-managed ticket material.
@@ -623,7 +627,6 @@ func MaskProxyURL(raw string) string {
 	return parsed.String()
 }
 
-// IsMaskedProxyURL recognizes the exact password placeholder emitted by the API.
 func IsMaskedProxyURL(raw string) bool {
 	raw = strings.TrimSpace(raw)
 	if raw == "" {

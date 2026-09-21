@@ -11,7 +11,6 @@ import SettingsView from "../SettingsView.vue";
 const {
   getSettings,
   updateSettings,
-  testCodexTicketProxy,
   getWebSearchEmulationConfig,
   updateWebSearchEmulationConfig,
   getAdminApiKey,
@@ -25,6 +24,7 @@ const {
   getBetaPolicySettings,
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
+  testCodexTicketProxy,
   getOllamaCloudUsageSettings,
   updateOllamaCloudUsageSettings,
   getGroups,
@@ -40,7 +40,6 @@ const {
 } = vi.hoisted(() => ({
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
-  testCodexTicketProxy: vi.fn(),
   getWebSearchEmulationConfig: vi.fn(),
   updateWebSearchEmulationConfig: vi.fn(),
   getAdminApiKey: vi.fn(),
@@ -63,6 +62,7 @@ const {
     interval_minutes: 30,
   }),
   updateUpstreamBillingProbeSettings: vi.fn().mockImplementation(async (payload) => payload),
+  testCodexTicketProxy: vi.fn().mockResolvedValue({ proxy_index: 1, success: true, exit_ip: '203.0.113.10', latency_ms: 12 }),
   getOllamaCloudUsageSettings: vi.fn().mockResolvedValue({
     enabled: false,
     interval_minutes: 60,
@@ -88,7 +88,6 @@ vi.mock("@/api", () => ({
     settings: {
       getSettings,
       updateSettings,
-      testCodexTicketProxy,
       getWebSearchEmulationConfig,
       updateWebSearchEmulationConfig,
       getAdminApiKey,
@@ -108,6 +107,7 @@ vi.mock("@/api", () => ({
         keywords: ["servers are currently overloaded"],
       }),
       updateCodexPreOutputRetrySettings: vi.fn().mockImplementation(async (payload) => payload),
+      testCodexTicketProxy,
     },
     accounts: {
       getUpstreamBillingProbeSettings,
@@ -641,7 +641,6 @@ describe("admin SettingsView payment visible method controls", () => {
   beforeEach(() => {
     getSettings.mockReset();
     updateSettings.mockReset();
-    testCodexTicketProxy.mockReset().mockResolvedValue({ proxy_index: 1, success: true, exit_ip: "198.51.100.1", latency_ms: 50 });
     getWebSearchEmulationConfig.mockReset();
     updateWebSearchEmulationConfig.mockReset();
     getAdminApiKey.mockReset();
@@ -732,6 +731,7 @@ describe("admin SettingsView payment visible method controls", () => {
     adminSettingsFetch.mockResolvedValue(undefined);
   });
 
+
   it("organizes navigation switches by scope and supports bulk visibility changes", async () => {
     const wrapper = mountView();
     await flushPromises();
@@ -790,6 +790,7 @@ describe("admin SettingsView payment visible method controls", () => {
   it("loads the masked Codex harvest proxy and submits a replacement URL", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,
+      openai_codex_ticket_enabled: true,
       openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
       openai_codex_ticket_harvest_proxy_configured: true,
     });
@@ -811,20 +812,32 @@ describe("admin SettingsView payment visible method controls", () => {
       ...baseSettingsResponse,
       openai_codex_ticket_enabled: true,
       openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
+      openai_codex_ticket_harvest_proxy_configured: true,
+      openai_codex_ticket_harvest_proxy_count: 1,
     });
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);
-    await wrapper.get("#codex-ticket-harvest-proxy").setValue("");
+    await wrapper.get("#codex-ticket-enabled").setValue(false);
+    expect(wrapper.find("#codex-ticket-proxy-mode").exists()).toBe(false);
+    expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
+    expect(wrapper.find('[data-testid="codex-ticket-proxy-test"]').exists()).toBe(false);
+    expect(wrapper.get('[data-testid="codex-ticket-account-route-hint"]').text())
+      .toContain("codexTicketAccountRouteHint");
     await wrapper.find("form").trigger("submit.prevent");
     await flushPromises();
+
     expect(updateSettings.mock.calls[0]?.[0]?.openai_codex_ticket_harvest_proxy_url).toBe("");
     wrapper.unmount();
   });
 
   it("tests the saved single proxy and updates the test snapshot after saving", async () => {
     const storedPool = "http://user:***@old.example.com:8080";
-    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, openai_codex_ticket_harvest_proxy_url: storedPool });
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_codex_ticket_enabled: true,
+      openai_codex_ticket_harvest_proxy_url: storedPool,
+    });
     const wrapper = mountView();
     await flushPromises();
     await openGatewayTab(wrapper);

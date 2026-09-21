@@ -46,12 +46,15 @@ type Account struct {
 	RateMultiplier     *float64
 	LoadFactor         *int // 调度负载因子；nil 表示使用 Concurrency
 	Status             string
+	StatusChanged      bool `json:"-"` // explicit admin status edit; ordinary writes preserve quality protection
 	ErrorMessage       string
 	LastUsedAt         *time.Time
 	ExpiresAt          *time.Time
 	AutoPauseOnExpired bool
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+
+	UpstreamBillingRateLimitChanged bool `json:"-"` // explicit admin edit, including clearing the ceiling
 
 	Schedulable bool
 
@@ -235,6 +238,9 @@ func (a *Account) IsSchedulable() bool {
 		return false
 	}
 	if a.IsAPIKeyOrBedrock() && a.IsQuotaExceeded() {
+		return false
+	}
+	if a.IsUpstreamBillingRateLimitedAt(now) {
 		return false
 	}
 	return true

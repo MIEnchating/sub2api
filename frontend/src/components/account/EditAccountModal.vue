@@ -1213,6 +1213,7 @@
 
           <!-- Whitelist Mode -->
           <div v-if="modelRestrictionMode === 'whitelist'">
+
             <ModelWhitelistSelector v-model="allowedModels" platform="anthropic" />
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.selectedModels', { count: allowedModels.length }) }}
@@ -1613,6 +1614,7 @@
 
       <!-- Intercept Warmup Requests (Anthropic/Antigravity) -->
       <div
+
         v-if="account?.platform === 'anthropic' || account?.platform === 'antigravity'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
@@ -1653,6 +1655,7 @@
       </div>
 
       <UpstreamRequestIdHeaderField
+
         v-model="upstreamRequestIdHeader"
         :platform="account.platform"
         :type="account.type"
@@ -1688,6 +1691,7 @@
             v-model.number="form.rate_multiplier"
             type="number"
             min="0"
+
             step="0.001"
             class="input disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="account-rate-multiplier"
@@ -1723,6 +1727,7 @@
           </div>
         </div>
       </div>
+
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label" for="edit-rate-limit-429-retry-count">
           {{ t('admin.accounts.rateLimit429RetryCount') }}
@@ -2056,23 +2061,12 @@
         </button>
       </div>
 
-      <div
+      <UpstreamBillingProbeSettings
         v-if="account?.type === 'apikey'"
-        class="flex items-center justify-between gap-4 border-t border-gray-200 pt-4 dark:border-dark-600"
-      >
-        <div>
-          <label class="input-label mb-0">{{ t('admin.accounts.upstreamBilling.autoProbe') }}</label>
-          <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-            {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
-          </p>
-        </div>
-        <Toggle
-          :model-value="upstreamBillingAutoProbeEnabled"
-          data-testid="upstream-billing-auto-probe"
-          :aria-label="t('admin.accounts.upstreamBilling.autoProbe')"
-          @update:model-value="handleUpstreamBillingAutoProbeChange"
-        />
-      </div>
+        :auto-probe-enabled="upstreamBillingAutoProbeEnabled"
+        v-model:rate-limit="upstreamBillingRateLimit"
+        @update:auto-probe-enabled="handleUpstreamBillingAutoProbeChange"
+      />
 
       <OllamaCloudUsageSettings
         v-if="account?.ollama_cloud_usage?.eligible"
@@ -2201,6 +2195,7 @@
       </div>
       <!-- 配额控制 (非 Anthropic apikey/bedrock) -->
       <div
+
         v-else-if="account?.type === 'apikey' || account?.type === 'bedrock'"
         class="border-t border-gray-200 pt-4 dark:border-dark-600 space-y-4"
       >
@@ -3042,10 +3037,11 @@
         </div>
       </div>
 
+
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div>
           <label class="input-label">{{ t('common.status') }}</label>
-          <Select v-model="form.status" :options="statusOptions" />
+          <Select v-model="form.status" :options="statusOptions" data-testid="account-status" />
         </div>
 
         <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
@@ -3109,6 +3105,7 @@
 
       <!-- Group Selection - 仅标准模式显示 -->
       <GroupSelector
+
         v-model="form.group_ids"
         :groups="selectableGroups"
         :platform="account?.platform"
@@ -3207,6 +3204,7 @@ import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import Toggle from '@/components/common/Toggle.vue'
+import UpstreamBillingProbeSettings from './UpstreamBillingProbeSettings.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
@@ -3270,6 +3268,7 @@ import {
   type OpenAIWSMode,
   resolveOpenAIWSModeFromExtra
 } from '@/utils/openaiWsMode'
+
 import { extractApiErrorMessage } from '@/utils/apiError'
 import {
   getPresetMappingsByPlatform,
@@ -3630,6 +3629,7 @@ const autoResetCreditEnabled = ref(false)
 const autoResetCredit5hThreshold = ref(100)
 const autoResetCredit7dThreshold = ref(100)
 const upstreamBillingAutoProbeEnabled = ref(false)
+const upstreamBillingRateLimit = ref<number | null>(null)
 const upstreamBillingRateSyncEnabled = ref(false)
 const mixedScheduling = ref(false) // For antigravity accounts: enable mixed scheduling
 // 上游ID：直接上游声明请求标识的响应头名，留空不记录。
@@ -4100,7 +4100,7 @@ const form = reactive({
   load_factor: null as number | null,
   priority: 1,
   rate_multiplier: 1,
-  status: 'active' as 'active' | 'inactive' | 'error',
+  status: 'active' as Account['status'],
   group_ids: [] as number[],
   expires_at: null as number | null
 })
@@ -4119,8 +4119,8 @@ const handleUpstreamBillingRateSyncChange = (enabled: boolean) => {
 }
 
 const handleUpstreamBillingAutoProbeChange = (enabled: boolean) => {
-  upstreamBillingAutoProbeEnabled.value = enabled
-  if (!enabled) {
+  upstreamBillingAutoProbeEnabled.value = upstreamBillingRateLimit.value != null || enabled
+  if (!upstreamBillingAutoProbeEnabled.value) {
     upstreamBillingRateSyncEnabled.value = false
   }
 }
@@ -4132,6 +4132,9 @@ const statusOptions = computed(() => {
   ]
   if (form.status === 'error') {
     options.push({ value: 'error', label: t('admin.accounts.status.error') })
+  }
+  if (props.account?.status === 'quality_paused') {
+    options.push({ value: 'quality_paused', label: t('admin.accounts.status.qualityPaused') })
   }
   return options
 })
@@ -4218,7 +4221,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.load_factor = newAccount.load_factor ?? null
   form.priority = newAccount.priority
   form.rate_multiplier = newAccount.rate_multiplier ?? 1
-  form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error')
+  form.status = (newAccount.status === 'active' || newAccount.status === 'inactive' || newAccount.status === 'error' || newAccount.status === 'quality_paused')
     ? newAccount.status
     : 'active'
   form.group_ids = newAccount.group_ids || []
@@ -4262,7 +4265,9 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 		typeof extra?.auto_reset_credit_5h_threshold === 'number' ? extra.auto_reset_credit_5h_threshold * 100 : 100
 	autoResetCredit7dThreshold.value =
 		typeof extra?.auto_reset_credit_7d_threshold === 'number' ? extra.auto_reset_credit_7d_threshold * 100 : 100
-	upstreamBillingAutoProbeEnabled.value = extra?.upstream_billing_probe_enabled === true
+  upstreamBillingRateLimit.value = typeof extra?.upstream_billing_rate_limit === 'number'
+    ? extra.upstream_billing_rate_limit : null
+	upstreamBillingAutoProbeEnabled.value = upstreamBillingRateLimit.value != null || extra?.upstream_billing_probe_enabled === true
   upstreamBillingRateSyncEnabled.value =
     upstreamBillingAutoProbeEnabled.value && extra?.upstream_billing_rate_sync_enabled === true
 
@@ -5099,6 +5104,7 @@ function toPositiveNumber(value: unknown) {
   return Math.trunc(num)
 }
 
+
 const needsMixedChannelCheck = () => props.account?.platform === 'antigravity' || props.account?.platform === 'anthropic'
 
 const buildMixedChannelDetails = (resp?: CheckMixedChannelResponse) => {
@@ -5282,6 +5288,7 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 }
 
 const handleSubmit = async () => {
+
   if (!props.account || legacyProtectionBusy.value) return
   const accountID = props.account.id
   const currentAccountExtra = (
@@ -5291,7 +5298,8 @@ const handleSubmit = async () => {
   ) as Record<string, unknown> | undefined
 
 
-  if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error') {
+  const qualityPausedStatusAllowed = form.status === 'quality_paused' && props.account.status === 'quality_paused'
+  if (form.status !== 'active' && form.status !== 'inactive' && form.status !== 'error' && !qualityPausedStatusAllowed) {
     appStore.showError(t('admin.accounts.pleaseSelectStatus'))
     return
   }
@@ -5304,6 +5312,11 @@ const handleSubmit = async () => {
 	}
 
   const updatePayload: Record<string, unknown> = { ...form }
+  // Only an explicit status edit may override an automatic quality pause
+  // that happened while this dialog was open.
+  if (form.status === props.account.status) {
+    delete updatePayload.status
+  }
   try {
     updatePayload.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
       form.rate_limit_429_retry_count
@@ -5324,7 +5337,12 @@ const handleSubmit = async () => {
     }
     updatePayload.auto_pause_on_expired = autoPauseOnExpired.value
     if (props.account.type === 'apikey') {
-      updatePayload.upstream_billing_probe_enabled = upstreamBillingAutoProbeEnabled.value
+      const limit = upstreamBillingRateLimit.value
+      if (limit != null && (!Number.isFinite(limit) || limit < 0)) {
+        appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
+        return
+      }
+      updatePayload.upstream_billing_probe_enabled = upstreamBillingRateLimit.value != null || upstreamBillingAutoProbeEnabled.value
       updatePayload.upstream_billing_rate_sync_enabled = upstreamBillingRateSyncEnabled.value
       if (upstreamBillingRateSyncEnabled.value) {
         delete updatePayload.rate_multiplier
@@ -5948,6 +5966,7 @@ const handleSubmit = async () => {
         }
       }
 
+
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         // Adaptive concurrency is independent of Codex identity and TLS.
         if (protectionEnabled.value) {
@@ -5986,6 +6005,7 @@ const handleSubmit = async () => {
       if (props.account.type === 'apikey') {
         delete newExtra.upstream_billing_probe_enabled
         delete newExtra.upstream_billing_rate_sync_enabled
+        newExtra.upstream_billing_rate_limit = upstreamBillingRateLimit.value
       }
       // Total quota
       if (editQuotaLimit.value != null && editQuotaLimit.value > 0) {
