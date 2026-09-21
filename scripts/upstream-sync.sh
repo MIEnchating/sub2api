@@ -194,7 +194,7 @@ assert_no_conflict_markers() {
 }
 
 wait_for_remote_workflow() {
-  local workflow="$1" commit="$2" label="$3" repo run_json run_info run_id status conclusion trigger_state
+  local workflow="$1" commit="$2" label="$3" ref="${4:-}" repo run_json run_info run_id status conclusion trigger_state
   if workflow_trigger_state "$workflow" "$commit"; then
     trigger_state=0
   else
@@ -211,8 +211,10 @@ wait_for_remote_workflow() {
   local retries=0 deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while (( SECONDS < deadline )); do
-    run_json="$(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
-      --json databaseId,status,conclusion,headSha 2>/dev/null || true)"
+    local -a run_args=(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
+      --json databaseId,status,conclusion,headSha)
+    [[ -n "$ref" ]] && run_args+=(--branch "$ref")
+    run_json="$("${run_args[@]}" 2>/dev/null || true)"
     run_info="$(printf '%s' "$run_json" | python3 -c '
 import json, sys
 try:
@@ -270,7 +272,7 @@ wait_for_release_workflow() {
   local tag="$1" commit="$2" repo release_json
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   CURRENT_STAGE='等待远程 Release 工作流'
-  wait_for_remote_workflow 'Release' "$commit" 'Release' || fail "远程 Release 工作流未通过或超时（标签 $tag）"
+  wait_for_remote_workflow 'Release' "$commit" 'Release' "$tag" || fail "远程 Release 工作流未通过或超时（标签 $tag）"
   release_json="$(gh release view "$tag" --repo "$repo" --json isDraft,isPrerelease,assets 2>/dev/null || true)"
   python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if not d.get("isDraft") and not d.get("isPrerelease") and d.get("assets") else 1)' <<< "$release_json" || \
     fail "远程 Release 工作流虽结束，但正式 Release 或资产未确认（标签 $tag）"
