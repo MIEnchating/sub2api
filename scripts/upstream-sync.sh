@@ -82,6 +82,8 @@ RELEASE_STATE='未评估'
 RELEASE_TAG=''
 RELEASE_REASON=''
 REMOTE_WORKFLOW_STATE='未执行'
+PENDING_RELEASE_FILE="$STATE_DIR/pending-release.env"
+PENDING_RELEASE_NOTES_FILE="$STATE_DIR/pending-release-notes.txt"
 
 exec > >(tee -a "$LOG_FILE") 2>&1
 
@@ -180,6 +182,15 @@ workflow_trigger_state() {
     return 1
   done < <(git -C "$REPO_DIR" ls-tree -r --name-only "$commit" .github/workflows 2>/dev/null)
   return 2
+}
+
+assert_no_conflict_markers() {
+  local markers
+  markers="$(git -C "$WORKTREE" grep -n -I -E '^(<<<<<<<|>>>>>>>)( |$)' -- . 2>/dev/null || true)"
+  [[ -z "$markers" ]] || {
+    log "unresolved conflict markers remain:\n$markers"
+    return 1
+  }
 }
 
 wait_for_remote_workflow() {
@@ -488,6 +499,7 @@ finish_merge_stage() {
   fi
   git -C "$WORKTREE" add --all
   [[ -z "$(git -C "$WORKTREE" diff --name-only --diff-filter=U)" ]] || fail "$ref 经过 Codex 审查后仍有冲突"
+  assert_no_conflict_markers || fail "$ref 经过 Codex 审查后仍有冲突标记"
   git -C "$WORKTREE" diff --cached --check
   git -C "$WORKTREE" commit --no-edit
 }
@@ -797,6 +809,66 @@ publish_release() {
   return 1
 }
 
+persist_pending_release() {
+  local tag="$1" commit="$2"
+  [[ -s "$RELEASE_NOTES_FILE" ]] || fail '版本说明为空，无法记录待发布状态'
+  cp "$RELEASE_NOTES_FILE" "$PENDING_RELEASE_NOTES_FILE"
+  chmod 600 "$PENDING_RELEASE_NOTES_FILE"
+  {
+    printf 'tag=%s\n' "$tag"
+    printf 'commit=%s\n' "$commit"
+  } > "$PENDING_RELEASE_FILE"
+  chmod 600 "$PENDING_RELEASE_FILE"
+}
+
+clear_pending_release() {
+  rm -f "$PENDING_RELEASE_FILE" "$PENDING_RELEASE_NOTES_FILE"
+}
+
+recover_pending_release() {
+  local tag='' commit='' key value remote_tag
+  [[ -s "$PENDING_RELEASE_FILE" ]] || return 1
+  while IFS='=' read -r key value; do
+    case "$key" in
+      tag) tag="$value" ;;
+      commit) commit="$value" ;;
+    esac
+  done < "$PENDING_RELEASE_FILE"
+  [[ "$tag" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$ ]] || fail '待发布状态中的版本标签无效'
+  [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail '待发布状态中的提交无效'
+  if git -C "$REPO_DIR" ls-remote --exit-code "$ORIGIN_REMOTE" "refs/tags/$tag" >/dev/null 2>&1; then
+    log "pending release $tag already has a remote tag; clearing stale recovery state"
+    clear_pending_release
+    return 1
+  fi
+  if ! git -C "$REPO_DIR" merge-base --is-ancestor "$commit" "$ORIGIN_REF"; then
+    log "pending release $tag references a commit not present on $ORIGIN_REF; clearing stale recovery state"
+    clear_pending_release
+    return 1
+  fi
+  [[ -s "$PENDING_RELEASE_NOTES_FILE" ]] || fail '待发布版本说明丢失，拒绝盲目创建版本标签'
+  workflow_trigger_state 'Release' "$commit" >/dev/null || return 1
+  CURRENT_STAGE='恢复已验证但未完成的 Release'
+  RELEASE_TAG="$tag"
+  RELEASE_STATE='发布中'
+  RELEASE_REASON="检测到已推送提交 $commit 的版本标签 $tag 尚未完成，恢复 Release 流程"
+  PUSHED_COMMIT="$commit"
+  wait_for_remote_workflows "$commit"
+  remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')"
+  [[ -z "$remote_tag" ]] || fail "待发布标签已被远程占用：$tag"
+  git -C "$REPO_DIR" tag -a "$tag" -F "$PENDING_RELEASE_NOTES_FILE" "$commit"
+  if ! git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
+    git -C "$REPO_DIR" tag -d "$tag" >/dev/null 2>&1 || true
+    fail "恢复版本标签推送失败：$tag"
+  fi
+  wait_for_release_workflow "$tag" "$commit"
+  clear_pending_release
+  write_report '成功' "已恢复已验证提交的 Release，版本标签 $tag 发布完成"
+  send_email '【sub2api】中断 Release 恢复成功报告' "$REPORT_FILE" || \
+    log "success email delivery failed; report retained at $REPORT_FILE"
+  return 0
+}
+
 main() {
   require_command git
   require_command docker
@@ -828,6 +900,10 @@ main() {
   PRIMARY_HEAD="$(git -C "$REPO_DIR" rev-parse "$PRIMARY_REF")"
   SECOND_HEAD="$(git -C "$REPO_DIR" rev-parse "$SECOND_REF")"
 
+  if recover_pending_release; then
+    log "recovered pending release $RELEASE_TAG successfully"
+  fi
+
   if git -C "$REPO_DIR" merge-base --is-ancestor "$PRIMARY_HEAD" "$ORIGIN_HEAD" && \
     git -C "$REPO_DIR" merge-base --is-ancestor "$SECOND_HEAD" "$ORIGIN_HEAD"; then
     log 'no pending updates from either upstream'
@@ -855,6 +931,7 @@ main() {
   run_codex_merge_review '最终双上游兼容审查'
   git -C "$WORKTREE" add --all
   [[ -z "$(git -C "$WORKTREE" diff --name-only --diff-filter=U)" ]] || fail 'Codex 最终审查后仍有未解决冲突'
+  assert_no_conflict_markers || fail 'Codex 最终审查后仍有冲突标记'
   git -C "$WORKTREE" diff --cached --check
   if git -C "$WORKTREE" ls-files | grep -Eiq '(^|/)(shared.?pool|shared_account|shared-account|SharedPool|add-shared-account-pool)'; then
     fail '候选合并中仍有共享账号池专属路径'
@@ -881,6 +958,9 @@ main() {
     fail "完成 $REPAIR_COUNT 次 Codex 集中修复后，整套验证仍有失败"
   fi
   [[ -z "$(git -C "$WORKTREE" status --porcelain=v1)" ]] || fail '验证修改了受版本控制文件，拒绝推送'
+  if [[ "$RELEASE_STATE" == '待发布' ]]; then
+    persist_pending_release "$RELEASE_TAG" "$CANDIDATE_COMMIT"
+  fi
 
   CURRENT_STAGE='推送已验证候选提交'
   log "pushing validated candidate $CANDIDATE_COMMIT to $ORIGIN_REF"
@@ -890,6 +970,7 @@ main() {
   if [[ "$RELEASE_STATE" == '待发布' ]]; then
     publish_release "$RELEASE_TAG"
     wait_for_release_workflow "$RELEASE_TAG" "$PUSHED_COMMIT"
+    clear_pending_release
   fi
   git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE" "$TARGET_BRANCH" --tags
   if [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]] && \

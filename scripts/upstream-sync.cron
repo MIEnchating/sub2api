@@ -1,0 +1,5 @@
+SHELL=/bin/bash
+PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+
+# Host time is UTC; 17:30 UTC is 01:30 the next day in Asia/Shanghai.
+30 17 * * * /bin/bash /root/workspace/sub2api/scripts/upstream-sync.sh >> /root/workspace/automation/sub2api-upstream-sync/cron-runner.log 2>&1
