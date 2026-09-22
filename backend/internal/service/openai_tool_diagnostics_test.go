@@ -1,12 +1,16 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"net/http/httptest"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"go.uber.org/zap"
+	"go.uber.org/zap/zaptest/observer"
 )
 
 func TestInspectOpenAIToolPayloadIncludesAdditionalAndDiscoveredTools(t *testing.T) {
@@ -56,7 +60,7 @@ func TestRecordOpenAIToolEgressDiagnosticsStoresNamesWithoutArguments(t *testing
 	c, _ := gin.CreateTestContext(httptest.NewRecorder())
 	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
 	RecordOpenAIToolIngressDiagnostics(c, []byte(`{"tools":[{"type":"custom","name":"exec","parameters":{"secret":"omit"}}]}`), true)
-	RecordOpenAIToolEgressDiagnostics(c, []byte(`{"tools":[{"type":"function","name":"exec","parameters":{"secret":"omit"}}]}`))
+	RecordOpenAIToolEgressDiagnostics(c, []byte(`{"tools":[{"type":"function","name":"exec","parameters":{"secret":"omit"}}]}`), 42)
 
 	got, ok := GetOpenAIToolDiagnostics(c)
 	require.True(t, ok)
@@ -66,4 +70,21 @@ func TestRecordOpenAIToolEgressDiagnosticsStoresNamesWithoutArguments(t *testing
 	encoded, err := json.Marshal(got)
 	require.NoError(t, err)
 	require.NotContains(t, string(encoded), "secret")
+}
+
+func TestRecordOpenAIToolEgressDiagnosticsLogsAccountAndEmptyInventory(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	core, observed := observer.New(zap.InfoLevel)
+	c, _ := gin.CreateTestContext(httptest.NewRecorder())
+	c.Request = httptest.NewRequest("POST", "/v1/responses", nil)
+	c.Request = c.Request.WithContext(logger.IntoContext(context.Background(), zap.New(core)))
+
+	RecordOpenAIToolIngressDiagnostics(c, []byte(`{"model":"gpt-5"}`), false)
+	RecordOpenAIToolEgressDiagnostics(c, []byte(`{"model":"gpt-5"}`), 42)
+
+	events := observed.All()
+	require.Len(t, events, 1)
+	require.Equal(t, "openai_tool_diagnostics", events[0].Message)
+	require.Equal(t, int64(42), events[0].ContextMap()["account_id"])
+	require.Equal(t, "no_tools_declared", events[0].ContextMap()["diagnosis"])
 }

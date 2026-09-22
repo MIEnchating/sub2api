@@ -33,7 +33,8 @@ type OpenAIToolDiagnostics struct {
 
 type openAIToolDiagnosticsState struct {
 	OpenAIToolDiagnostics
-	attempt int
+	accountID int64
+	attempt   int
 }
 
 func RecordOpenAIToolIngressDiagnostics(c *gin.Context, body []byte, codexClient bool) {
@@ -48,7 +49,7 @@ func RecordOpenAIToolIngressDiagnostics(c *gin.Context, body []byte, codexClient
 // RecordOpenAIToolEgressDiagnostics compares declarations at a forwarding
 // boundary. It observes the request; it cannot verify the client's executors or
 // infer what tools a user intended to install. Retries emit separate events.
-func RecordOpenAIToolEgressDiagnostics(c *gin.Context, body []byte) {
+func RecordOpenAIToolEgressDiagnostics(c *gin.Context, body []byte, accountID int64) {
 	if c == nil {
 		return
 	}
@@ -62,6 +63,7 @@ func RecordOpenAIToolEgressDiagnostics(c *gin.Context, body []byte) {
 	state.OutboundToolNames = outbound.InboundToolNames
 	state.OutboundDiscoveredToolNames = outbound.DiscoveredToolNames
 	state.ToolsDisabled = outbound.ToolsDisabled
+	state.accountID = accountID
 	state.attempt++
 
 	// Compare original identities while leaving wire names visible in the log.
@@ -71,15 +73,13 @@ func RecordOpenAIToolEgressDiagnostics(c *gin.Context, body []byte) {
 	state.Diagnosis = diagnoseOpenAIToolPayload(&comparable)
 	state.MissingToolNames = comparable.MissingToolNames
 	c.Set(OpenAIToolDiagnosticsKey, &state)
-	if !state.CodexClient && !hasOpenAIToolSignal(state) {
-		return
-	}
 	ctx := context.Background()
 	if c.Request != nil {
 		ctx = c.Request.Context()
 	}
 	logger.FromContext(ctx).With(
 		zap.String("component", "service.openai_tool_diagnostics"),
+		zap.Int64("account_id", state.accountID),
 		zap.String("diagnosis", state.Diagnosis),
 		zap.Int("attempt", state.attempt),
 		zap.Bool("codex_client", state.CodexClient),
@@ -299,11 +299,6 @@ func missingOpenAIToolNames(state OpenAIToolDiagnostics) []string {
 		}
 	}
 	return sortedToolNames(missing)
-}
-
-func hasOpenAIToolSignal(state openAIToolDiagnosticsState) bool {
-	return len(state.InboundToolNames)+len(state.OutboundToolNames)+len(state.DiscoveredToolNames)+len(state.OutboundDiscoveredToolNames) > 0 ||
-		state.InboundToolCalls > 0 || state.InboundToolOutputs > 0 || state.ToolSearchDeclared
 }
 
 func sortedToolNames(names map[string]struct{}) []string {

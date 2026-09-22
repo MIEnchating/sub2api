@@ -1575,7 +1575,7 @@ func buildGrokResponsesRequest(ctx context.Context, c *gin.Context, account *Acc
 	if err != nil {
 		return nil, err
 	}
-	RecordOpenAIToolEgressDiagnostics(c, body)
+	RecordOpenAIToolEgressDiagnostics(c, body, account.ID)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, err

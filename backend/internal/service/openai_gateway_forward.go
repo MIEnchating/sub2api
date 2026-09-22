@@ -1375,7 +1375,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if err := validateMode1StagedRequest(c, account, body); err != nil {
 		return nil, err
 	}
-	RecordOpenAIToolEgressDiagnostics(c, body)
+	RecordOpenAIToolEgressDiagnostics(c, body, account.ID)
 	// Determine target URL based on account type
 	var targetURL string
 	switch account.Type {
