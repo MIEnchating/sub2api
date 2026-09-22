@@ -435,7 +435,7 @@ WHERE id = ANY($1) AND protection_decision IS NOT NULL`, pq.Array(ids))
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	byID := make(map[int64]*service.ScheduledTestResult, len(results))
 	for _, result := range results {
 		if result != nil {
