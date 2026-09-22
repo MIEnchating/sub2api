@@ -564,7 +564,9 @@ func (r *scheduledTestResultRepository) CastTestVote(ctx context.Context, userID
 		return nil, err
 	}
 	results, err = scanProtectionVoting(rows)
-	rows.Close()
+	if closeErr := rows.Close(); err == nil {
+		err = closeErr
+	}
 	if err != nil {
 		return nil, err
 	}

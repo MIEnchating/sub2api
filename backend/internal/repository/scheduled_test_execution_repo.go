@@ -29,7 +29,7 @@ func (r *scheduledTestResultRepository) BeginRun(ctx context.Context, planID int
 	if err != nil {
 		return nil, err
 	}
-	defer tx.Rollback()
+	defer func() { _ = tx.Rollback() }()
 	var id int64
 	if err = tx.QueryRowContext(ctx, `UPDATE scheduled_test_plans SET latest_run_id=$2 WHERE id=$1 RETURNING id`, planID, runID).Scan(&id); err != nil {
 		return nil, err
@@ -66,15 +66,22 @@ func readProtectionAccountSnapshot(ctx context.Context, tx *sql.Tx, accountID in
 	if err != nil {
 		return nil, err
 	}
-	defer rows.Close()
 	for rows.Next() {
 		var id int64
 		if err := rows.Scan(&id); err != nil {
+			_ = rows.Close()
 			return nil, err
 		}
 		snapshot.groups[id] = true
 	}
-	return snapshot, rows.Err()
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
 }
 
 func recordProtectionAction(ctx context.Context, tx *sql.Tx, state *protectionState, before *protectionAccountSnapshot, verdict, reason string) error {
