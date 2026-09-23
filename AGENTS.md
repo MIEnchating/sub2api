@@ -10,6 +10,9 @@
 - After pushing, wait for the complete remote CI and release workflows before reporting completion.
 - Confirm the working tree is clean and the local branch is synchronized with its remote branch after any automated release-version commit.
 - Scheduled upstream jobs must finish a complete validation pass and collect all failures before invoking Codex for one concentrated repair pass. After each repair, rerun the complete validation set.
+- Scheduled jobs must actively repair merge conflicts and malformed review output before notifying an operator. Validate the entire decision schema before accepting a resolved review; retry using the previous output and error logs. Notify failure only after bounded repair attempts are exhausted or a concrete product decision is required, and preserve the failed candidate for recovery.
+- Before merging upstream, save and push pending local changes on the target branch. Refuse unfinished Git operations or diverged history rather than force-pushing or discarding work. Dry runs must not commit or push.
+- Sync notifications must contain an HTML alternative and a readable text alternative, including when detailed report rendering fails. Keep post-push release failures distinct from failures that left the candidate unpushed.
 - On final failure, email the exact failed checks, key errors, likely direct causes, repair-attempt count, and confirmation that no candidate was pushed. On successful merge and push, email a success report.
 
 ## Upstream Merge Scope

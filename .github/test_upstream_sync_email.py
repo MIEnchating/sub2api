@@ -105,8 +105,8 @@ Codex 合并审查及共享账号池排除记录
         self.assertEqual(rich.get_content().replace("\r\n", "\n").strip(), html.strip())
         self.assertTrue(all(len(line) <= 998 for line in raw.split(b"\r\n")))
         fallback = BytesParser(policy=policy.default).parsebytes(email_report.compose_message(REPORT, None, "失败", "bot@example.com", "owner@example.com"))
-        self.assertEqual(fallback.get_content_type(), "text/plain")
-        self.assertIn("TestExample", fallback.get_content())
+        self.assertEqual(fallback.get_content_type(), "multipart/alternative")
+        self.assertIn("TestExample", fallback.get_body(preferencelist=("html",)).get_content())
 
     def test_scheduled_writer_renders_html_and_removes_stale_html_on_error(self):
         # Exercise the production report function without sourcing its main sync,
@@ -131,7 +131,7 @@ Codex 合并审查及共享账号池排除记录
             self.assertIn("同步受阻", (root / "report.html").read_text())
             env["SCRIPT_DIR"] = str(root / "missing-renderer")
             result = subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True, text=True)
-            self.assertIn("plain-text", result.stdout)
+            self.assertIn("regenerate the HTML", result.stdout)
             self.assertTrue((root / "report.txt").is_file())
             self.assertFalse((root / "report.html").exists())
 

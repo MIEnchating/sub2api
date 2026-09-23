@@ -323,7 +323,7 @@ write_report() {
   if ! python3 "$SCRIPT_DIR/../.github/render-upstream-sync-email.py" render \
     --text "$REPORT_FILE" --output "$HTML_REPORT_FILE"; then
     rm -f "$HTML_REPORT_FILE"
-    log 'HTML rendering failed; email will use the plain-text report'
+    log 'HTML rendering failed; email composer will regenerate the HTML report'
   fi
 }
 
@@ -397,10 +397,12 @@ on_error() {
 cleanup() {
   local exit_code=$?
   trap - ERR EXIT
-  if [[ "$WORKTREE_CREATED" == true ]]; then
+  if [[ "$WORKTREE_CREATED" == true && "$exit_code" == 0 ]]; then
     git -C "$WORKTREE" merge --abort >/dev/null 2>&1 || true
     git -C "$REPO_DIR" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
     git -C "$REPO_DIR" branch -D "$SYNC_BRANCH" >/dev/null 2>&1 || true
+  elif [[ "$WORKTREE_CREATED" == true ]]; then
+    log "Preserving failed candidate and conflict stages for recovery: $WORKTREE ($SYNC_BRANCH)"
   fi
   exit "$exit_code"
 }
@@ -413,13 +415,39 @@ require_command() {
 }
 
 validate_primary_worktree() {
-  local branch_name ahead behind
+  local branch_name git_dir operation
   [[ -d "$REPO_DIR/.git" ]] || fail "找不到项目仓库：$REPO_DIR"
   branch_name="$(git -C "$REPO_DIR" branch --show-current)"
   [[ "$branch_name" == "$TARGET_BRANCH" ]] || fail "当前分支为 ${branch_name:-detached}，预期为 $TARGET_BRANCH"
-  [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]] || fail '主工作区不干净；请先处理本地修改'
+  [[ -z "$(git -C "$REPO_DIR" ls-files --unmerged)" ]] || fail '本地存在尚未解决的 Git 冲突，无法自动提交和推送'
+  git_dir="$(git -C "$REPO_DIR" rev-parse --git-dir)"
+  [[ "$git_dir" = /* ]] || git_dir="$REPO_DIR/$git_dir"
+  for operation in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer; do
+    [[ ! -e "$git_dir/$operation" ]] || \
+      fail "本地存在未完成的 Git 操作（$operation），无法自动提交和推送"
+  done
+}
+
+prepare_primary_worktree() {
+  local ahead behind
+  CURRENT_STAGE='提交并同步本地修改'
+  validate_primary_worktree
+  if [[ -n "$(git -C "$REPO_DIR" status --porcelain=v1)" ]]; then
+    [[ "$DRY_RUN" != true ]] || fail '试运行检测到本地未提交修改；试运行不会自动提交'
+    log 'staging and committing local working tree changes before upstream merge'
+    git -C "$REPO_DIR" add --all
+    git -C "$REPO_DIR" diff --cached --check
+    git -C "$REPO_DIR" commit -m 'chore: save local changes before upstream sync'
+    [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]] || \
+      fail '本地提交完成后工作区仍有变化，拒绝继续推送'
+  fi
+
   read -r behind ahead < <(git -C "$REPO_DIR" rev-list --left-right --count "$ORIGIN_REF...HEAD")
   (( behind == 0 || ahead == 0 )) || fail "本地分支与 $ORIGIN_REF 已分叉（领先 $ahead，落后 $behind）"
+  if [[ "$DRY_RUN" == true ]]; then
+    log "dry run: skipping local branch synchronization (ahead $ahead, behind $behind)"
+    return 0
+  fi
   if (( ahead > 0 )); then
     log "pushing $ahead existing local commit(s) before upstream merge"
     git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
@@ -463,6 +491,7 @@ run_codex_merge_review() {
 - excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 - 这是第 $attempt/$REVIEW_REPAIR_ATTEMPTS 轮集中冲突修复。若上一轮已修改工作树，必须继续逐文件核对并修复，不要仅返回 blocked。
+- 严格遵守 $REPO_DIR/.github/upstream-sync-decision-schema.json 的字段和类型；上一轮输出与校验错误见 $STATE_DIR/$RUN_ID-review-decision-* 和 $LOG_FILE。输出结构错误也要自行修复，只有结构完整且冲突已解决才能通过外层检查。
 EOF
     log "running Codex merge review: $phase (attempt $attempt/$REVIEW_REPAIR_ATTEMPTS)"
     if ! "$CODEX_BIN" exec --ephemeral --sandbox workspace-write --color never \
@@ -472,14 +501,8 @@ EOF
       log "Codex merge review invocation failed on attempt $attempt"
       continue
     fi
-    if python3 - "$attempt_decision" <<'PY'
-import json
-import sys
-
-with open(sys.argv[1], encoding="utf-8") as source:
-    decision = json.load(source)
-raise SystemExit(0 if decision.get("decision") == "resolved" else 1)
-PY
+    if python3 "$SCRIPT_DIR/../.github/validate-upstream-sync-decision.py" \
+      "$REPO_DIR/.github/upstream-sync-decision-schema.json" "$attempt_decision"
     then
       cp "$attempt_decision" "$REVIEW_DECISION_FILE"
       review_resolved=true
@@ -897,7 +920,7 @@ main() {
   git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$PRIMARY_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$SECOND_REMOTE"
-  validate_primary_worktree
+  prepare_primary_worktree
   ORIGIN_HEAD="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
   PRIMARY_HEAD="$(git -C "$REPO_DIR" rev-parse "$PRIMARY_REF")"
   SECOND_HEAD="$(git -C "$REPO_DIR" rev-parse "$SECOND_REF")"

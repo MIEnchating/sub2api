@@ -164,9 +164,10 @@ def compose_message(text, html, subject, sender, recipient):
     message["Subject"] = subject
     message["Date"] = format_datetime(datetime.now(timezone.utc))
     message["Message-ID"] = make_msgid()
-    message.set_content(plain_report(text), charset="utf-8")
-    if html:
-        message.add_alternative(html, subtype="html", charset="utf-8")
+    message.set_content(plain_report(text), charset="utf-8", cte="quoted-printable")
+    if not html or not html.strip():
+        html = render_report(text)
+    message.add_alternative(html, subtype="html", charset="utf-8", cte="quoted-printable")
     return message.as_bytes()
 
 
