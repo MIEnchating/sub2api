@@ -424,7 +424,7 @@ validate_primary_worktree() {
   [[ "$git_dir" = /* ]] || git_dir="$REPO_DIR/$git_dir"
   for operation in MERGE_HEAD CHERRY_PICK_HEAD REVERT_HEAD rebase-merge rebase-apply sequencer; do
     [[ ! -e "$git_dir/$operation" ]] || \
-      fail "本地存在未完成的 Git 操作（$operation），无法自动提交和推送"
+      fail "本地存在未完成的 Git 操作（${operation}），无法自动提交和推送"
   done
 }
 
@@ -443,7 +443,7 @@ prepare_primary_worktree() {
   fi
 
   read -r behind ahead < <(git -C "$REPO_DIR" rev-list --left-right --count "$ORIGIN_REF...HEAD")
-  (( behind == 0 || ahead == 0 )) || fail "本地分支与 $ORIGIN_REF 已分叉（领先 $ahead，落后 $behind）"
+  (( behind == 0 || ahead == 0 )) || fail "本地分支与 $ORIGIN_REF 已分叉（领先 ${ahead}，落后 ${behind}）"
   if [[ "$DRY_RUN" == true ]]; then
     log "dry run: skipping local branch synchronization (ahead $ahead, behind $behind)"
     return 0
@@ -852,6 +852,7 @@ clear_pending_release() {
 
 recover_pending_release() {
   local tag='' commit='' key value remote_tag
+  local tag_pattern='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$'
   [[ -s "$PENDING_RELEASE_FILE" ]] || return 1
   while IFS='=' read -r key value; do
     case "$key" in
@@ -859,7 +860,7 @@ recover_pending_release() {
       commit) commit="$value" ;;
     esac
   done < "$PENDING_RELEASE_FILE"
-  [[ "$tag" =~ ^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$ ]] || fail '待发布状态中的版本标签无效'
+  [[ "$tag" =~ $tag_pattern ]] || fail '待发布状态中的版本标签无效'
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail '待发布状态中的提交无效'
   if git -C "$REPO_DIR" ls-remote --exit-code "$ORIGIN_REMOTE" "refs/tags/$tag" >/dev/null 2>&1; then
     log "pending release $tag already has a remote tag; clearing stale recovery state"
