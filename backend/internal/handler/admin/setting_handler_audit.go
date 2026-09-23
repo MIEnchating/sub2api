@@ -453,6 +453,27 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if before.EnableFingerprintUnification != after.EnableFingerprintUnification {
 		changed = append(changed, "enable_fingerprint_unification")
 	}
+	if before.GatewayStreamDataIntervalTimeoutSeconds != after.GatewayStreamDataIntervalTimeoutSeconds {
+		changed = append(changed, service.SettingKeyGatewayStreamDataIntervalTimeoutSeconds)
+	}
+	if before.OpenAIFirstOutputTimeoutSeconds != after.OpenAIFirstOutputTimeoutSeconds {
+		changed = append(changed, service.SettingKeyOpenAIFirstOutputTimeoutSeconds)
+	}
+	if before.OpenAIHighEffortFirstOutputTimeoutSeconds != after.OpenAIHighEffortFirstOutputTimeoutSeconds {
+		changed = append(changed, service.SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds)
+	}
+	if before.OpenAIStickyEscapeEnabled != after.OpenAIStickyEscapeEnabled {
+		changed = append(changed, service.SettingKeyOpenAIStickyEscapeEnabled)
+	}
+	if before.OpenAIStickyEscapeTTFTMs != after.OpenAIStickyEscapeTTFTMs {
+		changed = append(changed, service.SettingKeyOpenAIStickyEscapeTTFTMs)
+	}
+	if before.OpenAIStickyEscapeErrorRate != after.OpenAIStickyEscapeErrorRate {
+		changed = append(changed, service.SettingKeyOpenAIStickyEscapeErrorRate)
+	}
+	if !reflect.DeepEqual(before.GatewayPlatformEnabled, after.GatewayPlatformEnabled) {
+		changed = append(changed, service.SettingKeyGatewayPlatformEnabled)
+	}
 	if !reflect.DeepEqual(before.UpstreamErrorRetry, after.UpstreamErrorRetry) {
 		changed = append(changed, "upstream_error_retry")
 	}
@@ -715,6 +736,18 @@ func boolValueOrDefault(value *bool, fallback bool) bool {
 		return fallback
 	}
 	return *value
+}
+
+func gatewayPlatformEnabledValueOrDefault(value, fallback map[string]bool) map[string]bool {
+	source := value
+	if source == nil {
+		source = fallback
+	}
+	result := make(map[string]bool, len(source))
+	for platform, enabled := range source {
+		result[platform] = enabled
+	}
+	return result
 }
 
 func defaultSubscriptionsValueOrDefault(input *[]dto.DefaultSubscriptionSetting, fallback []service.DefaultSubscriptionSetting) []service.DefaultSubscriptionSetting {

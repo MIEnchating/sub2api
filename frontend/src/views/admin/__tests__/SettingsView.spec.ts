@@ -1566,6 +1566,61 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it("normalizes legacy unset sticky escape thresholds before saving", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      openai_sticky_escape_enabled: true,
+      openai_sticky_escape_ttft_ms: 0,
+      openai_sticky_escape_error_rate: 0,
+    });
+    const wrapper = mountView();
+    await flushPromises();
+
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(showError).not.toHaveBeenCalledWith(
+      "admin.settings.gatewayRuntime.stickyRangeError",
+    );
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openai_sticky_escape_ttft_ms: 15000,
+        openai_sticky_escape_error_rate: 0.5,
+      }),
+    );
+    wrapper.unmount();
+  });
+
+  it("only blocks invalid sticky escape thresholds while enabled and opens their tab", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+
+    await wrapper.get('[data-testid="sticky-escape-ttft"]').setValue(0);
+    await wrapper.get("#settings-tab-features").trigger("click");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith(
+      "admin.settings.gatewayRuntime.stickyRangeError",
+    );
+    expect(wrapper.get("#settings-tab-gateway").attributes("aria-selected")).toBe("true");
+
+    await wrapper.get('[data-testid="sticky-escape-toggle"]').setValue(false);
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+
+    expect(updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        openai_sticky_escape_enabled: false,
+        openai_sticky_escape_ttft_ms: 15000,
+        openai_sticky_escape_error_rate: 0.5,
+      }),
+    );
+    wrapper.unmount();
+  });
+
   it("loads and saves the OpenAI Responses first-token metric mode", async () => {
     getSettings.mockResolvedValueOnce({
       ...baseSettingsResponse,

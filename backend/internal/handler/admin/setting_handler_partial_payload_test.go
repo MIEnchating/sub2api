@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"testing"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/stretchr/testify/require"
@@ -36,6 +37,42 @@ func TestUpstreamErrorRetrySettingsRoundTripAndPartialUpdate(t *testing.T) {
 	rec = doUpdateSettings(t, h, map[string]any{"upstream_error_retry": value}, nil)
 	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
 	require.Equal(t, raw, repo.values[service.SettingKeyUpstreamErrorRetry])
+}
+
+func TestGatewayRuntimeSettingsRoundTripAndPartialUpdate(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	rec := doUpdateSettings(t, h, map[string]any{
+		"gateway_stream_data_interval_timeout_seconds":    75,
+		"openai_first_output_timeout_seconds":             90,
+		"openai_high_effort_first_output_timeout_seconds": 150,
+		"openai_sticky_escape_enabled":                    false,
+		"openai_sticky_escape_ttft_ms":                    12000,
+		"openai_sticky_escape_error_rate":                 0.2,
+		"gateway_platform_enabled":                        map[string]bool{"openai": false},
+	}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "75", repo.values[service.SettingKeyGatewayStreamDataIntervalTimeoutSeconds])
+	require.Equal(t, "90", repo.values[service.SettingKeyOpenAIFirstOutputTimeoutSeconds])
+	require.Equal(t, "150", repo.values[service.SettingKeyOpenAIHighEffortFirstOutputTimeoutSeconds])
+	require.Equal(t, "false", repo.values[service.SettingKeyOpenAIStickyEscapeEnabled])
+	require.Equal(t, "12000", repo.values[service.SettingKeyOpenAIStickyEscapeTTFTMs])
+	require.Equal(t, "0.2", repo.values[service.SettingKeyOpenAIStickyEscapeErrorRate])
+
+	var envelope struct {
+		Data dto.SystemSettings `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Equal(t, 75, envelope.Data.GatewayStreamDataIntervalTimeoutSeconds)
+	require.False(t, envelope.Data.OpenAIStickyEscapeEnabled)
+	require.Equal(t, 12000, envelope.Data.OpenAIStickyEscapeTTFTMs)
+	require.Equal(t, 0.2, envelope.Data.OpenAIStickyEscapeErrorRate)
+	require.False(t, envelope.Data.GatewayPlatformEnabled[service.PlatformOpenAI])
+	require.True(t, envelope.Data.GatewayPlatformEnabled[service.PlatformGemini])
+
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "Changed"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "12000", repo.values[service.SettingKeyOpenAIStickyEscapeTTFTMs])
+	require.Equal(t, "0.2", repo.values[service.SettingKeyOpenAIStickyEscapeErrorRate])
 }
 
 // Saving settings is a whole-document PUT. A client that sends only the field it

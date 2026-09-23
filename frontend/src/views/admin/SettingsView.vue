@@ -5130,7 +5130,10 @@
                       {{ t("admin.settings.gatewayRuntime.stickyEscapeHint") }}
                     </p>
                   </div>
-                  <Toggle v-model="form.openai_sticky_escape_enabled" />
+                  <Toggle
+                    v-model="form.openai_sticky_escape_enabled"
+                    data-testid="sticky-escape-toggle"
+                  />
                 </div>
                 <div
                   v-if="form.openai_sticky_escape_enabled"
@@ -5143,6 +5146,7 @@
                     <div class="relative mt-1">
                       <input
                         v-model.number="form.openai_sticky_escape_ttft_ms"
+                        data-testid="sticky-escape-ttft"
                         class="input pr-12"
                         min="1"
                         step="1"
@@ -5158,6 +5162,7 @@
                     <div class="relative mt-1">
                       <input
                         v-model.number="stickyEscapeErrorRatePercent"
+                        data-testid="sticky-escape-error-rate"
                         class="input pr-10"
                         min="0"
                         max="100"
@@ -9988,6 +9993,9 @@ const gatewayPlatforms = [
   "deepseek",
 ] as const;
 
+const defaultStickyEscapeTTFTMs = 15000;
+const defaultStickyEscapeErrorRate = 0.5;
+
 function normalizeGatewayPlatformEnabled(
   value?: Record<string, boolean> | null,
 ): Record<string, boolean> {
@@ -10240,8 +10248,8 @@ const form = reactive<SettingsForm>({
   openai_first_output_timeout_seconds: 0,
   openai_high_effort_first_output_timeout_seconds: 0,
   openai_sticky_escape_enabled: true,
-  openai_sticky_escape_ttft_ms: 15000,
-  openai_sticky_escape_error_rate: 0.5,
+  openai_sticky_escape_ttft_ms: defaultStickyEscapeTTFTMs,
+  openai_sticky_escape_error_rate: defaultStickyEscapeErrorRate,
   gateway_platform_enabled: normalizeGatewayPlatformEnabled(),
   enable_metadata_passthrough: false,
   enable_cch_signing: false,
@@ -11256,6 +11264,15 @@ const stickyEscapeErrorRatePercent = computed({
   },
 });
 
+function normalizeLegacyStickyEscapeSettings(): void {
+  const ttft = Number(form.openai_sticky_escape_ttft_ms);
+  const errorRate = Number(form.openai_sticky_escape_error_rate);
+  if (ttft === 0 && errorRate === 0) {
+    form.openai_sticky_escape_ttft_ms = defaultStickyEscapeTTFTMs;
+    form.openai_sticky_escape_error_rate = defaultStickyEscapeErrorRate;
+  }
+}
+
 async function loadSettings() {
   loading.value = true;
   loadFailed.value = false;
@@ -11271,6 +11288,7 @@ async function loadSettings() {
         (form as Record<string, unknown>)[key] = value;
       }
     }
+    normalizeLegacyStickyEscapeSettings();
     syncCaptchaProviderSelection();
     if (!form.claude_oauth_system_prompt_blocks?.trim()) {
       form.claude_oauth_system_prompt_blocks =
@@ -11554,15 +11572,25 @@ async function saveSettings() {
       appStore.showError(t("admin.settings.gatewayRuntime.timeoutRangeError"));
       return;
     }
-    if (
-      !Number.isInteger(form.openai_sticky_escape_ttft_ms) ||
-      form.openai_sticky_escape_ttft_ms <= 0 ||
-      form.openai_sticky_escape_error_rate < 0 ||
-      form.openai_sticky_escape_error_rate > 1
-    ) {
+    const stickyEscapeTTFTMs = Number(form.openai_sticky_escape_ttft_ms);
+    const stickyEscapeErrorRate = Number(form.openai_sticky_escape_error_rate);
+    const stickyEscapeRangesValid =
+      Number.isInteger(stickyEscapeTTFTMs) &&
+      stickyEscapeTTFTMs > 0 &&
+      Number.isFinite(stickyEscapeErrorRate) &&
+      stickyEscapeErrorRate >= 0 &&
+      stickyEscapeErrorRate <= 1;
+    if (form.openai_sticky_escape_enabled && !stickyEscapeRangesValid) {
       appStore.showError(t("admin.settings.gatewayRuntime.stickyRangeError"));
+      activeTab.value = "gateway";
       return;
     }
+    form.openai_sticky_escape_ttft_ms = stickyEscapeRangesValid
+      ? stickyEscapeTTFTMs
+      : defaultStickyEscapeTTFTMs;
+    form.openai_sticky_escape_error_rate = stickyEscapeRangesValid
+      ? stickyEscapeErrorRate
+      : defaultStickyEscapeErrorRate;
     const normalizedTableDefaultPageSize = Math.floor(
       Number(form.table_default_page_size),
     );

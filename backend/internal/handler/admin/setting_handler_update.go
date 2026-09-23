@@ -245,8 +245,17 @@ type UpdateSettingsRequest struct {
 	// Gateway forwarding behavior
 	UpstreamErrorRetry *service.UpstreamErrorRetrySettings `json:"upstream_error_retry"`
 
-	OpenAITTFTMode                         *string `json:"openai_ttft_mode"`
-	EnableFingerprintUnification           *bool   `json:"enable_fingerprint_unification"`
+	OpenAITTFTMode               *string `json:"openai_ttft_mode"`
+	EnableFingerprintUnification *bool   `json:"enable_fingerprint_unification"`
+
+	GatewayStreamDataIntervalTimeoutSeconds   *int            `json:"gateway_stream_data_interval_timeout_seconds"`
+	OpenAIFirstOutputTimeoutSeconds           *int            `json:"openai_first_output_timeout_seconds"`
+	OpenAIHighEffortFirstOutputTimeoutSeconds *int            `json:"openai_high_effort_first_output_timeout_seconds"`
+	OpenAIStickyEscapeEnabled                 *bool           `json:"openai_sticky_escape_enabled"`
+	OpenAIStickyEscapeTTFTMs                  *int            `json:"openai_sticky_escape_ttft_ms"`
+	OpenAIStickyEscapeErrorRate               *float64        `json:"openai_sticky_escape_error_rate"`
+	GatewayPlatformEnabled                    map[string]bool `json:"gateway_platform_enabled"`
+
 	EnableMetadataPassthrough              *bool   `json:"enable_metadata_passthrough"`
 	EnableCCHSigning                       *bool   `json:"enable_cch_signing"`
 	EnableClaudeOAuthSystemPromptInjection *bool   `json:"enable_claude_oauth_system_prompt_injection"`
@@ -1697,6 +1706,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.EnableFingerprintUnification
 		}(),
+
+		GatewayStreamDataIntervalTimeoutSeconds:   intValueOrDefault(req.GatewayStreamDataIntervalTimeoutSeconds, previousSettings.GatewayStreamDataIntervalTimeoutSeconds),
+		OpenAIFirstOutputTimeoutSeconds:           intValueOrDefault(req.OpenAIFirstOutputTimeoutSeconds, previousSettings.OpenAIFirstOutputTimeoutSeconds),
+		OpenAIHighEffortFirstOutputTimeoutSeconds: intValueOrDefault(req.OpenAIHighEffortFirstOutputTimeoutSeconds, previousSettings.OpenAIHighEffortFirstOutputTimeoutSeconds),
+		OpenAIStickyEscapeEnabled:                 boolValueOrDefault(req.OpenAIStickyEscapeEnabled, previousSettings.OpenAIStickyEscapeEnabled),
+		OpenAIStickyEscapeTTFTMs:                  intValueOrDefault(req.OpenAIStickyEscapeTTFTMs, previousSettings.OpenAIStickyEscapeTTFTMs),
+		OpenAIStickyEscapeErrorRate:               float64ValueOrDefault(req.OpenAIStickyEscapeErrorRate, previousSettings.OpenAIStickyEscapeErrorRate),
+		GatewayPlatformEnabled:                    gatewayPlatformEnabledValueOrDefault(req.GatewayPlatformEnabled, previousSettings.GatewayPlatformEnabled),
+
 		UpstreamErrorRetry: func() *service.UpstreamErrorRetrySettings {
 			if req.UpstreamErrorRetry != nil {
 				return req.UpstreamErrorRetry
@@ -2332,6 +2350,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     updatedSettings.BackendModeEnabled,
 		EnableFingerprintUnification:           updatedSettings.EnableFingerprintUnification,
+
+		GatewayStreamDataIntervalTimeoutSeconds:   updatedSettings.GatewayStreamDataIntervalTimeoutSeconds,
+		OpenAIFirstOutputTimeoutSeconds:           updatedSettings.OpenAIFirstOutputTimeoutSeconds,
+		OpenAIHighEffortFirstOutputTimeoutSeconds: updatedSettings.OpenAIHighEffortFirstOutputTimeoutSeconds,
+		OpenAIStickyEscapeEnabled:                 updatedSettings.OpenAIStickyEscapeEnabled,
+		OpenAIStickyEscapeTTFTMs:                  updatedSettings.OpenAIStickyEscapeTTFTMs,
+		OpenAIStickyEscapeErrorRate:               updatedSettings.OpenAIStickyEscapeErrorRate,
+		GatewayPlatformEnabled:                    updatedSettings.GatewayPlatformEnabled,
+
 		UpstreamErrorRetry:                     updatedSettings.UpstreamErrorRetry,
 		EnableMetadataPassthrough:              updatedSettings.EnableMetadataPassthrough,
 		EnableCCHSigning:                       updatedSettings.EnableCCHSigning,
