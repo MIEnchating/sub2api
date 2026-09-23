@@ -1167,6 +1167,8 @@ export interface CodexTurnTicketStatus {
   target_length: number
   ready: boolean
   remaining_seconds: number
+  cookie_ready?: boolean
+  cookie_remaining_seconds?: number
   blocked: boolean
   expires_at?: string
   attempts?: number
@@ -1207,6 +1209,46 @@ export interface CodexTicketHistoryResponse {
   limit: number
 }
 
+export type OpenCodeGoUsageStatus = 'ok' | 'unauthorized' | 'failed'
+
+export interface OpenCodeGoUsageWindow {
+  status?: string
+  percent: number
+  resets_at?: string
+}
+
+export interface OpenCodeGoUsageData {
+  rolling?: OpenCodeGoUsageWindow
+  weekly?: OpenCodeGoUsageWindow
+  monthly?: OpenCodeGoUsageWindow
+}
+
+export interface OpenCodeGoUsageSnapshot {
+  status: OpenCodeGoUsageStatus
+  data?: OpenCodeGoUsageData
+  fetched_at?: string
+  last_attempt_at?: string
+  next_refresh_at?: string
+  failure_count?: number
+  http_status?: number
+  last_error?: string
+}
+
+export interface OpenCodeGoUsageState {
+  account_id: number
+  eligible: boolean
+  auto_refresh_enabled: boolean
+  snapshot?: OpenCodeGoUsageSnapshot
+}
+
+export interface OpenCodeGoUsageSettings {
+  enabled: boolean
+  /** Max wait while model requests keep arriving (minutes). */
+  interval_minutes: number
+  /** Trailing quiet period after the latest model request (minutes). */
+  debounce_minutes: number
+}
+
 export interface Account {
   id: number
   name: string
@@ -1230,6 +1272,7 @@ export interface Account {
     fail_closed: boolean
     target_length: number
   }
+  opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
@@ -2532,8 +2575,11 @@ export interface TestType {
 
 export interface TestPlan {
   id: number
+  /** Ordered strategy groups; this order is also used by the user result tabs. */
+  group_ids: number[]
+  migration_note?: string
   name?: string
-  /** Controls the order of this rule's group in user-facing test results. */
+  /** Controls the display order of this strategy. */
   sort_order?: number
   test_definition_id?: number | null
   test_definition_ids?: number[]
@@ -2567,21 +2613,53 @@ export interface TestOutcomeAction {
   group_mode: 'keep' | 'assign'
   group_ids?: number[]
 }
+export interface TestProtectionRecovery {
+  enabled: boolean
+  cooldown_seconds: number
+  trial_seconds: number
+  max_requests: number
+  min_samples: number
+  recover_rate: number
+}
+export interface TestProtectionVote {
+  enabled: boolean
+  public_enabled?: boolean
+  reject_above: number
+  pass_at_least: number
+}
 export interface TestProtectionRule {
   test_definition_id: number
+  priority: number
+  required_pass: boolean
   thresholds?: TestProtectionThreshold[]
   min_samples?: number
   pause_on_failure?: boolean
   expected_answer?: string
   answer_match?: 'exact' | 'contains' | 'numeric'
   model_match?: 'exact' | 'snapshot'
-  vote?: { enabled: boolean; reject_above: number; pass_at_least: number }
+  vote?: TestProtectionVote
   on_pass?: TestOutcomeAction
   on_fail?: TestOutcomeAction
+  recovery?: TestProtectionRecovery
 }
 export interface TestProtectionConfig {
   enabled: boolean
+  mode?: 'per_test' | 'combined'
   rules: TestProtectionRule[]
+  combinations?: TestCombinationRule[]
+}
+export interface TestCombinationCondition {
+  operator: 'all' | 'any' | 'test'
+  conditions?: TestCombinationCondition[]
+  test_definition_id?: number
+  verdict?: 'pass' | 'fail'
+}
+export interface TestCombinationRule {
+  id: string
+  name: string
+  priority: number
+  condition: TestCombinationCondition
+  action: TestOutcomeAction
 }
 export type TestVote = 'pass' | 'fail'
 export interface TestVoteResult {
@@ -2616,6 +2694,8 @@ export interface TestOutputStatistics {
   first_token_samples: number
   cache_read_tokens: number
   cache_input_tokens: number
+  /** Eligible streaming and WebSocket cache observations; older snapshots may omit this field. */
+  cache_samples?: number
   /** Latest ten outcomes, newest first; older snapshots may omit this field. */
   recent_requests?: TestStatisticsRecentRequest[] | null
 }
@@ -2646,8 +2726,10 @@ export interface TestResult {
   test_name?: string
   /** Configured check type order within the account's quality results. */
   test_order?: number
-  /** Configured test rule/plan order used to derive group display order. */
+  /** Configured display order of the originating test rule/plan. */
   plan_order?: number
+  /** Live display order of the account's current group; preferred over plan_order. */
+  group_order?: number
   group_name?: string
   account_id?: number | null
   target_mode?: 'group' | 'all_accounts' | 'account'
@@ -2690,11 +2772,8 @@ export interface UpdateTestTypeRequest extends Partial<CreateTestTypeRequest> {}
 export interface CreateTestPlanRequest {
   name?: string
   sort_order?: number
-  test_definition_id?: number
-  test_definition_ids?: number[]
-  group_id?: number | null
-  account_id?: number | null
-  target_mode?: 'group' | 'all_accounts' | 'account'
+  group_ids: number[]
+  test_definition_ids: number[]
   model_id: string
   reasoning_effort?: string | null
   cron_expression?: string

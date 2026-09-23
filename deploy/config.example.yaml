@@ -100,6 +100,14 @@ webauthn:
 # - simple: 隐藏 SaaS 功能，跳过计费和余额校验
 run_mode: "standard"
 
+simple_mode:
+  # 仅控制简易模式启动时补齐默认分组；false 不删除已有分组，不改变运行时自动绑定或管理员并发设置。
+  # 环境变量：SIMPLE_MODE_AUTO_CREATE_DEFAULT_GROUPS
+  auto_create_default_groups: true
+
+# Enforce API-key 5h/1d/7d spending windows in simple mode; other billing stays disabled.
+simple_mode_key_rate_limit_enabled: false
+
 # =============================================================================
 # CORS Configuration
 # 跨域资源共享 (CORS) 配置
@@ -317,14 +325,16 @@ gateway:
   # 总开关关闭后所有账号停止打票、注入和缺票拦截，账号配置/状态在界面隐藏。
   # 账号管理仅设置是否启用、缺票是否禁用模型（默认开启）；不改变业务请求的代理选路。
   # Pro 门票长度 292；Team/Business 332；target_length 仅作为其他/未知套餐默认值。
-  # 打票始终使用账号业务代理；未配置代理的账号直连，代理缺失或无效时暂停打票。
-  # 旧 harvest_proxy_url / harvest_proxy_mode 配置已停用，不再使用独立打票代理池。
+  # 配置 harvest_proxy_url 时所有打票统一走该专用出口；未配置时使用账号业务代理，
+  # 未配置账号代理则直连，代理缺失或无效时暂停打票。业务请求仍按账号代理选路。
+  # 292 需同时携带采票响应中的 __cflb / __oailb Cookie，按账号共享并自动更新。
+  # 292/332 共用保守的 240 秒寿命上限；旧长寿命配置会自动收敛。
   openai_codex_ticket:
     enabled: false
     target_length: 292
-    ttl_seconds: 3600
-    refresh_before_seconds: 600
-
+    ttl_seconds: 240
+    # 提前刷新最多占 TTL 的 1/4，防止旧 600/300 秒配置导致连续打票。
+    refresh_before_seconds: 60
     # 每个账号/模型独立重试，普通未命中在完成后至少等 6 秒，并加少量抖动。
     # 429 遵守 Retry-After；认证/权限/额度错误冷却，明确不支持的模型暂停 30 分钟。
     # 配置/认证修改或重新启用账号后可提前恢复。业务并发设置不受影响。

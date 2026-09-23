@@ -235,6 +235,7 @@ type Account struct {
 	CreatedAt               time.Time                               `json:"created_at"`
 	UpdatedAt               time.Time                               `json:"updated_at"`
 	CodexTicketConfig       *service.OpenAICodexTicketAccountConfig `json:"codex_ticket_config,omitempty"`
+	OpenCodeGoUsage         *service.OpenCodeGoUsageState           `json:"opencode_go_usage,omitempty"`
 
 	Schedulable                bool `json:"schedulable"`
 	UpstreamBillingRateLimited bool `json:"upstream_billing_rate_limited,omitempty"`
@@ -348,6 +349,7 @@ type AccountListItem struct {
 	OllamaCloudUsage  *service.OllamaCloudUsageState          `json:"ollama_cloud_usage,omitempty"`
 	CodexTicketConfig *service.OpenAICodexTicketAccountConfig `json:"codex_ticket_config,omitempty"`
 	CodexTurnTickets  []service.OpenAICodexTicketStatus       `json:"codex_turn_tickets,omitempty"`
+	OpenCodeGoUsage   *service.OpenCodeGoUsageState           `json:"opencode_go_usage,omitempty"`
 
 	ProxyIDs                []int64    `json:"proxy_ids,omitempty"`
 	ProxyID                 *int64     `json:"proxy_id"`

@@ -509,6 +509,18 @@ export default {
         timeoutRangeError: '流式无数据超时必须为 0 或 30–300 秒；OpenAI 首次输出超时必须为 0 或 30–600 秒。',
         stickyRangeError: '粘性账号响应阈值必须大于 0 毫秒，错误率必须在 0%–100% 之间。'
       },
+      opencodeGoUsage: {
+        title: 'OpenCode Go 用量刷新',
+        description: '刷新上游 OpenCode Go 账号上报的用量窗口；默认关闭，仅对单独开启的账号生效。',
+        enabled: '启用全局自动刷新',
+        enabledHint: '仅刷新账号自身也开启自动刷新的账号。手动刷新不受影响。',
+        intervalMinutes: '请求持续时的最长等待（分钟）',
+        intervalHint: '范围 5–1440 分钟。请求持续不断导致 debounce 一直后移时，最晚在此时间强制刷新。',
+        debounceMinutes: '请求安静等待（分钟）',
+        debounceHint: '范围 1–60 分钟，且必须小于刷新间隔。最后一次模型请求安静满此时长后再抓取用量。',
+        saved: 'OpenCode Go 用量刷新设置已保存',
+        saveFailed: '保存 OpenCode Go 用量刷新设置失败'
+      },
       gatewayForwarding: {
         title: '请求转发行为',
         description: '控制请求转发到上游 OAuth 账号时的行为',
@@ -574,6 +586,11 @@ export default {
         openaiCodexVersionAutoSync: '自动同步 Codex 版本号',
         openaiCodexVersionAutoSyncHint: '每 6 小时从官方仓库获取最新稳定版客户端版本号，无需为了跟版本而升级本服务。关闭后仅使用上方手填版本或内置版本。',
         openaiCodexVersionSyncedValue: '当前同步到：{version}',
+        claudeCodeClientVersion: 'Claude Code 客户端版本号',
+        claudeCodeClientVersionHint: '网关伪装为官方 Claude Code CLI 时对上游声明的客户端版本号。留空表示使用自动同步到的官方最新版本；填写后固定为该版本，不再跟随同步。仅在手填值和同步值均不可用时，才回退到环境变量 SUB2API_CLAUDE_CLI_VERSION 或内置版本。',
+        claudeCodeVersionAutoSync: '自动同步 Claude Code 版本号',
+        claudeCodeVersionAutoSyncHint: '每小时从官方发布渠道获取最新版本的 Claude Code 客户端版本号，无需为了跟版本而升级本服务。关闭后停止获取新版本，已同步的版本仍可使用；上方手填版本始终优先。',
+        claudeCodeVersionSyncedValue: '当前同步到：{version}',
         codexHardeningTitle: 'Codex 设置',
         codexRetry: {
           title: '错误自动重试',
@@ -591,7 +608,7 @@ export default {
         codexTicketEnabled: 'Codex 292 / 332 打票',
         codexTicketEnabledDesc:
           '网关总开关。开启后可在账号中独立启用打票；关闭后所有账号停止打票和缺票拦截，并隐藏账号打票设置及状态。Pro 使用 292 门票，Team 使用 332 门票。',
-        codexTicketAccountRouteHint: '开启网关总开关后，才可配置账号打票和查看打票状态。',
+        codexTicketAccountRouteHint: '开启网关总开关后，才可配置账号打票和查看打票状态。打票使用网关专用代理；292 所需路由 Cookie 自动携带并在同账号模型间共享。',
 
         codexTicketHarvestProxy: '292 打票代理',
         codexTicketHarvestProxyDesc:
@@ -1299,8 +1316,9 @@ export default {
         lowRatePriorityTitle: '低倍率优先',
         lowRatePriorityDescription: '开启后优先选择计费倍率较低的账号；倍率相同时，再比较账号优先级和当前负载等。启用实验调度策略后，此开关不生效。',
         oauthRateTitle: 'OAuth 调度参考倍率',
-        oauthRatePriorityDescription: '同一分组同时包含 API Key 和 OAuth 账号时，OAuth 账号按此倍率与已探测的 API Key 计费倍率一起排序。',
-        oauthRateWeightedDescription: '同一分组同时包含 API Key 和 OAuth 账号时，计算“计费倍率”得分时，OAuth 账号按此倍率参与计算。',
+        oauthRatePriorityDescription: 'OAuth 账号按此参考倍率参与低倍率优先排序；留空时使用各自的账号倍率。API Key 账号优先使用有效探测倍率，无有效探测时使用账号倍率。',
+        oauthRateWeightedDescription: '计算“计费倍率”得分时，OAuth 账号使用此参考倍率；留空时使用各自的账号倍率。API Key 账号优先使用有效探测倍率，无有效探测时使用账号倍率。',
+        oauthRateInvalid: 'OAuth 调度参考倍率必须是非负数字，或留空以使用账号倍率。',
         stickyWeightedTitle: '粘性加权',
         stickyWeightedDescription: '开启后 previous_response_id 和 session_hash 粘性进入高级调度打分；关闭时仍按旧逻辑硬命中粘性账号。',
         subscriptionPriorityTitle: '订阅优先',

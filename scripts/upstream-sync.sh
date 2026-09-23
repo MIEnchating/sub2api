@@ -534,7 +534,9 @@ record_check() {
   shift
   local safe_label check_log rc
   safe_label="$(printf '%s' "$label" | tr -cs '[:alnum:]_-' '_')"
-  check_log="$STATE_DIR/$RUN_ID-check-$safe_label.log"
+  # Non-ASCII labels can collapse to the same safe_label. Keep every check and
+  # validation pass in its own file so later checks cannot overwrite failures.
+  check_log="$(mktemp "$STATE_DIR/$RUN_ID-check-${safe_label}.XXXXXX.log")"
   CURRENT_STAGE="全量验证：$label"
   log "validation check: $label"
   set +e

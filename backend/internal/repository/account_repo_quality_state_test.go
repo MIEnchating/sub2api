@@ -59,8 +59,8 @@ func TestLockAndMergeAccountPreservesQualityAndManualSchedulingState(t *testing.
 			require.NoError(t, err)
 			mock.ExpectQuery(`(?s)SELECT.*status,.*schedulable,.*FOR NO KEY UPDATE`).
 				WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeOAuth, `{"access_token":"new-token"}`, nil).
-				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "extra", "status", "schedulable", "error_message"}).
-					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, extraJSON, tt.currentStatus, !tt.currentPaused, tt.currentError))
+				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message"}).
+					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, extraJSON, tt.currentStatus, !tt.currentPaused, tt.currentError))
 			account := &service.Account{
 				ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 				Credentials: map[string]any{"access_token": "new-token"}, Extra: map[string]any{"setting": "edited"},
@@ -82,6 +82,38 @@ func TestLockAndMergeAccountPreservesQualityAndManualSchedulingState(t *testing.
 			}
 			require.Equal(t, "edited", extra["setting"])
 			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
+
+func TestPreserveQualityTrialAcrossStaleAccountWrites(t *testing.T) {
+	for _, tt := range []struct {
+		name           string
+		currentStatus  string
+		incomingStatus string
+		currentTrial   bool
+		incomingTrial  bool
+	}{
+		{"slow refresh preserves trial", service.StatusActive, service.StatusQualityPaused, true, false},
+		{"stale trial cannot undo pause", service.StatusQualityPaused, service.StatusActive, false, true},
+		{"stale trial cannot undo manual disable", service.StatusDisabled, service.StatusActive, false, true},
+		{"stale trial cannot undo credential error", service.StatusError, service.StatusActive, false, true},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			currentExtra := map[string]any{}
+			incomingExtra := map[string]any{"unrelated": "kept"}
+			if tt.currentTrial {
+				currentExtra["quality_protection_trial"] = true
+			}
+			if tt.incomingTrial {
+				incomingExtra["quality_protection_trial"] = true
+			}
+			account := &service.Account{Status: tt.incomingStatus, Schedulable: true, Extra: incomingExtra}
+			preserveLockedAccountSchedulingState(account, accountSchedulingState{status: tt.currentStatus, schedulable: true}, currentExtra, incomingExtra)
+			require.Equal(t, tt.currentStatus, account.Status)
+			_, hasTrial := incomingExtra["quality_protection_trial"]
+			require.Equal(t, tt.currentTrial, hasTrial)
+			require.Equal(t, "kept", incomingExtra["unrelated"])
 		})
 	}
 }

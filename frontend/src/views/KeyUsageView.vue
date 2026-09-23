@@ -537,6 +537,18 @@ const RING_GRADIENTS = [
 
 const ringAnimated = ref(false)
 const displayPcts = ref<number[]>([])
+let ringFrame: number | null = null
+let ringDelay: ReturnType<typeof setTimeout> | null = null
+let ringAnimationVersion = 0
+let disposed = false
+
+function cancelRingAnimation() {
+  ringAnimationVersion++
+  if (ringFrame !== null) cancelAnimationFrame(ringFrame)
+  if (ringDelay !== null) clearTimeout(ringDelay)
+  ringFrame = null
+  ringDelay = null
+}
 
 const ringTrackColor = computed(() => isDark.value ? '#222222' : '#F0F0EE')
 
@@ -556,12 +568,17 @@ function getRingOffset(ring: RingItem): number {
 }
 
 function triggerRingAnimation(items: RingItem[]) {
+  cancelRingAnimation()
+  const version = ringAnimationVersion
   ringAnimated.value = false
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
-    requestAnimationFrame(() => {
-      setTimeout(() => {
+    if (disposed || version !== ringAnimationVersion) return
+    ringFrame = requestAnimationFrame(() => {
+      ringFrame = null
+      ringDelay = setTimeout(() => {
+        ringDelay = null
         ringAnimated.value = true
 
         // Animate percentage numbers
@@ -570,13 +587,14 @@ function triggerRingAnimation(items: RingItem[]) {
         const targets = items.map(item => item.isBalance ? 0 : item.pct)
 
         function tick() {
+          ringFrame = null
           const elapsed = performance.now() - startTime
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)
           displayPcts.value = targets.map(target => Math.round(ease * target))
-          if (p < 1) requestAnimationFrame(tick)
+          if (p < 1) ringFrame = requestAnimationFrame(tick)
         }
-        requestAnimationFrame(tick)
+        ringFrame = requestAnimationFrame(tick)
       }, 50)
     })
   })
@@ -875,13 +893,14 @@ async function fetchUsage(key: string) {
 }
 
 async function queryKey() {
-  if (isQuerying.value) return
+  if (disposed || isQuerying.value) return
   const key = apiKey.value.trim()
   if (!key) {
     appStore.showInfo(t('keyUsage.enterApiKey'))
     return
   }
 
+  cancelRingAnimation()
   isQuerying.value = true
   showResults.value = true
   showLoading.value = true
@@ -889,17 +908,17 @@ async function queryKey() {
 
   try {
     const data = await fetchUsage(key)
+    if (disposed) return
     resultData.value = data
     showLoading.value = false
     showDatePicker.value = true
 
     // Trigger ring animations after DOM update
-    nextTick(() => {
-      triggerRingAnimation(ringItems.value)
-    })
+    triggerRingAnimation(ringItems.value)
 
     appStore.showSuccess(t('keyUsage.querySuccess'))
   } catch (err) {
+    if (disposed) return
     showResults.value = false
     showLoading.value = false
     appStore.showError((err as Error).message || t('keyUsage.queryFailedRetry'))
@@ -939,6 +958,8 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  disposed = true
+  cancelRingAnimation()
   if (resetTimer) clearInterval(resetTimer)
 })
 </script>

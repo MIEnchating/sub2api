@@ -110,8 +110,8 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	tp := reflect.TypeOf(Account{})
 	for i := 0; i < tp.NumField(); i++ {
 		f := tp.Field(i)
-		if f.PkgPath != "" {
-			continue // unexported: never marshaled by encoding/json
+		if f.PkgPath != "" || f.Tag.Get("json") == "-" {
+			continue // unexported or explicitly omitted: never marshaled by encoding/json
 		}
 		_, isStripped := stripped[f.Name]
 		_, isSafe := safeToExpose[f.Name]
@@ -126,9 +126,14 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
 		Credentials: map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
-		Extra:       map[string]any{"opaque": "extra-released"},
 		Proxy:       &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
 		Proxies:     []*Proxy{{Host: "unused", Port: 2, Password: "LEAK-POOL-PASSWORD"}},
+		ProxyIDs:    []int64{10, 11},
+		Extra: map[string]any{
+			"opaque":                        "extra-released",
+			"codex_turn_ticket:gpt-6-astra": map[string]any{"state": "PRIVATE-TICKET"},
+			"codex_turn_cookies":            map[string]any{"__cflb": "PRIVATE-COOKIE"},
+		},
 	}
 	snap := accountReadableSnapshotJSON(acct)
 	require.NotNil(t, snap)
@@ -138,6 +143,10 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	assert.NotContains(t, string(snap), "LEAK-POOL-PASSWORD", "unused proxy pool credentials must never appear in metadata")
 	assert.Contains(t, string(snap), "extra-released", "Extra is intentionally released")
 	assert.Contains(t, string(snap), "pw-released", "proxy is intentionally released (already exposed via 打票)")
+	assert.Equal(t, []any{float64(10), float64(11)}, m["ProxyIDs"])
+	for _, private := range []string{"PRIVATE-TICKET", "PRIVATE-COOKIE", "PRIVATE-POOL-CREDENTIAL"} {
+		assert.NotContains(t, string(snap), private)
+	}
 
 	// Cycle safety: a populated Groups/AccountGroups back-reference cycle must NOT
 	// crash json.Marshal (encoding/json does not detect cycles). Stripping them
@@ -154,6 +163,8 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// Shallow-copy safety: the source account must be untouched.
 	assert.NotNil(t, acct.Credentials, "snapshot must not mutate the source account")
 	assert.NotNil(t, acct.Proxy, "snapshot must not mutate the source account")
+	assert.Len(t, acct.Proxies, 1, "snapshot must not mutate the source proxy pool")
+	assert.Contains(t, acct.Extra, "codex_turn_cookies", "snapshot must retain the live cookie state")
 	assert.Len(t, acct.Groups, 1, "snapshot must not mutate the source account's Groups")
 }
 

@@ -381,13 +381,13 @@ function hasManualPricing(entry: PricingFormEntry): boolean {
     'cache_read_price',
     'fast_multiplier',
     'flex_multiplier',
-    'max_reasoning_effort_multiplier',
     'image_input_price',
     'image_output_price',
     'per_request_price',
   ]
 
   if (scalarFields.some(field => hasMeaningfulValue(entry[field]))) return true
+  if (Object.values(entry.reasoning_effort_multipliers || {}).some(hasMeaningfulValue)) return true
   if (entry.intervals?.length) return true
   // Effort multipliers are independent overrides; allow the default token
   // lookup to fill alongside them even when the shared time-pricing form has

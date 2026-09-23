@@ -241,6 +241,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 	if state := service.OllamaCloudUsageStateFromAccount(a); state.Eligible {
 		ollamaCloudUsage = state
 	}
+	var openCodeGoUsage *service.OpenCodeGoUsageState
+	if state := service.OpenCodeGoUsageStateFromAccount(a); state.Eligible {
+		openCodeGoUsage = state
+	}
 	out := &Account{
 
 		ID:                         a.ID,
@@ -281,6 +285,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		GroupIDs:                   a.GroupIDs,
 		ParentAccountID:            a.ParentAccountID,
 		QuotaDimension:             a.QuotaDimension,
+		OpenCodeGoUsage:            openCodeGoUsage,
 	}
 
 	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
@@ -421,7 +426,9 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 		switch {
 		case key == service.OllamaCloudUsageSessionExtraKey,
 			key == service.OllamaCloudUsageAutoRefreshExtraKey,
-			key == service.OllamaCloudUsageSnapshotExtraKey:
+			key == service.OllamaCloudUsageSnapshotExtraKey,
+			key == service.OpenCodeGoUsageAutoRefreshExtraKey,
+			key == service.OpenCodeGoUsageSnapshotExtraKey:
 			continue
 		case service.IsOpenAICodexTicketPrivateExtraKey(key):
 			continue
@@ -469,7 +476,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		CodexTurnTickets:  a.CodexTurnTickets,
 		ProxyIDs:          a.ProxyIDs,
 		ProxyID:           a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
-		Concurrency: a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
+		OpenCodeGoUsage: a.OpenCodeGoUsage,
+		Concurrency:     a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
 		AutoPauseOnExpired: a.AutoPauseOnExpired, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 		Schedulable: a.Schedulable, RateLimitedAt: a.RateLimitedAt, RateLimitResetAt: a.RateLimitResetAt,

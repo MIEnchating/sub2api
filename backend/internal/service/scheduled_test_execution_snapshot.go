@@ -23,6 +23,17 @@ func (s *ScheduledTestRunnerService) executePlanSnapshot(ctx context.Context, pl
 	queryCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
 	accountIDs, targetErr := s.resolveTargetAccounts(queryCtx, plan)
 	cancel()
+	// Freeze and deduplicate before building any per-type rows. Repositories
+	// already use DISTINCT; keeping this boundary explicit protects adapters.
+	seenAccounts := make(map[int64]bool, len(accountIDs))
+	frozen := make([]int64, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		if id > 0 && !seenAccounts[id] {
+			frozen = append(frozen, id)
+			seenAccounts[id] = true
+		}
+	}
+	accountIDs = frozen
 	var local, upstream []*scheduledTestExecutionTarget
 	for _, execution := range scheduledTestExecutionPlans(plan) {
 		queryCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
@@ -37,9 +48,7 @@ func (s *ScheduledTestRunnerService) executePlanSnapshot(ctx context.Context, pl
 			execution = &executionCopy
 		}
 		var targets []*int64
-		if kind == "statistics" && execution.TargetMode == "group" {
-			targets = []*int64{nil}
-		} else if len(accountIDs) > 0 && targetErr == nil {
+		if len(accountIDs) > 0 && targetErr == nil {
 			for _, id := range accountIDs {
 				targets = append(targets, &id)
 			}
@@ -72,7 +81,7 @@ func (s *ScheduledTestRunnerService) executePlanSnapshot(ctx context.Context, pl
 		inputs = append(inputs, target.pending)
 	}
 	persistCtx, cancel := scheduledTestPersistenceContext()
-	results, err := repo.BeginRun(persistCtx, plan.ID, uuid.NewString(), inputs)
+	results, err := repo.BeginRun(persistCtx, plan, uuid.NewString(), inputs)
 	cancel()
 	if err != nil || len(results) != len(targets) {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d execution snapshot error: %v", plan.ID, err)
@@ -94,31 +103,56 @@ func (s *ScheduledTestRunnerService) executePlanSnapshot(ctx context.Context, pl
 			}
 		}
 	}
-	// All targets already exist in storage. Preserve definition order while
-	// bounding dispatched work; queued records remain visible throughout.
+	// Keep local statistics ahead of model requests. Each account then advances
+	// through its own definitions; one slow account must not hold every other
+	// account behind a definition-wide barrier. Each account executes upstream
+	// definitions in configured order, regardless of mid-round group changes.
+	s.runExecutionTargetQueues(ctx, local, started)
+	s.runExecutionTargetQueues(ctx, upstream, started)
+}
+
+func (s *ScheduledTestRunnerService) runExecutionTargetQueues(ctx context.Context, targets []*scheduledTestExecutionTarget, started time.Time) {
+	var queues [][]*scheduledTestExecutionTarget
+	accountQueues := make(map[int64]int)
+	for _, target := range targets {
+		var accountID int64
+		if target.accountID != nil {
+			accountID = *target.accountID
+		}
+		index, ok := accountQueues[accountID]
+		if !ok {
+			index = len(queues)
+			accountQueues[accountID] = index
+			queues = append(queues, nil)
+		}
+		queues[index] = append(queues[index], target)
+	}
+	// Bound active account queues as well as upstream requests. All pending
+	// rows were saved before dispatch, including those cancelled while queued.
 	sem := make(chan struct{}, scheduledTestDefaultMaxWorkers)
 	var wg sync.WaitGroup
-	var previousPlan *ScheduledTestPlan
-	for _, target := range targets {
-		if previousPlan != target.plan {
-			wg.Wait()
-			previousPlan = target.plan
-		}
+	for _, queue := range queues {
 		if ctx.Err() != nil {
-			s.failExecutionTarget(target, ctx.Err())
+			for _, target := range queue {
+				s.failExecutionTarget(target, ctx.Err())
+			}
 			continue
 		}
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
-			s.failExecutionTarget(target, ctx.Err())
+			for _, target := range queue {
+				s.failExecutionTarget(target, ctx.Err())
+			}
 			continue
 		}
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.runExecutionTarget(ctx, target, started)
+			for _, target := range queue {
+				s.runExecutionTarget(ctx, target, started)
+			}
 		}()
 	}
 	wg.Wait()
@@ -157,7 +191,7 @@ func (s *ScheduledTestRunnerService) runExecutionTarget(ctx context.Context, tar
 	defer s.endAccountRun(target.plan.ID, id, target.plan.TestDefinitionID)
 	persistCtx, cancel := scheduledTestPersistenceContext()
 	if target.accountID != nil {
-		eligible, err := s.detectionAccountEligible(persistCtx, target.plan, id)
+		eligible, err := s.runAccountEligible(persistCtx, target.plan, target.pending, id)
 		if err != nil || !eligible {
 			cancel()
 			if err == nil {

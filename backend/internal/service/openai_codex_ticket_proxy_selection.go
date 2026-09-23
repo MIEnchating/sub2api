@@ -1,6 +1,12 @@
 package service
 
-import "time"
+import (
+	"context"
+	"strings"
+	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/config"
+)
 
 // Bindings only drain in-flight attempts when an account's configured exit is
 // changed. The scheduler never chooses an alternate proxy after a failure.
@@ -20,9 +26,26 @@ type codexTicketProxySelection struct {
 	proxy  string
 }
 
-func openAICodexTicketProxyRoute(account *Account) codexTicketProxyRoute {
+func (s *OpenAIGatewayService) openAICodexTicketHarvestConfig(ctx context.Context) config.OpenAICodexTicketConfig {
+	cfg := s.openAICodexTicketConfig()
+	if s != nil && s.settingService != nil {
+		if proxy := s.settingService.GetOpenAICodexTicketHarvestProxyURL(ctx); proxy != "" {
+			cfg.HarvestProxyURL = proxy
+		}
+	}
+	return cfg
+}
+
+func openAICodexTicketProxyRoute(account *Account, harvestProxy ...string) codexTicketProxyRoute {
 	if account == nil {
 		return codexTicketProxyRoute{source: "account"}
+	}
+	if len(harvestProxy) > 0 {
+		if proxy := strings.TrimSpace(harvestProxy[0]); proxy != "" {
+			// An explicitly configured dedicated exit wins over account routing.
+			// Invalid settings fail closed instead of leaking onto another exit.
+			return codexTicketProxyRoute{source: "pool", proxy: proxy, valid: ValidateOpenAICodexTicketHarvestProxyURL(proxy) == nil}
+		}
 	}
 	if account.ProxyID == nil {
 		// An unbound account uses the same direct route as normal business traffic.

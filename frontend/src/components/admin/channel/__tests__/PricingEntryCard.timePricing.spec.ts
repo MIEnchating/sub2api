@@ -66,7 +66,7 @@ function defaultPricing(input = 0.000001, output = 0.000002) {
     cache_read_price: 0.0000001,
     image_input_price: 0.000003,
     image_output_price: 0.000004,
-    max_reasoning_effort_multiplier: 1.2,
+    reasoning_effort_multipliers: { max: 1.2 },
   }
 }
 
@@ -184,8 +184,8 @@ describe('PricingEntryCard request multipliers', () => {
       .toBe('admin.channels.form.reasoningEffortMultiplierDefault')
   })
 
-  it('keeps custom effort multipliers when auto-filling model token prices', async () => {
-    vi.mocked(channelsAPI.getModelDefaultPricing).mockResolvedValue({
+  it('preserves manual pricing when an effort multiplier is already configured', async () => {
+    vi.mocked(channelsAPI.getModelDefaultPricing).mockReset().mockResolvedValue({
       found: true, input_price: 3e-6, output_price: 15e-6,
     })
     const wrapper = shallowMount(PricingEntryCard, {
@@ -194,9 +194,10 @@ describe('PricingEntryCard request multipliers', () => {
     wrapper.findComponent({ name: 'ModelTagInput' }).vm.$emit('update:models', ['example-model'])
     await flushPromises()
     expect(wrapper.emitted('update')!.at(-1)![0]).toMatchObject({
-      models: ['example-model'], input_price: 3, output_price: 15,
+      models: ['example-model'], input_price: null, output_price: null,
       reasoning_effort_multipliers: { high: 0.5 },
     })
+    expect(channelsAPI.getModelDefaultPricing).not.toHaveBeenCalled()
   })
 })
 
@@ -254,7 +255,7 @@ describe('PricingEntryCard automatic default pricing', () => {
       cache_read_price: 0.1,
       image_input_price: 3,
       image_output_price: 4,
-      max_reasoning_effort_multiplier: 1.2,
+      reasoning_effort_multipliers: { max: 1.2 },
     })
   })
 
@@ -316,6 +317,33 @@ describe('PricingEntryCard automatic default pricing', () => {
 
     expect(wrapper.emitted('update')?.length).toBe(updateCountAfterManualEdit)
     expect(lastUpdate(wrapper)).toMatchObject({ models: ['deepseek-v4'], input_price: '9' })
+  })
+
+  it('ignores a pending lookup after an effort multiplier is edited and cleared', async () => {
+    channelsApiMock.getModelDefaultPricing.mockReset()
+    let resolvePricing!: (value: ReturnType<typeof defaultPricing>) => void
+    channelsApiMock.getModelDefaultPricing.mockReturnValue(new Promise(resolve => {
+      resolvePricing = resolve
+    }))
+    const entry = createBlankTokenEntry()
+    const wrapper = shallowMount(PricingEntryCard, { props: { entry } })
+
+    modelInput(wrapper).vm.$emit('update:models', ['deepseek-v4'])
+    await wrapper.setProps({ entry: { ...entry, models: ['deepseek-v4'] } })
+    await wrapper.get('[data-reasoning-effort="high"]').setValue('1.5')
+    await wrapper.setProps({ entry: lastUpdate(wrapper)! })
+    await wrapper.get('[data-testid="reasoning-effort-multipliers"] button').trigger('click')
+    await wrapper.setProps({ entry: lastUpdate(wrapper)! })
+    const updateCount = wrapper.emitted('update')!.length
+
+    resolvePricing(defaultPricing())
+    await flushAsyncWork()
+
+    expect(wrapper.emitted('update')).toHaveLength(updateCount)
+    expect(lastUpdate(wrapper)).toMatchObject({
+      input_price: null,
+      reasoning_effort_multipliers: null,
+    })
   })
 
   it('ignores a response for a model that was replaced during lookup', async () => {

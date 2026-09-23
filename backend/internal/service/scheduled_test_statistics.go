@@ -132,6 +132,11 @@ func (s *ScheduledTestRunnerService) startStatisticsResult(ctx context.Context, 
 }
 
 func (s *ScheduledTestRunnerService) runStatisticsResult(ctx context.Context, plan *ScheduledTestPlan, accountID *int64, pending *ScheduledTestResult, windowEnd time.Time) {
+	if accountID != nil {
+		if release, acquired := s.acquireAccountExecution(ctx, *accountID); acquired {
+			defer release()
+		}
+	}
 	started := time.Now()
 	s.workerMu.Lock()
 	if s.statisticsSem == nil {
@@ -154,14 +159,40 @@ func (s *ScheduledTestRunnerService) runStatisticsResult(ctx context.Context, pl
 					}
 					queryCtx, cancel := context.WithTimeout(attemptCtx, scheduledTestPersistenceTimeout)
 					defer cancel()
+					if accountID != nil {
+						var eligible bool
+						eligible, err = s.runAccountEligible(queryCtx, plan, pending, *accountID)
+						if err != nil {
+							return
+						}
+						if !eligible {
+							err = fmt.Errorf("account is no longer enabled for detection")
+							return
+						}
+					}
 					statisticsGroupID := plan.GroupID
-					if accountID != nil && plan.HasGroupActions() {
-						// Track this account across its quality tiers, including after a move.
+					if accountID != nil {
+						// Account statistics span every selected tier, including after a move.
 						statisticsGroupID = nil
+					}
+					windowStart := windowEnd.Add(-time.Hour)
+					var requestStartedAfter *time.Time
+					if recoveryRepo, ok := repo.(ScheduledTestCacheRecoveryRepository); ok && accountID != nil && plan.TestDefinitionID != nil {
+						requestStartedAfter, err = recoveryRepo.CacheRecoveryWindowStart(queryCtx, plan.ID, *accountID, *plan.TestDefinitionID)
+						if err != nil {
+							return
+						}
+						if requestStartedAfter != nil && requestStartedAfter.After(windowStart) {
+							windowStart = *requestStartedAfter
+						}
+					}
+					if !windowEnd.After(windowStart) {
+						attempt.OutputStatistics = &ScheduledTestStatistics{WindowStart: windowStart, WindowEnd: windowEnd}
+						return
 					}
 					attempt.OutputStatistics, err = repo.CollectStatistics(queryCtx, ScheduledTestStatisticsFilter{
 						GroupID: statisticsGroupID, AccountID: accountID, Model: plan.ModelID,
-						WindowStart: windowEnd.Add(-time.Hour), WindowEnd: windowEnd,
+						WindowStart: windowStart, WindowEnd: windowEnd, RequestStartedAfter: requestStartedAfter,
 					})
 				}()
 			case <-attemptCtx.Done():
@@ -190,6 +221,7 @@ func (s *ScheduledTestRunnerService) runStatisticsResult(ctx context.Context, pl
 	result.AccountID, result.ModelID, result.GroupID = accountID, plan.ModelID, plan.GroupID
 	result.StartedAt = started
 	if pending != nil {
+		result.RunID = pending.RunID
 		result.ID, result.StartedAt, result.CreatedAt = pending.ID, pending.StartedAt, pending.CreatedAt
 	}
 	result.FinishedAt, result.LatencyMs = time.Now(), time.Since(started).Milliseconds()

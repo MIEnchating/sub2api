@@ -14,7 +14,7 @@ import (
 )
 
 func TestContentModerationEngineProfilesPreserveLegacy(t *testing.T) {
-	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{"enabled":true,"mode":"pre_block","api_key":"old-openai-key","base_url":"https://openai.example","model":"omni","thresholds":{"sexual":0.65},"auto_ban_enabled":true}`}}
+	repo := &contentModerationTestSettingRepo{values: map[string]string{SettingKeyContentModerationConfig: `{"enabled":true,"mode":"pre_block","api_key":"old-openai-key","base_url":"https://openai.example","model":"omni","thresholds":{"sexual":0.65},"auto_ban_enabled":true,"user_whitelist_ids":[7,12]}`}}
 	s := &ContentModerationService{settingRepo: repo}
 	view, err := s.GetConfig(context.Background())
 	require.NoError(t, err)
@@ -53,6 +53,9 @@ func TestContentModerationEngineProfilesPreserveLegacy(t *testing.T) {
 	require.NoError(t, err)
 	require.Zero(t, view.APIKeyCount)
 	require.Equal(t, 1, view.EngineConfigs["openai"].APIKeyCount)
+	for _, current := range []*ContentModerationConfigView{view, view.EngineConfigs["openai"], view.EngineConfigs["typesafe"]} {
+		require.Equal(t, []int64{7, 12}, current.UserWhitelistIDs, "switching audit engines must retain the global user whitelist")
+	}
 }
 
 func TestContentModerationEngineThresholdDefaultsAreIndependent(t *testing.T) {

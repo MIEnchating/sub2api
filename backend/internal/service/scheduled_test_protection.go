@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"strings"
 )
@@ -15,21 +16,26 @@ var (
 )
 
 type ScheduledTestProtectionConfig struct {
-	Enabled bool                          `json:"enabled"`
-	Rules   []ScheduledTestProtectionRule `json:"rules"`
+	Enabled      bool                           `json:"enabled"`
+	Rules        []ScheduledTestProtectionRule  `json:"rules"`
+	Mode         string                         `json:"mode,omitempty"`
+	Combinations []ScheduledTestCombinationRule `json:"combinations,omitempty"`
 }
 
 type ScheduledTestProtectionRule struct {
-	TestDefinitionID int64                       `json:"test_definition_id"`
-	Thresholds       []ScheduledTestThreshold    `json:"thresholds,omitempty"`
-	MinSamples       int64                       `json:"min_samples,omitempty"`
-	PauseOnFailure   bool                        `json:"pause_on_failure,omitempty"`
-	ExpectedAnswer   string                      `json:"expected_answer,omitempty"`
-	AnswerMatch      string                      `json:"answer_match,omitempty"`
-	ModelMatch       string                      `json:"model_match,omitempty"`
-	Vote             *ScheduledTestVoteConfig    `json:"vote,omitempty"`
-	OnPass           *ScheduledTestOutcomeAction `json:"on_pass,omitempty"`
-	OnFail           *ScheduledTestOutcomeAction `json:"on_fail,omitempty"`
+	Priority         int                               `json:"priority"`
+	RequiredPass     bool                              `json:"required_pass"`
+	TestDefinitionID int64                             `json:"test_definition_id"`
+	Thresholds       []ScheduledTestThreshold          `json:"thresholds,omitempty"`
+	MinSamples       int64                             `json:"min_samples,omitempty"`
+	PauseOnFailure   bool                              `json:"pause_on_failure,omitempty"`
+	ExpectedAnswer   string                            `json:"expected_answer,omitempty"`
+	AnswerMatch      string                            `json:"answer_match,omitempty"`
+	ModelMatch       string                            `json:"model_match,omitempty"`
+	Vote             *ScheduledTestVoteConfig          `json:"vote,omitempty"`
+	OnPass           *ScheduledTestOutcomeAction       `json:"on_pass,omitempty"`
+	OnFail           *ScheduledTestOutcomeAction       `json:"on_fail,omitempty"`
+	Recovery         *ScheduledTestCacheRecoveryConfig `json:"recovery,omitempty"`
 }
 
 type ScheduledTestThreshold struct {
@@ -39,9 +45,10 @@ type ScheduledTestThreshold struct {
 }
 
 type ScheduledTestVoteConfig struct {
-	Enabled     bool `json:"enabled"`
-	RejectAbove int  `json:"reject_above"`
-	PassAtLeast int  `json:"pass_at_least"`
+	Enabled       bool `json:"enabled"`
+	PublicEnabled bool `json:"public_enabled,omitempty"`
+	RejectAbove   int  `json:"reject_above"`
+	PassAtLeast   int  `json:"pass_at_least"`
 }
 
 type ScheduledTestVotingSummary struct {
@@ -86,11 +93,11 @@ func (p *ScheduledTestPlan) ProtectionRule(definitionID *int64) *ScheduledTestPr
 
 func validateScheduledTestProtection(plan *ScheduledTestPlan) error {
 	config := &plan.Protection
+	if config.Mode != "" && config.Mode != "per_test" && config.Mode != "combined" {
+		return fmt.Errorf("protection mode must be per_test or combined")
+	}
 	if !config.Enabled {
 		return nil
-	}
-	if plan.TargetMode == "group" {
-		return fmt.Errorf("automatic protection requires an account or all_accounts target")
 	}
 	if len(config.Rules) == 0 || len(config.Rules) > 32 {
 		return fmt.Errorf("automatic protection requires between 1 and 32 rules")
@@ -106,8 +113,21 @@ func validateScheduledTestProtection(plan *ScheduledTestPlan) error {
 			return fmt.Errorf("protection rules must refer to distinct selected test definitions")
 		}
 		seen[rule.TestDefinitionID] = true
-		if err := validateScheduledTestActions(rule); err != nil {
-			return err
+		if !config.UsesCombinations() && (rule.Priority < 0 || rule.Priority > 1000) {
+			return fmt.Errorf("priority must be between 0 and 1000")
+		}
+		if !config.UsesCombinations() && rule.RequiredPass && rule.Vote != nil && rule.Vote.Enabled {
+			return fmt.Errorf("required_pass only supports automatic conditions")
+		}
+		if !config.UsesCombinations() || (rule.Recovery != nil && rule.Recovery.Enabled) {
+			if err := validateScheduledTestActions(rule); err != nil {
+				return err
+			}
+		}
+		for _, groupID := range rule.ManagedGroupIDs() {
+			if !config.UsesCombinations() && !slices.Contains(plan.GroupIDs, groupID) {
+				return fmt.Errorf("action group %d must be selected in group_ids", groupID)
+			}
 		}
 		if rule.MinSamples < 0 || rule.MinSamples > 1000000000 {
 			return fmt.Errorf("min_samples must be between 0 and 1000000000")
@@ -128,6 +148,9 @@ func validateScheduledTestProtection(plan *ScheduledTestPlan) error {
 			return fmt.Errorf("model_match must be exact or snapshot")
 		}
 		voting := rule.Vote != nil && rule.Vote.Enabled
+		if rule.Vote != nil && rule.Vote.PublicEnabled && !voting {
+			return fmt.Errorf("public voting requires review to be enabled")
+		}
 		if voting && (rule.Vote.RejectAbove < 0 || rule.Vote.PassAtLeast < 1 || rule.Vote.RejectAbove > 1000000 || rule.Vote.PassAtLeast > 1000000) {
 			return fmt.Errorf("reject_above must be non-negative and pass_at_least positive (maximum 1000000)")
 		}
@@ -161,13 +184,19 @@ func validateScheduledTestProtection(plan *ScheduledTestPlan) error {
 				return fmt.Errorf("unsupported protection metric %q", threshold.Metric)
 			}
 		}
+		if err := validateScheduledTestCacheRecovery(rule); err != nil {
+			return err
+		}
 	}
-	return nil
+	return validateScheduledTestCombinations(plan)
 }
 
 func validateProtectionOutputKind(rule *ScheduledTestProtectionRule, kind string) error {
 	if rule == nil {
 		return nil
+	}
+	if rule.Recovery != nil && rule.Recovery.Enabled && kind != "statistics" {
+		return fmt.Errorf("cache recovery requires a statistics test")
 	}
 	if kind == "model_check" {
 		if (rule.Vote != nil && rule.Vote.Enabled) || rule.ExpectedAnswer != "" {
@@ -323,6 +352,11 @@ func scheduledTestMetric(result *ScheduledTestResult, metric string, minSamples 
 		}
 		return float64(result.LatencyMs), true
 	case "output_numeric":
+		// Use the same extraction as result display. Persisted numeric output
+		// may have been derived by an older parser; source text is authoritative.
+		if strings.EqualFold(strings.TrimSpace(result.OutputKind), "number") && strings.TrimSpace(result.ResponseText) != "" {
+			return extractScheduledTestNumber(result.ResponseText)
+		}
 		value = result.OutputNumeric
 	case "success_rate", "cache_rate", "avg_first_token_ms":
 		if snapshot == nil || snapshot.TotalRequests < minSamples {
@@ -332,7 +366,7 @@ func scheduledTestMetric(result *ScheduledTestResult, metric string, minSamples 
 		case "success_rate":
 			value = snapshot.SuccessRate
 		case "cache_rate":
-			if snapshot.CacheInputTokens <= 0 {
+			if snapshot.CacheInputTokens <= 0 || snapshot.CacheSamples < minSamples {
 				return 0, false
 			}
 			value = snapshot.CacheRate

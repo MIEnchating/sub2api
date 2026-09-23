@@ -9,10 +9,10 @@ import (
 type ScheduledTestPlan struct {
 	ID   int64  `json:"id"`
 	Name string `json:"name"`
-	// SortOrder controls the order in which this test rule's group is shown
-	// on the user-facing test-results page. It is intentionally stored on the
-	// rule/plan rather than on groups, because the same group can participate
-	// in multiple test rules with different display positions.
+	// SortOrder orders strategies; GroupIDs orders groups within a strategy.
+	// A round snapshots the union of these groups once, deduplicated by account.
+	GroupIDs          []int64                       `json:"group_ids"`
+	MigrationNote     string                        `json:"migration_note,omitempty"`
 	SortOrder         int                           `json:"sort_order"`
 	AccountID         *int64                        `json:"account_id,omitempty"`
 	GroupID           *int64                        `json:"group_id,omitempty"`
@@ -43,10 +43,11 @@ type ScheduledTestResult struct {
 	TestName         string `json:"test_name"`
 	TestOrder        int    `json:"test_order"`
 	GroupName        string `json:"group_name"`
-	// PlanOrder is the administrator-configured order of the test rule/plan
-	// that produced this result. The user-facing page sorts by this value and
-	// derives its group list from that ordered result stream.
+	// PlanOrder belongs to the rule that produced the result. GroupOrder is
+	// resolved from the displayed group's current rules, so moving an account
+	// does not carry its source rule's display position into the new group.
 	PlanOrder            int                              `json:"plan_order"`
+	GroupOrder           *int                             `json:"group_order,omitempty"`
 	TargetMode           string                           `json:"target_mode,omitempty"`
 	Status               string                           `json:"status"`
 	ResponseText         string                           `json:"response_text"`
@@ -87,7 +88,7 @@ type ScheduledTestProtectionDecision struct {
 // BeginRun atomically publishes the complete account/type snapshot before any
 // upstream work begins, including records waiting for a worker.
 type ScheduledTestRunRepository interface {
-	BeginRun(context.Context, int64, string, []*ScheduledTestResult) ([]*ScheduledTestResult, error)
+	BeginRun(context.Context, *ScheduledTestPlan, string, []*ScheduledTestResult) ([]*ScheduledTestResult, error)
 }
 
 type ScheduledTestDecisionRepository interface {
@@ -107,6 +108,7 @@ type ScheduledTestStatistics struct {
 	FirstTokenSamples int64                        `json:"first_token_samples"`
 	CacheReadTokens   int64                        `json:"cache_read_tokens"`
 	CacheInputTokens  int64                        `json:"cache_input_tokens"`
+	CacheSamples      int64                        `json:"cache_samples"`
 	RecentRequests    []ScheduledTestRecentRequest `json:"recent_requests"`
 }
 
@@ -117,11 +119,12 @@ type ScheduledTestRecentRequest struct {
 }
 
 type ScheduledTestStatisticsFilter struct {
-	GroupID     *int64
-	AccountID   *int64
-	Model       string
-	WindowStart time.Time
-	WindowEnd   time.Time
+	GroupID             *int64
+	AccountID           *int64
+	Model               string
+	WindowStart         time.Time
+	WindowEnd           time.Time
+	RequestStartedAfter *time.Time
 }
 
 // Optional capability implemented by the SQL result repository. Existing test
@@ -189,4 +192,10 @@ type ScheduledTestResultRepository interface {
 // that was manually stopped or otherwise unavailable.
 type ScheduledTestTargetAccountRepository interface {
 	ListPlanTargetAccountIDs(context.Context, *ScheduledTestPlan, *int64) ([]int64, error)
+}
+
+// ScheduledTestRunEligibilityRepository checks a frozen round member without
+// consulting its mutable group membership. Manual account stops still apply.
+type ScheduledTestRunEligibilityRepository interface {
+	IsPlanRunAccountEligible(context.Context, int64, string, int64) (bool, error)
 }

@@ -132,7 +132,6 @@ const baseConfig = (): ContentModerationConfig => ({
     type: 'all',
     models: [],
   },
-  cyber_policy_exclude_from_ban_count: false,
 })
 
 const runtimeStatus = () => ({

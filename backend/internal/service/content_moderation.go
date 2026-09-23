@@ -215,6 +215,7 @@ type ContentModerationConfigView struct {
 	TimeoutMS                      int                                     `json:"timeout_ms"`
 	SampleRate                     int                                     `json:"sample_rate"`
 	AllGroups                      bool                                    `json:"all_groups"`
+	UserWhitelistIDs               []int64                                 `json:"user_whitelist_ids"`
 	GroupIDs                       []int64                                 `json:"group_ids"`
 	RecordNonHits                  bool                                    `json:"record_non_hits"`
 	Thresholds                     map[string]float64                      `json:"thresholds"`
@@ -237,7 +238,6 @@ type ContentModerationConfigView struct {
 	KeywordBlockingMode            string                                  `json:"keyword_blocking_mode"`
 	ModelFilter                    ContentModerationModelFilter            `json:"model_filter"`
 	CyberPolicyExcludeFromBanCount bool                                    `json:"cyber_policy_exclude_from_ban_count"`
-	UserWhitelistIDs               []int64                                 `json:"user_whitelist_ids"`
 }
 
 type ContentModerationAPIKeyStatus struct {

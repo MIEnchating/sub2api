@@ -220,6 +220,7 @@ export default {
 
   tests: {
     adminReview: {
+      roundOverrideHint: 'Administrator decisions override ordinary rules for this round. Promotion still requires every required automatic condition to pass. Assigning groups replaces all existing groups; the next round starts fresh.',
       title: 'Admin decision', markPass: 'Mark as passed', markFail: 'Mark as failed',
       pass: 'Marked as passed', fail: 'Marked as failed',
       automaticHold: 'Automatic checks have not passed',

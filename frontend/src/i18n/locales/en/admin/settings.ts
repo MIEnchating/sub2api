@@ -516,6 +516,18 @@ export default {
         timeoutRangeError: 'Streaming idle timeout must be 0 or 30–300 seconds; OpenAI first-output timeouts must be 0 or 30–600 seconds.',
         stickyRangeError: 'The sticky-account response threshold must be above 0 ms and the error rate must be between 0% and 100%.'
       },
+      opencodeGoUsage: {
+        title: 'OpenCode Go Usage Refresh',
+        description: 'Refresh usage windows reported by the upstream OpenCode Go account for individually opted-in accounts. Disabled by default.',
+        enabled: 'Enable global automatic refresh',
+        enabledHint: 'Only accounts with their own automatic refresh switch enabled are refreshed. Manual refresh remains available.',
+        intervalMinutes: 'Max wait while requests continue (minutes)',
+        intervalHint: 'Range: 5–1440 minutes. When continuous requests keep sliding the debounce, force a refresh after this wait.',
+        debounceMinutes: 'Quiet period after last request (minutes)',
+        debounceHint: 'Range: 1–60 minutes, and must be less than the refresh interval. Refresh after the latest model request has been quiet for this long.',
+        saved: 'OpenCode Go usage refresh settings saved',
+        saveFailed: 'Failed to save OpenCode Go usage refresh settings'
+      },
       gatewayForwarding: {
         title: 'Request Forwarding',
         description: 'Control how requests are forwarded to upstream OAuth accounts',
@@ -581,6 +593,11 @@ export default {
         openaiCodexVersionAutoSync: 'Auto-sync Codex version',
         openaiCodexVersionAutoSyncHint: 'Fetches the latest stable client version from the official repository every 6 hours, so you never need to upgrade this service just to keep the version current. When disabled, only the version above or the built-in default is used.',
         openaiCodexVersionSyncedValue: 'Currently synced: {version}',
+        claudeCodeClientVersion: 'Claude Code client version',
+        claudeCodeClientVersionHint: "The client version this gateway declares upstream when impersonating the official Claude Code CLI. Leave empty to use the auto-synced latest official release; setting a value pins it and stops following auto-sync. The SUB2API_CLAUDE_CLI_VERSION environment variable or built-in version is used only when neither the manual nor synced value is valid.",
+        claudeCodeVersionAutoSync: 'Auto-sync Claude Code version',
+        claudeCodeVersionAutoSyncHint: 'Fetches the latest Claude Code client version from the official release channel every hour, so you never need to upgrade this service just to keep the version current. When disabled, fetching stops but the previously synced version remains available. The manual version above always takes priority.',
+        claudeCodeVersionSyncedValue: 'Currently synced: {version}',
         codexHardeningTitle: "Codex Settings",
         codexRetry: {
           title: "Automatic error retry",
@@ -598,7 +615,7 @@ export default {
         codexTicketEnabled: 'Codex 292 / 332 tickets',
         codexTicketEnabledDesc:
           'Gateway master switch. Enable tickets separately for each account when on. Turning off stops harvesting and missing-ticket blocking for every account and hides account ticket controls and status. Pro uses 292 tickets; Team uses 332 tickets.',
-        codexTicketAccountRouteHint: 'Account ticket controls and status are available when the gateway switch is enabled.',
+        codexTicketAccountRouteHint: 'Account ticket controls and status are available when the gateway switch is enabled. Harvesting uses the dedicated gateway proxy; required 292 routing cookies are attached automatically and shared within the account.',
 
         codexTicketHarvestProxy: "292 harvest proxy",
         codexTicketHarvestProxyDesc:
@@ -1305,8 +1322,9 @@ export default {
         lowRatePriorityTitle: 'Prefer lower rates',
         lowRatePriorityDescription: 'When enabled, accounts with lower billing rates are preferred. If rates are equal, account priority, current load, and other scheduling factors are considered. This switch is ignored when the experimental scheduler is enabled.',
         oauthRateTitle: 'OAuth scheduling reference rate',
-        oauthRatePriorityDescription: 'When a group contains both API Key and OAuth accounts, this rate is used to order OAuth accounts alongside probed API Key billing rates.',
-        oauthRateWeightedDescription: 'When a group contains both API Key and OAuth accounts, this rate is used for OAuth accounts when calculating the billing-rate score.',
+        oauthRatePriorityDescription: 'OAuth accounts use this reference rate for low-rate-first ordering. Leave blank to use each account\'s own rate. API Key accounts use a valid probed rate when available, otherwise their account rate.',
+        oauthRateWeightedDescription: 'OAuth accounts use this reference rate for the billing-rate score. Leave blank to use each account\'s own rate. API Key accounts use a valid probed rate when available, otherwise their account rate.',
+        oauthRateInvalid: 'The OAuth scheduling reference rate must be a non-negative number, or blank to use account rates.',
         stickyWeightedTitle: 'Sticky weighting',
         stickyWeightedDescription: 'When enabled, previous_response_id and session_hash affinity are scored by the advanced scheduler. When disabled, sticky accounts keep the legacy hard-hit behavior.',
         subscriptionPriorityTitle: 'Subscription priority',

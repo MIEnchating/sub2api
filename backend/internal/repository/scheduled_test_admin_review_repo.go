@@ -30,10 +30,12 @@ func (r *scheduledTestResultRepository) ListAdminReviews(ctx context.Context) ([
 		ORDER BY CASE WHEN ag.group_id=r.group_id THEN 0 ELSE 1 END,ag.group_id
 		LIMIT 1
 	 ) current_group ON TRUE
+	 LEFT JOIN (`+scheduledTestGroupDisplayOrdersSQL+`) group_display_order
+	 ON group_display_order.group_id=CASE WHEN r.account_id IS NULL THEN r.group_id ELSE current_group.group_id END
 	 WHERE p.enabled AND p.protection->>'enabled'='true' AND s.rule_config->'vote'->>'enabled'='true'
 	 AND s.completed AND r.status IN ('success','passed')
 	 AND r.started_at=s.result_started_at AND r.started_at>=s.round_started_at
-	 AND r.group_id IS NOT DISTINCT FROM p.group_id AND r.model_id=p.model_id
+	 AND r.model_id=p.model_id
 	 AND r.target_mode=p.target_mode AND (p.account_id IS NULL OR p.account_id=r.account_id)
 	 AND (r.output_kind='statistics' OR r.reasoning_effort=p.reasoning_effort)
 	 AND (r.test_definition_id=ANY(p.test_definition_ids) OR r.test_definition_id=p.test_definition_id)

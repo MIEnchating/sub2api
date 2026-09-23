@@ -79,7 +79,11 @@ type openAIWSAcquireRequest struct {
 	// whose authorization is per-dial (Agent Identity) are never cached in
 	// lastAcquire or delayed prewarm state.
 	HeadersFactory func(context.Context, http.Header) (http.Header, error)
-	ProxyURL       string
+	// CodexTicketHeadersFactory refreshes short-lived managed ticket headers
+	// before pool selection and dialing. The boolean marks managed credentials.
+	CodexTicketHeadersFactory func(context.Context, http.Header) (http.Header, bool, error)
+	codexTicketManaged        bool
+	ProxyURL                  string
 	// ProxyID is part of the pool identity. Two proxy records may intentionally
 	// share a URL while still representing independent concurrency buckets.
 	ProxyID         int64
@@ -95,6 +99,7 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
+	codexTicketDigest   [sha256.Size]byte
 	tlsProfile          string
 	betaFeatures        string
 	codexInstallationID string
@@ -1150,7 +1155,35 @@ func (p *openAIWSConnPool) Acquire(ctx context.Context, req openAIWSAcquireReque
 		p.metrics.acquireTotal.Add(1)
 	}
 	queueWait := &openAIWSAcquireQueueWait{}
-	lease, err := p.acquire(ctx, cloneOpenAIWSAcquireRequest(req), 0, queueWait)
+	var lease *openAIWSConnLease
+	var err error
+	for attempt := 0; ; attempt++ {
+		lease, err = p.acquire(ctx, cloneOpenAIWSAcquireRequest(req), 0, queueWait)
+		if lease == nil || req.CodexTicketHeadersFactory == nil {
+			break
+		}
+		current := cloneOpenAIWSAcquireRequest(req)
+		current, err = p.resolveAcquireProtectionTransport(current)
+		if err != nil {
+			lease.Release()
+			return nil, err
+		}
+		if refreshErr := current.refreshCodexTicketHeaders(ctx); refreshErr != nil {
+			lease.Release()
+			return nil, refreshErr
+		}
+		if lease.conn.matchesHandshakeCompatibility(openAIWSAcquireCompatibility(current)) {
+			break
+		}
+		lease.Release()
+		if req.ForcePreferredConn {
+			return nil, errOpenAIWSPreferredConnUnavailable
+		}
+		if attempt >= 1 {
+			return nil, ErrOpenAICodexTicketUnavailable
+		}
+		req = current
+	}
 	if lease != nil && queueWait.rewoken {
 		// 广播重选经 tryAcquire 拿令牌，不像排队分支那样在取得令牌后检查取消，
 		// 这里补上复查：上下文已取消就归还令牌并按取消返回。
@@ -1188,6 +1221,9 @@ func (p *openAIWSConnPool) acquire(ctx context.Context, req openAIWSAcquireReque
 	}
 
 retryAcquire:
+	if err := req.refreshCodexTicketHeaders(ctx); err != nil {
+		return nil, err
+	}
 	accountID := req.Account.ID
 	proxyKey := openAIWSRequestProxyKey(req)
 	compatibility := openAIWSAcquireCompatibility(req)
@@ -2268,6 +2304,9 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	if profileErr != nil {
 		return nil, profileErr
 	}
+	if err := req.refreshCodexTicketHeaders(ctx); err != nil {
+		return nil, err
+	}
 	headers := cloneHeader(req.Headers)
 	var err error
 	if req.HeadersFactory != nil {
@@ -2313,6 +2352,7 @@ func (p *openAIWSConnPool) dialConn(ctx context.Context, req openAIWSAcquireRequ
 	}
 	id := p.nextConnID(req.Account.ID)
 	pooledConn := newOpenAIWSConnWithProxy(id, req.Account.ID, conn, handshakeHeaders, openAIWSRequestProxyKey(req))
+	req.Headers = headers
 	pooledConn.handshakeCompatibility = openAIWSAcquireCompatibility(req)
 	accountID := req.Account.ID
 	evict := func() { p.evictConn(accountID, id) }
@@ -2504,6 +2544,23 @@ func sameOpenAIWSPrewarmTarget(a, b openAIWSAcquireRequest, uniqueFingerprintEna
 		openAIWSAcquireCompatibility(a, uniqueFingerprintEnabled...) == openAIWSAcquireCompatibility(b, uniqueFingerprintEnabled...)
 }
 
+func (req *openAIWSAcquireRequest) refreshCodexTicketHeaders(ctx context.Context) error {
+	if req == nil || req.CodexTicketHeadersFactory == nil {
+		return nil
+	}
+	headers, managed, err := req.CodexTicketHeadersFactory(ctx, cloneHeader(req.Headers))
+	if err != nil {
+		return err
+	}
+	if req.codexTicketManaged && !managed {
+		// A disabled policy or fail-open miss must not replay expired material.
+		headers.Del(openAICodexTurnStateHeader)
+		headers.Del("Cookie")
+	}
+	req.Headers, req.codexTicketManaged = headers, managed
+	return nil
+}
+
 func (p *openAIWSConnPool) resolveAcquireProtectionTransport(req openAIWSAcquireRequest) (openAIWSAcquireRequest, error) {
 	if req.protectionTLSResolved || req.Account == nil || !req.Account.IdentityProtectionEnabled() {
 		return req, nil
@@ -2518,7 +2575,7 @@ func (p *openAIWSConnPool) resolveAcquireProtectionTransport(req openAIWSAcquire
 }
 
 func openAIWSAcquireCompatibility(req openAIWSAcquireRequest, uniqueFingerprintEnabled ...bool) openAIWSHandshakeCompatibilityKey {
-	key := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, uniqueFingerprintEnabled...)
+	key := normalizeOpenAIWSHandshakeCompatibility(req.Account, req.Headers, req.codexTicketManaged)
 	if req.Account == nil || !req.Account.IdentityProtectionEnabled() {
 		return key
 	}
@@ -2560,9 +2617,12 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 	return strings.Join(normalized, ",")
 }
 
-func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header, _ ...bool) openAIWSHandshakeCompatibilityKey {
+func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header, managedTicket ...bool) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
+	}
+	if len(managedTicket) > 0 && managedTicket[0] {
+		key.codexTicketDigest = sha256.Sum256([]byte(headers.Get(openAICodexTurnStateHeader) + "\x00" + headers.Get("Cookie")))
 	}
 	if account != nil && account.IdentityProtectionEnabled() {
 		key.protectionMode = string(antiDegradeMode(account))

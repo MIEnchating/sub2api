@@ -776,7 +776,7 @@ func mergeCodexTurnMetadataJSON(raw string, fields map[string]any, deleteKeys []
 	for _, key := range deleteKeys {
 		delete(metadata, key)
 	}
-	rebuilt, err := json.Marshal(metadata)
+	rebuilt, err := marshalCodexTurnMetadata(metadata)
 	if err != nil {
 		return raw, false
 	}

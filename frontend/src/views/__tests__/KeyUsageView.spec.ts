@@ -1,8 +1,15 @@
 import { describe, expect, it, beforeEach, afterEach, vi } from 'vitest'
-import { flushPromises, mount } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { nextTick } from 'vue'
 
 import KeyUsageView from '../KeyUsageView.vue'
+
+enableAutoUnmount(afterEach)
+
+function mockAnimationFrames() {
+  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16))
+  vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
+}
 
 const { showInfo, showSuccess, showError, fetchPublicSettings } = vi.hoisted(() => ({
   showInfo: vi.fn(),
@@ -116,7 +123,7 @@ describe('KeyUsageView daily detail', () => {
       configurable: true,
       value: vi.fn().mockReturnValue({ matches: false }),
     })
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
+    mockAnimationFrames()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
@@ -238,6 +245,46 @@ describe('KeyUsageView daily detail', () => {
 
     wrapper.unmount()
   })
+
+  it.each([
+    ['initial frame', 0],
+    ['animation delay', 16],
+    ['percentage animation', 100],
+  ])('cancels the %s when unmounted', async (_stage, elapsed) => {
+    vi.useFakeTimers()
+    const wrapper = mount(KeyUsageView, {
+      global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } },
+    })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(elapsed)
+
+    // The reset interval and one animation callback are pending.
+    expect(vi.getTimerCount()).toBe(2)
+    wrapper.unmount()
+    expect(vi.getTimerCount()).toBe(0)
+    await vi.advanceTimersByTimeAsync(1200)
+    expect(vi.getTimerCount()).toBe(0)
+  })
+
+  it('does not restart animations when a query completes after unmount', async () => {
+    vi.useFakeTimers()
+    const response = await fetch('test-response')
+    let resolveResponse!: (response: Response) => void
+    vi.mocked(fetch).mockImplementationOnce(() => new Promise(resolve => { resolveResponse = resolve }))
+    const wrapper = mount(KeyUsageView, {
+      global: { stubs: { RouterLink: true, LocaleSwitcher: true, Icon: true } },
+    })
+    await wrapper.find('input').setValue('sk-test-key')
+    await wrapper.find('input').trigger('keydown.enter')
+    wrapper.unmount()
+    resolveResponse(response)
+    await flushPromises()
+
+    expect(showSuccess).not.toHaveBeenCalled()
+    expect(vi.getTimerCount()).toBe(0)
+  })
 })
 
 describe('KeyUsageView subscription feature flag', () => {
@@ -247,7 +294,7 @@ describe('KeyUsageView subscription feature flag', () => {
       configurable: true,
       value: vi.fn().mockReturnValue({ matches: false }),
     })
-    vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(0), 0))
+    mockAnimationFrames()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       json: async () => ({
