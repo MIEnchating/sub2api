@@ -80,8 +80,11 @@ REPAIR_COUNT=0
 FAILED_COMMAND=''
 RELEASE_STATE='未评估'
 RELEASE_TAG=''
+RELEASE_BASE_TAG=''
+RELEASE_BASE_COMMIT=''
 RELEASE_REASON=''
 REMOTE_WORKFLOW_STATE='未执行'
+REMOTE_REPAIR_COUNT=0
 PENDING_RELEASE_FILE="$STATE_DIR/pending-release.env"
 PENDING_RELEASE_NOTES_FILE="$STATE_DIR/pending-release-notes.txt"
 
@@ -195,6 +198,7 @@ assert_no_conflict_markers() {
 
 wait_for_remote_workflow() {
   local workflow="$1" commit="$2" label="$3" ref="${4:-}" repo run_json run_info run_id status conclusion trigger_state
+  REMOTE_FAILED_RUN_ID=''
   if workflow_trigger_state "$workflow" "$commit"; then
     trigger_state=0
   else
@@ -237,6 +241,7 @@ if matching:
           log "$label workflow failed; rerunning failed jobs ($retries/$REMOTE_WORKFLOW_RETRY_ATTEMPTS)"
           gh run rerun "$run_id" --repo "$repo" --failed >/dev/null
         else
+          REMOTE_FAILED_RUN_ID="$run_id"
           return 1
         fi
       fi
@@ -249,18 +254,50 @@ if matching:
 }
 
 wait_for_remote_workflows() {
-  local commit="$1" result skipped=0
+  local commit="$1" result skipped=0 workflow repo check_log remote_head
   CURRENT_STAGE='等待远程 CI 与安全扫描'
   REMOTE_WORKFLOW_STATE='等待中'
   require_command gh
-  if wait_for_remote_workflow 'CI' "$commit" 'CI'; then :; else
-    result=$?
-    (( result == 2 )) && skipped=$((skipped + 1)) || fail "远程 CI 未通过或超时（提交 $commit）"
-  fi
-  if wait_for_remote_workflow 'Security Scan' "$commit" 'Security Scan'; then :; else
-    result=$?
-    (( result == 2 )) && skipped=$((skipped + 1)) || fail "远程安全扫描未通过或超时（提交 $commit）"
-  fi
+  repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+  while true; do
+    skipped=0
+    : > "$VALIDATION_FAILURES_FILE"
+    for workflow in 'CI' 'Security Scan'; do
+      if wait_for_remote_workflow "$workflow" "$commit" "$workflow"; then continue; else result=$?; fi
+      if (( result == 2 )); then skipped=$((skipped + 1)); continue; fi
+      check_log="$(mktemp "$STATE_DIR/$RUN_ID-remote.log.XXXXXX")"
+      if [[ -n "$REMOTE_FAILED_RUN_ID" ]]; then
+        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || true
+      else
+        printf '%s 未确认结束或等待超时；不得猜测测试错误。\n' "$workflow" > "$check_log"
+      fi
+      printf '%s（提交 %s，日志：%s）\n' "$workflow" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
+    done
+    [[ -s "$VALIDATION_FAILURES_FILE" ]] || break
+    REMOTE_WORKFLOW_STATE='失败，自动修复中'
+    (( REMOTE_REPAIR_COUNT < VALIDATION_REPAIR_ATTEMPTS )) || fail '远程检查经过集中修复后仍失败，详见失败作业日志'
+    git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH" || fail '无法获取远程修复基准'
+    remote_head="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
+    [[ "$remote_head" == "$commit" ]] || fail '远程主分支已有并发更新，保留候选，不覆盖其他提交'
+    if [[ "$WORKTREE_CREATED" != true ]]; then
+      git -C "$REPO_DIR" worktree add -b "$SYNC_BRANCH" "$WORKTREE" "$commit" || fail '无法创建远程修复工作树'
+      WORKTREE_CREATED=true
+    fi
+    [[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$commit" ]] || fail '远程修复工作树不匹配已推送提交'
+    REMOTE_REPAIR_COUNT=$((REMOTE_REPAIR_COUNT + 1))
+    CANDIDATE_COMMIT="$commit"
+    run_codex_validation_repair "$REMOTE_REPAIR_COUNT" || fail '远程检查修复失败'
+    [[ "$CANDIDATE_COMMIT" != "$commit" ]] || fail '远程错误无法安全自动修复，已保留具体失败日志'
+    run_validation_with_repairs
+    [[ "$VALIDATION_SUCCEEDED" == true ]] || fail '远程修复后的完整本地验证仍未通过'
+    [[ -z "$(git -C "$WORKTREE" status --porcelain=v1)" ]] || fail '远程修复验证后工作树不干净'
+    git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH" || fail '远程修复推送失败，保留候选'
+    commit="$(git -C "$WORKTREE" rev-parse HEAD)"
+    PUSHED_COMMIT="$commit"
+    if [[ -n "$RELEASE_TAG" && -s "$RELEASE_NOTES_FILE" ]]; then
+      persist_pending_release "$RELEASE_TAG" "$commit"
+    fi
+  done
   if (( skipped == 0 )); then
     REMOTE_WORKFLOW_STATE='CI 与安全扫描通过'
   else
@@ -299,6 +336,7 @@ write_report() {
     printf '已推送版本：%s\n' "${PUSHED_COMMIT:-未推送}"
     printf '全量验证：%s\n' "$VALIDATION_RESULT"
     printf 'Codex 集中修复次数：%s/%s\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
+    printf '远程 CI 自动修复次数：%s/%s\n' "${REMOTE_REPAIR_COUNT:-0}" "$VALIDATION_REPAIR_ATTEMPTS"
     printf '版本发布：%s\n' "$RELEASE_STATE"
     printf '远程工作流：%s\n' "${REMOTE_WORKFLOW_STATE:-未执行}"
     [[ -n "$RELEASE_TAG" ]] && printf '版本标签：%s\n' "$RELEASE_TAG"
@@ -471,6 +509,7 @@ run_codex_merge_review() {
 本项目基准：$ORIGIN_REF
 主上游：$PRIMARY_REF
 第二上游：$SECOND_REF
+发布累计基准：${RELEASE_BASE_TAG:-未启用发布}（${RELEASE_BASE_COMMIT:-无}）。除本轮合并外，审查该基准到候选的全部累计差异；报告和风险必须覆盖之前合并但尚未发布的更新。
 
 产品决策：
 1. $PRIMARY_REF 的所有代码和功能都保留并合并，但不得重新引入已退役的批量生图。
@@ -536,7 +575,7 @@ record_check() {
   safe_label="$(printf '%s' "$label" | tr -cs '[:alnum:]_-' '_')"
   # Non-ASCII labels can collapse to the same safe_label. Keep every check and
   # validation pass in its own file so later checks cannot overwrite failures.
-  check_log="$(mktemp "$STATE_DIR/$RUN_ID-check-${safe_label}.XXXXXX.log")"
+  check_log="$(mktemp "$STATE_DIR/$RUN_ID-check-${safe_label}.log.XXXXXX")"
   CURRENT_STAGE="全量验证：$label"
   log "validation check: $label"
   set +e
@@ -635,7 +674,8 @@ run_validation_pass() {
 }
 
 run_codex_validation_repair() {
-  local attempt="$1" prompt_file="$STATE_DIR/$RUN_ID-validation-repair-$attempt.txt"
+  local attempt="$1"
+  local prompt_file="$STATE_DIR/$RUN_ID-validation-repair-$attempt.txt"
   cat > "$prompt_file" <<EOF
 对 sub2api 候选双上游合并执行一次集中修复。本轮必须处理失败清单中的全部问题，不得只修第一个错误。
 
@@ -659,10 +699,14 @@ EOF
     log "Codex repair invocation failed on attempt $attempt"
   fi
   rm -f "$prompt_file"
-  git -C "$WORKTREE" add --all
-  git -C "$WORKTREE" diff --cached --check
+  git -C "$WORKTREE" add --all || return 1
+  git -C "$WORKTREE" diff --cached --check || return 1
   if [[ -n "$(git -C "$WORKTREE" diff --cached --name-only)" ]]; then
-    git -C "$WORKTREE" commit --amend --no-edit >/dev/null
+    if [[ -n "$PUSHED_COMMIT" ]] && git -C "$WORKTREE" merge-base --is-ancestor HEAD "$PUSHED_COMMIT"; then
+      git -C "$WORKTREE" commit -m 'fix: repair remote upstream sync validation' >/dev/null || return 1
+    else
+      git -C "$WORKTREE" commit --amend --no-edit >/dev/null || return 1
+    fi
     CANDIDATE_COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
   else
     log "Codex made no candidate changes on repair attempt $attempt"
@@ -722,11 +766,11 @@ evaluate_release_eligibility() {
     return 0
   fi
 
-  upstream_commits="$(git -C "$REPO_DIR" rev-list --count \
-    "$ORIGIN_HEAD..$PRIMARY_HEAD" "$ORIGIN_HEAD..$SECOND_HEAD")"
-  changed_files="$(git -C "$WORKTREE" diff --name-only "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | sed '/^$/d' | wc -l)"
-  diff_lines="$(git -C "$WORKTREE" diff --numstat "$ORIGIN_HEAD..$CANDIDATE_COMMIT" | \
-    awk '{if ($1 ~ /^[0-9]+$/) added += $1; if ($2 ~ /^[0-9]+$/) removed += $2} END {print added + removed + 0}')"
+  local metrics
+  metrics="$(python3 "$SCRIPT_DIR/../.github/upstream-release-window.py" measure \
+    --repo "$WORKTREE" --baseline "$RELEASE_BASE_COMMIT" --candidate "$CANDIDATE_COMMIT" \
+    --upstream "$PRIMARY_HEAD" --upstream "$SECOND_HEAD")" || fail '累计发布统计失败'
+  read -r upstream_commits changed_files diff_lines <<< "$metrics"
   read -r review_decision risk_count merged_behavior_count ignored_risk_count < <(
     python3 - "$REVIEW_DECISION_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" <<'PY'
 import json
@@ -752,7 +796,7 @@ print(
 PY
   )
 
-  release_check="提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 阻断风险=${risk_count} 忽略环境风险=${ignored_risk_count}"
+  release_check="自 ${RELEASE_BASE_TAG} 累计：提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 阻断风险=${risk_count} 忽略环境风险=${ignored_risk_count}"
   log "release eligibility: $release_check"
   if [[ "$review_decision" != resolved ]]; then
     RELEASE_STATE='不发布'
@@ -804,6 +848,8 @@ prepare_release_notes() {
   CURRENT_STAGE='生成版本说明'
   python3 "$REPO_DIR/.github/render-upstream-sync-review.py" \
     --release-tag "$tag" "$REVIEW_DECISION_FILE" > "$RELEASE_NOTES_FILE"
+  python3 "$SCRIPT_DIR/../.github/upstream-release-window.py" notes --repo "$WORKTREE" \
+    --baseline "$RELEASE_BASE_COMMIT" --candidate "$CANDIDATE_COMMIT" >> "$RELEASE_NOTES_FILE"
   [[ -s "$RELEASE_NOTES_FILE" ]] || fail '版本说明为空，停止发布'
 }
 
@@ -875,6 +921,10 @@ recover_pending_release() {
     return 1
   fi
   [[ -s "$PENDING_RELEASE_NOTES_FILE" ]] || fail '待发布版本说明丢失，拒绝盲目创建版本标签'
+  # A repair can be pushed after the original candidate failed CI. Never retry
+  # or tag that known-broken SHA when the target branch already contains a fix.
+  commit="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
+  cp "$PENDING_RELEASE_NOTES_FILE" "$RELEASE_NOTES_FILE"
   workflow_trigger_state 'Release' "$commit" >/dev/null || return 1
   CURRENT_STAGE='恢复已验证但未完成的 Release'
   RELEASE_TAG="$tag"
@@ -882,9 +932,11 @@ recover_pending_release() {
   RELEASE_REASON="检测到已推送提交 $commit 的版本标签 $tag 尚未完成，恢复 Release 流程"
   PUSHED_COMMIT="$commit"
   wait_for_remote_workflows "$commit"
+  commit="$PUSHED_COMMIT"
+  persist_pending_release "$tag" "$commit"
   remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')"
   [[ -z "$remote_tag" ]] || fail "待发布标签已被远程占用：$tag"
-  git -C "$REPO_DIR" tag -a "$tag" -F "$PENDING_RELEASE_NOTES_FILE" "$commit"
+  git -C "$REPO_DIR" tag -a "$tag" -F "$PENDING_RELEASE_NOTES_FILE" "$commit" || fail "待发布标签创建失败：$tag"
   if ! git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
     git -C "$REPO_DIR" tag -d "$tag" >/dev/null 2>&1 || true
     fail "恢复版本标签推送失败：$tag"
@@ -898,6 +950,7 @@ recover_pending_release() {
 }
 
 main() {
+  local baseline_info no_upstream_updates=false
   require_command git
   require_command docker
   require_command "$CODEX_BIN"
@@ -930,12 +983,28 @@ main() {
 
   if recover_pending_release; then
     log "recovered pending release $RELEASE_TAG successfully"
+    git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH"
+    if [[ "$(git -C "$REPO_DIR" branch --show-current)" == "$TARGET_BRANCH" ]] && \
+      [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]]; then
+      git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
+    fi
+    exit 0
+  fi
+
+  if [[ "$RELEASE_ENABLED" == true ]]; then
+    baseline_info="$(python3 "$SCRIPT_DIR/../.github/upstream-release-window.py" baseline \
+      --repo "$REPO_DIR" --remote "$ORIGIN_REMOTE" --head "$ORIGIN_HEAD")" || fail '无法确认上次成功发布版本，保留累计更新，下次重试'
+    read -r RELEASE_BASE_TAG RELEASE_BASE_COMMIT <<< "$baseline_info"
+    log "cumulative release baseline: $RELEASE_BASE_TAG ($RELEASE_BASE_COMMIT)"
   fi
 
   if git -C "$REPO_DIR" merge-base --is-ancestor "$PRIMARY_HEAD" "$ORIGIN_HEAD" && \
     git -C "$REPO_DIR" merge-base --is-ancestor "$SECOND_HEAD" "$ORIGIN_HEAD"; then
-    log 'no pending updates from either upstream'
-    exit 0
+    no_upstream_updates=true
+    if [[ "$RELEASE_ENABLED" != true || "$RELEASE_BASE_COMMIT" == "$ORIGIN_HEAD" ]]; then
+      log 'no pending upstream or cumulative release updates'
+      exit 0
+    fi
   fi
 
   CURRENT_STAGE='生成双上游候选合并'
@@ -979,6 +1048,10 @@ main() {
     log "release candidate $RELEASE_TAG prepared"
   else
     log "release skipped: $RELEASE_REASON"
+    if [[ "$no_upstream_updates" == true ]]; then
+      write_report '没有上游更新' "$RELEASE_REASON；累计更新保留至下次评估"
+      exit 0
+    fi
   fi
   CURRENT_STAGE='整套验证与 Codex 集中修复'
   run_validation_with_repairs
@@ -1008,7 +1081,7 @@ main() {
     log 'candidate pushed; primary worktree was left unchanged because it has local changes'
   fi
   CURRENT_STAGE='完成'
-  write_report '成功' "两个上游已按规则合并，全部检查通过，代码已一次性推送；$RELEASE_REASON"
+  write_report '成功' "两个上游已按规则合并，全部检查通过，代码已推送；$RELEASE_REASON"
   send_email '【sub2api】双上游代码合并成功报告' "$REPORT_FILE" || \
     log "success email delivery failed; report retained at $REPORT_FILE"
   log "upstream sync completed: $PUSHED_COMMIT"
