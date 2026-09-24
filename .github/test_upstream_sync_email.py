@@ -6,6 +6,7 @@ import unittest
 from email import policy
 from email.parser import BytesParser
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -58,6 +59,8 @@ class SyncEmailTest(unittest.TestCase):
         self.assertIn("0/3 轮", html)
         self.assertIn("overdraft/sub2api-custom", html)
         self.assertNotIn("历史报告排版预览", html)
+        self.assertNotIn("{{REPORT_NAME}}", html)
+        self.assertIn("sub2api · 双上游同步报告</title>", html)
 
     def test_post_push_failure_does_not_claim_code_was_not_pushed(self):
         text = REPORT.replace("失败，未推送", "发布失败，代码已推送")
@@ -107,6 +110,33 @@ Codex 合并审查及共享账号池排除记录
         fallback = BytesParser(policy=policy.default).parsebytes(email_report.compose_message(REPORT, None, "失败", "bot@example.com", "owner@example.com"))
         self.assertEqual(fallback.get_content_type(), "multipart/alternative")
         self.assertIn("TestExample", fallback.get_body(preferencelist=("html",)).get_content())
+
+    def test_remote_ci_failure_and_pending_release_remain_distinct(self):
+        text = REPORT.replace("失败，未推送", "发布失败，代码已推送").replace(
+            "主工作区不干净；请先处理本地修改", "远程 CI 自动修复后仍失败").replace(
+            "已推送版本：未推送", "已推送版本：abcdef1234567")
+        text = text.replace("版本发布：未评估", "远程工作流：失败，自动修复中\n远程 CI 自动修复次数：2/3\n版本发布：待发布\n发布判断：自 v1 累计，提交=5/3 文件=9/8 行=180/150")
+        html = email_report.render_report(text)
+        for value in ("推送后检查失败", "远程 CI / 安全扫描", "2/3 轮", "自 v1 累计", "提交=5/3"):
+            self.assertIn(value, html)
+        self.assertNotIn("版本发布失败</h1>", html)
+        self.assertNotIn("本次候选代码未推送", html)
+        self.assertEqual(email_report.state_tone("已触发发布"), ("#87530d", "#fff8e6"))
+        self.assertEqual(email_report.state_tone("已完成发布"), ("#08775b", "#edf9f4"))
+        self.assertEqual(email_report.state_tone("失败，自动修复中"), ("#b42332", "#fff1f2"))
+
+    def test_placeholder_like_diagnostics_are_literal_and_missing_template_keeps_email(self):
+        text = REPORT.replace('TestExample', '{{CONTENT}} <img src=x onerror=alert(1)>')
+        html = email_report.render_report(text)
+        self.assertIn('{{CONTENT}}', html)
+        self.assertNotIn('<img', html)
+        with patch.object(email_report, 'TEMPLATE', Path('/nonexistent/report-template.html')):
+            message = BytesParser(policy=policy.default).parsebytes(email_report.compose_message(
+                text, None, '失败报告', 'bot@example.com', 'owner@example.com'))
+        self.assertIsNotNone(message.get_body(preferencelist=('plain',)))
+        fallback = message.get_body(preferencelist=('html',)).get_content()
+        self.assertIn('{{CONTENT}}', fallback)
+        self.assertNotIn('<img', fallback)
 
     def test_scheduled_writer_renders_html_and_removes_stale_html_on_error(self):
         # Exercise the production report function without sourcing its main sync,

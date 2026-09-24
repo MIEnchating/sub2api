@@ -14,7 +14,8 @@ from pathlib import Path
 SECTION_TITLES = {
     "具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录", "Codex 合并审查及功能排除记录",
 }
-FONT = "-apple-system,BlinkMacSystemFont,'Segoe UI','PingFang SC','Microsoft YaHei',Arial,sans-serif"
+REVIEW_HEADINGS = {"上游变化", "影响范围", "合并后行为", "冲突处理", "共享账号池排除路径", "批量生图排除路径", "剩余风险"}
+TEMPLATE = Path(__file__).with_name("upstream-sync-email.html")
 
 
 def parse_report(text):
@@ -73,13 +74,16 @@ def rich_text(lines):
             code.append(line)
         elif not stripped:
             flush()
+        elif stripped in REVIEW_HEADINGS or re.match(r"^#{1,6}\s+", stripped):
+            flush()
+            blocks.append('<h3 style="margin:18px 0 10px;font-size:14px;line-height:24px;color:#172b4d;">' + inline(re.sub(r"^#{1,6}\s+", "", stripped)) + '</h3>')
         elif re.match(r"^(?:\d+[.)、]|[-*])\s+", stripped):
             flush()
             match = re.match(r"^(\d+[.)、]|[-*])\s+(.*)", stripped)
             marker, content = match.groups()
             marker = "•" if marker in ("-", "*") else marker.rstrip(".)、")
             inset = 'padding-left:18px;' if line.startswith(" ") else ''
-            blocks.append(f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="margin:0 0 12px;{inset}"><tr><td width="26" valign="top" style="color:#64748b;font-size:12px;line-height:26px;">{escape(marker)}</td><td style="font-size:14px;line-height:26px;overflow-wrap:anywhere;word-break:break-word;">{inline(content)}</td></tr></table>')
+            blocks.append(f'<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="table-layout:fixed;margin:0 0 10px;{inset}"><tr><td width="26" valign="top" style="color:#64748b;font-size:12px;line-height:25px;">{escape(marker)}</td><td style="font-size:14px;line-height:25px;overflow-wrap:anywhere;word-break:break-word;">{inline(content)}</td></tr></table>')
         else:
             paragraph.append(re.sub(r"^#{1,6}\s+", "", stripped))
     flush()
@@ -94,15 +98,31 @@ def plain_report(text):
     return re.sub(r"`([^`\n]+)`", r"\1", text)
 
 
+def state_tone(value):
+    if any(word in value for word in ("失败", "受阻", "超时")):
+        return "#b42332", "#fff1f2"
+    if any(word in value for word in ("进行中", "等待", "修复中", "发布中", "已触发", "待发布")):
+        return "#87530d", "#fff8e6"
+    if any(word in value for word in ("未", "不发布", "跳过", "无须", "没有")):
+        return "#526277", "#f3f6fa"
+    if any(word in value for word in ("通过", "成功", "已推送", "已完成")):
+        return "#08775b", "#edf9f4"
+    return "#526277", "#f3f6fa"
+
+
 def table_rows(rows):
     return ''.join(
-        f'<tr><td width="98" valign="top" style="padding:10px 14px 10px 0;border-bottom:1px solid #edf1f5;color:#64748b;font-size:13px;line-height:22px;">{escape(label)}</td><td valign="top" style="padding:10px 0;border-bottom:1px solid #edf1f5;color:#24364b;font-size:13px;line-height:22px;word-break:break-all;">{escape(value)}</td></tr>'
+        f'<tr><td class="meta-label" width="112" valign="top" style="width:112px;padding:10px 14px 10px 0;border-bottom:1px solid #edf1f5;color:#58697e;font-size:13px;line-height:22px;">{escape(label)}</td><td valign="top" style="padding:10px 0;border-bottom:1px solid #edf1f5;color:#25364a;font-size:13px;line-height:22px;word-break:break-word;overflow-wrap:anywhere;">{escape(value)}</td></tr>'
         for label, value in rows if value
     )
 
 
 def section(title, content):
-    return f'<tr><td class="section" style="padding:0 30px 28px;"><h2 style="margin:0 0 14px;font-size:16px;line-height:24px;font-weight:600;color:#172b4d;">{escape(title)}</h2>{content}</td></tr>'
+    return f'<tr><td class="section" style="padding:0 30px 26px;"><h2 style="margin:0 0 12px;font-size:16px;line-height:24px;font-weight:700;color:#172b4d;">{escape(title)}</h2>{content}</td></tr>'
+
+
+def metadata_table(rows):
+    return '<table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="width:100%;table-layout:fixed;border-collapse:collapse;">' + table_rows(rows) + '</table>'
 
 
 def render_report(text, preview=False):
@@ -113,48 +133,58 @@ def render_report(text, preview=False):
     pushed = data.get("已推送版本", "未记录")
     has_push = bool(re.fullmatch(r"[a-fA-F0-9]{7,64}", pushed))
     color, soft = ("#b42332", "#fff1f2") if failed else (("#08775b", "#edf9f4") if success else ("#315bc8", "#eff4ff"))
-    title = "版本发布失败" if failed and has_push else ("同步失败" if failed else ("同步完成" if success else status))
+    remote_state = data.get("远程工作流", "未执行")
+    release_state = data.get("版本发布", "未评估")
+    release_failure = failed and has_push and "发布" in status and "失败" not in remote_state
+    title = "版本发布失败" if release_failure else ("推送后检查失败" if failed and has_push else ("同步失败" if failed else ("同步完成" if success else status)))
     if failed and "主工作区不干净" in data.get("结论", ""):
         title = "同步受阻"
-    subtitle = "代码已推送，请查看发布结果" if has_push else ("本次候选代码未推送" if pushed == "未推送" else "推送状态未记录")
+    subtitle = "代码已推送，请查看发布结果" if release_failure else ("代码已推送，远程检查与发布结果见下方" if has_push else ("本次候选代码未推送" if pushed == "未推送" else "推送状态未记录"))
     if "测试" in status:
         subtitle = "仅验证通知格式，不代表代码已合并"
     cards = [
-        ("代码推送", "已推送" if has_push else pushed, "#08775b" if has_push else "#475569"),
-        ("全量验证", data.get("全量验证", "未记录"), "#475569"),
-        ("版本发布", data.get("版本发布", "未记录"), "#475569"),
+        ("代码推送", "已推送" if has_push else pushed),
+        ("本地验证", data.get("全量验证", "未记录")),
+        ("远程 CI / 安全扫描", remote_state),
+        ("版本发布", release_state),
     ]
-    cards_html = ''.join(f'<td width="33%" valign="top" style="padding:14px 12px;border:1px solid #e6ecf3;background:#f8fafc;"><div style="font-size:12px;color:#64748b;margin-bottom:7px;">{escape(label)}</div><div style="font-size:14px;font-weight:600;line-height:22px;color:{tone};word-break:break-word;">{escape(value)}</div></td>' for label, value, tone in cards)
-    execution = [("执行时间", data.get("执行时间", "未记录")), ("当前阶段", data.get("失败/当前阶段", "未记录")), ("自动修复", data.get("Codex 集中修复次数", "未记录") + " 轮")]
-    content = section("本次执行", '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + table_rows(execution) + '</table>')
-    for name in ("具体失败原因", "最终失败检查", "Codex 合并审查及共享账号池排除记录", "Codex 合并审查及功能排除记录"):
+    cards_html = ''
+    for index, (label, value) in enumerate(cards):
+        tone, background = state_tone(value)
+        if index % 2 == 0:
+            cards_html += '<tr>'
+        cards_html += f'<td class="card" width="50%" valign="top" style="width:50%;padding:0 4px 8px;"><div style="padding:14px 16px;border:1px solid #e4eaf2;border-radius:6px;background:{background};"><div style="font-size:12px;line-height:20px;color:#58697e;">{escape(label)}</div><div style="margin-top:5px;font-size:14px;font-weight:600;line-height:23px;color:{tone};word-break:break-word;overflow-wrap:anywhere;">{escape(value)}</div></div></td>'
+        if index % 2 == 1:
+            cards_html += '</tr>'
+    execution = [("执行时间", data.get("执行时间", "未记录")), ("当前阶段", data.get("失败/当前阶段", "未记录")), ("本地自动修复", data.get("Codex 集中修复次数", "未记录") + " 轮"), ("远程 CI 修复", data.get("远程 CI 自动修复次数", "未记录") + " 轮")]
+    content = section("本次执行", metadata_table(execution))
+    for name in ("具体失败原因", "最终失败检查"):
         lines = sections.get(name, [])
         if any(line.strip() for line in lines):
-            label = "合并审查与排除记录" if name.startswith("Codex") else name
-            content += section(label, '<div style="font-size:14px;line-height:26px;color:#42536b;">' + rich_text(lines) + '</div>')
+            content += section(name, '<div style="padding:14px 16px;background:#fff1f2;border-left:3px solid #b42332;font-size:14px;line-height:25px;color:#25364a;">' + rich_text(lines) + '</div>')
+    release = [(key, data.get(key, "")) for key in ("版本标签", "发布判断")]
+    if any(value for _, value in release):
+        content += section("发布判断", metadata_table(release))
+    for name in ("Codex 合并审查及共享账号池排除记录", "Codex 合并审查及功能排除记录"):
+        lines = sections.get(name, [])
+        if any(line.strip() for line in lines):
+            content += section("合并审查与排除记录", '<div style="font-size:14px;line-height:25px;color:#42536b;">' + rich_text(lines) + '</div>')
     refs = [(key, data.get(key, "")) for key in ("目标分支", "主上游", "第二上游", "合并前版本", "主上游版本", "第二上游版本", "候选版本")]
     if has_push:
         refs.append(("已推送版本", pushed))
     if any(value for _, value in refs):
-        content += section("同步范围与版本", '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + table_rows(refs) + '</table>')
-    release = [(key, data.get(key, "")) for key in ("版本标签", "发布判断")]
-    if any(value for _, value in release):
-        content += section("发布说明", '<table role="presentation" width="100%" cellspacing="0" cellpadding="0">' + table_rows(release) + '</table>')
-    preview_label = '<div style="padding:12px;background:#fff8df;color:#825b12;font-size:12px;text-align:center;">历史报告排版预览 · 未运行同步或发送邮件</div>' if preview else ''
-    return f'''<!doctype html>
-<html lang="zh-CN"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>sub2api · 双上游同步报告</title>
-<style>@media only screen and (max-width:600px){{.outer{{padding:12px 8px!important}}.section{{padding-left:18px!important;padding-right:18px!important}}}}</style></head>
-<body style="margin:0;background:#edf2f7;font-family:{FONT};color:#24364b;">
-<div style="display:none;font-size:1px;line-height:1px;max-height:0;max-width:0;opacity:0;overflow:hidden;mso-hide:all;">{escape(title + ' · ' + data.get('结论', '')[:160])}</div>
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="background:#edf2f7;"><tr><td class="outer" align="center" style="padding:32px 12px;">
-<table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="max-width:720px;background:#fff;border:1px solid #dde5ef;border-radius:12px;overflow:hidden;">
-<tr><td>{preview_label}</td></tr>
-<tr><td class="section" style="padding:24px 30px;background:#172b4d;color:#fff;"><div style="font-size:20px;font-weight:700;letter-spacing:.3px;">sub2api <span style="font-size:12px;font-weight:400;color:#bdcbe1;">/ 自动同步</span></div><div style="margin-top:6px;font-size:12px;color:#bdcbe1;">双上游同步报告</div></td></tr>
-<tr><td class="section" style="padding:26px 30px 22px;"><span style="display:inline-block;border-radius:5px;padding:5px 9px;font-size:12px;font-weight:600;color:{color};background:{soft};">{escape(status)}</span><h1 style="font-size:27px;line-height:36px;color:#172b4d;margin:13px 0 4px;">{escape(title)}</h1><p style="font-size:13px;line-height:22px;margin:0 0 18px;color:#64748b;">{escape(subtitle)}</p><div style="border-left:3px solid {color};padding:12px 15px;background:{soft};font-size:15px;line-height:26px;color:#24364b;overflow-wrap:anywhere;">{inline(data.get('结论', '请查看下方执行记录'))}</div></td></tr>
-<tr><td class="section" style="padding:0 30px 26px;"><table role="presentation" width="100%" cellpadding="0" cellspacing="0" style="table-layout:fixed;border-collapse:collapse;"><tr>{cards_html}</tr></table></td></tr>
-{content}
-<tr><td class="section" style="padding:20px 30px;background:#f8fafc;border-top:1px solid #e6ecf3;"><div style="font-size:12px;font-weight:600;color:#475569;">完整日志 · 服务器本地路径</div><div style="margin-top:6px;font-family:Consolas,monospace;font-size:11px;line-height:19px;color:#64748b;word-break:break-all;">{escape(data.get('完整日志', '未记录'))}</div><div style="margin-top:14px;font-size:11px;line-height:18px;color:#7b8aa0;">由 Linux 定时同步任务自动生成 · 执行时间以北京时间为准</div></td></tr>
-</table></td></tr></table></body></html>'''
+        content += section("同步范围与版本", metadata_table(refs))
+    values = {
+        "PROJECT": "sub2api", "REPORT_NAME": "双上游同步报告", "TITLE": escape(title),
+        "STATUS": escape(status), "COLOR": color, "SOFT": soft,
+        "SUBTITLE": escape(subtitle), "SUMMARY": inline(data.get('结论', '请查看下方执行记录')),
+        "PREHEADER": escape(title + ' · ' + data.get('结论', '')[:160]),
+        "PREVIEW": '<tr><td style="padding:12px;background:#fff8e6;color:#87530d;font-size:12px;text-align:center;">历史报告排版预览 · 未运行同步或发送邮件</td></tr>' if preview else '',
+        "CARDS": cards_html, "CONTENT": content, "LOG": escape(data.get('完整日志', '未记录')),
+        "FOOTER": "保留主上游与第二上游的审查记录，排除项以本次报告为准。",
+    }
+    # Single pass: diagnostic text resembling a placeholder remains literal.
+    return re.sub(r"\{\{([A-Z_]+)\}\}", lambda match: values[match[1]], TEMPLATE.read_text(encoding="utf-8"))
 
 
 def compose_message(text, html, subject, sender, recipient):
@@ -166,7 +196,11 @@ def compose_message(text, html, subject, sender, recipient):
     message["Message-ID"] = make_msgid()
     message.set_content(plain_report(text), charset="utf-8", cte="quoted-printable")
     if not html or not html.strip():
-        html = render_report(text)
+        try:
+            html = render_report(text)
+        except OSError:
+            # A missing template must not suppress the failure notification.
+            html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="font-family:Arial,sans-serif;color:#25364a;"><h1>sub2api 双上游同步报告</h1><pre style="white-space:pre-wrap;word-break:break-all;">' + escape(plain_report(text)) + '</pre></body></html>'
     message.add_alternative(html, subtype="html", charset="utf-8", cte="quoted-printable")
     return message.as_bytes()
 
