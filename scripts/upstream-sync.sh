@@ -309,10 +309,10 @@ wait_for_release_workflow() {
   local tag="$1" commit="$2" repo release_json
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   CURRENT_STAGE='等待远程 Release 工作流'
-  wait_for_remote_workflow 'Release' "$commit" 'Release' "$tag" || fail "远程 Release 工作流未通过或超时（标签 $tag）"
+  wait_for_remote_workflow 'Release' "$commit" 'Release' "$tag" || fail "远程 Release 工作流未通过或超时（标签 ${tag}）"
   release_json="$(gh release view "$tag" --repo "$repo" --json isDraft,isPrerelease,assets 2>/dev/null || true)"
   python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if not d.get("isDraft") and not d.get("isPrerelease") and d.get("assets") else 1)' <<< "$release_json" || \
-    fail "远程 Release 工作流虽结束，但正式 Release 或资产未确认（标签 $tag）"
+    fail "远程 Release 工作流虽结束，但正式 Release 或资产未确认（标签 ${tag}）"
   RELEASE_STATE='已完成发布'
   REMOTE_WORKFLOW_STATE='CI、安全扫描与 Release 全部通过'
 }
@@ -425,9 +425,9 @@ on_error() {
   FAILED_COMMAND="$command"
   log "FAILED at line $line during $CURRENT_STAGE: $command"
   if [[ -n "$PUSHED_COMMIT" ]]; then
-    notify_failure "$CURRENT_STAGE 失败（状态码 $exit_code），主分支代码已推送但版本发布未完成"
+    notify_failure "$CURRENT_STAGE 失败（状态码 ${exit_code}），主分支代码已推送但版本发布未完成"
   else
-    notify_failure "$CURRENT_STAGE 失败（状态码 $exit_code），候选代码未推送"
+    notify_failure "$CURRENT_STAGE 失败（状态码 ${exit_code}），候选代码未推送"
   fi
   exit "$exit_code"
 }
@@ -530,7 +530,7 @@ run_codex_merge_review() {
 - excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 - 这是第 $attempt/$REVIEW_REPAIR_ATTEMPTS 轮集中冲突修复。若上一轮已修改工作树，必须继续逐文件核对并修复，不要仅返回 blocked。
-- 严格遵守 $REPO_DIR/.github/upstream-sync-decision-schema.json 的字段和类型；上一轮输出与校验错误见 $STATE_DIR/$RUN_ID-review-decision-* 和 $LOG_FILE。输出结构错误也要自行修复，只有结构完整且冲突已解决才能通过外层检查。
+- 严格遵守 $REPO_DIR/.github/upstream-sync-decision-schema.json 的字段和类型；上一轮输出与校验错误见 $STATE_DIR/$RUN_ID-review-decision-* 和 ${LOG_FILE}。输出结构错误也要自行修复，只有结构完整且冲突已解决才能通过外层检查。
 EOF
     log "running Codex merge review: $phase (attempt $attempt/$REVIEW_REPAIR_ATTEMPTS)"
     if ! "$CODEX_BIN" exec --ephemeral --sandbox workspace-write --color never \
@@ -683,8 +683,8 @@ run_codex_validation_repair() {
 完整日志：$LOG_FILE
 本轮全量失败清单：$VALIDATION_FAILURES_FILE
 这是第 $attempt/$VALIDATION_REPAIR_ATTEMPTS 次集中修复。
-主上游：$PRIMARY_REF（保留全部非退役功能）
-第二上游：$SECOND_REF（除共享账号池和批量生图外全部保留）
+主上游：${PRIMARY_REF}（保留全部非退役功能）
+第二上游：${SECOND_REF}（除共享账号池和批量生图外全部保留）
 
 要求：
 1. 先读取失败清单中每个检查的独立日志，归纳共同原因后一次性修复全部可修问题。
@@ -800,29 +800,29 @@ PY
   log "release eligibility: $release_check"
   if [[ "$review_decision" != resolved ]]; then
     RELEASE_STATE='不发布'
-    RELEASE_REASON="自动审查未确认更新可安全发布（$release_check）"
+    RELEASE_REASON="自动审查未确认更新可安全发布（${release_check}）"
     return 0
   fi
   if [[ "$RELEASE_REQUIRE_NO_RISKS" == true && "$risk_count" != 0 ]]; then
     RELEASE_STATE='不发布'
-    RELEASE_REASON="自动审查仍有未消除风险（$release_check）"
+    RELEASE_REASON="自动审查仍有未消除风险（${release_check}）"
     return 0
   fi
   if (( merged_behavior_count == 0 )); then
     RELEASE_STATE='不发布'
-    RELEASE_REASON="审查报告没有确认合并后的实际行为（$release_check）"
+    RELEASE_REASON="审查报告没有确认合并后的实际行为（${release_check}）"
     return 0
   fi
   if (( upstream_commits < RELEASE_MIN_UPSTREAM_COMMITS ||
     changed_files < RELEASE_MIN_CHANGED_FILES ||
     diff_lines < RELEASE_MIN_DIFF_LINES )); then
     RELEASE_STATE='不发布'
-    RELEASE_REASON="上游更新量未达到发布阈值（$release_check）"
+    RELEASE_REASON="上游更新量未达到发布阈值（${release_check}）"
     return 0
   fi
 
   RELEASE_STATE='待发布'
-  RELEASE_REASON="更新量和兼容审查均达到发布条件（$release_check）"
+  RELEASE_REASON="更新量和兼容审查均达到发布条件（${release_check}）"
 }
 
 next_release_tag() {
@@ -870,7 +870,7 @@ publish_release() {
     if git -C "$WORKTREE" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
       RELEASE_TAG="$tag"
       RELEASE_STATE='已触发发布'
-      RELEASE_REASON="版本标签已推送，GitHub 发布工作流已触发（提交 $release_commit）"
+      RELEASE_REASON="版本标签已推送，GitHub 发布工作流已触发（提交 ${release_commit}）"
       return 0
     fi
     git -C "$WORKTREE" tag -d "$tag" >/dev/null 2>&1 || true
@@ -1049,7 +1049,7 @@ main() {
   else
     log "release skipped: $RELEASE_REASON"
     if [[ "$no_upstream_updates" == true ]]; then
-      write_report '没有上游更新' "$RELEASE_REASON；累计更新保留至下次评估"
+      write_report '没有上游更新' "${RELEASE_REASON}；累计更新保留至下次评估"
       exit 0
     fi
   fi
