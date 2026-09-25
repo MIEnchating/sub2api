@@ -61,6 +61,42 @@ def pick_advisory_id(advisory: dict) -> str | None:
     )
 
 
+def validate_vulnerability_entries(data: dict):
+    allowed_severities = {"info", "low", "moderate", "high", "critical"}
+    for key in ("advisories", "vulnerabilities"):
+        for name, entry in data.get(key, {}).items():
+            if not isinstance(entry, dict):
+                raise ValueError(f"{key}.{name}: expected an object")
+            package = (entry.get("module_name") or entry.get("name")) if key == "advisories" else name
+            severity = entry.get("severity")
+            if not isinstance(package, str) or not package.strip():
+                raise ValueError(f"{key}.{name}: missing package name")
+            if not isinstance(severity, str) or severity.strip().lower() not in allowed_severities:
+                raise ValueError(f"{key}.{name}: missing or invalid severity")
+            if key == "advisories":
+                cves = entry.get("cves")
+                if cves is not None and (
+                    not isinstance(cves, list) or any(not isinstance(cve, str) for cve in cves)
+                ):
+                    raise ValueError(f"{key}.{name}: malformed CVE identifiers")
+                continue
+            via = entry.get("via")
+            if isinstance(via, str):
+                via = [via]
+            if not isinstance(via, list) or not via:
+                raise ValueError(f"{key}.{name}: missing advisory references")
+            for item in via:
+                advisory_id = None
+                if isinstance(item, dict):
+                    advisory_id = (item.get("github_advisory_id") or item.get("url")
+                                   or item.get("source") or item.get("title") or item.get("name"))
+                elif isinstance(item, str):
+                    advisory_id = item
+                if (not isinstance(advisory_id, (str, int)) or isinstance(advisory_id, bool)
+                        or not str(advisory_id).strip()):
+                    raise ValueError(f"{key}.{name}: malformed advisory reference")
+
+
 def iter_vulns(data: dict):
     # 兼容 pnpm audit 的不同输出结构（advisories / vulnerabilities），并提取 advisory 标识。
     advisories = data.get("advisories")
@@ -106,7 +142,7 @@ def iter_vulns(data: dict):
             elif isinstance(via, str):
                 advisories.append(via)
                 titles.append(via)
-            title = "; ".join([t for t in titles if t])
+            title = "; ".join(str(t) for t in titles if t)
             for advisory_id in [a for a in advisories if a]:
                 yield name, severity, advisory_id, title
 
@@ -145,8 +181,29 @@ def main() -> int:
     parser.add_argument("--exceptions", required=True)
     args = parser.parse_args()
 
-    with open(args.audit, "r", encoding="utf-8") as handle:
-        audit = json.load(handle)
+    try:
+        with open(args.audit, "r", encoding="utf-8") as handle:
+            audit = json.load(handle)
+    except (OSError, json.JSONDecodeError) as error:
+        print(f"Invalid audit report: {error}", file=sys.stderr)
+        return 1
+
+    # pnpm emits an error object when the registry cannot complete an audit.
+    # Such a response is not evidence that the dependency tree is safe.
+    if not isinstance(audit, dict) or "error" in audit:
+        print("Invalid audit report: audit did not complete successfully", file=sys.stderr)
+        return 1
+    report_keys = ("advisories", "vulnerabilities")
+    if not any(key in audit for key in report_keys) or any(
+        key in audit and not isinstance(audit[key], dict) for key in report_keys
+    ):
+        print("Invalid audit report: missing or malformed vulnerability results", file=sys.stderr)
+        return 1
+    try:
+        validate_vulnerability_entries(audit)
+    except ValueError as error:
+        print(f"Invalid audit report: {error}", file=sys.stderr)
+        return 1
 
     # 读取异常清单并建立索引，便于快速匹配包名 + advisory。
     exceptions = parse_exceptions(args.exceptions)

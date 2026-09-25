@@ -1471,9 +1471,9 @@ func (s *SchedulerSnapshotService) loadAccountsFromDB(ctx context.Context, bucke
 		return nil, ErrSchedulerCacheNotReady
 	}
 	groupID := bucket.GroupID
-	if s.isRunModeSimple() {
-		groupID = 0
-	}
+	// New simple-mode requests are normalized to group zero by bucketFor.
+	// Historical positive-group buckets must keep their account boundary when
+	// rebuilding; filling them with global accounts would poison grouped caches.
 
 	if useMixed {
 		platforms := []string{bucket.Platform, PlatformAntigravity}

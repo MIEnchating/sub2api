@@ -18,6 +18,13 @@ func TestCodexTurnMetadataRewritePreservesHeaderSafeJSON(t *testing.T) {
 	rewriters := map[string]func(*testing.T, string) string{
 		"account_header": func(t *testing.T, raw string) string {
 			h := make(http.Header)
+			h.Set("User-Agent", "codex_cli_rs/0.144.0")
+			h.Set(openAIWSTurnMetadataHeader, raw)
+			applyCodexAccountIdentityHeaders(h, account, 77)
+			return h.Get(openAIWSTurnMetadataHeader)
+		},
+		"account_header_without_user_agent": func(t *testing.T, raw string) string {
+			h := make(http.Header)
 			h.Set(openAIWSTurnMetadataHeader, raw)
 			applyCodexAccountIdentityHeaders(h, account, 77)
 			return h.Get(openAIWSTurnMetadataHeader)

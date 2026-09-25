@@ -1040,6 +1040,8 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	delete(updates, OllamaCloudUsageSessionExtraKey)
 	delete(updates, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(updates, OllamaCloudUsageSnapshotExtraKey)
+	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)
+	delete(updates, OpenCodeGoUsageSnapshotExtraKey)
 
 	// Extra key updates are used by several background jobs and may receive a
 	// stale form payload. Protection transitions have dedicated endpoints; keep
@@ -1073,8 +1075,6 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 		}
 		updates = normalized
 	}
-	delete(updates, OpenCodeGoUsageAutoRefreshExtraKey)
-	delete(updates, OpenCodeGoUsageSnapshotExtraKey)
 	if _, exists := updates[openAILongContextBillingEnabledKey]; exists {
 		account, err := s.accountRepo.GetByID(ctx, id)
 		if err != nil {
@@ -1123,6 +1123,8 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 	delete(input.Extra, OllamaCloudUsageSessionExtraKey)
 	delete(input.Extra, OllamaCloudUsageAutoRefreshExtraKey)
 	delete(input.Extra, OllamaCloudUsageSnapshotExtraKey)
+	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
+	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
 	_, updatesUpstreamBillingRateLimit := input.Extra[UpstreamBillingRateLimitExtraKey]
 	if err := normalizeUpstreamBillingRateLimitExtra(PlatformOpenAI, AccountTypeAPIKey, input.Extra); err != nil {
 		return nil, err
@@ -1139,8 +1141,6 @@ func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUp
 		}
 		input.Extra = normalized
 	}
-	delete(input.Extra, OpenCodeGoUsageAutoRefreshExtraKey)
-	delete(input.Extra, OpenCodeGoUsageSnapshotExtraKey)
 
 	if len(input.AccountIDs) == 0 && input.Filters != nil {
 		accountIDs, err := s.resolveBulkUpdateTargetIDs(ctx, input.Filters)
