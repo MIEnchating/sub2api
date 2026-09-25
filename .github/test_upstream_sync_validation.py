@@ -173,12 +173,15 @@ class ReleaseWindowTest(unittest.TestCase):
             ORIGIN_REMOTE='origin', ORIGIN_REF='origin/main', TARGET_BRANCH='main', RELEASE_ENABLED='true',
             PENDING_RELEASE_FILE=str(pending), PENDING_RELEASE_NOTES_FILE=str(pending_notes),
             RELEASE_NOTES_FILE=str(state / 'notes'), REPORT_FILE=str(state / 'report'),
-            HTML_REPORT_FILE=str(state / 'report.html'), EXPECTED_COMMIT=repaired, EXPECTED_TAG=tag)
+            HTML_REPORT_FILE=str(state / 'report.html'), EXPECTED_COMMIT=repaired, EXPECTED_TAG=tag,
+            WORKTREE_CREATED='true', VALIDATION_FAILURES_FILE=str(state / 'failures'), WORKTREE=str(self.repo))
         command = '''set -eu
 log() { :; }
 fail() { echo "$*" >&2; exit 9; }
 abort_sync() { fail "$@"; }
 pending_release_tag() { echo "$EXPECTED_TAG"; }
+release_is_complete() { return 1; }
+run_validation_command() { :; }
 workflow_trigger_state() { return 0; }
 persist_pending_release() { :; }
 clear_pending_release() { :; }
@@ -232,7 +235,7 @@ if os.environ['REPAIR_MODE'] != 'nochange':
         codex.chmod(0o755)
         shell = SCRIPT.read_text()
         functions = '\n'.join(name + '() {' + shell.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
-            for name in ['wait_for_remote_workflows', 'run_codex_validation_repair'])
+            for name in ['wait_for_remote_workflows', 'repair_remote_candidate', 'run_codex_validation_repair'])
         for mode in ['success', 'nochange', 'validation_failure', 'concurrent', 'exhausted']:
             with self.subTest(mode=mode):
                 case_repo = self.root / mode

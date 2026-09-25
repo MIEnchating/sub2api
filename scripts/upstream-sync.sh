@@ -212,7 +212,7 @@ wait_for_remote_workflow() {
     log "$label workflow has no push trigger for commit $commit; local validation and the release preflight remain the gates"
     return 2
   fi
-  local retries=0 deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
+  local retries=0 rerun_id='' rerun_attempt=0 observed_attempt=0 attempt_info='' attempt_status='' attempt_conclusion='' deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while (( SECONDS < deadline )); do
     local -a run_args=(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
@@ -233,13 +233,29 @@ if matching:
 ' "$commit")"
     if [[ -n "$run_info" ]]; then
       read -r run_id status conclusion <<< "$run_info"
+      if [[ "$run_id" == "$rerun_id" ]]; then
+        attempt_info="$(gh api "repos/$repo/actions/runs/$run_id" --jq '[.run_attempt, .status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
+        read -r observed_attempt attempt_status attempt_conclusion <<< "$attempt_info"
+        if [[ ! "$observed_attempt" =~ ^[0-9]+$ ]] || (( observed_attempt <= rerun_attempt )); then
+          sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
+          continue
+        fi
+        # Status and attempt must come from the same response; run-list can lag.
+        status="$attempt_status"
+        conclusion="$attempt_conclusion"
+      fi
       log "$label workflow $run_id: $status ${conclusion:-}"
       if [[ "$status" == completed ]]; then
         if [[ "$conclusion" == success ]]; then return 0; fi
         if (( retries < REMOTE_WORKFLOW_RETRY_ATTEMPTS )); then
           retries=$((retries + 1))
           log "$label workflow failed; rerunning failed jobs ($retries/$REMOTE_WORKFLOW_RETRY_ATTEMPTS)"
-          gh run rerun "$run_id" --repo "$repo" --failed >/dev/null
+          rerun_id="$run_id"
+          rerun_attempt="$(gh api "repos/$repo/actions/runs/$run_id" --jq .run_attempt)" || return 1
+          if ! gh run rerun "$run_id" --repo "$repo" --failed >/dev/null; then
+            REMOTE_FAILED_RUN_ID="$run_id"
+            return 1
+          fi
         else
           REMOTE_FAILED_RUN_ID="$run_id"
           return 1
@@ -254,7 +270,7 @@ if matching:
 }
 
 wait_for_remote_workflows() {
-  local commit="$1" result skipped=0 workflow repo check_log remote_head
+  local commit="$1" result skipped=0 workflow repo check_log
   CURRENT_STAGE='等待远程 CI 与安全扫描'
   REMOTE_WORKFLOW_STATE='等待中'
   require_command gh
@@ -274,29 +290,8 @@ wait_for_remote_workflows() {
       printf '%s（提交 %s，日志：%s）\n' "$workflow" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
     done
     [[ -s "$VALIDATION_FAILURES_FILE" ]] || break
-    REMOTE_WORKFLOW_STATE='失败，自动修复中'
-    (( REMOTE_REPAIR_COUNT < VALIDATION_REPAIR_ATTEMPTS )) || fail '远程检查经过集中修复后仍失败，详见失败作业日志'
-    git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH" || fail '无法获取远程修复基准'
-    remote_head="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
-    [[ "$remote_head" == "$commit" ]] || fail '远程主分支已有并发更新，保留候选，不覆盖其他提交'
-    if [[ "$WORKTREE_CREATED" != true ]]; then
-      git -C "$REPO_DIR" worktree add -b "$SYNC_BRANCH" "$WORKTREE" "$commit" || fail '无法创建远程修复工作树'
-      WORKTREE_CREATED=true
-    fi
-    [[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$commit" ]] || fail '远程修复工作树不匹配已推送提交'
-    REMOTE_REPAIR_COUNT=$((REMOTE_REPAIR_COUNT + 1))
-    CANDIDATE_COMMIT="$commit"
-    run_codex_validation_repair "$REMOTE_REPAIR_COUNT" || fail '远程检查修复失败'
-    [[ "$CANDIDATE_COMMIT" != "$commit" ]] || fail '远程错误无法安全自动修复，已保留具体失败日志'
-    run_validation_with_repairs
-    [[ "$VALIDATION_SUCCEEDED" == true ]] || fail '远程修复后的完整本地验证仍未通过'
-    [[ -z "$(git -C "$WORKTREE" status --porcelain=v1)" ]] || fail '远程修复验证后工作树不干净'
-    git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH" || fail '远程修复推送失败，保留候选'
-    commit="$(git -C "$WORKTREE" rev-parse HEAD)"
-    PUSHED_COMMIT="$commit"
-    if [[ -n "$RELEASE_TAG" && -s "$RELEASE_NOTES_FILE" ]]; then
-      persist_pending_release "$RELEASE_TAG" "$commit"
-    fi
+    repair_remote_candidate "$commit"
+    commit="$PUSHED_COMMIT"
   done
   if (( skipped == 0 )); then
     REMOTE_WORKFLOW_STATE='CI 与安全扫描通过'
@@ -305,16 +300,121 @@ wait_for_remote_workflows() {
   fi
 }
 
-wait_for_release_workflow() {
-  local tag="$1" commit="$2" repo release_json
+repair_remote_candidate() {
+  local commit="$1" remote_head
+  REMOTE_WORKFLOW_STATE='失败，自动修复中'
+  (( REMOTE_REPAIR_COUNT < VALIDATION_REPAIR_ATTEMPTS )) || fail '远程检查经过集中修复后仍失败，详见失败作业日志'
+  git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH" || fail '无法获取远程修复基准'
+  remote_head="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
+  [[ "$remote_head" == "$commit" ]] || fail '远程主分支已有并发更新，保留候选，不覆盖其他提交'
+  if [[ "$WORKTREE_CREATED" != true ]]; then
+    git -C "$REPO_DIR" worktree add -b "$SYNC_BRANCH" "$WORKTREE" "$commit" || fail '无法创建远程修复工作树'
+    WORKTREE_CREATED=true
+  fi
+  [[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$commit" ]] || fail '远程修复工作树不匹配已推送提交'
+  REMOTE_REPAIR_COUNT=$((REMOTE_REPAIR_COUNT + 1))
+  CANDIDATE_COMMIT="$commit"
+  run_codex_validation_repair "$REMOTE_REPAIR_COUNT" || fail '远程检查修复失败'
+  [[ "$CANDIDATE_COMMIT" != "$commit" ]] || fail '远程错误无法安全自动修复，已保留具体失败日志'
+  run_validation_with_repairs
+  [[ "$VALIDATION_SUCCEEDED" == true ]] || fail '远程修复后的完整本地验证仍未通过'
+  [[ -z "$(git -C "$WORKTREE" status --porcelain=v1)" ]] || fail '远程修复验证后工作树不干净'
+  git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH" || fail '远程修复推送失败，保留候选'
+  commit="$(git -C "$WORKTREE" rev-parse HEAD)"
+  PUSHED_COMMIT="$commit"
+  if [[ -n "$RELEASE_TAG" && -s "$RELEASE_NOTES_FILE" ]]; then
+    persist_pending_release "$RELEASE_TAG" "$commit"
+  fi
+}
+
+release_is_published() {
+  local tag="$1" repo response error_file
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
-  CURRENT_STAGE='等待远程 Release 工作流'
-  wait_for_remote_workflow 'Release' "$commit" 'Release' "$tag" || fail "远程 Release 工作流未通过或超时（标签 ${tag}）"
-  release_json="$(gh release view "$tag" --repo "$repo" --json isDraft,isPrerelease,assets 2>/dev/null || true)"
-  python3 -c 'import json,sys; d=json.load(sys.stdin); raise SystemExit(0 if not d.get("isDraft") and not d.get("isPrerelease") and d.get("assets") else 1)' <<< "$release_json" || \
-    fail "远程 Release 工作流虽结束，但正式 Release 或资产未确认（标签 ${tag}）"
+  error_file="$(mktemp "$STATE_DIR/$RUN_ID-release-api.XXXXXX")"
+  if response="$(gh api "repos/$repo/releases/tags/$tag" 2>"$error_file")"; then
+    python3 -c 'import json,sys; d=json.load(sys.stdin); sys.exit(0 if not d.get("draft") and not d.get("prerelease") and d.get("published_at") and d.get("assets") else 1)' <<< "$response"
+    return $?
+  fi
+  if grep -q 'HTTP 404' "$error_file"; then return 1; fi
+  cat "$error_file" >&2
+  return 2
+}
+
+release_is_complete() {
+  local tag="$1" repo workflow rows result
+  if release_is_published "$tag"; then :; else return $?; fi
+  repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+  for workflow in 'Release'; do
+    if workflow_trigger_state "$workflow" "$ORIGIN_REMOTE/$TARGET_BRANCH"; then :; else
+      result=$?
+      if (( result == 2 )) && [[ "$workflow" != 'Release' ]]; then continue; fi
+      return 1
+    fi
+    rows="$(gh run list --repo "$repo" --workflow "$workflow" --branch "$tag" --limit 1 --json status,conclusion)" || return 2
+    python3 -c 'import json,sys; rows=json.load(sys.stdin); sys.exit(0 if rows and rows[0]["status"] == "completed" and rows[0]["conclusion"] == "success" else 1)' <<< "$rows" || return 1
+  done
+}
+
+wait_for_release_workflow() {
+  local tag="$1" commit="$2" repo check_log base_commit old_tag result
+  repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
+  while true; do
+    CURRENT_STAGE='等待远程 Release 工作流'
+    : > "$VALIDATION_FAILURES_FILE"
+    local workflow failed=false unconfirmed=false
+    for workflow in 'Release'; do
+      if wait_for_remote_workflow "$workflow" "$commit" "$workflow" "$tag"; then continue; else result=$?; fi
+      if (( result == 2 )) && [[ "$workflow" != 'Release' ]]; then continue; fi
+      failed=true
+      check_log="$(mktemp "$STATE_DIR/$RUN_ID-release-failure.log.XXXXXX")"
+      if [[ -n "$REMOTE_FAILED_RUN_ID" ]]; then
+        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || fail '无法获取 Release 失败日志，保留状态下次重试'
+      else
+        unconfirmed=true
+        printf '%s %s 尚未确认完成或等待超时。\n' "$workflow" "$tag" > "$check_log"
+      fi
+      printf '%s %s（提交 %s，日志：%s）\n' "$workflow" "$tag" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
+    done
+    if [[ "$failed" == false ]]; then
+      if release_is_published "$tag"; then break; else result=$?; fi
+      (( result != 2 )) || fail '无法确认 Release 资产，保留待发布状态，下次重试'
+      check_log="$(mktemp "$STATE_DIR/$RUN_ID-release-assets.log.XXXXXX")"
+      printf 'Release %s 工作流成功，但正式 Release 缺失、仍为草稿/预发布或没有资产。请检查发布步骤与产物上传配置。\n' "$tag" > "$check_log"
+      gh api "repos/$repo/releases/tags/$tag" >> "$check_log" 2>&1 || true
+      printf 'Release 资产校验 %s（提交 %s，日志：%s）\n' "$tag" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
+    fi
+    [[ "$unconfirmed" == false ]] || fail 'Release 尚未确认结束，保留标签和状态，下次继续检查'
+    (( REMOTE_REPAIR_COUNT < VALIDATION_REPAIR_ATTEMPTS )) || fail 'Release 自动修复次数已耗尽，保留失败日志和待发布状态'
+    git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH" || fail '无法获取发布修复基准'
+    base_commit="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
+    git -C "$REPO_DIR" merge-base --is-ancestor "$commit" "$base_commit" || fail '失败标签不属于当前主分支，拒绝自动修复'
+    if [[ "$WORKTREE_CREATED" == true ]]; then
+      [[ "$(git -C "$WORKTREE" rev-parse HEAD)" == "$base_commit" ]] || fail '远程主分支已有并发更新，保留候选'
+    else
+      git -C "$REPO_DIR" worktree add -b "$SYNC_BRANCH" "$WORKTREE" "$base_commit" || fail '无法创建发布修复工作树'
+      WORKTREE_CREATED=true
+    fi
+    old_tag="$tag"
+    tag="$(next_release_tag)" || fail '无法分配新的发布版本号'
+    RELEASE_TAG="$tag"
+    PUSHED_COMMIT="$base_commit"
+    [[ -s "$RELEASE_NOTES_FILE" ]] || fail '待发布版本说明丢失'
+    python3 - "$RELEASE_NOTES_FILE" "$old_tag" "$tag" <<'PYNOTES'
+from pathlib import Path
+import sys
+path = Path(sys.argv[1])
+path.write_text(path.read_text().replace(sys.argv[2], sys.argv[3]))
+PYNOTES
+    # The repair appends a commit, validates everything and pushes normally.
+    repair_remote_candidate "$base_commit"
+    wait_for_remote_workflows "$PUSHED_COMMIT"
+    commit="$PUSHED_COMMIT"
+    publish_release "$tag"
+    tag="$RELEASE_TAG"
+  done
+  RELEASE_TAG="$tag"
   RELEASE_STATE='已完成发布'
-  REMOTE_WORKFLOW_STATE='CI、安全扫描与 Release 全部通过'
+  REMOTE_WORKFLOW_STATE='适用 CI、安全扫描与 Release 全部通过'
 }
 
 write_report() {
@@ -687,7 +787,7 @@ run_codex_validation_repair() {
 第二上游：${SECOND_REF}（除共享账号池和批量生图外全部保留）
 
 要求：
-1. 先读取失败清单中每个检查的独立日志，归纳共同原因后一次性修复全部可修问题。
+1. 先读取失败清单中每个检查的独立日志，归纳共同原因后一次性修复全部可修问题，包括 Release 工作流、打包和发布元数据。
 2. 按 docs/UPSTREAM_EXCLUSIONS.md 保留两个上游的非排除功能；不得重新引入共享账号池或批量生图；保留历史数据库迁移和校验和兼容记录。
 3. 保留本项目权限、计费、数据库兼容、账号调度、日志隐私和测试不变量。
 4. 可运行针对性检查辅助定位，但外层脚本会在修复结束后重新执行整套验证。
@@ -834,7 +934,7 @@ next_release_tag() {
     if git -C "$REPO_DIR" show-ref --verify --quiet "refs/tags/$candidate"; then
       continue
     fi
-    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$candidate" | awk 'NR == 1 {print $1}')"
+    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$candidate" | awk 'NR == 1 {print $1}')" || return 1
     if [[ -z "$remote_tag" ]]; then
       printf '%s' "$candidate"
       return 0
@@ -858,12 +958,14 @@ publish_release() {
   CURRENT_STAGE='推送版本标签'
   RELEASE_STATE='发布中'
   release_commit="$(git -C "$WORKTREE" rev-parse HEAD)"
+  persist_pending_release "$tag" "$release_commit"
   for attempt in 1 2 3; do
     remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" "refs/tags/$tag^{}" | awk 'NR == 1 {print $1}')"
     if [[ -n "$remote_tag" ]]; then
       log "release tag $tag was claimed concurrently; selecting the next available date tag"
       tag="$(next_release_tag)" || return 1
       prepare_release_notes "$tag"
+      persist_pending_release "$tag" "$release_commit"
       continue
     fi
     git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit"
@@ -877,6 +979,7 @@ publish_release() {
     git -C "$REPO_DIR" fetch --tags "$ORIGIN_REMOTE" >/dev/null 2>&1 || true
     tag="$(next_release_tag)" || return 1
     prepare_release_notes "$tag"
+    persist_pending_release "$tag" "$release_commit"
     log "release tag push failed; retrying with $tag (attempt $((attempt + 1))/3)"
   done
   return 1
@@ -899,8 +1002,9 @@ clear_pending_release() {
 }
 
 recover_pending_release() {
-  local tag='' commit='' key value remote_tag
+  local tag='' commit='' key value remote_tag result local_tag
   local tag_pattern='^v[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$'
+  [[ "${DRY_RUN:-false}" != true && "$RELEASE_ENABLED" == true ]] || return 1
   [[ -s "$PENDING_RELEASE_FILE" ]] || return 1
   while IFS='=' read -r key value; do
     case "$key" in
@@ -910,10 +1014,12 @@ recover_pending_release() {
   done < "$PENDING_RELEASE_FILE"
   [[ "$tag" =~ $tag_pattern ]] || fail '待发布状态中的版本标签无效'
   [[ "$commit" =~ ^[0-9a-f]{40}$ ]] || fail '待发布状态中的提交无效'
-  if git -C "$REPO_DIR" ls-remote --exit-code "$ORIGIN_REMOTE" "refs/tags/$tag" >/dev/null 2>&1; then
-    log "pending release $tag already has a remote tag; clearing stale recovery state"
+  if release_is_complete "$tag"; then
     clear_pending_release
     return 1
+  else
+    result=$?
+    (( result == 1 )) || fail '无法确认待发布状态，保留状态下次重试'
   fi
   if ! git -C "$REPO_DIR" merge-base --is-ancestor "$commit" "$ORIGIN_REF"; then
     log "pending release $tag references a commit not present on $ORIGIN_REF; clearing stale recovery state"
@@ -930,18 +1036,30 @@ recover_pending_release() {
   RELEASE_TAG="$tag"
   RELEASE_STATE='发布中'
   RELEASE_REASON="检测到已推送提交 $commit 的版本标签 $tag 尚未完成，恢复 Release 流程"
-  PUSHED_COMMIT="$commit"
-  wait_for_remote_workflows "$commit"
-  commit="$PUSHED_COMMIT"
-  persist_pending_release "$tag" "$commit"
-  remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')"
-  [[ -z "$remote_tag" ]] || fail "待发布标签已被远程占用：$tag"
-  git -C "$REPO_DIR" tag -a "$tag" -F "$PENDING_RELEASE_NOTES_FILE" "$commit" || fail "待发布标签创建失败：$tag"
-  if ! git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
-    git -C "$REPO_DIR" tag -d "$tag" >/dev/null 2>&1 || true
-    fail "恢复版本标签推送失败：$tag"
+  remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag")" || fail '无法查询远程标签'
+  if [[ -n "$remote_tag" ]]; then
+    git -C "$REPO_DIR" fetch --no-tags "$ORIGIN_REMOTE" "refs/tags/$tag" || fail '无法读取待发布标签'
+    commit="$(git -C "$REPO_DIR" rev-parse 'FETCH_HEAD^{commit}')"
+    PUSHED_COMMIT="$commit"
+    wait_for_release_workflow "$tag" "$commit"
+  else
+    PUSHED_COMMIT="$commit"
+    wait_for_remote_workflows "$commit"
+    commit="$PUSHED_COMMIT"
+    persist_pending_release "$tag" "$commit"
+    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')"
+    [[ -z "$remote_tag" ]] || fail "待发布标签已被远程占用：$tag"
+    if local_tag="$(git -C "$REPO_DIR" rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null)"; then
+      [[ "$local_tag" == "$commit" ]] || fail '本地标签指向其他提交，拒绝覆盖'
+    else
+      git -C "$REPO_DIR" tag -a "$tag" -F "$PENDING_RELEASE_NOTES_FILE" "$commit" || fail "待发布标签创建失败：$tag"
+    fi
+    if ! git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
+      git -C "$REPO_DIR" tag -d "$tag" >/dev/null 2>&1 || true
+      fail "恢复版本标签推送失败：$tag"
+    fi
+    wait_for_release_workflow "$tag" "$commit"
   fi
-  wait_for_release_workflow "$tag" "$commit"
   clear_pending_release
   write_report '成功' "已恢复已验证提交的 Release，版本标签 $tag 发布完成"
   send_email '【sub2api】中断 Release 恢复成功报告' "$REPORT_FILE" || \
