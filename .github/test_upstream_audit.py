@@ -52,6 +52,58 @@ class AuditReportTest(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("missing exceptions", result.stdout + result.stderr)
 
+    def test_upstream_exception_remains_accepted_after_review_date(self):
+        report = {"advisories": {"1": {
+            "module_name": "upstream-package", "severity": "high",
+            "github_advisory_id": "GHSA-upstream", "title": "upstream vulnerability",
+        }}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audit = root / "audit.json"
+            audit.write_text(json.dumps(report))
+            exceptions = root / "exceptions.yml"
+            exceptions.write_text("""version: 1
+exceptions:
+  - package: upstream-package
+    advisory: GHSA-upstream
+    origin: upstream
+    severity: high
+    mitigation: tracked by upstream
+    expires_on: "2020-01-01"
+""")
+            result = subprocess.run(
+                [sys.executable, str(CHECKER), "--audit", str(audit),
+                 "--exceptions", str(exceptions)],
+                capture_output=True, text=True,
+            )
+        self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_expired_local_exception_still_blocks(self):
+        report = {"advisories": {"1": {
+            "module_name": "local-package", "severity": "high",
+            "github_advisory_id": "GHSA-local", "title": "local vulnerability",
+        }}}
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            audit = root / "audit.json"
+            audit.write_text(json.dumps(report))
+            exceptions = root / "exceptions.yml"
+            exceptions.write_text("""version: 1
+exceptions:
+  - package: local-package
+    advisory: GHSA-local
+    severity: high
+    mitigation: tracked locally
+    expires_on: "2020-01-01"
+""")
+            result = subprocess.run(
+                [sys.executable, str(CHECKER), "--audit", str(audit),
+                 "--exceptions", str(exceptions)],
+                capture_output=True, text=True,
+            )
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Exceptions expired", result.stderr)
+
     def test_rejects_incomplete_vulnerability_entries(self):
         reports = [
             {"advisories": {"1": None}},

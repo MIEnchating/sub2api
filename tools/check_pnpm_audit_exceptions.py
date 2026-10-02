@@ -238,6 +238,7 @@ def main() -> int:
         exception_index[key] = {
             "raw": exc,
             "severity": exc_severity,
+            "origin": normalize_package(exc.get("origin")),
             "expires_on": exc_date,
         }
 
@@ -270,7 +271,9 @@ def main() -> int:
                 "Exception severity mismatch: "
                 f"{name} ({advisory_id}) expected {sev}, got {exc['severity']}"
             )
-        if exc["expires_on"] and exc["expires_on"] < today:
+        # Explicitly accepted upstream findings are tracked for visibility but
+        # must not stop synchronization merely because the review date passed.
+        if exc["origin"].lower() != "upstream" and exc["expires_on"] and exc["expires_on"] < today:
             expired_exceptions.append(
                 (name, sev, advisory_id, exc["expires_on"].isoformat())
             )

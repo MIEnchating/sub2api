@@ -138,12 +138,49 @@ class ReleaseWindowTest(unittest.TestCase):
             CANDIDATE_COMMIT=head, RELEASE_BASE_TAG='v1', RELEASE_BASE_COMMIT=self.base, RELEASE_ENABLED='true',
             RELEASE_MIN_UPSTREAM_COMMITS='5', RELEASE_MIN_CHANGED_FILES='5', RELEASE_MIN_DIFF_LINES='5',
             RELEASE_REQUIRE_NO_RISKS='true', RELEASE_IGNORE_ENVIRONMENT_RISKS='false',
+            RELEASE_RISK_POLICY_FILE=str(SCRIPT.parent.parent / '.github/release-risk-policy.json'),
             DECISION_FILE=str(review), REVIEW_DECISION_FILE=str(review))
         result = subprocess.run(['bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\nabort_sync() { exit 9; }\n' + function +
             '\nevaluate_release_eligibility\necho "$RELEASE_STATE $RELEASE_REASON"'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('待发布', result.stdout)
         self.assertIn('提交=5/5 文件=5/5 行=5/5', result.stdout)
+
+    def test_release_policy_accepts_upstream_audit_risk_but_blocks_unknown(self):
+        self.add_updates(3)
+        upstream = self.git('rev-parse', 'upstream')
+        shell = SCRIPT.read_text()
+        function = 'evaluate_release_eligibility() {' + shell.split('evaluate_release_eligibility() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
+
+        def evaluate(risks, ignore_environment=False):
+            review = self.root / 'audit-review.json'
+            review.write_text(json.dumps({'decision': 'resolved', 'risks': risks,
+                'merged_behavior': ['upstream behavior']}))
+            result = subprocess.run(['bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\n' + function +
+                '\nevaluate_release_eligibility\nprintf "%s\\n%s\\n" "$RELEASE_STATE" "$RELEASE_REASON"'],
+                env=dict(self.env, SCRIPT_DIR=str(SCRIPT.parent.parent / 'scripts'),
+                    WORKTREE=str(self.repo), REPO_DIR=str(self.repo), PRIMARY_HEAD=upstream,
+                    SECOND_HEAD=upstream, CANDIDATE_COMMIT=upstream, RELEASE_BASE_TAG='v1',
+                    RELEASE_BASE_COMMIT=self.base, RELEASE_ENABLED='true',
+                    RELEASE_MIN_UPSTREAM_COMMITS='3', RELEASE_MIN_CHANGED_FILES='3',
+                    RELEASE_MIN_DIFF_LINES='3', RELEASE_REQUIRE_NO_RISKS='true',
+                    RELEASE_IGNORE_ENVIRONMENT_RISKS='true' if ignore_environment else 'false', RELEASE_RISK_POLICY_FILE=str(SCRIPT.parent.parent / '.github/release-risk-policy.json'),
+                    REVIEW_DECISION_FILE=str(review)),
+                text=True, capture_output=True, check=True)
+            return result.stdout
+
+        accepted = ['上游依赖审计发现的高危漏洞属于上游现状，本项目未新增依赖风险。']
+        accepted_output = evaluate(accepted)
+        self.assertIn('待发布', accepted_output)
+        self.assertIn('风险=1 已接受=1 可阻塞风险=0', accepted_output)
+
+        blocked_output = evaluate(accepted + ['新增未知的数据库兼容性风险。'])
+        self.assertIn('不发布', blocked_output)
+        self.assertIn('风险=2 已接受=1 可阻塞风险=1', blocked_output)
+
+        environment_output = evaluate(['沙箱缺少 Docker，无法执行容器验证。'], ignore_environment=True)
+        self.assertIn('待发布', environment_output)
+        self.assertIn('风险=1 已接受=0 可阻塞风险=0', environment_output)
 
     def test_release_recovery_tags_checked_repair_not_original_failed_commit(self):
         tag = 'v2026.9.24'

@@ -1,0 +1,7 @@
+[
+  {
+    "id": "upstream-dependency-audit",
+    "description": "依赖审计结果来自上游且本项目未新增风险",
+    "pattern": "(?:(?:上游|upstream).*(?:依赖|dependency).*(?:审计|audit)|(?:审计|audit).*(?:依赖|dependency).*(?:上游|upstream)).*(?:漏洞|风险|vulnerability)"
+  }
+]

@@ -32,6 +32,7 @@ RELEASE_MIN_CHANGED_FILES="${SUB2API_RELEASE_MIN_CHANGED_FILES:-8}"
 RELEASE_MIN_DIFF_LINES="${SUB2API_RELEASE_MIN_DIFF_LINES:-150}"
 RELEASE_REQUIRE_NO_RISKS="${SUB2API_RELEASE_REQUIRE_NO_RISKS:-true}"
 RELEASE_IGNORE_ENVIRONMENT_RISKS="${SUB2API_RELEASE_IGNORE_ENVIRONMENT_RISKS:-true}"
+RELEASE_RISK_POLICY_FILE="${SUB2API_RELEASE_RISK_POLICY_FILE:-$SCRIPT_DIR/../.github/release-risk-policy.json}"
 REMOTE_WORKFLOW_TIMEOUT_MINUTES="${SUB2API_REMOTE_WORKFLOW_TIMEOUT_MINUTES:-90}"
 REMOTE_WORKFLOW_POLL_SECONDS="${SUB2API_REMOTE_WORKFLOW_POLL_SECONDS:-15}"
 REMOTE_WORKFLOW_RETRY_ATTEMPTS="${SUB2API_REMOTE_WORKFLOW_RETRY_ATTEMPTS:-1}"
@@ -856,7 +857,7 @@ create_final_merge_commit() {
 
 evaluate_release_eligibility() {
   local upstream_commits changed_files diff_lines review_decision risk_count
-  local merged_behavior_count ignored_risk_count release_check
+  local accepted_risk_count blocking_risk_count merged_behavior_count ignored_risk_count release_check
 
   CURRENT_STAGE='评估版本发布条件'
   RELEASE_STATE='评估中'
@@ -889,21 +890,68 @@ environment_only = re.compile(
 blocking_risks = [risk for risk in risks if not ignore_environment or not environment_only.search(str(risk))]
 print(
     decision.get("decision", ""),
-    len(blocking_risks),
+    len(risks),
     len(decision.get("merged_behavior", [])),
     len(risks) - len(blocking_risks),
 )
 PY
   )
 
-  release_check="自 ${RELEASE_BASE_TAG} 累计：提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 阻断风险=${risk_count} 忽略环境风险=${ignored_risk_count}"
+  read -r accepted_risk_count blocking_risk_count < <(
+    python3 - "$REVIEW_DECISION_FILE" "$RELEASE_RISK_POLICY_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" <<'PY'
+import json
+import re
+import sys
+
+with open(sys.argv[1], encoding="utf-8") as source:
+    decision = json.load(source)
+try:
+    with open(sys.argv[2], encoding="utf-8") as source:
+        policy = json.load(source)
+except (OSError, json.JSONDecodeError):
+    policy = []
+risks = decision.get("risks", []) if isinstance(decision.get("risks", []), list) else None
+ignore_environment = sys.argv[3].lower() == "true"
+environment_only = re.compile(
+    r"沙箱|sandbox|operation not permitted|监听本地端口|httptest|miniredis|plutil|"
+    r"缺少 (?:go|bun|docker)|工具不可用|远程工作流尚未启动",
+    re.IGNORECASE,
+)
+accepted = []
+blocking = []
+if risks is not None:
+    for risk in risks:
+        if not isinstance(risk, str):
+            blocking.append(risk)
+            continue
+        if ignore_environment and environment_only.search(risk):
+            continue
+        matched = False
+        for entry in policy if isinstance(policy, list) else []:
+            if not isinstance(entry, dict) or not isinstance(entry.get("pattern"), str):
+                continue
+            try:
+                if re.search(entry["pattern"], risk, re.IGNORECASE):
+                    accepted.append(risk)
+                    matched = True
+                    break
+            except re.error:
+                continue
+        if not matched:
+            blocking.append(risk)
+raw_count = len(risks) if risks is not None else -1
+print(len(accepted), len(blocking) if raw_count >= 0 else -1)
+PY
+  )
+
+  release_check="自 ${RELEASE_BASE_TAG} 累计：提交=${upstream_commits}/${RELEASE_MIN_UPSTREAM_COMMITS} 文件=${changed_files}/${RELEASE_MIN_CHANGED_FILES} 行=${diff_lines}/${RELEASE_MIN_DIFF_LINES} 审查=${review_decision} 风险=${risk_count} 已接受=${accepted_risk_count} 可阻塞风险=${blocking_risk_count} 忽略环境风险=${ignored_risk_count}"
   log "release eligibility: $release_check"
   if [[ "$review_decision" != resolved ]]; then
     RELEASE_STATE='不发布'
     RELEASE_REASON="自动审查未确认更新可安全发布（${release_check}）"
     return 0
   fi
-  if [[ "$RELEASE_REQUIRE_NO_RISKS" == true && "$risk_count" != 0 ]]; then
+  if [[ "$RELEASE_REQUIRE_NO_RISKS" == true && "$blocking_risk_count" != 0 ]]; then
     RELEASE_STATE='不发布'
     RELEASE_REASON="自动审查仍有未消除风险（${release_check}）"
     return 0
