@@ -45,6 +45,22 @@ type visibilityGroupRepo struct {
 
 func (r *visibilityGroupRepo) ListActive(context.Context) ([]Group, error) { return r.groups, nil }
 
+func TestGetAvailableGroupsRejectsMissingUser(t *testing.T) {
+	svc := &APIKeyService{
+		userRepo: &visibilityUserRepo{},
+		groupRepo: &visibilityGroupRepo{groups: []Group{
+			{ID: 7},
+			{ID: 42, SubscriptionType: "subscription"},
+		}},
+		userSubRepo: &visibilitySubRepo{subscriptions: []UserSubscription{
+			{UserID: 1, GroupID: 42, Status: SubscriptionStatusActive, ExpiresAt: time.Now().Add(time.Hour)},
+		}},
+	}
+	groups, err := svc.GetAvailableGroups(context.Background(), 1)
+	require.NoError(t, err)
+	require.Empty(t, groups, "a missing user must not receive public or subscribed groups")
+}
+
 func TestGetUserGroupVisibilityIncludesActiveSubscriptions(t *testing.T) {
 	for _, restricted := range []bool{false, true} {
 		t.Run(map[bool]string{false: "unrestricted", true: "restricted"}[restricted], func(t *testing.T) {

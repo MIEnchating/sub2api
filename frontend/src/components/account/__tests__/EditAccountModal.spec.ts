@@ -71,6 +71,8 @@ const BaseDialogStub = defineComponent({
 const ModelWhitelistSelectorStub = defineComponent({
   name: 'ModelWhitelistSelector',
   props: {
+    accountId: Number,
+    platform: String,
     modelMappings: { type: Array, default: () => [] },
     modelValue: {
       type: Array,
@@ -420,6 +422,24 @@ describe('EditAccountModal', () => {
     expect(wrapper.getComponent(ModelWhitelistSelectorStub).props('modelMappings')).toEqual([
       { from: 'gpt-latest', to: 'deepseek-chat' }
     ])
+  })
+
+  it('keeps Claude upstream sync available alongside saved model mappings', async () => {
+    const account = { ...buildAccount(), platform: 'anthropic' }
+    account.credentials.model_mapping = { 'claude-sonnet-4-6': 'claude-sonnet-4-6', 'claude-latest': 'claude-opus-4-6' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    const selector = wrapper.getComponent(ModelWhitelistSelectorStub)
+
+    expect(selector.props('accountId')).toBe(account.id)
+    expect(selector.props('platform')).toBe('anthropic')
+    expect(selector.props('modelMappings')).toEqual([
+      { from: 'claude-latest', to: 'claude-opus-4-6' }
+    ])
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.credentials?.model_mapping).toEqual(account.credentials.model_mapping)
+    wrapper.unmount()
   })
 
   it('sets expiry presets from now instead of extending the saved expiry', async () => {
