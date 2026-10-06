@@ -37,3 +37,17 @@ exceptions:
     mitigation: "No zero-size custom generators in codebase; upgrade when nanoid releases fix"
     expires_on: "2026-10-13"
     owner: "security@your-domain"
+  - package: source-map-js
+    advisory: "GHSA-68fv-2mgg-jv7q"
+    severity: high
+    reason: "Transitive Vue compiler/build dependency; the frontend does not parse attacker-controlled indexed source maps at runtime"
+    mitigation: "Keep source-map processing out of production runtime paths and upgrade to source-map-js >=1.2.2 when the offline lockfile refresh is available"
+    expires_on: "2026-10-13"
+    owner: "security@your-domain"
+  - package: '@vue/server-renderer'
+    advisory: "GHSA-g2v6-rqmx-r4w6"
+    severity: high
+    reason: "Transitive Vue dependency retained for the shared Vue package graph; this application is a client-rendered SPA with no server-renderer entry point"
+    mitigation: "Do not enable SSR or render attacker-controlled attribute names; upgrade Vue to >=3.5.42 and refresh the lockfile before the exception expires"
+    expires_on: "2026-10-13"
+    owner: "security@your-domain"
