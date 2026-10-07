@@ -476,6 +476,12 @@ func (c *openAIWSPassthroughFirstOutputFrameConn) Close() error {
 	if c == nil || c.inner == nil {
 		return nil
 	}
+	// Relay calls Close after cancellation or the bounded usage drain, before
+	// joining its readers. A close handshake can wait for an unresponsive
+	// upstream and extend that bound; abort this disposable transport instead.
+	if forceCloser, ok := c.inner.(openAIWSForceCloser); ok {
+		return forceCloser.CloseNow()
+	}
 	return c.inner.Close()
 }
 
