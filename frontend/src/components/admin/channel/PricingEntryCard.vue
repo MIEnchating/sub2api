@@ -458,11 +458,10 @@ async function onModelsUpdate(newModels: string[]) {
   const lookupGeneration = ++pricingLookupGeneration
   emit('update', { ...props.entry, models: newModels })
 
-  // Automatic lookup is intentionally limited to a blank token entry with one
-  // model. A multi-model entry is one shared price rule, so applying the first
-  // model's price would silently make models such as DeepSeek Pro/Flash equal.
+  // Only fill defaults for a blank token entry receiving one model. Existing
+  // multi-model entries share one price rule and must not be silently rewritten.
   const addedModels = newModels.filter(m => !oldModels.includes(m))
-  if (addedModels.length === 0) return
+  if (oldModels.length > 1 || addedModels.length !== 1) return
 
   if (props.entry.billing_mode !== 'token' || newModels.length !== 1) return
 

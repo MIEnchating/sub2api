@@ -2888,6 +2888,15 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
+	// Antigravity has a rich static catalog with display metadata. Its default
+	// model mapping is synthesized by Account.GetModelMapping, so the generic
+	// configured-model shortcut would incorrectly turn an unmapped account into
+	// a bare, metadata-free list. Use only the explicitly stored mapping here.
+	if account.Platform == service.PlatformAntigravity {
+		response.Success(c, antigravityAccountTestModels(account.Credentials["model_mapping"]))
+		return
+	}
+
 	if ids := service.ConfiguredTestModelIDs(account); len(ids) > 0 {
 		response.Success(c, service.TestPickerModels(ids))
 		return
@@ -2980,13 +2989,6 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 			}
 		}
 		response.Success(c, models)
-		return
-	}
-
-	// Handle Antigravity accounts: return Claude + Gemini models
-	if account.Platform == service.PlatformAntigravity {
-		// 直接复用 antigravity.DefaultModels()，与 /v1/models 端点保持同步
-		response.Success(c, antigravity.DefaultModels())
 		return
 	}
 
@@ -3085,6 +3087,48 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 	}
 
 	response.Success(c, models)
+}
+
+// antigravityAccountTestModels uses the stored mapping rather than GetModelMapping,
+// which supplies defaults and compatibility aliases that the administrator did not configure.
+func antigravityAccountTestModels(rawMapping any) []antigravity.ClaudeModel {
+	var mappedIDs []string
+	switch mapping := rawMapping.(type) {
+	case map[string]any:
+		for id := range mapping {
+			if strings.TrimSpace(id) != "" {
+				mappedIDs = append(mappedIDs, id)
+			}
+		}
+	case map[string]string:
+		for id := range mapping {
+			if strings.TrimSpace(id) != "" {
+				mappedIDs = append(mappedIDs, id)
+			}
+		}
+	}
+	if len(mappedIDs) == 0 {
+		return antigravity.DefaultModels()
+	}
+
+	sort.Strings(mappedIDs)
+	defaultByID := make(map[string]antigravity.ClaudeModel)
+	for _, model := range antigravity.DefaultModels() {
+		defaultByID[model.ID] = model
+	}
+	models := make([]antigravity.ClaudeModel, 0, len(mappedIDs))
+	for _, id := range mappedIDs {
+		if model, ok := defaultByID[id]; ok {
+			models = append(models, model)
+			continue
+		}
+		models = append(models, antigravity.ClaudeModel{
+			ID:          id,
+			Type:        "model",
+			DisplayName: id,
+		})
+	}
+	return models
 }
 
 // SyncUpstreamModels handles syncing live supported models from an account's upstream.

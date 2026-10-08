@@ -397,6 +397,7 @@ func createTestPayload(modelID string, customPrompt ...string) (map[string]any, 
 // mode is optional - "compact" routes OpenAI accounts to the /responses/compact probe path
 // opts is optional media (image/audio data URLs for real generation / STT).
 func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int64, modelID string, prompt string, mode string, opts ...AccountTestOptions) error {
+	initAccountTestLogger(c, accountID, modelID, mode)
 	// Every account-test entrypoint (interactive and scheduled) uses the same
 	// upstream transport as production traffic. Keep deliberate probes out of
 	// adaptive-concurrency/health accounting even when an admin invokes this
@@ -412,6 +413,7 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 	if err != nil {
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
+	bindAccountTestPlatform(c, account)
 
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
@@ -481,6 +483,9 @@ func (s *AccountTestService) testOpenCodeGoAccountConnection(c *gin.Context, acc
 		testModelID = DefaultOpenCodeGoTestModel
 	}
 	testModelID = account.GetMappedModel(testModelID)
+	if IsOpenCodeUnsupportedModel(testModelID) {
+		return fmt.Errorf("model %q is not supported on OpenCode standard gateway (gemini models require Google SDK endpoint, jev models require System One endpoint)", testModelID)
+	}
 	proto := account.GetAPIProtocol()
 	switch proto {
 	case APIProtocolChatCompletions, APIProtocolAnthropic, APIProtocolResponses:
@@ -3571,7 +3576,7 @@ func (s *AccountTestService) sendEvent(c *gin.Context, event TestEvent) {
 
 // sendErrorAndEnd sends an error event and ends the stream
 func (s *AccountTestService) sendErrorAndEnd(c *gin.Context, errorMsg string) error {
-	log.Printf("Account test error: %s", errorMsg)
+	logAccountTestError(c, errorMsg)
 	s.sendEvent(c, TestEvent{Type: "error", Error: errorMsg})
 	return fmt.Errorf("%s", errorMsg)
 }
@@ -3602,6 +3607,7 @@ func (s *AccountTestService) RunTestBackgroundWithPromptAndReasoning(ctx context
 	// failure rates for an otherwise healthy account.
 	testCtx = WithAccountProtectionOutcomeExcluded(testCtx)
 	ginCtx.Request = (&http.Request{}).WithContext(testCtx)
+	ginCtx.Set(accountTestBackgroundKey, true)
 
 	testErr := s.TestAccountConnection(ginCtx, accountID, modelID, prompt, AccountTestModeDefault)
 

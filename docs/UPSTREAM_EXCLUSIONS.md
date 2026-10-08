@@ -223,3 +223,18 @@
 本轮验证：功能排除检查、47 项同步与审计回归、10 项发布辅助回归、管理员初始化包测试、EasyPay 防伪回调专项、支付返回地址和恢复令牌专项、普通生图/异步单图/退役批量生图路由专项通过。后端生产构建、`go vet ./...`、全部 unit/integration 测试包编译、部署 Shell 语法检查、四项 Compose/资源检查和安装令牌检查通过。前端锁定离线安装因缺少 Vue 3.5.43 缓存未完成，未宣称前端测试或构建通过；完整支付供应商测试被沙箱监听权限阻断，Apple 容器测试缺少 `plutil`，这些属于验证环境限制。最终 JSON 已通过目标仓库决策 schema 校验。
 
 全仓库 golangci-lint 长时间未返回结果，已停止该检查，未宣称其通过；完整前后端和在线安全门禁仍由外层验证流程执行。
+
+## 2026-10-08 冲突修复复核
+
+本轮审查发布基准 `v2026.10.3`（`4b76ca9d07647443c85f3db27b593144261c78ce`）至候选工作树的累计差异，主上游为 `upstream/main=5fc0e486c`，第二上游为 `overdraft/sub2api-custom=ebe7dd8d9`。主上游和第二上游的账号、网关、协议兼容、运维、支付、前端竞态修复及测试增强继续保留。
+
+逐项解决 `account_test_service.go`、`openai_gateway_forward.go`、`PricingEntryCard.vue` 的文本与语义冲突：账号测试同时保留日志归因、后台测试标记、保护统计排除和指纹租约释放；OpenAI 加密内容重试同时保留 429 重试标记并兼容特定 `thinking_signature_invalid` 响应；价格默认值仅对空白条目首次加入单个模型时填充。批量生图访问 composable 及其专属重试测试被删除：
+
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+
+本轮没有共享账号池专属路径新增或恢复；`255_retire_shared_account_pool.sql` 及其测试继续缺席。批量生图历史迁移 159–169、187、234 和 `migrations_runner.go` 校验兼容记录保持原样，普通生图、异步单图任务、普通账号池和账号代理池继续保留。排除检查 `python3 .github/check-upstream-exclusions.py .` 通过；本阶段未执行 fetch、提交、推送、标签、发布或服务重启。
+
+## 2026-10-08 最终兼容修复
+
+复核主上游合并后的模型目录语义冲突时，发现通用 `ConfiguredTestModelIDs` 快捷路径会把未配置映射的 Antigravity 账号误转成无显示元数据的默认映射列表。已在 `backend/internal/handler/admin/account_handler.go` 将 Antigravity 专用目录处理提前，仅读取显式保存的映射；无映射账号继续返回带显示名称和创建时间的 `antigravity.DefaultModels()`，显式映射仍保留自定义模型。相关管理处理器测试通过，源码无未解决冲突标记，功能排除检查继续通过。
