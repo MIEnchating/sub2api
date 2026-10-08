@@ -70,6 +70,10 @@ SYNC_BRANCH="automation/sub2api-upstream-sync-$RUN_ID"
 WORKTREE_CREATED=false
 NOTIFIED=false
 CURRENT_STAGE='初始化'
+FETCH_STATE='未执行'
+LOCAL_PUSH_STATE='未执行'
+MERGE_STATE='未执行'
+PUSH_STATE='未执行'
 ORIGIN_HEAD=''
 PRIMARY_HEAD=''
 SECOND_HEAD=''
@@ -419,14 +423,78 @@ PYNOTES
 }
 
 write_report() {
-  local status="$1" reason="$2"
+  local status="$1" reason="$2" status_label
+  local fetch_state="${FETCH_STATE:-未执行}" local_push_state="${LOCAL_PUSH_STATE:-未执行}"
+  local merge_state="${MERGE_STATE:-未执行}" push_state="${PUSH_STATE:-未执行}"
+  case "$status" in
+    成功) status_label='合并成功' ;;
+    失败，未推送) status_label='合并受阻，未推送' ;;
+    发布失败，代码已推送) status_label='后续流程失败，代码已推送' ;;
+    没有上游更新) status_label='没有上游更新' ;;
+    邮件测试) status_label='邮件测试' ;;
+    *) status_label="$status" ;;
+  esac
+  if [[ "$status" == *失败* ]]; then
+    [[ "$fetch_state" != '进行中' ]] || fetch_state='失败'
+    [[ "$local_push_state" != '进行中' ]] || local_push_state='失败'
+    [[ "$merge_state" != '进行中' ]] || merge_state='失败'
+    [[ "$push_state" != '进行中' ]] || push_state='失败'
+  fi
+  [[ -z "$PUSHED_COMMIT" ]] || push_state='通过'
+  # The release reason has its own section; avoid repeating it in the headline.
+  if [[ -n "$RELEASE_REASON" && "$reason" == *"；$RELEASE_REASON" ]]; then
+    reason="${reason%"；$RELEASE_REASON"}"
+  fi
   {
     printf 'sub2api 双上游同步报告\n'
     printf '========================\n\n'
-    printf '结果：%s\n' "$status"
+    printf '结果：%s\n' "$status_label"
     printf '结论：%s\n' "$reason"
     printf '执行时间：%s（北京时间）\n' "$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M:%S')"
-    printf '失败/当前阶段：%s\n' "$CURRENT_STAGE"
+    printf '当前阶段：%s\n' "$CURRENT_STAGE"
+    printf '全量验证：%s\n' "$VALIDATION_RESULT"
+    printf 'Codex 集中修复次数：%s/%s\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
+    printf '远程 CI 自动修复次数：%s/%s\n' "${REMOTE_REPAIR_COUNT:-0}" "$VALIDATION_REPAIR_ATTEMPTS"
+    printf '已推送版本：%s\n' "${PUSHED_COMMIT:-未推送}"
+    printf '版本发布：%s\n' "$RELEASE_STATE"
+    printf '远程工作流：%s\n' "${REMOTE_WORKFLOW_STATE:-未执行}"
+    [[ -n "$RELEASE_TAG" ]] && printf '版本标签：%s\n' "$RELEASE_TAG"
+    [[ -n "$RELEASE_REASON" ]] && printf '发布判断：%s\n' "$RELEASE_REASON"
+
+    printf '\n执行进度\n'
+    printf '%s\n' \
+      "- 获取上游：$fetch_state" \
+      "- 本地代码推送：$local_push_state" \
+      "- 合并与兼容审查：$merge_state" \
+      "- 全量验证：${VALIDATION_RESULT:-未执行}" \
+      "- 推送：$push_state"
+    if [[ "$status" == '失败，未推送' || "$status" == '发布失败，代码已推送' ]]; then
+      printf '\n失败位置\n'
+      printf '失败阶段：%s\n' "$CURRENT_STAGE"
+      printf 'Codex 集中修复：%s/%s 轮\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
+      if [[ -s "$FAILURE_SUMMARY_FILE" ]]; then
+        printf '\n具体失败原因\n------------\n'
+        cat "$FAILURE_SUMMARY_FILE"
+        printf '\n'
+      fi
+      if [[ -s "$VALIDATION_FAILURES_FILE" ]]; then
+        printf '\n最终失败检查\n------------\n'
+        cat "$VALIDATION_FAILURES_FILE"
+      fi
+    fi
+    if [[ -s "$REVIEW_SUMMARY_FILE" ]]; then
+      printf '\n'
+      if [[ -s "${REVIEW_DECISION_FILE:-}" ]] && python3 "$SCRIPT_DIR/../.github/render-upstream-sync-review.py" \
+        --compact "$REVIEW_DECISION_FILE"; then
+        :
+      else
+        printf 'Codex 合并审查及功能排除记录\n----------------------------------\n'
+        cat "$REVIEW_SUMMARY_FILE"
+      fi
+      printf '\n'
+      printf '完整审查记录：%s\n' "$REVIEW_SUMMARY_FILE"
+    fi
+    printf '\n同步范围与版本\n'
     printf '目标分支：%s\n' "$ORIGIN_REF"
     printf '主上游：%s\n' "$PRIMARY_REF"
     printf '第二上游：%s（排除共享账号池和批量生图）\n' "$SECOND_REF"
@@ -434,28 +502,6 @@ write_report() {
     [[ -n "$PRIMARY_HEAD" ]] && printf '主上游版本：%s\n' "$PRIMARY_HEAD"
     [[ -n "$SECOND_HEAD" ]] && printf '第二上游版本：%s\n' "$SECOND_HEAD"
     [[ -n "$CANDIDATE_COMMIT" ]] && printf '候选版本：%s\n' "$CANDIDATE_COMMIT"
-    printf '已推送版本：%s\n' "${PUSHED_COMMIT:-未推送}"
-    printf '全量验证：%s\n' "$VALIDATION_RESULT"
-    printf 'Codex 集中修复次数：%s/%s\n' "$REPAIR_COUNT" "$VALIDATION_REPAIR_ATTEMPTS"
-    printf '远程 CI 自动修复次数：%s/%s\n' "${REMOTE_REPAIR_COUNT:-0}" "$VALIDATION_REPAIR_ATTEMPTS"
-    printf '版本发布：%s\n' "$RELEASE_STATE"
-    printf '远程工作流：%s\n' "${REMOTE_WORKFLOW_STATE:-未执行}"
-    [[ -n "$RELEASE_TAG" ]] && printf '版本标签：%s\n' "$RELEASE_TAG"
-    [[ -n "$RELEASE_REASON" ]] && printf '发布判断：%s\n' "$RELEASE_REASON"
-    if [[ -s "$FAILURE_SUMMARY_FILE" ]]; then
-      printf '\n具体失败原因\n------------\n'
-      cat "$FAILURE_SUMMARY_FILE"
-      printf '\n'
-    fi
-    if [[ -s "$VALIDATION_FAILURES_FILE" ]]; then
-      printf '\n最终失败检查\n------------\n'
-      cat "$VALIDATION_FAILURES_FILE"
-    fi
-    if [[ -s "$REVIEW_SUMMARY_FILE" ]]; then
-      printf '\nCodex 合并审查及功能排除记录\n----------------------------------\n'
-      cat "$REVIEW_SUMMARY_FILE"
-      printf '\n'
-    fi
     printf '\n完整日志：%s\n' "$LOG_FILE"
   } > "$REPORT_FILE"
   # A rendering error must not prevent the failure notification itself.
@@ -570,6 +616,7 @@ validate_primary_worktree() {
 prepare_primary_worktree() {
   local ahead behind
   CURRENT_STAGE='提交并同步本地修改'
+  LOCAL_PUSH_STATE='进行中'
   validate_primary_worktree
   if [[ -n "$(git -C "$REPO_DIR" status --porcelain=v1)" ]]; then
     [[ "$DRY_RUN" != true ]] || fail '试运行检测到本地未提交修改；试运行不会自动提交'
@@ -585,14 +632,19 @@ prepare_primary_worktree() {
   (( behind == 0 || ahead == 0 )) || fail "本地分支与 $ORIGIN_REF 已分叉（领先 ${ahead}，落后 ${behind}）"
   if [[ "$DRY_RUN" == true ]]; then
     log "dry run: skipping local branch synchronization (ahead $ahead, behind $behind)"
+    LOCAL_PUSH_STATE='试运行，跳过'
     return 0
   fi
   if (( ahead > 0 )); then
     log "pushing $ahead existing local commit(s) before upstream merge"
     git -C "$REPO_DIR" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
     git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH"
+    LOCAL_PUSH_STATE="已推送 $ahead 个本地提交"
   elif (( behind > 0 )); then
     git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
+    LOCAL_PUSH_STATE='已同步远程，无本地未推送提交'
+  else
+    LOCAL_PUSH_STATE='无本地未推送提交'
   fi
 }
 
@@ -1138,10 +1190,12 @@ main() {
   validate_primary_worktree
 
   CURRENT_STAGE='获取三个远程仓库'
+  FETCH_STATE='进行中'
   log "fetching $ORIGIN_REMOTE, $PRIMARY_REMOTE and $SECOND_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$PRIMARY_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$SECOND_REMOTE"
+  FETCH_STATE='通过'
   prepare_primary_worktree
   ORIGIN_HEAD="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
   PRIMARY_HEAD="$(git -C "$REPO_DIR" rev-parse "$PRIMARY_REF")"
@@ -1174,6 +1228,7 @@ main() {
   fi
 
   CURRENT_STAGE='生成双上游候选合并'
+  MERGE_STATE='进行中'
   git -C "$REPO_DIR" worktree add --detach "$WORKTREE" "$ORIGIN_HEAD"
   WORKTREE_CREATED=true
   git -C "$WORKTREE" switch -c "$SYNC_BRANCH"
@@ -1200,6 +1255,7 @@ main() {
     fail '候选合并中仍有共享账号池专属路径'
   fi
   python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE" || fail '候选合并重新引入了已排除功能'
+  MERGE_STATE='通过'
   if [[ "$DRY_RUN" == true ]]; then
     log 'dry run completed; candidate was not committed, validated, or pushed'
     exit 0
@@ -1230,9 +1286,11 @@ main() {
   fi
 
   CURRENT_STAGE='推送已验证候选提交'
+  PUSH_STATE='进行中'
   log "pushing validated candidate $CANDIDATE_COMMIT to $ORIGIN_REF"
   git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
   PUSHED_COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
+  PUSH_STATE='通过'
   wait_for_remote_workflows "$PUSHED_COMMIT"
   if [[ "$RELEASE_STATE" == '待发布' ]]; then
     publish_release "$RELEASE_TAG"

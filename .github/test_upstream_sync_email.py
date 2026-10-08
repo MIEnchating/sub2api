@@ -1,4 +1,5 @@
 import importlib.util
+import json
 import os
 import subprocess
 import tempfile
@@ -159,6 +160,51 @@ Codex 合并审查及共享账号池排除记录
             command = 'set -eu\nlog() { printf "%s\\n" "$*"; }\nwrite_report() {' + function + '\n}\nwrite_report "失败，未推送" "主工作区不干净；请先处理本地修改"'
             subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True)
             self.assertIn("同步受阻", (root / "report.html").read_text())
+
+            # Exercise the actual writer -> compact review -> HTML pipeline.
+            review = {
+                'decision': 'resolved', 'summary': '保留两个上游的兼容功能。',
+                'upstream_changes': [f'上游变化 {i}' for i in range(7)],
+                'impacts': ['审查阶段尚未运行全量验证'],
+                'merged_behavior': ['计费与权限保持兼容'], 'conflicts': [],
+                'excluded_shared_account_pool_paths': ['private/shared.py'],
+                'excluded_batch_image_paths': [f'private/batch-{i}.py' for i in range(25)],
+                'risks': [f'必须保留的风险 {i}' for i in range(8)],
+            }
+            (root / 'review.json').write_text(json.dumps(review))
+            (root / 'review.txt').write_text('完整路径与审查结果')
+            (root / 'failure.txt').write_text('已解决的旧失败')
+            env.update(REVIEW_DECISION_FILE=str(root / 'review.json'),
+                       PUSHED_COMMIT='abcdef1234567', VALIDATION_RESULT='第 2 轮全部通过',
+                       FETCH_STATE='通过', MERGE_STATE='通过', RELEASE_STATE='不发布',
+                       RELEASE_REASON='仍有待处理风险', REMOTE_WORKFLOW_STATE='CI 与安全扫描通过',
+                       CURRENT_STAGE='完成')
+            success = command[:command.rindex('\nwrite_report ')] + '\nwrite_report "成功" "代码已推送；仍有待处理风险"'
+            subprocess.run(['bash', '-c', success], env=env, check=True, capture_output=True)
+            report = (root / 'report.txt').read_text()
+            html = (root / 'report.html').read_text()
+            self.assertIn('结果：合并成功', report)
+            self.assertIn('结论：代码已推送\n', report)
+            self.assertNotIn('已解决的旧失败', html)
+            self.assertNotIn('失败位置</h2>', html)
+            self.assertIn('25 项排除路径', html)
+            self.assertNotIn('private/batch-', html)
+            self.assertIn('其余 2 项', html)
+            self.assertIn('必须保留的风险 7', html)
+            self.assertIn('最终验证结果以顶部状态为准', html)
+            self.assertIn('第 2 轮全部通过', html)
+            self.assertIn('origin/main', html)
+            self.assertLess(html.index('执行进度</h2>'), html.index('关键上游变化</h2>'))
+            self.assertLess(html.index('仍需关注的风险</h2>'), html.index('同步范围与版本</h2>'))
+            self.assertIn(str(root / 'review.txt'), html)
+
+            env.update(PUSHED_COMMIT='', RELEASE_STATE='不发布', VALIDATION_RESULT='未执行')
+            no_change = success[:success.rindex('\nwrite_report ')] + '\nwrite_report "没有上游更新" "累计更新未达到发布阈值"'
+            subprocess.run(['bash', '-c', no_change], env=env, check=True, capture_output=True)
+            html = (root / 'report.html').read_text()
+            self.assertIn('本轮没有新增上游提交', html)
+            self.assertNotIn('同步失败', html)
+
             env["SCRIPT_DIR"] = str(root / "missing-renderer")
             result = subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True, text=True)
             self.assertIn("regenerate the HTML", result.stdout)
