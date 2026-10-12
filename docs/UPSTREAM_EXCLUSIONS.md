@@ -238,3 +238,293 @@
 ## 2026-10-08 最终兼容修复
 
 复核主上游合并后的模型目录语义冲突时，发现通用 `ConfiguredTestModelIDs` 快捷路径会把未配置映射的 Antigravity 账号误转成无显示元数据的默认映射列表。已在 `backend/internal/handler/admin/account_handler.go` 将 Antigravity 专用目录处理提前，仅读取显式保存的映射；无映射账号继续返回带显示名称和创建时间的 `antigravity.DefaultModels()`，显式映射仍保留自定义模型。相关管理处理器测试通过，源码无未解决冲突标记，功能排除检查继续通过。
+
+## 2026-10-12 主上游冲突与累计兼容复核
+
+本轮只修改临时工作树。基线为 `origin/main=819a47789`，主上游为 `upstream/main=ab80abc6d`，第二上游为 `overdraft/sub2api-custom=0976d0215`。审查覆盖 `v2026.10.3`（`4b76ca9d07647443c85f3db27b593144261c78ce`）到候选工作树的全部累计差异，两个上游去重后共 109 个非合并提交；也逐项复核第二上游最新合并提交自身的修复。未执行 fetch、提交、推送、标签、发布或服务重启。索引由外层流程统一暂存，本阶段只清除工作文件的冲突。
+
+### 保留的上游变化
+
+- 平台清单与 provider profile、多协议端点和模型目录路由、Cline 与 Command Code 接入及钱包/用量/冷却、OpenCode Zen 路由和不支持模型限制。应用层平台校验覆盖管理 API、服务、仓储和 Ent。
+- 分组名称与描述多语言、语言代码大小写归一、保留 Origin 的 Vary 响应头、用户显示本地化与管理员原始编辑数据分离。
+- GPT-6.1 Sol 默认上下文 500k、订阅凭据豁免模型长上下文附加费（保留 API Key 价卡、自定义区间价格）、OAuth 搜索历史工具声明和 Responses Lite additional_tools 支持。
+- 累计窗口内的 EasyPay 签名重放防护、安全管理员初始化、口令长度限制、远程 Codex 目录与账号映射、协议转换和流式心跳、逐轮 WS 计费与图片输入用量、渠道健康样本要求、TPS 及账号名称展示、支付倒计时和各类前端过期请求保护。
+- Go 1.27.2、x/net 等安全依赖、Vue/source-map-js 锁定依赖与 CI 配套升级；本项目同步邮件的阶段状态、失败归因与文本/HTML 报告改进。
+
+### 冲突与语义修复
+
+- 解决 10 个文件的文本冲突。服务 VERSION 保留 `2026.10.3`，第二上游版本身份更新到 `FORK_VERSION=v0.2.15-custom.1`。
+- Ent 分组增加 i18n 后重新计算 runtime 描述符、mutation 容量和迁移索引；批量生图字段继续缺席。重新生成全部 Ent 与手工修复结果一致。
+- 模型路由测试采用新的通用函数名称，Responses 和 adaptive Anthropic 路径继续传递自定义 prompt；未登记的协议端点跳过。补强测试验证提示词确实发送到三种协议端点。
+- 渠道模型同步同时保留平台能力判断、去重、默认价格、DeepSeek 独立价格拆分、并发请求及用户修改保护。配置配额测试覆盖完整平台清单；Codex 配置测试保留 API key 模型发现和 WebSocket/goals 断言。
+- 合入第二上游最新合并的 Antigravity 通配符过滤、账号质量暂停筛选回归、updater Go 版本和相关测试适配。普通账号池、账号代理池、组合质量规则、定时测试/自动重试、Codex 门票与身份隔离、API key 分组回退、网关运行策略、429 重试与计费不变量保持。
+- 修复自动合并未提示的 Cline/Command Code 钱包错误分支顺序：恢复可充值钱包冷却优先于通用永久停用；Cline 冷却持久化失败也不误置永久错误，普通账号账单错误仍停用。保留第二上游对应回归。
+- 累计复核与全量测试发现上次合并仍允许替换已有模型时填充默认价格；现遵循两上游规则，仅空条目首次增加单个模型时填充，保留本项目倍率字段与手动编辑/过期响应保护。
+
+### 本轮明确排除的位置
+
+下列共享账号池迁移/测试继续不存在；两个混合用途计费文件仅排除共享池专属 DurationMS 传递，普通 UsageLog.DurationMs 保留：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+- `backend/internal/service/usage_billing.go`
+- `backend/internal/service/gateway_usage_billing.go`
+
+以下批量生图位置逐项核对，混合用途文件仅排除批量生图字段、权限、计费、路由或文案，其他实现保留；两个访问 composable/重试测试路径继续不存在：
+- `backend/ent/group.go`
+- `backend/ent/group/group.go`
+- `backend/ent/group_create.go`
+- `backend/ent/group_update.go`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/group.go`
+- `backend/internal/handler/admin/group_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/group_repo.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/admin_group_duplicate.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/service/group.go`
+- `frontend/src/i18n/locales/en/admin/overview.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+
+全部已发布 SQL 迁移与发布基准逐字节一致，包含规则指定的 14 个历史迁移/校验兼容文件。本轮新增 `242_drop_platform_check_constraints.sql` 和 `242_group_i18n.sql`；迁移器以完整文件名为主键，两个 242 文件均可登记并执行。未操作历史表、记录、冻结余额或生产数据库。普通生图、异步单图任务及其权限和计费继续保留。
+
+### 剩余兼容限制
+
+累计窗口中 EasyPay 回调使用标准字段白名单，发送额外自定义字段的兼容支付商回调会被拒绝；既有主动查询与对账恢复仍保留。保留此防伪边界，不能以兼容为由重新开放签名重放。
+
+验证：功能排除检查、历史 SQL/校验兼容文件比对、Ent 重新生成一致性通过；后端专项 1070 项（包含子测试）通过，涵盖提示词透传、统一协议分流、钱包冷却、平台权限、长上下文计费、普通/异步单图及退役路由。后端构建和 `go vet ./...` 通过。后端使用 `/tmp` 隔离 modfile 和已缓存 Go 1.27.1/依赖作兼容验证，未更改仓库的 Go 1.27.2 或安全依赖版本，不将其等同于完整版本门禁。Docker 仓储集成由既有 harness 跳过，在线审计超时产生的空报告被明确拒绝；完整 Go 1.27.2、Docker 集成及在线安全扫描仍由外层流程执行。同步/审计 47 项、发布辅助 10 项、部署配置和脚本检查通过。
+
+前端最终验证：392 个测试文件、3169 项测试全部通过；最终类型检查、ESLint、i18n 及生产构建通过。一次并行全量复跑曾发生 worker RPC/用例超时，降低到两个 worker 后完整重跑通过，未放宽测试超时或修改产品代码绕过失败。源码无冲突标记，`git diff --check` 通过；最终决策按目标仓库 schema 校验通过。
+
+
+## 2026-10-12 第二上游冲突与累计复核
+
+本阶段在主上游合并候选 `78030d735` 上处理第二上游 `0976d0215`，本项目基线为 `origin/main=819a47789`，主上游为 `ab80abc6d`。继续审查 `v2026.10.3`（`4b76ca9d07647443c85f3db27b593144261c78ce`）以来全部累计变化，包括两个上游去重后的 109 个非合并提交、第二上游合并提交自身的手工修复，以及之前尚未发布的同步邮件、支付安全、管理员初始化、依赖升级等变化。仅修改临时工作树；不执行仓库 fetch、commit、push、打标签、发布或服务重启，Git 索引由外层同步流程统一暂存。
+
+逐段解决 5 个文件的 7 处文本冲突：VERSION 保持本项目 `2026.10.3`，第二上游版本身份由 `FORK_VERSION=v0.2.15-custom.1` 保留；Antigravity 显式映射在通用配置模型之前处理，过滤通配符并保留默认模型元数据；后台测试同时保留 reasoning effort、自定义提示词、日志归因、指纹租约释放及账号健康统计隔离；价格默认值仅在空条目首次加入单个模型时填充；Codex 配置测试同时断言 API key 模型发现、goals 与对应 WebSocket 配置，移除重复断言。
+
+语义复核另发现并修复价格默认值的过期响应：父页面在查询期间重置空条目时，旧响应原先会恢复已清空的模型和价格。`PricingEntryCard.vue` 现仅对原始条目允许等待父组件接收更新的兼容处理，父组件替换后的空条目不再被回填。新增回归先复现失败，再验证修复；后台模型身份测试补充实际出站请求的健康统计排除断言。
+
+第二上游的组合质量规则、定时测试与自动重试、模型身份校验、Codex 门票与账号身份隔离、普通账号代理池、API key 分组回退、上游计费限流，以及模型同步中的 DeepSeek 独立价格和并发修改保护继续保留。Cline/Command Code 可充值钱包冷却优先于永久账单错误，冷却持久化失败不误停用账号。主上游的平台清单及多协议路由、分组多语言、GPT-6.1 Sol 上下文与订阅计费、搜索历史和 Lite 工具、逐轮 WS 计费、图片用量、协议转换与界面竞态修复均保留。
+
+全部 321 个历史 SQL／迁移兼容文件与发布基准逐字节一致；新增的两个 242 迁移以完整文件名分别登记。未修改历史表、记录或冻结余额。普通账号池、普通生图和异步单图继续保留。
+
+累计窗口仍有一项支付兼容限制：EasyPay 回调白名单拒绝额外自定义字段；主动查询与对账恢复仍保留，不能通过放宽校验重新引入签名重放。
+
+以下为本阶段从两个上游实际树逐项明确排除的位置。共享池两个计费文件仅排除专属 `DurationMS` 传递，普通 `UsageLog.DurationMs` 保留；批量生图 65 个专属文件继续缺席，70 个混合用途文件只排除专属字段、调用、测试、文案和配置，不删除其余实现。历史 SQL 及校验和兼容记录不列入排除。
+
+共享账号池：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+- `backend/internal/service/usage_billing.go`
+- `backend/internal/service/gateway_usage_billing.go`
+
+批量生图：
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/cmd/server/wire_gen_test.go`
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/client.go`
+- `backend/ent/ent.go`
+- `backend/ent/group.go`
+- `backend/ent/group/group.go`
+- `backend/ent/group/where.go`
+- `backend/ent/group_create.go`
+- `backend/ent/group_update.go`
+- `backend/ent/hook/hook.go`
+- `backend/ent/intercept/intercept.go`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/predicate/predicate.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/ent/schema/group.go`
+- `backend/ent/tx.go`
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/admin/group_handler.go`
+- `backend/internal/handler/admin/group_handler_simple_mode_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/handler/gateway_model_allowlist_listing_test.go`
+- `backend/internal/handler/handler.go`
+- `backend/internal/handler/security_audit_media_submit_test.go`
+- `backend/internal/handler/security_audit_order_test.go`
+- `backend/internal/handler/wire.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/repository/group_repo.go`
+- `backend/internal/repository/usage_billing_repo.go`
+- `backend/internal/repository/usage_billing_repo_unit_test.go`
+- `backend/internal/repository/wire.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/middleware/group_model_allowlist_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/server/routes/prompt_audit_route_coverage_test.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/admin_group_duplicate.go`
+- `backend/internal/service/admin_group_duplicate_test.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/service/admin_service_group_test.go`
+- `backend/internal/service/api_key_auth_cache.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `backend/internal/service/group.go`
+- `backend/internal/service/usage_billing.go`
+- `backend/internal/service/wire.go`
+- `deploy/EDGE_SECURITY.md`
+- `deploy/docker-compose.dev.yml`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/api/index.ts`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/user/dashboard/UserDashboardQuickActions.vue`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/admin/overview.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/en/common.ts`
+- `frontend/src/i18n/locales/en/dashboard.ts`
+- `frontend/src/i18n/locales/en/index.ts`
+- `frontend/src/i18n/locales/en/landing.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/i18n/locales/zh/common.ts`
+- `frontend/src/i18n/locales/zh/dashboard.ts`
+- `frontend/src/i18n/locales/zh/index.ts`
+- `frontend/src/i18n/locales/zh/landing.ts`
+- `frontend/src/router/index.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/DashboardView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/__tests__/ChannelsView.pricingSync.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.codexManifest.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.duplicate.spec.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+
+本阶段最终验证：前端 392 个文件、3170 项测试全部通过，类型检查、ESLint、i18n 和生产构建通过；后端服务／图片路由专项 103 项（含子测试）通过，管理模型目录和 EasyPay 防伪专项通过；后端构建、相关服务／管理处理器 `go vet` 通过；同步／审计回归 47 项通过。后端使用缓存 Go 1.27.1 和 `/tmp` 隔离 modfile 作兼容验证，未变更仓库 Go 1.27.2 或安全依赖版本。较宽的账号测试选择因一项 httptest 本地监听受限而中断，随后明确选取无需监听的协议、提示词、日志、健康隔离和钱包回归验证通过；不将兼容验证等同于完整工具链、Docker 集成或在线安全门禁。历史 SQL／兼容记录、功能排除、源码冲突标记和 `git diff --check` 最终检查通过，决策 JSON 按目标仓库 schema 验证通过。
+
+## 2026-10-12 最终双上游兼容审查
+
+候选为 `2691bcb334`，两个上游及本项目基线与上一节相同。重新阅读两路提交历史、双方差异、两次合并的冲突解决差异，以及 `v2026.10.3` 到候选的累计 389 个文件变化。累计包含 109 个去重后的上游非合并提交，也覆盖此前已合并未发布的支付安全、初始化安全、WS 计费、前端竞态、安全依赖和同步邮件改进。没有执行仓库 fetch、提交、推送、标签、发布或服务重启。
+
+最终复核修复两处遗漏：
+
+- 主上游分组多语言与第二上游 API Key 回退分组融合不完整：`backend/internal/handler/dto/group_localize.go` 现在同时本地化主分组和回退分组，用户 API Key 及嵌套用量记录不再携带回退分组完整译文表。回归先复现错误，再检查本地化结果、分组 ID、管理员原始数据及其他语言响应；不修改回退调度、权限或计费。
+- 共享账号池排除规则此前不能识别第二上游残留 DTO 名称 `SharedTotalCallCount`、`SharedListingStatus`。候选原本已删除这两个字段；现补强 `.github/upstream-exclusions.json`，并用 Go 字段名与前端 snake_case 字段名四种用例验证。普通账号池、账号代理池、Gemini 共享配额和 WS 连接池仍允许。
+
+本轮逐项确认上一节列出的 135 个批量生图路径继续排除：65 个专属文件不存在，70 个混合用途文件仅排除专属代码。共享账号池除上一节四处外，补充明确排除 `backend/internal/handler/dto/types.go` 的上述两个专属字段；普通账号 DTO 字段及 `UsageLog.DurationMs` 保留。没有新增数据清理迁移；321 个历史 SQL／校验兼容文件（包含机器规则指定的 14 个路径）与发布基准逐字节一致，两个新增 242 迁移仍按完整文件名登记。
+
+此前已解决的版本身份、Ent 字段索引、Antigravity 模型目录、提示词透传、账号健康隔离、钱包冷却、渠道价格同步与过期响应保护均复核保留。第二上游的组合质量规则、定时测试和自动重试、模型身份校验、Codex 门票与身份隔离、普通账号代理池、API key 分组回退和上游计费限流继续保留；普通生图和异步单图继续可用。累计窗口剩余的具体兼容限制仍为 EasyPay 拒绝附加自定义回调字段；保留主动查询／对账恢复与防伪校验。
+
+本轮验证：前端 392 个测试文件、3170 项测试全部通过，类型检查、ESLint、i18n 和生产构建通过。后端专项 278 项（含子测试）、DTO 全包、DTO `go vet`、服务构建及仓储／迁移集成测试编译检查通过；同步／审计 47 项通过。后端沿用 `/tmp` 隔离 modfile 和缓存 Go 1.27.1 做兼容验证，没有更改仓库 Go 1.27.2 或安全依赖。需要本地监听的 WS 图片用量测试受沙箱限制；无监听的图片用量归集、普通／异步单图和退役路由测试通过。不把编译检查等同于数据库集成或完整安全门禁。功能排除、历史文件比对、冲突标记、`git diff --check` 和目标仓库完整决策 schema 校验通过。
+
+## 2026-10-12 全量验证集中修复（第 1/3 轮）
+
+已逐一读取失败清单中的七份独立日志。后端普通测试、单元测试、集成测试、静态检查、golangci-lint、漏洞检查和生产构建都在包加载前失败，共同错误为 `go.mod requires go >= 1.27.2 (running go 1.27.0; GOTOOLCHAIN=local)`，日志没有报告具体业务测试断言失败。
+
+同步脚本改为按候选 `backend/go.mod` 为每个后端检查选择镜像，保留显式自定义镜像配置；样例配置不再固定旧版本。检查工具缓存按 Go 版本及平台隔离，golangci-lint 与 CI 同步到 v2.14.0。CI、安全扫描及 Release 的构建和发布节点按选定源码精确验证 Go 版本，避免固定版本断言误匹配或阻止旧标签构建。三个 Docker 构建入口已使用 1.27.2，无需修改；发布归档、校验和、源码提交绑定和镜像标签回归通过。
+
+本次仅修改自动化、工作流、相应测试和文档；未修改 Go 安全版本、依赖、业务代码、历史 SQL 或迁移校验和兼容记录，也没有新增排除路径或未解决冲突。共享账号池与批量生图继续排除，普通生图与异步单图任务保持。同步回归 52 项、发布辅助回归 11 项、功能排除检查和脚本语法检查通过。
+
+执行限制：当前修复沙箱连接 Docker socket 返回 `permission denied`，因此未实际重跑上述七项容器检查。正在运行的外层旧脚本已加载 `GO_IMAGE=golang:1.27.0`；只修改候选工作树不能更新其内存函数、外部脚本或配置。本次没有访问外部配置或密钥，没有对候选或远程仓库执行 fetch、commit、push、打标签、发布或重启服务。必须由使用新版脚本和满足 Go 1.27.2 要求镜像的外层环境重新完成全量验证；不能将上述辅助回归视为七项后端检查已通过。
+
+## 2026-10-12 全量验证集中复核（第 2/3 轮）
+
+再次逐一读取失败清单中的七份独立日志，全部仍在包加载前报错：`go.mod requires go >= 1.27.2 (running go 1.27.0; GOTOOLCHAIN=local)`。受阻检查为后端普通测试（`go test ./...`）、单元测试（`go test -tags=unit ./...`）、集成测试（`go test -tags=integration ./...`）、静态检查（`go vet ./...`）、golangci-lint、govulncheck 和后端生产构建。golangci-lint 退出码为 3，其余为 1；没有执行到具体业务测试断言，不能据此认定业务测试通过或失败。
+
+完整日志显示第 2 轮全量验证在 `18:37:15Z` 开始，七项后端检查在 `18:37:38Z` 至 `18:37:41Z` 重复工具链错误。候选已包含上一轮的动态镜像选择、工具缓存隔离和 CI／Release 工具链校验，修改候选脚本不会替换外层父进程已加载的函数及配置。显式 `SUB2API_GO_IMAGE` 仍按设计优先于默认值；即使采用新版脚本，保留旧镜像覆盖值也会继续失败。
+
+本轮核对 CI、安全扫描、Release 构建／发布节点、完整及简化 GoReleaser 配置、归档校验和、源码提交绑定及镜像元数据，未发现这七项日志之外的新发布错误。工具链回归 5 项、发布辅助回归 11 项均通过，功能排除、脚本语法及差异空白检查通过。仅补充配置样例中的生效边界说明及本记录；不修改业务实现、Go 1.27.2 安全要求、依赖、历史 SQL 或迁移校验和兼容记录，没有新增排除路径或未解决冲突。
+
+七项后端检查仍未解除阻塞，不能标记本次集中修复成功。恢复条件是外层执行环境采用修复后的同步脚本，并清除旧 `SUB2API_GO_IMAGE` 覆盖值以按候选选择 `golang:1.27.2`，或提供满足候选最低版本的自定义镜像，再对保留候选执行完整验证。此条件涉及本轮禁止修改的外部运行状态，不能通过工作树内降级安全版本、绕过检查、修改父进程或隐式重启来解决。本轮未读取外部配置或密钥，未执行 fetch、commit、push、标签、发布、服务重启或通知；没有推送候选。
+
+## 2026-10-12 全量验证集中复核（第 3/3 轮）
+
+逐一读取本轮失败清单的全部七份独立日志，结果如下。日志位于 `state/20261012T173001Z-1529495-check-*`，下表列出唯一后缀，便于定位；七项均因 `go.mod requires go >= 1.27.2 (running go 1.27.0; GOTOOLCHAIN=local)` 在模块加载阶段失败，未执行到业务测试断言。
+
+| 检查 | 独立日志后缀 | 退出码 |
+| --- | --- | --- |
+| 后端普通测试 `go test ./...` | `_.log.02up8J` | 1 |
+| 后端单元测试 `go test -tags=unit ./...` | `_.log.Bol49X` | 1 |
+| 后端集成测试 `go test -tags=integration ./...` | `_.log.DVD9GZ` | 1 |
+| 后端静态检查 `go vet ./...` | `_.log.TDENCZ` | 1 |
+| `golangci-lint` | `golangci-lint.log.oNDcNI` | 3 |
+| 后端漏洞检查 `govulncheck ./...` | `_.log.1RV0p5` | 1 |
+| 后端生产构建 | `_.log.39UVU2` | 1 |
+
+完整日志记录这七项检查在 `18:48:53Z` 至 `18:48:57Z` 再次失败。候选的动态 Go 镜像选择、按工具链隔离 lint／漏洞工具缓存、CI 与 Release 的精确版本校验均已存在；本轮工具链回归 5 项及 Release／归档／校验和／源码绑定／镜像元数据回归 11 项全部通过。这些使用替身的辅助回归不代表实际后端测试、漏洞扫描或发布构建通过。
+
+本轮仅补充审查记录。剩余七项共同依赖外层运行环境更新已加载的旧脚本和 Go 镜像配置，无法仅在本轮允许修改的候选工作树内安全解除；继续修改候选脚本也不会更新父进程。恢复条件沿用上一节，不降低 Go 1.27.2 安全要求，不访问外部配置或密钥，不执行提交、推送、发布或重启。没有新增排除路径或未解决冲突；业务实现、历史 SQL、迁移校验和兼容记录保持原样。本轮不能报告集中修复成功，候选尚未推送。
+
+## 2026-10-13 定时同步恢复
+
+复用 2026-10-12 已审查候选及两路上游，不重新引入任何已排除功能。修复实际调度环境固定 Go 1.27.0、修复后仍复用父进程旧验证函数、失败阶段误报，以及修复提交检查失败后提前退出的问题。后端镜像按候选 go.mod 选择，验证函数每轮重新加载，工具缓存按 Go 版本隔离。CI／Release 同样从选定源码读取工具链要求。
+
+集成测试改为提供 Docker 访问和临时 PostgreSQL，避免无 Docker 或无 MIGRATION_TEST_DATABASE_URL 时悄悄跳过。真实执行发现账号并发状态测试的临时表缺少已有迁移 233 中的 rate_limit_429_retry_count，补齐测试夹具；生产模型和历史 SQL 不变。CI 同步提供临时 PostgreSQL。
+
+EasyPay 实现与主上游完全一致；按既定用户决策将上游 d1aac6b98 的附加回调字段白名单兼容限制记录为已接受发布风险，保留签名、防伪、防重放及对账恢复，不接受新增签名绕过。共享账号池与批量生图排除范围不变，无新增排除路径。

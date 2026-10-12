@@ -3,5 +3,10 @@
     "id": "upstream-dependency-audit",
     "description": "依赖审计结果来自上游且本项目未新增风险",
     "pattern": "(?:(?:上游|upstream).*(?:依赖|dependency).*(?:审计|audit)|(?:审计|audit).*(?:依赖|dependency).*(?:上游|upstream)).*(?:漏洞|风险|vulnerability)"
+  },
+  {
+    "id": "upstream-easypay-extra-callback-fields",
+    "description": "接受主上游 d1aac6b98 原有的 EasyPay 防伪回调字段白名单兼容限制；保留签名、防重放及对账恢复校验",
+    "pattern": "EasyPay.*(?:回调白名单|回调字段白名单|拒绝附加自定义回调字段).*(?:额外自定义字段|兼容支付商回调|自定义回调字段|主动查询|对账恢复)"
   }
 ]

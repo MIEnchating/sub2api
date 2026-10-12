@@ -107,7 +107,12 @@ func TestAccountTestModelIdentity_BackgroundCapturesWireModels(t *testing.T) {
 				Credentials: map[string]any{"api_key": "test", "base_url": "https://upstream.example.com", "model_mapping": map[string]any{"requested-model": "mapped-model"}},
 				Extra:       map[string]any{openai_compat.ExtraKeyResponsesSupported: tt.responses},
 			}
-			upstream := &modelIdentityHTTPUpstream{body: tt.body}
+			upstream := &modelIdentityHTTPUpstream{
+				body: tt.body,
+				beforeReturn: func(req *http.Request, _ int) {
+					require.True(t, AccountProtectionOutcomeExcluded(req.Context()), "scheduled probes must not affect production account health")
+				},
+			}
 			svc := &AccountTestService{accountRepo: &modelIdentityAccountRepo{account: account}, httpUpstream: upstream, cfg: &config.Config{}}
 			result, err := svc.RunTestBackgroundWithPromptAndReasoning(context.Background(), account.ID, "requested-model", "Reply OK.", "")
 			require.NoError(t, err)

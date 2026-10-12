@@ -16,6 +16,62 @@ spec.loader.exec_module(release_window)
 
 
 class ValidationLogTest(unittest.TestCase):
+    def test_uncommittable_repair_is_revalidated_and_retried(self):
+        shell = SCRIPT.read_text()
+        name = 'run_validation_with_repairs'
+        function = name + '() {' + shell.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
+        command = function + '''
+log() { :; }
+run_validation_pass() { echo "pass $1"; [[ "$1" == 3 ]]; }
+run_codex_validation_repair() { echo "repair $1"; [[ "$1" == 2 ]]; }
+run_validation_with_repairs
+echo "$VALIDATION_SUCCEEDED"
+'''
+        result = subprocess.run(['bash', '-ec', command], capture_output=True, text=True,
+                                env=os.environ | {'VALIDATE': 'true', 'VALIDATION_REPAIR_ATTEMPTS': '3'})
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.splitlines(),
+                         ['pass 1', 'repair 1', 'pass 2', 'repair 2', 'pass 3', 'true'])
+
+    def test_repair_reloads_candidate_validator_in_same_process(self):
+        shell = SCRIPT.read_text()
+        name = 'run_validation_pass'
+        function = name + '() {' + shell.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
+        with tempfile.TemporaryDirectory(prefix='sync-validator-reload-') as tmp:
+            scripts = Path(tmp) / 'scripts'
+            scripts.mkdir()
+            validator = scripts / 'upstream-sync-validation.sh'
+            validator.write_text('run_validation_checks() { echo old; return 1; }\n')
+            command = function + '''
+run_validation_pass 1 && exit 99
+printf 'run_validation_checks() { echo repaired; }\n' > "$WORKTREE/scripts/upstream-sync-validation.sh"
+run_validation_pass 2
+'''
+            result = subprocess.run(['bash', '-ec', command], capture_output=True, text=True,
+                                    env=os.environ | {'WORKTREE': tmp})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['old', 'repaired'])
+
+    def test_failure_summary_does_not_name_last_successful_check(self):
+        module = SCRIPT.with_name('upstream-sync-validation.sh')
+        with tempfile.TemporaryDirectory(prefix='sync-validation-stage-') as tmp:
+            failures = Path(tmp) / 'failures'
+            command = '''source "$VALIDATOR"
+log() { :; }
+record_check() {
+  CURRENT_STAGE="全量验证：$1"
+  [[ "$1" != 后端普通测试 ]] || echo failed >> "$VALIDATION_FAILURES_FILE"
+}
+run_validation_checks 1 && exit 99
+echo "$CURRENT_STAGE"
+echo "$VALIDATION_RESULT"
+'''
+            result = subprocess.run(['bash', '-ec', command], capture_output=True, text=True,
+                                    env=os.environ | {'VALIDATOR': str(module), 'WORKTREE': tmp,
+                                                      'VALIDATION_FAILURES_FILE': str(failures)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(), ['全量验证结果汇总', '第 1 轮失败（1 项）'])
+
     def test_each_check_and_retry_preserves_its_own_log(self):
         shell = SCRIPT.read_text()
         name = 'record_check' if 'record_check() {' in shell else 'run_validation_command'
@@ -173,6 +229,10 @@ class ReleaseWindowTest(unittest.TestCase):
         accepted_output = evaluate(accepted)
         self.assertIn('待发布', accepted_output)
         self.assertIn('风险=1 已接受=1 可阻塞风险=0', accepted_output)
+
+        easypay = ['累计更新中的 EasyPay 回调白名单会拒绝携带额外自定义字段的兼容支付商回调；主动查询和对账恢复仍保留，防重放校验未放宽。']
+        self.assertIn('待发布', evaluate(easypay))
+        self.assertIn('不发布', evaluate(['EasyPay 新增签名绕过漏洞。']))
 
         blocked_output = evaluate(accepted + ['新增未知的数据库兼容性风险。'])
         self.assertIn('不发布', blocked_output)

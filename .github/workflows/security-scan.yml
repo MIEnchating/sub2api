@@ -25,7 +25,8 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
       - name: Run govulncheck
         working-directory: backend
         run: |

@@ -61,6 +61,10 @@ class UpstreamExclusionsTest(unittest.TestCase):
             ('frontend/src/api/__tests__/admin.sharedPool.spec.ts', ''),
             ('backend/migrations/999_other.sql', 'ALTER TABLE shared_account_wallets'),
             ('backend/internal/service/group.go', 'IsSharedPool bool `json:"is_shared_pool"`'),
+            ('backend/internal/handler/dto/types.go', 'SharedTotalCallCount int64'),
+            ('backend/internal/handler/dto/types.go', 'SharedListingStatus string'),
+            ('frontend/src/types/index.ts', 'shared_total_call_count?: number'),
+            ('frontend/src/types/index.ts', 'shared_listing_status?: string'),
         ):
             with self.subTest(path=path):
                 self.assertTrue(self.check(path, content))

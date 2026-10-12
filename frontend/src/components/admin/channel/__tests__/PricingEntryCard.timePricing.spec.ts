@@ -346,13 +346,11 @@ describe('PricingEntryCard automatic default pricing', () => {
     })
   })
 
-  it('ignores a response for a model that was replaced during lookup', async () => {
+  it('ignores a stale response and keeps prices blank when an existing model is replaced', async () => {
     channelsApiMock.getModelDefaultPricing.mockReset()
     let resolveFirst!: (value: ReturnType<typeof defaultPricing>) => void
-    let resolveSecond!: (value: ReturnType<typeof defaultPricing>) => void
     channelsApiMock.getModelDefaultPricing
       .mockReturnValueOnce(new Promise(resolve => { resolveFirst = resolve }))
-      .mockReturnValueOnce(new Promise(resolve => { resolveSecond = resolve }))
     const entry = createBlankTokenEntry()
     const wrapper = shallowMount(PricingEntryCard, { props: { entry } })
 
@@ -363,11 +361,31 @@ describe('PricingEntryCard automatic default pricing', () => {
 
     resolveFirst(defaultPricing(1, 2))
     await flushAsyncWork()
-    expect(lastUpdate(wrapper)?.input_price).not.toBe(1_000_000)
+    expect(channelsApiMock.getModelDefaultPricing).toHaveBeenCalledOnce()
+    expect(channelsApiMock.getModelDefaultPricing).toHaveBeenCalledWith('model-a')
+    expect(lastUpdate(wrapper)).toMatchObject({ models: ['model-b'], input_price: null, output_price: null })
+  })
 
-    resolveSecond(defaultPricing(0.000003, 0.000004))
+  it('does not restore a model after the parent resets the entry while lookup is pending', async () => {
+    channelsApiMock.getModelDefaultPricing.mockReset()
+    let resolvePricing!: (value: ReturnType<typeof defaultPricing>) => void
+    channelsApiMock.getModelDefaultPricing.mockReturnValue(new Promise(resolve => {
+      resolvePricing = resolve
+    }))
+    const entry = createBlankTokenEntry()
+    const wrapper = shallowMount(PricingEntryCard, { props: { entry } })
+
+    modelInput(wrapper).vm.$emit('update:models', ['model-a'])
+    await wrapper.setProps({ entry: { ...entry, models: ['model-a'] } })
+    await wrapper.setProps({ entry: createBlankTokenEntry() })
+    const updateCount = wrapper.emitted('update')!.length
+
+    resolvePricing(defaultPricing())
     await flushAsyncWork()
-    expect(lastUpdate(wrapper)).toMatchObject({ models: ['model-b'], input_price: 3, output_price: 4 })
+
+    expect(wrapper.emitted('update')).toHaveLength(updateCount)
+    expect(wrapper.props('entry').models).toEqual([])
+    wrapper.unmount()
   })
 
   it('does not emit a stale update after the entry is removed while lookup is pending', async () => {

@@ -345,12 +345,19 @@ func TestAccountHandlerGetAvailableModels_Antigravity(t *testing.T) {
 		{name: "empty JSON mapping", credentials: map[string]any{"model_mapping": map[string]any{}}, want: defaults},
 		{name: "empty string mapping", credentials: map[string]any{"model_mapping": map[string]string{}}, want: defaults},
 		{name: "blank key", credentials: map[string]any{"model_mapping": map[string]any{" ": "upstream-model"}}, want: defaults},
+		{name: "wildcard-only mapping", credentials: map[string]any{"model_mapping": map[string]any{"claude-*": "upstream-model"}}, want: defaults},
 		{name: "JSON mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]any{
 			known.ID: known.ID, custom.ID: "upstream-model",
 		}}, want: []antigravity.ClaudeModel{custom, known}},
 		{name: "string mapping keys and metadata", credentials: map[string]any{"model_mapping": map[string]string{
 			known.ID: known.ID, custom.ID: "upstream-model",
 		}}, want: []antigravity.ClaudeModel{custom, known}},
+		{name: "JSON mapping skips wildcards", credentials: map[string]any{"model_mapping": map[string]any{
+			known.ID: known.ID, "claude-*": "upstream-model",
+		}}, want: []antigravity.ClaudeModel{known}},
+		{name: "string mapping skips wildcards", credentials: map[string]any{"model_mapping": map[string]string{
+			known.ID: known.ID, "claude-*": "upstream-model",
+		}}, want: []antigravity.ClaudeModel{known}},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

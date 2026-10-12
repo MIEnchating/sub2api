@@ -35,6 +35,10 @@ chmod 600 /root/workspace/automation/sub2api-upstream-sync/config.env
 
 环境变量可通过 cron 的 `config.env` 注入；脚本内置当前仓库和三个 remote 的默认值。
 
+`SUB2API_GO_IMAGE` 留空时，每个后端检查从候选 `backend/go.mod` 读取完整 Go 版本，使用对应的 `golang:<版本>` 镜像；修复改变 Go 版本后会重新选择。自定义镜像必须满足候选的最低版本要求。容器设置 `GOTOOLCHAIN=local`，不会隐式下载其他工具链。lint 和漏洞检查工具按 Go 版本及平台隔离缓存，lint 版本与 CI 对齐。
+
+从旧同步脚本升级时，应清除配置中固定的 `SUB2API_GO_IMAGE=golang:1.27.0`（或改用满足候选要求的镜像）。已经运行的旧脚本不会因候选工作树被修改而重载函数或镜像变量；应保留候选，在使用新版脚本及配置的验证环境中重新执行完整验证，不能降低 `go.mod` 的安全版本要求。
+
 ## 手动试运行
 
 不会提交或推送：

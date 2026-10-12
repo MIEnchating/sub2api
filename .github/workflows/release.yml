@@ -142,7 +142,9 @@ jobs:
           check-latest: false
           cache: false
       - name: Verify Go version
-        run: go version | grep -q 'go1.27.0'
+        run: |
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
       - name: Restore target-specific Go cache
         id: go-cache
         uses: actions/cache/restore@v6
@@ -234,7 +236,12 @@ jobs:
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
+          check-latest: false
           cache: false
+      - name: Verify Go version
+        run: |
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
       - name: Set up QEMU
         uses: docker/setup-qemu-action@v3
       - name: Set up Docker Buildx

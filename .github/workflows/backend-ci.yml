@@ -19,6 +19,7 @@ jobs:
           python3 .github/check-upstream-exclusions.py .
           python3 -m unittest discover -s .github -p 'test_upstream*.py'
           /bin/bash -n scripts/upstream-sync.sh
+          /bin/bash -n scripts/upstream-sync-validation.sh
       - name: Check deployment scripts
         run: |
           /bin/bash -n deploy/apple-container.sh
@@ -30,6 +31,17 @@ jobs:
 
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_PASSWORD: integration-test
+          POSTGRES_DB: sub2api_test
+        ports:
+          - 5432/tcp
+        options: >-
+          --health-cmd "pg_isready -U postgres -d sub2api_test"
+          --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
       - uses: actions/checkout@v6
       - name: Check Docker Compose simple mode environment
@@ -42,12 +54,15 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
       - name: Unit tests
         working-directory: backend
         run: make test-unit
       - name: Integration tests
         working-directory: backend
+        env:
+          MIGRATION_TEST_DATABASE_URL: postgres://postgres:integration-test@127.0.0.1:${{ job.services.postgres.ports[5432] }}/sub2api_test?sslmode=disable
         run: make test-integration
 
   frontend:
@@ -82,11 +97,12 @@ jobs:
           cache-dependency-path: backend/go.sum
       - name: Verify Go version
         run: |
-          go version | grep -q 'go1.27.0'
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
-          version: v2.13
+          version: v2.14.0
           args: --timeout=30m
           working-directory: backend
 

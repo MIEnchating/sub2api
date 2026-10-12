@@ -20,6 +20,38 @@ release = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(release)
 
 
+class WorkflowToolchainTest(unittest.TestCase):
+    def test_ci_security_and_release_verify_selected_source_version(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'backend').mkdir()
+            (root / 'bin').mkdir()
+            go = root / 'bin/go'
+            go.write_text('#!/bin/sh\n'
+                          'test "$GOTOOLCHAIN" = local || exit 9\n'
+                          'test "$*" = "env GOVERSION" || exit 8\n'
+                          'echo "$TEST_GO_VERSION"\n')
+            go.chmod(0o755)
+            env = os.environ | {'PATH': str(root / 'bin') + os.pathsep + os.environ['PATH']}
+            for workflow in ('backend-ci.yml', 'security-scan.yml', 'release.yml'):
+                data = yaml.safe_load((ROOT / '.github/workflows' / workflow).read_text())
+                for job, config in data['jobs'].items():
+                    steps = config['steps']
+                    if not any(step.get('uses', '').startswith('actions/setup-go@') for step in steps):
+                        continue
+                    with self.subTest(workflow=workflow, job=job):
+                        setup = next(step for step in steps if step.get('uses', '').startswith('actions/setup-go@'))
+                        self.assertEqual(setup['with']['go-version-file'], 'backend/go.mod')
+                        verify = next(step['run'] for step in steps if step.get('name') == 'Verify Go version')
+                        for required in ('1.27.2', '1.28.1'):
+                            (root / 'backend/go.mod').write_text(f'module example.test/backend\n\ngo {required}\n')
+                            for actual, expected in ((required, 0), ('1.27.0', 1), (required + '0', 1)):
+                                result = subprocess.run(['bash', '-ec', verify], cwd=root,
+                                                        env=env | {'TEST_GO_VERSION': 'go' + actual},
+                                                        text=True, capture_output=True)
+                                self.assertEqual(result.returncode, expected, result.stderr)
+
+
 class ReleaseMatrixTest(unittest.TestCase):
     def setUp(self):
         self.previous = Path.cwd()

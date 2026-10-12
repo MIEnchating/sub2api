@@ -458,10 +458,11 @@ async function onModelsUpdate(newModels: string[]) {
   const lookupGeneration = ++pricingLookupGeneration
   emit('update', { ...props.entry, models: newModels })
 
-  // Only fill defaults for a blank token entry receiving one model. Existing
-  // multi-model entries share one price rule and must not be silently rewritten.
+  // Only fill defaults when a blank token entry receives its first model.
+  // Appending or replacing models preserves blank prices and per-model defaults;
+  // adding several models at once must not share the first model's price.
   const addedModels = newModels.filter(m => !oldModels.includes(m))
-  if (oldModels.length > 1 || addedModels.length !== 1) return
+  if (oldModels.length !== 0 || addedModels.length !== 1) return
 
   if (props.entry.billing_mode !== 'token' || newModels.length !== 1) return
 
@@ -479,7 +480,11 @@ async function onModelsUpdate(newModels: string[]) {
     // in flight. Re-check both the generation and current values before
     // applying the response, so manual edits and model changes always win.
     const current = props.entry
-    const effectiveCurrent = current.models.length === 0 ? { ...current, models: newModels } : current
+    // Only bridge the original entry while its emitted update is pending.
+    // A different empty entry belongs to a parent reset and must stay empty.
+    const effectiveCurrent = current === e && current.models.length === 0
+      ? { ...current, models: newModels }
+      : current
     if (lookupGeneration !== pricingLookupGeneration ||
         effectiveCurrent.billing_mode !== 'token' ||
         effectiveCurrent.models.length !== 1 ||

@@ -19,7 +19,8 @@ PRIMARY_BRANCH="${SUB2API_PRIMARY_BRANCH:-main}"
 SECOND_REMOTE="${SUB2API_SECOND_REMOTE:-overdraft}"
 SECOND_BRANCH="${SUB2API_SECOND_BRANCH:-sub2api-custom}"
 CODEX_BIN="${SUB2API_CODEX_BIN:-/usr/bin/codex}"
-GO_IMAGE="${SUB2API_GO_IMAGE:-golang:1.27.0}"
+# Empty means resolve from the candidate, including after a repair changes go.mod.
+GO_IMAGE="${SUB2API_GO_IMAGE:-}"
 COREPACK_BIN="${SUB2API_COREPACK_BIN:-/usr/bin/corepack}"
 PNPM_VERSION="${SUB2API_PNPM_VERSION:-9.15.9}"
 VALIDATE="${SUB2API_VALIDATE:-true}"
@@ -744,86 +745,17 @@ record_check() {
   return 0
 }
 
-docker_go() {
-  docker run --rm \
-    -v "$WORKTREE:/src" \
-    -v sub2api-sync-go-mod:/go/pkg/mod \
-    -v sub2api-sync-go-build:/root/.cache/go-build \
-    -w /src/backend "$GO_IMAGE" "$@"
-}
-
-check_backend_security() {
-  docker run --rm \
-    -v "$WORKTREE:/src" \
-    -v "$TOOLS_DIR:/tools" \
-    -v sub2api-sync-go-mod:/go/pkg/mod \
-    -v sub2api-sync-go-build:/root/.cache/go-build \
-    -w /src/backend "$GO_IMAGE" /bin/bash -ec \
-    'test -x /tools/govulncheck || GOBIN=/tools go install golang.org/x/vuln/cmd/govulncheck@latest; /tools/govulncheck ./...'
-}
-
-check_backend_lint() {
-  docker run --rm \
-    -v "$WORKTREE:/src" \
-    -v "$TOOLS_DIR:/tools" \
-    -v sub2api-sync-go-mod:/go/pkg/mod \
-    -v sub2api-sync-go-build:/root/.cache/go-build \
-    -w /src/backend "$GO_IMAGE" /bin/bash -ec \
-    'test -x /tools/golangci-lint || GOBIN=/tools go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13.0; /tools/golangci-lint run --timeout=30m ./...'
-}
-
-check_frontend_audit() {
-  (cd "$WORKTREE/frontend" && frontend_pnpm audit --prod --audit-level=high --json > audit.json || true)
-  python3 "$WORKTREE/tools/check_pnpm_audit_exceptions.py" \
-    --audit "$WORKTREE/frontend/audit.json" \
-    --exceptions "$WORKTREE/.github/audit-exceptions.yml"
-}
-
-check_deployment_scripts() {
-  cd "$WORKTREE"
-  /bin/bash -n deploy/apple-container.sh || return 1
-  if command -v plutil >/dev/null 2>&1; then
-    /bin/bash deploy/tests/apple-container-test.sh || return 1
-  else
-    log 'skipping macOS-only apple-container runtime test because plutil is unavailable'
-  fi
-  /bin/sh deploy/tests/docker-compose-security-test.sh || return 1
-  /bin/sh deploy/tests/docker-compose-gateway-env-test.sh || return 1
-  /bin/sh deploy/tests/docker-runtime-resources-test.sh || return 1
-  /bin/sh deploy/test-caddyfile-cache.sh || return 1
-}
-
-frontend_pnpm() {
-  "$COREPACK_BIN" "pnpm@$PNPM_VERSION" "$@"
-}
-
 run_validation_pass() {
-  local pass="$1"
-  : > "$VALIDATION_FAILURES_FILE"
-  VALIDATION_RESULT="第 $pass 轮全量验证进行中"
-  log "starting complete validation pass $pass"
-  record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE"
-  record_check '上游排除规则及报告测试' python3 -m unittest discover -s "$WORKTREE/.github" -p 'test_upstream*.py'
-  record_check '后端普通测试' docker_go go test ./...
-  record_check '后端单元测试' docker_go go test -tags=unit ./...
-  record_check '后端集成测试' docker_go go test -tags=integration ./...
-  record_check '后端静态检查' docker_go go vet ./...
-  record_check 'golangci-lint' check_backend_lint
-  record_check '后端漏洞检查' check_backend_security
-  record_check '后端生产构建' docker_go /bin/bash -ec 'CGO_ENABLED=0 go build -trimpath -o /tmp/sub2api-server ./cmd/server'
-  record_check '前端依赖锁定安装' frontend_pnpm --dir "$WORKTREE/frontend" install --frozen-lockfile
-  record_check '前端 ESLint' frontend_pnpm --dir "$WORKTREE/frontend" run lint:check
-  record_check '前端类型检查' frontend_pnpm --dir "$WORKTREE/frontend" run typecheck
-  record_check '前端完整测试' frontend_pnpm --dir "$WORKTREE/frontend" run test:run
-  record_check '前端生产构建及 i18n' frontend_pnpm --dir "$WORKTREE/frontend" run build
-  record_check '前端依赖安全审计' check_frontend_audit
-  record_check '部署脚本验证' check_deployment_scripts
-  if [[ -s "$VALIDATION_FAILURES_FILE" ]]; then
-    VALIDATION_RESULT="第 $pass 轮失败（$(wc -l < "$VALIDATION_FAILURES_FILE") 项）"
+  # Load only validation functions, without restarting the scheduler or its lock.
+  local validator="$WORKTREE/scripts/upstream-sync-validation.sh"
+  if ! /bin/bash -n "$validator"; then
+    CURRENT_STAGE='加载候选验证脚本'
+    VALIDATION_RESULT='候选验证脚本语法错误'
+    printf '%s\n' "$VALIDATION_RESULT：$validator" > "$VALIDATION_FAILURES_FILE"
     return 1
   fi
-  VALIDATION_RESULT="第 $pass 轮全部通过"
-  return 0
+  source "$validator"
+  run_validation_checks "$1"
 }
 
 run_codex_validation_repair() {
@@ -867,7 +799,7 @@ EOF
 }
 
 run_validation_with_repairs() {
-  local attempt
+  local attempt repair_succeeded
   VALIDATION_SUCCEEDED=false
   if [[ "$VALIDATE" != true ]]; then
     VALIDATION_RESULT='由配置跳过'
@@ -880,10 +812,18 @@ run_validation_with_repairs() {
   fi
   for ((attempt = 1; attempt <= VALIDATION_REPAIR_ATTEMPTS; attempt++)); do
     REPAIR_COUNT="$attempt"
-    run_codex_validation_repair "$attempt"
+    repair_succeeded=true
+    if ! run_codex_validation_repair "$attempt"; then
+      repair_succeeded=false
+      log "repair attempt $attempt could not finalize the candidate; collecting checks before retry"
+    fi
     if run_validation_pass "$((attempt + 1))"; then
-      VALIDATION_SUCCEEDED=true
-      return 0
+      if [[ "$repair_succeeded" == true ]]; then
+        VALIDATION_SUCCEEDED=true
+        return 0
+      fi
+      VALIDATION_RESULT='候选修复未能提交，验证尚未完成'
+      printf '候选修复提交失败；查看完整日志：%s\n' "$LOG_FILE" >> "$VALIDATION_FAILURES_FILE"
     fi
   done
   return 0

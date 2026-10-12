@@ -60,6 +60,7 @@ id BIGINT PRIMARY KEY, created_at TIMESTAMPTZ DEFAULT NOW(), updated_at TIMESTAM
 name TEXT NOT NULL DEFAULT 'test', notes TEXT, platform TEXT NOT NULL DEFAULT 'openai', type TEXT NOT NULL DEFAULT 'oauth',
 credentials JSONB NOT NULL DEFAULT '{}', extra JSONB NOT NULL DEFAULT '{}', proxy_id BIGINT, proxy_fallback_origin_id BIGINT,
 concurrency INTEGER NOT NULL DEFAULT 3, load_factor INTEGER, priority INTEGER NOT NULL DEFAULT 50, rate_multiplier NUMERIC NOT NULL DEFAULT 1,
+rate_limit_429_retry_count INTEGER NOT NULL DEFAULT 5,
 status TEXT NOT NULL DEFAULT 'active', error_message TEXT, last_used_at TIMESTAMPTZ, expires_at TIMESTAMPTZ,
 auto_pause_on_expired BOOLEAN NOT NULL DEFAULT TRUE, schedulable BOOLEAN NOT NULL DEFAULT TRUE,
 rate_limited_at TIMESTAMPTZ, rate_limit_reset_at TIMESTAMPTZ, overload_until TIMESTAMPTZ, temp_unschedulable_until TIMESTAMPTZ,

@@ -1301,7 +1301,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 // 网关会按"现状即证据"默认走 Responses。
 func (h *AccountHandler) scheduleOpenAIResponsesProbe(account *service.Account) {
 	if account == nil || account.Type != service.AccountTypeAPIKey ||
-		(account.Platform != service.PlatformOpenAI && !service.IsCNProvider(account.Platform)) {
+		(account.Platform != service.PlatformOpenAI && !account.RoutesProtocolByInbound()) {
 		return
 	}
 	if h.accountTestService == nil {
@@ -2888,10 +2888,9 @@ func (h *AccountHandler) GetAvailableModels(c *gin.Context) {
 		return
 	}
 
-	// Antigravity has a rich static catalog with display metadata. Its default
-	// model mapping is synthesized by Account.GetModelMapping, so the generic
-	// configured-model shortcut would incorrectly turn an unmapped account into
-	// a bare, metadata-free list. Use only the explicitly stored mapping here.
+	// Preserve the rich default catalog for unmapped Antigravity accounts.
+	// Read stored mappings directly so synthesized compatibility aliases never
+	// appear as explicitly configured test models.
 	if account.Platform == service.PlatformAntigravity {
 		response.Success(c, antigravityAccountTestModels(account.Credentials["model_mapping"]))
 		return
@@ -3096,13 +3095,13 @@ func antigravityAccountTestModels(rawMapping any) []antigravity.ClaudeModel {
 	switch mapping := rawMapping.(type) {
 	case map[string]any:
 		for id := range mapping {
-			if strings.TrimSpace(id) != "" {
+			if strings.TrimSpace(id) != "" && !strings.Contains(id, "*") {
 				mappedIDs = append(mappedIDs, id)
 			}
 		}
 	case map[string]string:
 		for id := range mapping {
-			if strings.TrimSpace(id) != "" {
+			if strings.TrimSpace(id) != "" && !strings.Contains(id, "*") {
 				mappedIDs = append(mappedIDs, id)
 			}
 		}

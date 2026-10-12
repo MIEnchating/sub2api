@@ -113,6 +113,23 @@ describe('AccountTableFilters', () => {
     wrapper.unmount()
   })
 
+  it('keeps the custom quality-paused status selectable without clearing other filters', async () => {
+    const filters = { ...defaultFilters(), platform: 'openai', type: 'oauth', privacy_mode: '__unset__', group: '42' }
+    const wrapper = mountFilters(filters)
+    const status = wrapper.findAllComponents(Select)[1]
+    await status.get('button').trigger('click')
+    const qualityPaused = status.findAll('[role="option"]').find(option =>
+      option.text() === 'admin.accounts.status.qualityPaused'
+    )
+    expect(qualityPaused).toBeDefined()
+
+    await qualityPaused!.trigger('click')
+
+    expect(wrapper.emitted('update:filters')).toEqual([[{ ...filters, status: 'quality_paused' }]])
+    expect(wrapper.emitted('change')).toEqual([[]])
+    expect(wrapper.props('filters')).toEqual(filters)
+  })
+
   it('preserves immediate search updates and the debounced search change event', async () => {
     vi.useFakeTimers()
     const wrapper = mountFilters()
