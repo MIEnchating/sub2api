@@ -206,6 +206,8 @@ assert_no_conflict_markers() {
 wait_for_remote_workflow() {
   local workflow="$1" commit="$2" label="$3" ref="${4:-}" repo run_json run_info run_id status conclusion trigger_state
   REMOTE_FAILED_RUN_ID=''
+  REMOTE_WORKFLOW_UNCONFIRMED=true
+  REMOTE_WORKFLOW_DIAGNOSTIC_LOG="$(mktemp "$STATE_DIR/${RUN_ID:-workflow}-remote-query.XXXXXX")"
   if workflow_trigger_state "$workflow" "$commit"; then
     trigger_state=0
   else
@@ -219,31 +221,74 @@ wait_for_remote_workflow() {
     log "$label workflow has no push trigger for commit $commit; local validation and the release preflight remain the gates"
     return 2
   fi
+  local query_errors=0 attempt_query_errors=0 query_error_limit=3 query_result
   local retries=0 rerun_id='' rerun_attempt=0 observed_attempt=0 attempt_info='' attempt_status='' attempt_conclusion='' deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while (( SECONDS < deadline )); do
     local -a run_args=(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
       --json databaseId,status,conclusion,headSha)
     [[ -n "$ref" ]] && run_args+=(--branch "$ref")
-    run_json="$("${run_args[@]}" 2>/dev/null || true)"
-    run_info="$(printf '%s' "$run_json" | python3 -c '
+    if run_json="$("${run_args[@]}" 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")"; then
+      query_result=0
+    else
+      query_result=$?
+      printf 'Workflow query failed: %s commit=%s exit=%s\n' "$workflow" "$commit" "$query_result" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+    fi
+    run_info=''
+    if (( query_result == 0 )); then
+      if run_info="$(printf '%s' "$run_json" | python3 -c '
 import json, sys
 try:
     rows = json.load(sys.stdin)
-except Exception:
-    rows = []
+except (ValueError, TypeError):
+    sys.exit("Workflow query returned invalid JSON")
+if not isinstance(rows, list) or any(
+    not isinstance(row, dict)
+    or type(row.get("databaseId")) is not int or row["databaseId"] <= 0
+    or not isinstance(row.get("headSha"), str)
+    or not isinstance(row.get("status"), str) or not row["status"]
+    or "conclusion" not in row
+    or (row["conclusion"] is not None and not isinstance(row["conclusion"], str))
+    or (row["status"] == "completed" and not row["conclusion"])
+    for row in rows
+):
+    sys.exit("Workflow query returned an invalid run list")
 sha = sys.argv[1]
 matching = [row for row in rows if row.get("headSha") == sha]
 if matching:
     row = max(matching, key=lambda item: int(item.get("databaseId", 0)))
     print(row.get("databaseId"), row.get("status"), row.get("conclusion") or "")
-' "$commit")"
+' "$commit" 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")"; then :; else query_result=$?; fi
+    fi
+    if (( query_result != 0 )); then
+      query_errors=$((query_errors + 1))
+      log "$label workflow query failed ($query_errors/$query_error_limit); diagnostics: $REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+      if (( query_errors >= query_error_limit )); then return 1; fi
+      sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
+      continue
+    fi
+    query_errors=0
     if [[ -n "$run_info" ]]; then
       read -r run_id status conclusion <<< "$run_info"
+      REMOTE_FAILED_RUN_ID="$run_id"
+      printf 'Observed run: %s %s\n' "$workflow" "$run_info" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
       if [[ "$run_id" == "$rerun_id" ]]; then
-        attempt_info="$(gh api "repos/$repo/actions/runs/$run_id" --jq '[.run_attempt, .status, (.conclusion // "")] | @tsv' 2>/dev/null || true)"
-        read -r observed_attempt attempt_status attempt_conclusion <<< "$attempt_info"
-        if [[ ! "$observed_attempt" =~ ^[0-9]+$ ]] || (( observed_attempt <= rerun_attempt )); then
+        if attempt_info="$(gh api "repos/$repo/actions/runs/$run_id" --jq '[.run_attempt, .status, (.conclusion // "")] | @tsv' 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")"; then
+          read -r observed_attempt attempt_status attempt_conclusion <<< "$attempt_info"
+        else
+          observed_attempt=''
+        fi
+        if [[ ! "$observed_attempt" =~ ^[1-9][0-9]*$ || -z "$attempt_status" ]] || \
+          [[ "$attempt_status" == completed && -z "$attempt_conclusion" ]]; then
+          attempt_query_errors=$((attempt_query_errors + 1))
+          printf 'Rerun attempt query failed or invalid: run=%s (%s/%s)\n' "$run_id" "$attempt_query_errors" "$query_error_limit" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+          if (( attempt_query_errors >= query_error_limit )); then return 1; fi
+          sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
+          continue
+        fi
+        attempt_query_errors=0
+        printf 'Observed rerun attempt: %s %s\n' "$run_id" "$attempt_info" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+        if (( observed_attempt <= rerun_attempt )); then
           sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
           continue
         fi
@@ -253,50 +298,69 @@ if matching:
       fi
       log "$label workflow $run_id: $status ${conclusion:-}"
       if [[ "$status" == completed ]]; then
-        if [[ "$conclusion" == success ]]; then return 0; fi
+        if [[ "$conclusion" == success ]]; then
+          REMOTE_WORKFLOW_UNCONFIRMED=false
+          return 0
+        fi
         if (( retries < REMOTE_WORKFLOW_RETRY_ATTEMPTS )); then
           retries=$((retries + 1))
           log "$label workflow failed; rerunning failed jobs ($retries/$REMOTE_WORKFLOW_RETRY_ATTEMPTS)"
           rerun_id="$run_id"
-          rerun_attempt="$(gh api "repos/$repo/actions/runs/$run_id" --jq .run_attempt)" || return 1
-          if ! gh run rerun "$run_id" --repo "$repo" --failed >/dev/null; then
-            REMOTE_FAILED_RUN_ID="$run_id"
+          rerun_attempt="$(gh api "repos/$repo/actions/runs/$run_id" --jq .run_attempt 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")" || return 1
+          if [[ ! "$rerun_attempt" =~ ^[1-9][0-9]*$ ]]; then
+            printf 'Invalid rerun attempt number: run=%s\n' "$run_id" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+            return 1
+          fi
+          if ! gh run rerun "$run_id" --repo "$repo" --failed >/dev/null 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"; then
             return 1
           fi
         else
-          REMOTE_FAILED_RUN_ID="$run_id"
+          REMOTE_WORKFLOW_UNCONFIRMED=false
           return 1
         fi
       fi
     else
+      printf 'No matching run: %s commit=%s\n' "$workflow" "$commit" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
       log "waiting for $label workflow for commit $commit"
     fi
     sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
   done
+  printf 'Workflow wait timed out: %s commit=%s run=%s\n' "$workflow" "$commit" "${REMOTE_FAILED_RUN_ID:-not-found}" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+  log "$label workflow wait timed out; diagnostics: $REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
   return 1
 }
 
 wait_for_remote_workflows() {
-  local commit="$1" result skipped=0 workflow repo check_log
+  local commit="$1" result skipped=0 workflow repo check_log unconfirmed
   CURRENT_STAGE='等待远程 CI 与安全扫描'
   REMOTE_WORKFLOW_STATE='等待中'
   require_command gh
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while true; do
     skipped=0
+    unconfirmed=false
     : > "$VALIDATION_FAILURES_FILE"
     for workflow in 'CI' 'Security Scan'; do
       if wait_for_remote_workflow "$workflow" "$commit" "$workflow"; then continue; else result=$?; fi
       if (( result == 2 )); then skipped=$((skipped + 1)); continue; fi
       check_log="$(mktemp "$STATE_DIR/$RUN_ID-remote.log.XXXXXX")"
       if [[ -n "$REMOTE_FAILED_RUN_ID" ]]; then
-        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || true
+        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || unconfirmed=true
       else
         printf '%s 未确认结束或等待超时；不得猜测测试错误。\n' "$workflow" > "$check_log"
       fi
+      if [[ -n "${REMOTE_WORKFLOW_DIAGNOSTIC_LOG:-}" ]]; then
+        cat "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG" >> "$check_log"
+      fi
+      [[ "${REMOTE_WORKFLOW_UNCONFIRMED:-false}" == false ]] || unconfirmed=true
       printf '%s（提交 %s，日志：%s）\n' "$workflow" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
     done
     [[ -s "$VALIDATION_FAILURES_FILE" ]] || break
+    if [[ "$unconfirmed" == true ]]; then
+      REMOTE_WORKFLOW_STATE='未确认完成，保留查询与作业日志'
+      fail 'CI 或安全扫描尚未确认结束或日志采集失败，保留候选；不猜测测试错误或推送修复'
+      return 1
+    fi
     repair_remote_candidate "$commit"
     commit="$PUSHED_COMMIT"
   done
@@ -376,11 +440,15 @@ wait_for_release_workflow() {
       failed=true
       check_log="$(mktemp "$STATE_DIR/$RUN_ID-release-failure.log.XXXXXX")"
       if [[ -n "$REMOTE_FAILED_RUN_ID" ]]; then
-        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || fail '无法获取 Release 失败日志，保留状态下次重试'
+        python3 "$SCRIPT_DIR/../.github/upstream-remote-failure.py" "$repo" "$REMOTE_FAILED_RUN_ID" "$check_log" || unconfirmed=true
       else
         unconfirmed=true
         printf '%s %s 尚未确认完成或等待超时。\n' "$workflow" "$tag" > "$check_log"
       fi
+      if [[ -n "${REMOTE_WORKFLOW_DIAGNOSTIC_LOG:-}" ]]; then
+        cat "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG" >> "$check_log"
+      fi
+      [[ "${REMOTE_WORKFLOW_UNCONFIRMED:-false}" == false ]] || unconfirmed=true
       printf '%s %s（提交 %s，日志：%s）\n' "$workflow" "$tag" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
     done
     if [[ "$failed" == false ]]; then
@@ -391,7 +459,7 @@ wait_for_release_workflow() {
       gh api "repos/$repo/releases/tags/$tag" >> "$check_log" 2>&1 || true
       printf 'Release 资产校验 %s（提交 %s，日志：%s）\n' "$tag" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
     fi
-    [[ "$unconfirmed" == false ]] || fail 'Release 尚未确认结束，保留标签和状态，下次继续检查'
+    [[ "$unconfirmed" == false ]] || fail 'Release 尚未确认结束或日志采集失败，保留标签和状态，下次继续检查'
     (( REMOTE_REPAIR_COUNT < VALIDATION_REPAIR_ATTEMPTS )) || fail 'Release 自动修复次数已耗尽，保留失败日志和待发布状态'
     git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH" || fail '无法获取发布修复基准'
     base_commit="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"

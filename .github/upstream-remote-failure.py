@@ -19,8 +19,20 @@ def main():
         if result.returncode:
             output.write(result.stderr)
             raise SystemExit(result.returncode)
-        data = json.loads(result.stdout)
+        try:
+            data = json.loads(result.stdout)
+            if not isinstance(data, dict) or not isinstance(data.get("jobs"), list):
+                raise ValueError("missing job list")
+            for job in data["jobs"]:
+                if (not isinstance(job, dict) or not isinstance(job.get("name"), str)
+                        or type(job.get("databaseId")) is not int
+                        or job["databaseId"] <= 0):
+                    raise ValueError("invalid job metadata")
+        except (ValueError, TypeError) as error:
+            output.write(f"Invalid GitHub run response: {error}\n")
+            raise SystemExit(1)
         output.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        failed_download = False
         for job in data["jobs"]:
             if job.get("conclusion") in ("success", "skipped", None, ""):
                 continue
@@ -28,6 +40,10 @@ def main():
             log = subprocess.run(["gh", "api", f"repos/{args.repo}/actions/jobs/{job['databaseId']}/logs"],
                                  text=True, capture_output=True)
             output.write(log.stdout if log.returncode == 0 else "Log download failed: " + log.stderr)
+            output.write("\n")
+            failed_download |= log.returncode != 0
+        if failed_download:
+            raise SystemExit(1)
 
 
 if __name__ == "__main__":
