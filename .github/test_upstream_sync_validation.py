@@ -332,7 +332,7 @@ if os.environ['REPAIR_MODE'] != 'nochange':
         codex.chmod(0o755)
         shell = SCRIPT.read_text()
         functions = '\n'.join(name + '() {' + shell.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
-            for name in ['wait_for_remote_workflows', 'repair_remote_candidate', 'run_codex_validation_repair'])
+            for name in ['finalize_sync', 'wait_for_remote_workflows', 'repair_remote_candidate', 'run_codex_validation_repair'])
         for mode in ['success', 'nochange', 'validation_failure', 'concurrent', 'exhausted']:
             with self.subTest(mode=mode):
                 case_repo = self.root / mode

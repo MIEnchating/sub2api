@@ -195,7 +195,7 @@ publish_release() {
   git -C "$WORKTREE" push origin "refs/tags/$1"
   RELEASE_TAG="$1"
 }
-''' + functions('repair_remote_candidate', 'run_codex_validation_repair', 'wait_for_release_workflow') + '''
+''' + functions('finalize_sync', 'repair_remote_candidate', 'run_codex_validation_repair', 'wait_for_release_workflow') + '''
 wait_for_release_workflow v2026.09.25 "$INITIAL_COMMIT"
 [[ "$RELEASE_STATE" == 已完成发布 ]]
 [[ "$REMOTE_REPAIR_COUNT" == 1 ]]

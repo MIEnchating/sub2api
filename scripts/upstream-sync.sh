@@ -69,6 +69,7 @@ SECOND_REF="$SECOND_REMOTE/$SECOND_BRANCH"
 ORIGIN_REF="$ORIGIN_REMOTE/$TARGET_BRANCH"
 SYNC_BRANCH="automation/sub2api-upstream-sync-$RUN_ID"
 WORKTREE_CREATED=false
+FINALIZATION_ENABLED=false
 NOTIFIED=false
 CURRENT_STAGE='初始化'
 FETCH_STATE='未执行'
@@ -331,6 +332,7 @@ repair_remote_candidate() {
   if [[ -n "$RELEASE_TAG" && -s "$RELEASE_NOTES_FILE" ]]; then
     persist_pending_release "$RELEASE_TAG" "$commit"
   fi
+  finalize_sync --sync-only
 }
 
 release_is_published() {
@@ -580,16 +582,21 @@ on_error() {
   exit "$exit_code"
 }
 
+finalize_sync() {
+  [[ "${FINALIZATION_ENABLED:-false}" == true && "${DRY_RUN:-false}" != true ]] || return 0
+  if ! python3 "$SCRIPT_DIR/upstream-sync-git.py" finalize \
+    --repo "$REPO_DIR" --remote "$ORIGIN_REMOTE" --target "$TARGET_BRANCH" \
+    --worktree-root "$WORKTREE_ROOT" --branch-prefix 'automation/sub2api-upstream-sync-' "$@"; then
+    log 'Git finalization incomplete; retained work is safe. Retry on the next scheduled run.'
+  fi
+}
+
 cleanup() {
   local exit_code=$?
   trap - ERR EXIT
-  if [[ "$WORKTREE_CREATED" == true && "$exit_code" == 0 ]]; then
-    git -C "$WORKTREE" merge --abort >/dev/null 2>&1 || true
-    git -C "$REPO_DIR" worktree remove --force "$WORKTREE" >/dev/null 2>&1 || true
-    git -C "$REPO_DIR" branch -D "$SYNC_BRANCH" >/dev/null 2>&1 || true
-  elif [[ "$WORKTREE_CREATED" == true ]]; then
-    log "Preserving failed candidate and conflict stages for recovery: $WORKTREE ($SYNC_BRANCH)"
-  fi
+  # Finalize even when CI/release failed after a successful push. The helper
+  # retains every dirty, unfinished or not-yet-merged candidate.
+  finalize_sync
   exit "$exit_code"
 }
 
@@ -676,7 +683,7 @@ run_codex_merge_review() {
 - 按 docs/UPSTREAM_EXCLUSIONS.md 删除或恢复仅属于共享账号池、批量生图的实现，保留第二上游的其他全部更新。
 - 批量生图的历史 SQL 迁移及校验和兼容记录必须保留；不得删除历史数据或冻结余额。普通生图和异步单图任务必须保留。
 - 保留本项目已有功能、权限、计费、数据库兼容性和测试不变量。
-- 不要 fetch、commit、push、打 tag、发布或重启服务；直接修改工作树。
+- 不要 fetch、commit、push、打 tag、发布或重启服务；直接修改工作树。不要 git add，外层以临时索引检查后再暂存；保留 :2/:3 供下一轮核对双方实现。
 - 最终答复用中文列出：上游变化、冲突处理、共享账号池和批量生图排除的文件/代码位置、保留的第二上游功能和剩余风险。
 - decision 仅可为 resolved 或 blocked；只有所有冲突已解决且产品规则均满足时才可 resolved。
 - risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
@@ -695,13 +702,14 @@ EOF
       continue
     fi
     if python3 "$SCRIPT_DIR/../.github/validate-upstream-sync-decision.py" \
-      "$REPO_DIR/.github/upstream-sync-decision-schema.json" "$attempt_decision"
+      "$REPO_DIR/.github/upstream-sync-decision-schema.json" "$attempt_decision" && \
+      python3 "$SCRIPT_DIR/upstream-sync-git.py" review --repo "$WORKTREE" --exclusions
     then
       cp "$attempt_decision" "$REVIEW_DECISION_FILE"
       review_resolved=true
       break
     fi
-    log "Codex reported unresolved conflicts on attempt $attempt; preserving worktree for another repair pass"
+    log "Review decision or Git content/exclusion checks failed on attempt $attempt; preserving worktree for another repair pass"
   done
   rm -f "$prompt_file"
   [[ "$review_resolved" == true ]] || fail "Codex 在 $phase 中经过 $REVIEW_REPAIR_ATTEMPTS 轮仍未能安全解决冲突"
@@ -712,7 +720,8 @@ EOF
 finish_merge_stage() {
   local ref="$1"
   git -C "$WORKTREE" rev-parse -q --verify MERGE_HEAD >/dev/null || return 0
-  if [[ -n "$(git -C "$WORKTREE" diff --name-only --diff-filter=U)" ]]; then
+  if [[ -n "$(git -C "$WORKTREE" diff --name-only --diff-filter=U)" ]] || \
+    ! python3 "$SCRIPT_DIR/upstream-sync-git.py" review --repo "$WORKTREE" --exclusions; then
     run_codex_merge_review "解决 $ref 的文本与语义冲突"
   fi
   git -C "$WORKTREE" add --all
@@ -1137,17 +1146,14 @@ main() {
   git -C "$REPO_DIR" fetch --prune "$SECOND_REMOTE"
   FETCH_STATE='通过'
   prepare_primary_worktree
+  FINALIZATION_ENABLED=true
   ORIGIN_HEAD="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
   PRIMARY_HEAD="$(git -C "$REPO_DIR" rev-parse "$PRIMARY_REF")"
   SECOND_HEAD="$(git -C "$REPO_DIR" rev-parse "$SECOND_REF")"
 
   if recover_pending_release; then
     log "recovered pending release $RELEASE_TAG successfully"
-    git -C "$REPO_DIR" fetch "$ORIGIN_REMOTE" "$TARGET_BRANCH"
-    if [[ "$(git -C "$REPO_DIR" branch --show-current)" == "$TARGET_BRANCH" ]] && \
-      [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]]; then
-      git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
-    fi
+    finalize_sync
     exit 0
   fi
 
@@ -1231,19 +1237,14 @@ main() {
   git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH"
   PUSHED_COMMIT="$(git -C "$WORKTREE" rev-parse HEAD)"
   PUSH_STATE='通过'
+  finalize_sync --sync-only
   wait_for_remote_workflows "$PUSHED_COMMIT"
   if [[ "$RELEASE_STATE" == '待发布' ]]; then
     publish_release "$RELEASE_TAG"
     wait_for_release_workflow "$RELEASE_TAG" "$PUSHED_COMMIT"
     clear_pending_release
   fi
-  git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE" "$TARGET_BRANCH" --tags
-  if [[ -z "$(git -C "$REPO_DIR" status --porcelain=v1)" ]] && \
-    git -C "$REPO_DIR" merge-base --is-ancestor "HEAD" "$ORIGIN_REF"; then
-    git -C "$REPO_DIR" merge --ff-only "$ORIGIN_REF"
-  else
-    log 'candidate pushed; primary worktree was left unchanged because it has local changes'
-  fi
+  finalize_sync
   CURRENT_STAGE='完成'
   write_report '成功' "两个上游已按规则合并，全部检查通过，代码已推送；$RELEASE_REASON"
   send_email '【sub2api】双上游代码合并成功报告' "$REPORT_FILE" || \
