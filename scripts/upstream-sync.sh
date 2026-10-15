@@ -1256,6 +1256,7 @@ recover_pending_release() {
 
 main() {
   local baseline_info no_upstream_updates=false
+  require_command timeout
   require_command git
   require_command docker
   require_command "$CODEX_BIN"

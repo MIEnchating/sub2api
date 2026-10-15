@@ -115,7 +115,7 @@ run_validation_checks() {
   record_check '部署脚本验证' check_deployment_scripts
   CURRENT_STAGE="全量验证结果汇总"
   if [[ -s "$VALIDATION_FAILURES_FILE" ]]; then
-    VALIDATION_RESULT="第 $pass 轮失败（$(wc -l < "$VALIDATION_FAILURES_FILE") 项）"
+    VALIDATION_RESULT="第 $pass 轮失败（$(awk 'END {print NR}' "$VALIDATION_FAILURES_FILE") 项）"
     return 1
   fi
   VALIDATION_RESULT="第 $pass 轮全部通过"

@@ -58,6 +58,7 @@ run_validation_pass 2
             failures = Path(tmp) / 'failures'
             command = '''source "$VALIDATOR"
 log() { :; }
+wc() { printf '       1\n'; }
 record_check() {
   CURRENT_STAGE="全量验证：$1"
   [[ "$1" != 后端普通测试 ]] || echo failed >> "$VALIDATION_FAILURES_FILE"
