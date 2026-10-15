@@ -144,6 +144,7 @@ Codex 合并审查及共享账号池排除记录
         # configuration, cleanup traps, SMTP or Git operations.
         shell = (SCRIPT_DIR.parent / "scripts/upstream-sync.sh").read_text()
         function = shell.split("write_report() {", 1)[1].split("\n}\n", 1)[0]
+        summary = "release_report_summary() {" + shell.split("release_report_summary() {", 1)[1].split("\n}\n", 1)[0] + "\n}\n"
         with tempfile.TemporaryDirectory(prefix="sync-email-test-") as folder:
             root = Path(folder)
             env = os.environ.copy()
@@ -157,7 +158,7 @@ Codex 合并审查及共享账号池排除记录
                 "FAILURE_SUMMARY_FILE": str(root / "failure.txt"), "VALIDATION_FAILURES_FILE": str(root / "checks.txt"),
                 "REVIEW_SUMMARY_FILE": str(root / "review.txt"), "LOG_FILE": "/tmp/example.log",
             })
-            command = 'set -eu\nlog() { printf "%s\\n" "$*"; }\nwrite_report() {' + function + '\n}\nwrite_report "失败，未推送" "主工作区不干净；请先处理本地修改"'
+            command = summary + 'set -eu\nlog() { printf "%s\\n" "$*"; }\nwrite_report() {' + function + '\n}\nwrite_report "失败，未推送" "主工作区不干净；请先处理本地修改"'
             subprocess.run(["bash", "-c", command], env=env, check=True, capture_output=True)
             self.assertIn("同步受阻", (root / "report.html").read_text())
 

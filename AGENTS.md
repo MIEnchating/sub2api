@@ -17,7 +17,7 @@
 - Release thresholds accumulate from the latest successfully published stable fork release (not the previous sync or an unpublished tag). Count distinct non-merge upstream commits and the net file/line delta from the shipped tree. Drafts, prereleases and releases without assets do not reset accumulation. Review and release notes must cover the whole unreleased window, even on a day without new upstream commits.
 - Before merging upstream, save and push pending local changes on the target branch. Refuse unfinished Git operations or diverged history rather than force-pushing or discarding work. Dry runs must not commit or push.
 - Sync notifications must contain an HTML alternative and a readable text alternative, including when detailed report rendering fails. Keep post-push release failures distinct from failures that left the candidate unpushed.
-- On final failure, email the exact failed checks, key errors, likely direct causes, repair-attempt count, and confirmation that no candidate was pushed. On successful merge and push, email a success report.
+- On final failure, email the exact failed checks, key errors, likely direct causes, repair-attempt count, and whether the candidate was already pushed. On successful merge and push, email a success report. Both HTML and text reports must explicitly state whether this run published a new version, the version or reason for not publishing, and the run start and report times. Pending tags or dispatched workflows are not completed publication.
 
 ## Upstream Merge Scope
 

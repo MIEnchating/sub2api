@@ -286,7 +286,7 @@ write_report() { :; }
 send_email() { :; }
 wait_for_remote_workflows() {
   [[ "$1" == "$EXPECTED_COMMIT" ]] || fail 'checked stale commit'
-  [[ "$CHECK_RESULT" == success ]] || fail 'CI failed'
+  [[ "$CHECK_RESULT" == success ]] || return 1
 }
 wait_for_release_workflow() {
   [[ "$2" == "$EXPECTED_COMMIT" ]] || fail 'released stale commit'

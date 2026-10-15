@@ -5,6 +5,7 @@ umask 077
 
 SCRIPT_DIR="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)"
 AUTOMATION_DIR="${SUB2API_SYNC_DIR:-/root/workspace/automation/sub2api-upstream-sync}"
+ENV_SUB2API_DRY_RUN="${SUB2API_DRY_RUN:-}"
 CONFIG_FILE="${SUB2API_SYNC_CONFIG:-$AUTOMATION_DIR/config.env}"
 if [[ -f "$CONFIG_FILE" ]]; then
   # shellcheck disable=SC1090
@@ -24,7 +25,7 @@ GO_IMAGE="${SUB2API_GO_IMAGE:-}"
 COREPACK_BIN="${SUB2API_COREPACK_BIN:-/usr/bin/corepack}"
 PNPM_VERSION="${SUB2API_PNPM_VERSION:-9.15.9}"
 VALIDATE="${SUB2API_VALIDATE:-true}"
-DRY_RUN="${SUB2API_DRY_RUN:-false}"
+DRY_RUN="${ENV_SUB2API_DRY_RUN:-${SUB2API_DRY_RUN:-false}}"
 VALIDATION_REPAIR_ATTEMPTS="${SUB2API_VALIDATION_REPAIR_ATTEMPTS:-3}"
 REVIEW_REPAIR_ATTEMPTS="${SUB2API_REVIEW_REPAIR_ATTEMPTS:-3}"
 RELEASE_ENABLED="${SUB2API_RELEASE_ENABLED:-true}"
@@ -54,6 +55,7 @@ if ! flock -n 9; then
   exit 0
 fi
 
+RUN_STARTED_AT="$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M:%S')"
 RUN_ID="$(date -u +'%Y%m%dT%H%M%SZ')-$$"
 WORKTREE="$WORKTREE_ROOT/$RUN_ID"
 LOG_FILE="$LOG_DIR/$RUN_ID.log"
@@ -164,7 +166,7 @@ send_email() {
     printf 'mail-from = "%s"\n' "$EMAIL_FROM"
     printf 'mail-rcpt = "%s"\n' "$EMAIL_TO"
     printf 'upload-file = "%s"\n' "$message_file"
-    printf 'silent\nshow-error\nfail\n'
+    printf 'silent\nshow-error\nfail\nconnect-timeout = 15\nmax-time = 120\n'
     if [[ "$smtp_scheme" == 'smtps' || "${SMTP_STARTTLS_ENABLED:-false}" == 'true' ]]; then
       printf 'ssl-reqd\n'
     fi
@@ -231,7 +233,7 @@ wait_for_remote_workflow() {
     local -a run_args=(gh run list --repo "$repo" --workflow "$workflow" --commit "$commit" --limit 20 \
       --json databaseId,status,conclusion,headSha)
     [[ -n "$ref" ]] && run_args+=(--branch "$ref")
-    if run_json="$("${run_args[@]}" 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")"; then
+    if run_json="$(timeout 60 "${run_args[@]}" 2>>"$REMOTE_WORKFLOW_DIAGNOSTIC_LOG")"; then
       query_result=0
     else
       query_result=$?
@@ -390,7 +392,7 @@ wait_for_remote_workflows() {
       fail 'CI 或安全扫描尚未确认结束或日志采集失败，保留候选；不猜测测试错误或推送修复'
       return 1
     fi
-    repair_remote_candidate "$commit"
+    repair_remote_candidate "$commit" || fail '修复或发布步骤失败，保留候选状态'
     commit="$PUSHED_COMMIT"
   done
   if (( skipped == 0 )); then
@@ -416,14 +418,14 @@ repair_remote_candidate() {
   CANDIDATE_COMMIT="$commit"
   run_codex_validation_repair "$REMOTE_REPAIR_COUNT" || fail '远程检查修复失败'
   [[ "$CANDIDATE_COMMIT" != "$commit" ]] || fail '远程错误无法安全自动修复，已保留具体失败日志'
-  run_validation_with_repairs
+  run_validation_with_repairs || fail '修复或发布步骤失败，保留候选状态'
   [[ "$VALIDATION_SUCCEEDED" == true ]] || fail '远程修复后的完整本地验证仍未通过'
   [[ -z "$(git -C "$WORKTREE" status --porcelain=v1)" ]] || fail '远程修复验证后工作树不干净'
   git -C "$WORKTREE" push "$ORIGIN_REMOTE" "HEAD:$TARGET_BRANCH" || fail '远程修复推送失败，保留候选'
   commit="$(git -C "$WORKTREE" rev-parse HEAD)"
   PUSHED_COMMIT="$commit"
   if [[ -n "$RELEASE_TAG" && -s "$RELEASE_NOTES_FILE" ]]; then
-    persist_pending_release "$RELEASE_TAG" "$commit"
+    persist_pending_release "$RELEASE_TAG" "$commit" || fail '无法保存发布状态或版本说明'
   fi
   finalize_sync --sync-only
 }
@@ -517,10 +519,10 @@ path = Path(sys.argv[1])
 path.write_text(path.read_text().replace(sys.argv[2], sys.argv[3]))
 PYNOTES
     # The repair appends a commit, validates everything and pushes normally.
-    repair_remote_candidate "$base_commit"
-    wait_for_remote_workflows "$PUSHED_COMMIT"
+    repair_remote_candidate "$base_commit" || fail '修复或发布步骤失败，保留候选状态'
+    wait_for_remote_workflows "$PUSHED_COMMIT" || fail '修复后的远程验证未通过'
     commit="$PUSHED_COMMIT"
-    publish_release "$tag"
+    publish_release "$tag" || fail '修复或发布步骤失败，保留候选状态'
     tag="$RELEASE_TAG"
   done
   RELEASE_TAG="$tag"
@@ -528,8 +530,33 @@ PYNOTES
   REMOTE_WORKFLOW_STATE='适用 CI、安全扫描与 Release 全部通过'
 }
 
+release_report_summary() {
+  local status="$1" tag="${RELEASE_TAG:-未分配版本号}"
+  case "$status" in
+    TEST|PREVIEW|DRY_RUN|邮件测试|试运行完成) printf '否（测试或试运行，不发布）'; return ;;
+  esac
+  if [[ "${RELEASE_STATE:-}" == '已完成发布' ]]; then
+    printf '是，已发布 %s' "$tag"
+  elif [[ "$status" == FAILED || "$status" == BLOCKED || "$status" == *失败* ]]; then
+    if [[ -n "${RELEASE_TAG:-}" ]]; then
+      printf '否，本轮发布未完成（原计划 %s；阻塞原因见结论）' "$tag"
+    else
+      printf '否，本轮未发布（流程失败，原因见结论）'
+    fi
+  elif [[ "${RELEASE_ENABLED:-true}" != true ]]; then
+    printf '否（发布功能已关闭）'
+  else
+    case "${RELEASE_STATE:-未评估}" in
+      待发布|发布中|已触发发布) printf '计划发布 %s（尚未完成，不能视为已发布）' "$tag" ;;
+      *) printf '否（%s）' "${RELEASE_REASON:-尚未满足发布条件}" ;;
+    esac
+  fi
+}
+
 write_report() {
   local status="$1" reason="$2" status_label
+  local release_summary
+  release_summary="$(release_report_summary "$status")"
   local fetch_state="${FETCH_STATE:-未执行}" local_push_state="${LOCAL_PUSH_STATE:-未执行}"
   local merge_state="${MERGE_STATE:-未执行}" push_state="${PUSH_STATE:-未执行}"
   case "$status" in
@@ -556,6 +583,8 @@ write_report() {
     printf '========================\n\n'
     printf '结果：%s\n' "$status_label"
     printf '结论：%s\n' "$reason"
+    printf '本次是否发布新版本：%s\n' "$release_summary"
+    printf '启动时间：%s（北京时间）\n' "${RUN_STARTED_AT:-未记录}"
     printf '执行时间：%s（北京时间）\n' "$(TZ=Asia/Shanghai date +'%Y-%m-%d %H:%M:%S')"
     printf '当前阶段：%s\n' "$CURRENT_STAGE"
     printf '全量验证：%s\n' "$VALIDATION_RESULT"
@@ -650,7 +679,7 @@ Codex 已执行集中修复：$REPAIR_COUNT/$VALIDATION_REPAIR_ATTEMPTS 次
 4. 明确说明代码是否推送（当前值：${PUSHED_COMMIT:-未推送}）。
 不要修改文件，不要执行 fetch、commit、push、发布或重启服务。不要输出泛化建议。
 EOF
-  if ! "$CODEX_BIN" exec --ephemeral --sandbox read-only --color never \
+  if ! timeout 300 "$CODEX_BIN" exec --ephemeral --sandbox read-only --color never \
     -C "$analysis_dir" --output-last-message "$FAILURE_SUMMARY_FILE" - < "$prompt_file"; then
     printf 'Codex 故障分析自身执行失败；请查看最终失败检查和完整日志。\n' > "$FAILURE_SUMMARY_FILE"
   fi
@@ -905,7 +934,7 @@ EOF
   git -C "$WORKTREE" add --all || return 1
   git -C "$WORKTREE" diff --cached --check || return 1
   if [[ -n "$(git -C "$WORKTREE" diff --cached --name-only)" ]]; then
-    if [[ -n "$PUSHED_COMMIT" ]] && git -C "$WORKTREE" merge-base --is-ancestor HEAD "$PUSHED_COMMIT"; then
+    if [[ -n "$PUSHED_COMMIT" ]]; then
       git -C "$WORKTREE" commit -m 'fix: repair remote upstream sync validation' >/dev/null || return 1
     else
       git -C "$WORKTREE" commit --amend --no-edit >/dev/null || return 1
@@ -920,8 +949,8 @@ run_validation_with_repairs() {
   local attempt repair_succeeded
   VALIDATION_SUCCEEDED=false
   if [[ "$VALIDATE" != true ]]; then
-    VALIDATION_RESULT='由配置跳过'
-    VALIDATION_SUCCEEDED=true
+    VALIDATION_RESULT='验证已禁用，拒绝推送或发布'
+    VALIDATION_SUCCEEDED=false
     return 0
   fi
   if run_validation_pass 1; then
@@ -1116,17 +1145,17 @@ publish_release() {
   CURRENT_STAGE='推送版本标签'
   RELEASE_STATE='发布中'
   release_commit="$(git -C "$WORKTREE" rev-parse HEAD)"
-  persist_pending_release "$tag" "$release_commit"
+  persist_pending_release "$tag" "$release_commit" || fail '无法保存发布状态或版本说明'
   for attempt in 1 2 3; do
     remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" "refs/tags/$tag^{}" | awk 'NR == 1 {print $1}')"
     if [[ -n "$remote_tag" ]]; then
       log "release tag $tag was claimed concurrently; selecting the next available date tag"
       tag="$(next_release_tag)" || return 1
-      prepare_release_notes "$tag"
-      persist_pending_release "$tag" "$release_commit"
+      prepare_release_notes "$tag" || fail '无法保存发布状态或版本说明'
+      persist_pending_release "$tag" "$release_commit" || fail '无法保存发布状态或版本说明'
       continue
     fi
-    git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit"
+    git -C "$WORKTREE" tag -a "$tag" -F "$RELEASE_NOTES_FILE" "$release_commit" || fail "无法创建版本标签：$tag"
     if git -C "$WORKTREE" push "$ORIGIN_REMOTE" "refs/tags/$tag"; then
       RELEASE_TAG="$tag"
       RELEASE_STATE='已触发发布'
@@ -1136,8 +1165,8 @@ publish_release() {
     git -C "$WORKTREE" tag -d "$tag" >/dev/null 2>&1 || true
     git -C "$REPO_DIR" fetch --tags "$ORIGIN_REMOTE" >/dev/null 2>&1 || true
     tag="$(next_release_tag)" || return 1
-    prepare_release_notes "$tag"
-    persist_pending_release "$tag" "$release_commit"
+    prepare_release_notes "$tag" || fail '无法保存发布状态或版本说明'
+    persist_pending_release "$tag" "$release_commit" || fail '无法保存发布状态或版本说明'
     log "release tag push failed; retrying with $tag (attempt $((attempt + 1))/3)"
   done
   return 1
@@ -1146,12 +1175,12 @@ publish_release() {
 persist_pending_release() {
   local tag="$1" commit="$2"
   [[ -s "$RELEASE_NOTES_FILE" ]] || fail '版本说明为空，无法记录待发布状态'
-  cp "$RELEASE_NOTES_FILE" "$PENDING_RELEASE_NOTES_FILE"
-  chmod 600 "$PENDING_RELEASE_NOTES_FILE"
+  cp "$RELEASE_NOTES_FILE" "$PENDING_RELEASE_NOTES_FILE" || return 1
+  chmod 600 "$PENDING_RELEASE_NOTES_FILE" || return 1
   {
     printf 'tag=%s\n' "$tag"
     printf 'commit=%s\n' "$commit"
-  } > "$PENDING_RELEASE_FILE"
+  } > "$PENDING_RELEASE_FILE" || return 1
   chmod 600 "$PENDING_RELEASE_FILE"
 }
 
@@ -1188,7 +1217,7 @@ recover_pending_release() {
   # A repair can be pushed after the original candidate failed CI. Never retry
   # or tag that known-broken SHA when the target branch already contains a fix.
   commit="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
-  cp "$PENDING_RELEASE_NOTES_FILE" "$RELEASE_NOTES_FILE"
+  cp "$PENDING_RELEASE_NOTES_FILE" "$RELEASE_NOTES_FILE" || fail '无法复制待发布说明'
   workflow_trigger_state 'Release' "$commit" >/dev/null || return 1
   CURRENT_STAGE='恢复已验证但未完成的 Release'
   RELEASE_TAG="$tag"
@@ -1199,13 +1228,13 @@ recover_pending_release() {
     git -C "$REPO_DIR" fetch --no-tags "$ORIGIN_REMOTE" "refs/tags/$tag" || fail '无法读取待发布标签'
     commit="$(git -C "$REPO_DIR" rev-parse 'FETCH_HEAD^{commit}')"
     PUSHED_COMMIT="$commit"
-    wait_for_release_workflow "$tag" "$commit"
+    wait_for_release_workflow "$tag" "$commit" || fail '发布恢复步骤失败，保留待发布状态'
   else
     PUSHED_COMMIT="$commit"
-    wait_for_remote_workflows "$commit"
+    wait_for_remote_workflows "$commit" || fail '发布恢复步骤失败，保留待发布状态'
     commit="$PUSHED_COMMIT"
-    persist_pending_release "$tag" "$commit"
-    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')"
+    persist_pending_release "$tag" "$commit" || fail '发布恢复步骤失败，保留待发布状态'
+    remote_tag="$(git -C "$REPO_DIR" ls-remote "$ORIGIN_REMOTE" "refs/tags/$tag" | awk 'NR == 1 {print $1}')" || fail '无法查询远程标签'
     [[ -z "$remote_tag" ]] || fail "待发布标签已被远程占用：$tag"
     if local_tag="$(git -C "$REPO_DIR" rev-parse --verify "refs/tags/$tag^{commit}" 2>/dev/null)"; then
       [[ "$local_tag" == "$commit" ]] || fail '本地标签指向其他提交，拒绝覆盖'
@@ -1216,7 +1245,7 @@ recover_pending_release() {
       git -C "$REPO_DIR" tag -d "$tag" >/dev/null 2>&1 || true
       fail "恢复版本标签推送失败：$tag"
     fi
-    wait_for_release_workflow "$tag" "$commit"
+    wait_for_release_workflow "$tag" "$commit" || fail '发布恢复步骤失败，保留待发布状态'
   fi
   clear_pending_release
   write_report '成功' "已恢复已验证提交的 Release，版本标签 $tag 发布完成"
@@ -1243,6 +1272,7 @@ main() {
   [[ "$RELEASE_MIN_UPSTREAM_COMMITS" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_UPSTREAM_COMMITS 必须为非负整数'
   [[ "$RELEASE_MIN_CHANGED_FILES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_CHANGED_FILES 必须为非负整数'
   [[ "$RELEASE_MIN_DIFF_LINES" =~ ^[0-9]+$ ]] || fail 'SUB2API_RELEASE_MIN_DIFF_LINES 必须为非负整数'
+  [[ "$VALIDATE" == true || "$DRY_RUN" == true ]] || fail '正式同步必须启用完整验证；SUB2API_VALIDATE=false 仅允许试运行'
   find "$LOG_DIR" -type f -mtime +30 -delete
   CURRENT_STAGE='检查主工作区'
   validate_primary_worktree
@@ -1277,6 +1307,9 @@ main() {
     git -C "$REPO_DIR" merge-base --is-ancestor "$SECOND_HEAD" "$ORIGIN_HEAD"; then
     no_upstream_updates=true
     if [[ "$RELEASE_ENABLED" != true || "$RELEASE_BASE_COMMIT" == "$ORIGIN_HEAD" ]]; then
+      RELEASE_STATE='不发布'
+      RELEASE_REASON='没有新增上游提交或待发布累计更新'
+      write_report '没有上游更新' "$RELEASE_REASON"
       log 'no pending upstream or cumulative release updates'
       exit 0
     fi
@@ -1312,7 +1345,8 @@ main() {
   python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE" || fail '候选合并重新引入了已排除功能'
   MERGE_STATE='通过'
   if [[ "$DRY_RUN" == true ]]; then
-    log 'dry run completed; candidate was not committed, validated, or pushed'
+    write_report '试运行完成' '候选仅供审查，未推送主分支，未触发发布'
+    log 'dry run completed; candidate was not pushed or published'
     exit 0
   fi
 
@@ -1331,7 +1365,7 @@ main() {
     fi
   fi
   CURRENT_STAGE='整套验证与 Codex 集中修复'
-  run_validation_with_repairs
+  run_validation_with_repairs || fail '修复或发布步骤失败，保留候选状态'
   if [[ "$VALIDATION_SUCCEEDED" != true ]]; then
     fail "完成 $REPAIR_COUNT 次 Codex 集中修复后，整套验证仍有失败"
   fi

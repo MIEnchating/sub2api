@@ -15,7 +15,7 @@
 
 最终提交保留 `origin/main`、`upstream/main` 和 `overdraft/sub2api-custom` 三个父提交。这样既能从最终文件树中排除共享账号池和批量生图，又能记录两个上游版本已经处理，避免后续任务重复合并同一批提交。
 
-脚本使用 `flock` 防止任务重叠，并要求主工作区干净。任务不会重启本地服务。合并通过完整验证后，脚本按 new-api 的发布规则评估更新规模：默认至少包含 3 个上游提交、8 个变更文件和 150 行差异，且 Codex 结构化审查确认没有剩余风险时，才生成版本说明并推送下一个可用的日期标签以触发 GitHub Release；未达到门槛时只推送代码。SMTP 默认复用本机 new-api PostgreSQL 中已有的邮件配置，凭据不会写入仓库。
+脚本使用 `flock` 防止同一任务重叠；正式同步会先保存并推送主分支本地改动，拒绝未完成的 Git 操作和分叉历史。任务不会重启本地服务。合并通过完整验证后，脚本按 new-api 的发布规则评估更新规模：默认至少包含 3 个上游提交、8 个变更文件和 150 行差异，且 Codex 结构化审查确认没有剩余风险时，才生成版本说明并推送下一个可用的日期标签以触发 GitHub Release；未达到门槛时只推送代码。SMTP 默认复用本机 new-api PostgreSQL 中已有的邮件配置，凭据不会写入仓库。
 
 发布标签以北京时间当天的 `vYYYY.M.D` 为起点。若该标签已经存在，脚本向后查找下一个未占用的有效日期标签，不会移动或覆盖已有标签。发布开关和门槛可通过 `SUB2API_RELEASE_*` 配置调整。
 
@@ -27,10 +27,10 @@
 
 若 GitHub 明确返回 `Actions has been disabled for this repository`，立即停止本轮远程等待，保留待发布状态并报告平台禁用，不再依次空等两项检查各 90 分钟，也不让 Codex 修改代码来“修复”平台限制。仓库设置接口的 `enabled=true` 不能替代实际触发结果。仓库所有者须检查 Actions 页的禁用提示；若重新启用无效，需由 GitHub Support 解除平台限制，之后定时任务会重新尝试发布恢复。
 
-当前机器使用 UTC 时区，已将 sub2api 任务安排在每天 `17:30 UTC`（北京时间次日 `01:30`），避开 new-api 的 `16:30 UTC` 任务：
+当前机器使用 UTC 时区，已将 sub2api 任务安排在每天 `16:30 UTC`（北京时间次日 `00:30`），与 new-api 同时启动：
 
 ```cron
-30 17 * * * /bin/bash /root/workspace/sub2api/scripts/upstream-sync.sh >> /root/workspace/automation/sub2api-upstream-sync/cron-runner.log 2>&1
+30 16 * * * /bin/bash /root/workspace/sub2api/scripts/upstream-sync.sh >> /root/workspace/automation/sub2api-upstream-sync/cron-runner.log 2>&1
 ```
 
 运行目录和日志目录位于仓库之外，不会污染 Git 工作区。首次安装前创建：
@@ -46,6 +46,12 @@ chmod 600 /root/workspace/automation/sub2api-upstream-sync/config.env
 `SUB2API_GO_IMAGE` 留空时，每个后端检查从候选 `backend/go.mod` 读取完整 Go 版本，使用对应的 `golang:<版本>` 镜像；修复改变 Go 版本后会重新选择。自定义镜像必须满足候选的最低版本要求。容器设置 `GOTOOLCHAIN=local`，不会隐式下载其他工具链。lint 和漏洞检查工具按 Go 版本及平台隔离缓存，lint 版本与 CI 对齐。
 
 从旧同步脚本升级时，应清除配置中固定的 `SUB2API_GO_IMAGE=golang:1.27.0`（或改用满足候选要求的镜像）。已经运行的旧脚本不会因候选工作树被修改而重载函数或镜像变量；应保留候选，在使用新版脚本及配置的验证环境中重新执行完整验证，不能降低 `go.mod` 的安全版本要求。
+
+## 报告与失败恢复
+
+HTML 与纯文本邮件在顶部明确列出“本次是否发布新版本”：已完成发布时给出版本号；未达到门槛或发布关闭时给出不发布原因；流程失败时说明本轮发布未完成及原计划版本。推送标签或提交触发请求都不代表已经发布。报告同时保留北京时间的启动时间、报告生成时间、失败检查和修复次数；没有更新也刷新本地报告，避免残留上次失败结论。
+
+正式同步必须启用完整验证，`SUB2API_VALIDATE=false` 仅允许试运行，且不能标记验证成功。环境中的 `SUB2API_DRY_RUN=true` 优先于配置文件。恢复发布时，验证、修复或保存待发布状态失败均立即停止，不继续推送标签。远程查询每次最多 60 秒，只读故障分析最多 5 分钟，邮件连接和发送分别最多 15 秒、120 秒。两个任务同时运行时，Go 验证容器限制并行度为 4，Vitest 最多 2 个 worker。
 
 ## 手动试运行
 

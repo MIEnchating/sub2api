@@ -27,7 +27,7 @@ docker_go() {
     -v "$TOOLS_DIR:/tools" \
     -v sub2api-sync-go-mod:/go/pkg/mod \
     -v sub2api-sync-go-build:/root/.cache/go-build \
-    -e GOTOOLCHAIN=local \
+    -e GOTOOLCHAIN=local -e GOMAXPROCS=4 -e GOFLAGS=-p=4 \
     -w /src/backend "$image" "$@"
 }
 
@@ -109,7 +109,7 @@ run_validation_checks() {
   record_check '前端依赖锁定安装' frontend_pnpm --dir "$WORKTREE/frontend" install --frozen-lockfile
   record_check '前端 ESLint' frontend_pnpm --dir "$WORKTREE/frontend" run lint:check
   record_check '前端类型检查' frontend_pnpm --dir "$WORKTREE/frontend" run typecheck
-  record_check '前端完整测试' frontend_pnpm --dir "$WORKTREE/frontend" run test:run
+  record_check '前端完整测试' frontend_pnpm --dir "$WORKTREE/frontend" run test:run --maxWorkers=2
   record_check '前端生产构建及 i18n' frontend_pnpm --dir "$WORKTREE/frontend" run build
   record_check '前端依赖安全审计' check_frontend_audit
   record_check '部署脚本验证' check_deployment_scripts

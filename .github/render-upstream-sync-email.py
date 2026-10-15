@@ -158,7 +158,7 @@ def render_report(text, preview=False):
         ("代码推送", "已推送" if has_push else pushed),
         ("本地验证", data.get("全量验证", "未记录")),
         ("远程 CI / 安全扫描", remote_state),
-        ("版本发布", release_state),
+        ("本次是否发布新版本", data.get("本次是否发布新版本", release_state)),
     ]
     cards_html = ''
     for index, (label, value) in enumerate(cards):
@@ -168,13 +168,13 @@ def render_report(text, preview=False):
         cards_html += f'<td class="card" width="50%" valign="top" style="width:50%;padding:0 4px 8px;"><div style="padding:14px 16px;border:1px solid #e4eaf2;border-radius:6px;background:{background};"><div style="font-size:12px;line-height:20px;color:#58697e;">{escape(label)}</div><div style="margin-top:5px;font-size:14px;font-weight:600;line-height:23px;color:{tone};word-break:break-word;overflow-wrap:anywhere;">{escape(value)}</div></div></td>'
         if index % 2 == 1:
             cards_html += '</tr>'
-    execution = [("执行时间", data.get("执行时间", "未记录")), ("当前阶段", data.get("当前阶段", data.get("失败/当前阶段", "未记录"))), ("本地自动修复", data.get("Codex 集中修复次数", "未记录") + " 轮"), ("远程 CI 修复", data.get("远程 CI 自动修复次数", "未记录") + " 轮")]
+    execution = [("启动时间", data.get("启动时间", "未记录")), ("执行时间", data.get("执行时间", "未记录")), ("当前阶段", data.get("当前阶段", data.get("失败/当前阶段", "未记录"))), ("本地自动修复", data.get("Codex 集中修复次数", "未记录") + " 轮"), ("远程 CI 修复", data.get("远程 CI 自动修复次数", "未记录") + " 轮")]
     content = section("本次执行", metadata_table(execution))
     for name in ("失败位置", "具体失败原因", "最终失败检查"):
         lines = sections.get(name, [])
         if failed and any(line.strip() for line in lines):
             content += section(name, '<div style="padding:14px 16px;background:#fff1f2;border-left:3px solid #b42332;font-size:14px;line-height:25px;color:#25364a;">' + rich_text(lines) + '</div>')
-    release = [(key, data.get(key, "")) for key in ("版本标签", "发布判断")]
+    release = [(key, data.get(key, "")) for key in ("本次是否发布新版本", "版本标签", "发布判断")]
     if any(value for _, value in release):
         content += section("发布判断", metadata_table(release))
     progress = []

@@ -9,7 +9,7 @@ from types import SimpleNamespace
 import unittest
 from unittest.mock import patch
 
-SCRIPT = Path(__file__).resolve().parents[1] / 'scripts/upstream-sync.sh'
+SCRIPT = Path(os.environ.get('SYNC_TEST_SCRIPT', Path(__file__).resolve().parents[1] / 'scripts/upstream-sync.sh'))
 
 
 def functions(*names):
@@ -57,7 +57,7 @@ sleep() {
   if [[ "$STARTUP_TIMEOUT" == true && -f "$STATE_DIR/dispatches" ]]; then SECONDS=$((SECONDS + 301)); fi
 }
 python3() {
-  if [[ "$1" == */upstream-start-workflow.py ]]; then
+  if [[ "$1" == */upstream-start-workflow.py || "$1" == */start-workflow.py ]]; then
     echo 'dispatch attempted' >> "$STATE_DIR/dispatches"
     echo 'dispatch diagnostic'
     return "$DISPATCH_STATUS"
@@ -168,6 +168,7 @@ log() { :; }
 require_command() { :; }
 git() { echo git@github.com:owner/project.git; }
 fail() { echo "$*" >&2; exit 9; }
+abort_sync() { fail "$@"; }
 repair_remote_candidate() { touch "$STATE_DIR/unsafe-repair"; exit 99; }
 python3() { echo 'job diagnostics' > "$4"; return "$COLLECT_STATUS"; }
 wait_for_remote_workflow() {
@@ -185,7 +186,7 @@ wait_for_remote_workflow() {
                     self.assertEqual(result.returncode, 9, result.stderr)
                     self.assertFalse((Path(tmp) / 'unsafe-repair').exists())
                     failures = (Path(tmp) / 'failures').read_text().splitlines()
-                    self.assertEqual(len(failures), 2 if gate == 'wait_for_remote_workflows' else 1)
+                    self.assertEqual(len(failures), 2 if gate == 'wait_for_remote_workflows' else (3 if SCRIPT.name == 'sync-upstream.sh' else 1))
                     for entry in failures:
                         log = Path(entry.split('日志：')[1].removesuffix('）')).read_text()
                         self.assertIn('query diagnostics', log)
@@ -198,6 +199,7 @@ log() { :; }
 require_command() { :; }
 git() { echo git@github.com:owner/project.git; }
 fail() { generate_failure_summary; echo "$*" >&2; exit 9; }
+abort_sync() { fail "$@"; }
 repair_remote_candidate() { exit 99; }
 wait_for_remote_workflow() {
   echo "$1" >> "$STATE_DIR/gates"
@@ -212,7 +214,7 @@ wait_for_remote_workflow() {
                 result = subprocess.run(['bash', '-c', command], text=True, capture_output=True,
                     env=os.environ | dict(STATE_DIR=tmp, RUN_ID='test', REPO_DIR=tmp,
                         ORIGIN_REMOTE='origin', VALIDATION_FAILURES_FILE=tmp + '/failures',
-                        FAILURE_SUMMARY_FILE=tmp + '/summary', PUSHED_COMMIT='abc'))
+                        FAILURE_SUMMARY_FILE=tmp + '/summary', PUSHED_COMMIT='abc', MERGED_COMMIT='abc'))
                 self.assertEqual(result.returncode, 9, result.stderr)
                 self.assertEqual(len((Path(tmp) / 'gates').read_text().splitlines()), 1)
                 self.assertIn('Actions has been disabled', (Path(tmp) / 'summary').read_text())
@@ -221,7 +223,7 @@ wait_for_remote_workflow() {
 
 class WorkflowStartupTest(unittest.TestCase):
     def setUp(self):
-        path = Path(__file__).with_name('upstream-start-workflow.py')
+        path = SCRIPT.parent / 'start-workflow.py' if SCRIPT.name == 'sync-upstream.sh' else Path(__file__).with_name('upstream-start-workflow.py')
         spec = importlib.util.spec_from_file_location('startup', path)
         self.module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(self.module)
@@ -281,7 +283,7 @@ class WorkflowStartupTest(unittest.TestCase):
 
 class RemoteFailureLogTest(unittest.TestCase):
     def test_all_job_downloads_are_attempted_and_errors_are_reported(self):
-        helper = Path(__file__).with_name('upstream-remote-failure.py')
+        helper = SCRIPT.parent / 'remote-failure.py' if SCRIPT.name == 'sync-upstream.sh' else Path(__file__).with_name('upstream-remote-failure.py')
         spec = importlib.util.spec_from_file_location('remote_failure', helper)
         module = importlib.util.module_from_spec(spec)
         spec.loader.exec_module(module)
