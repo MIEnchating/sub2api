@@ -206,6 +206,7 @@ assert_no_conflict_markers() {
 wait_for_remote_workflow() {
   local workflow="$1" commit="$2" label="$3" ref="${4:-}" repo run_json run_info run_id status conclusion trigger_state
   REMOTE_FAILED_RUN_ID=''
+  REMOTE_PLATFORM_BLOCKED=false
   REMOTE_WORKFLOW_UNCONFIRMED=true
   REMOTE_WORKFLOW_DIAGNOSTIC_LOG="$(mktemp "$STATE_DIR/${RUN_ID:-workflow}-remote-query.XXXXXX")"
   if workflow_trigger_state "$workflow" "$commit"; then
@@ -222,6 +223,8 @@ wait_for_remote_workflow() {
     return 2
   fi
   local query_errors=0 attempt_query_errors=0 query_error_limit=3 query_result
+  local missing_polls=0 dispatched=false startup_result
+  local startup_deadline=$((SECONDS + 300))
   local retries=0 rerun_id='' rerun_attempt=0 observed_attempt=0 attempt_info='' attempt_status='' attempt_conclusion='' deadline=$((SECONDS + REMOTE_WORKFLOW_TIMEOUT_MINUTES * 60))
   repo="$(git -C "$REPO_DIR" remote get-url --push "$ORIGIN_REMOTE" | sed -E 's#^git@github.com:##; s#^https://github.com/##; s#\.git$##')"
   while (( SECONDS < deadline )); do
@@ -321,6 +324,26 @@ if matching:
       fi
     else
       printf 'No matching run: %s commit=%s\n' "$workflow" "$commit" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+      missing_polls=$((missing_polls + 1))
+      if (( missing_polls >= 3 )) && [[ "$dispatched" == false ]]; then
+        dispatched=true
+        log "No $label run appeared; attempting one dispatch for the exact candidate."
+        if python3 "$SCRIPT_DIR/../.github/upstream-start-workflow.py" \
+          --repo "$repo" --directory "$REPO_DIR" --remote "$ORIGIN_REMOTE" \
+          --workflow "$workflow" --commit "$commit" --ref "${ref:-$TARGET_BRANCH}" \
+          >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG" 2>&1; then
+          startup_deadline=$((SECONDS + 300))
+        else
+          startup_result=$?
+          if (( startup_result == 3 )); then REMOTE_PLATFORM_BLOCKED=true; fi
+          log "$label could not start; diagnostics: $REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+          return 1
+        fi
+      fi
+      if (( SECONDS >= startup_deadline )); then
+        printf 'Workflow startup timed out after dispatch: %s commit=%s\n' "$workflow" "$commit" >> "$REMOTE_WORKFLOW_DIAGNOSTIC_LOG"
+        return 1
+      fi
       log "waiting for $label workflow for commit $commit"
     fi
     sleep "$REMOTE_WORKFLOW_POLL_SECONDS"
@@ -354,6 +377,12 @@ wait_for_remote_workflows() {
       fi
       [[ "${REMOTE_WORKFLOW_UNCONFIRMED:-false}" == false ]] || unconfirmed=true
       printf '%s（提交 %s，日志：%s）\n' "$workflow" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
+      if [[ "${REMOTE_PLATFORM_BLOCKED:-false}" == true ]]; then
+        REMOTE_WORKFLOW_STATE='GitHub Actions 平台禁用，未启动构建'
+        cp "$check_log" "$FAILURE_SUMMARY_FILE"
+        fail 'GitHub 拒绝启动 Actions：仓库平台禁用。代码已保留，待仓库所有者解除限制后恢复发布'
+        return 1
+      fi
     done
     [[ -s "$VALIDATION_FAILURES_FILE" ]] || break
     if [[ "$unconfirmed" == true ]]; then
@@ -450,6 +479,12 @@ wait_for_release_workflow() {
       fi
       [[ "${REMOTE_WORKFLOW_UNCONFIRMED:-false}" == false ]] || unconfirmed=true
       printf '%s %s（提交 %s，日志：%s）\n' "$workflow" "$tag" "$commit" "$check_log" >> "$VALIDATION_FAILURES_FILE"
+      if [[ "${REMOTE_PLATFORM_BLOCKED:-false}" == true ]]; then
+        REMOTE_WORKFLOW_STATE='GitHub Actions 平台禁用，未启动构建'
+        cp "$check_log" "$FAILURE_SUMMARY_FILE"
+        fail 'GitHub 拒绝启动 Actions：仓库平台禁用。保留版本标签和待发布状态，解除限制后恢复'
+        return 1
+      fi
     done
     if [[ "$failed" == false ]]; then
       if release_is_published "$tag"; then break; else result=$?; fi
@@ -584,6 +619,12 @@ write_report() {
 }
 
 generate_failure_summary() {
+  # An explicit platform rejection is already a diagnosis, not a code defect.
+  if [[ "${REMOTE_PLATFORM_BLOCKED:-false}" == true && -s "$FAILURE_SUMMARY_FILE" ]]; then
+    printf '\n已推送提交：%s；本轮本地修复 %s 次、远程修复 %s 次。此次平台拒绝启动未触发代码修复，远程检查未通过。\n' \
+      "${PUSHED_COMMIT:-未推送}" "${REPAIR_COUNT:-0}" "${REMOTE_REPAIR_COUNT:-0}" >> "$FAILURE_SUMMARY_FILE"
+    return 0
+  fi
   local prompt_file="$STATE_DIR/$RUN_ID-failure-summary-prompt.txt"
   local analysis_dir="$REPO_DIR"
   [[ -d "$WORKTREE" ]] && analysis_dir="$WORKTREE"
