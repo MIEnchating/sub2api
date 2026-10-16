@@ -70,6 +70,7 @@ check_backend_integration() (
   docker exec "$database_id" pg_isready -U postgres -d sub2api_test >/dev/null || return 1
   port="$(docker port "$database_id" 5432/tcp)" || return 1
   docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
+    "QQBOT_TEST_DSN=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
     go test -count=1 -tags=integration ./...
 )
 
@@ -91,6 +92,38 @@ frontend_pnpm() {
   "$COREPACK_BIN" "pnpm@$PNPM_VERSION" "$@"
 }
 
+check_frontend_install() {
+  local linked_checkout
+  linked_checkout="$(python3 - "$WORKTREE/frontend/node_modules" <<'PY'
+import os
+from pathlib import Path
+import sys
+
+root = Path(sys.argv[1]).absolute()
+linked = root.is_symlink()
+for directory, dirs, files in os.walk(root, followlinks=False):
+    for name in dirs + files:
+        path = Path(directory) / name
+        if path.is_symlink() and not path.resolve().is_relative_to(root):
+            linked = True
+            break
+    if linked:
+        break
+print('true' if linked else 'false')
+PY
+)" || return 1
+  if [[ "$linked_checkout" == true ]]; then
+    # Never reuse dependency links into another checkout's package graph.
+    rm -rf -- "$WORKTREE/frontend/node_modules" || return 1
+  fi
+  frontend_pnpm --dir "$WORKTREE/frontend" install --frozen-lockfile || return 1
+  # A seeded worktree can carry Vue's generated declarations as symlinks into
+  # another checkout. Regenerate them here so templates and source imports use
+  # the same Vue version. Removing the link must not modify its source checkout.
+  rm -rf -- "$WORKTREE/frontend/node_modules/.vue-global-types" || return 1
+  rm -f -- "$WORKTREE/frontend/tsconfig.tsbuildinfo" "$WORKTREE/frontend/tsconfig.node.tsbuildinfo"
+}
+
 run_validation_checks() {
   local pass="$1"
   : > "$VALIDATION_FAILURES_FILE"
@@ -99,6 +132,7 @@ run_validation_checks() {
   record_check '候选差异空白检查' git -C "$WORKTREE" diff HEAD --check
   record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE"
   record_check '上游排除规则及报告测试' python3 -m unittest discover -s "$WORKTREE/.github" -p 'test_upstream*.py'
+  record_check 'Release 工作流及打包元数据测试' python3 -m unittest discover -s "$WORKTREE/.github/release-tools" -p 'test_*.py'
   record_check '后端普通测试' docker_go go test ./...
   record_check '后端单元测试' docker_go go test -tags=unit ./...
   record_check '后端集成测试' check_backend_integration
@@ -106,7 +140,7 @@ run_validation_checks() {
   record_check 'golangci-lint' check_backend_lint
   record_check '后端漏洞检查' check_backend_security
   record_check '后端生产构建' docker_go /bin/bash -ec 'CGO_ENABLED=0 go build -trimpath -o /tmp/sub2api-server ./cmd/server'
-  record_check '前端依赖锁定安装' frontend_pnpm --dir "$WORKTREE/frontend" install --frozen-lockfile
+  record_check '前端依赖锁定安装' check_frontend_install
   record_check '前端 ESLint' frontend_pnpm --dir "$WORKTREE/frontend" run lint:check
   record_check '前端类型检查' frontend_pnpm --dir "$WORKTREE/frontend" run typecheck
   record_check '前端完整测试' frontend_pnpm --dir "$WORKTREE/frontend" run test:run --maxWorkers=2

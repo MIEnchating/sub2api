@@ -23,6 +23,7 @@ type ScheduledTestPlan struct {
 	ModelID           string                        `json:"model_id"`
 	ReasoningEffort   string                        `json:"reasoning_effort,omitempty"`
 	CronExpression    string                        `json:"cron_expression"`
+	Schedule          *ScheduledTestSchedule        `json:"schedule,omitempty"`
 	Enabled           bool                          `json:"enabled"`
 	MaxResults        int                           `json:"max_results"`
 	AutoRecover       bool                          `json:"auto_recover"`
@@ -35,14 +36,15 @@ type ScheduledTestPlan struct {
 
 // ScheduledTestResult represents a single test execution result.
 type ScheduledTestResult struct {
-	RunID            string `json:"-"`
-	ID               int64  `json:"id"`
-	PlanID           int64  `json:"plan_id"`
-	TestDefinitionID *int64 `json:"test_definition_id,omitempty"`
-	PlanName         string `json:"plan_name"`
-	TestName         string `json:"test_name"`
-	TestOrder        int    `json:"test_order"`
-	GroupName        string `json:"group_name"`
+	ExecutionInfo    *ScheduledTestExecutionInfo `json:"execution_info,omitempty"`
+	RunID            string                      `json:"-"`
+	ID               int64                       `json:"id"`
+	PlanID           int64                       `json:"plan_id"`
+	TestDefinitionID *int64                      `json:"test_definition_id,omitempty"`
+	PlanName         string                      `json:"plan_name"`
+	TestName         string                      `json:"test_name"`
+	TestOrder        int                         `json:"test_order"`
+	GroupName        string                      `json:"group_name"`
 	// PlanOrder belongs to the rule that produced the result. GroupOrder is
 	// resolved from the displayed group's current rules, so moving an account
 	// does not carry its source rule's display position into the new group.
@@ -61,7 +63,8 @@ type ScheduledTestResult struct {
 	ReturnedModels       []string                         `json:"-"`
 	ModelEvidenceInvalid bool                             `json:"-"`
 	AccountID            *int64                           `json:"account_id,omitempty"`
-	AccountName          string                           `json:"account_name,omitempty"` // populated by admin queries only
+	AccountSchedulable   *bool                            `json:"account_schedulable,omitempty"` // current account status and scheduling switch; nil for account-free results
+	AccountName          string                           `json:"account_name,omitempty"`        // populated by admin queries only
 	ModelID              string                           `json:"model_id"`
 	ReasoningEffort      string                           `json:"reasoning_effort,omitempty"`
 	GroupID              *int64                           `json:"group_id,omitempty"`
@@ -110,6 +113,7 @@ type ScheduledTestStatistics struct {
 	CacheInputTokens  int64                        `json:"cache_input_tokens"`
 	CacheSamples      int64                        `json:"cache_samples"`
 	RecentRequests    []ScheduledTestRecentRequest `json:"recent_requests"`
+	RecoveryProbe     *ScheduledTestRecoveryProbe  `json:"recovery_probe,omitempty"`
 }
 
 // ScheduledTestRecentRequest deliberately contains no request or account details.
@@ -161,7 +165,8 @@ type ScheduledTestPlanRepository interface {
 	ListDue(ctx context.Context, now time.Time) ([]*ScheduledTestPlan, error)
 	Update(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error)
 	Delete(ctx context.Context, id int64) error
-	UpdateAfterRun(ctx context.Context, id int64, lastRunAt time.Time, nextRunAt time.Time) error
+	UpdateAfterRun(ctx context.Context, plan *ScheduledTestPlan, lastRunAt time.Time, nextRunAt time.Time) error
+	UpdateNextRun(ctx context.Context, plan *ScheduledTestPlan, nextRunAt time.Time) error
 }
 
 type ScheduledTestDefinitionRepository interface {

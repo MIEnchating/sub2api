@@ -16,6 +16,33 @@ spec.loader.exec_module(release_window)
 
 
 class ValidationLogTest(unittest.TestCase):
+    def test_frontend_install_regenerates_checkout_local_vue_types(self):
+        shell = SCRIPT.with_name('upstream-sync-validation.sh').read_text()
+        name = 'check_frontend_install'
+        function = name + '() {' + shell.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            frontend = root / 'candidate/frontend'
+            generated = frontend / 'node_modules/.vue-global-types'
+            generated.mkdir(parents=True)
+            source = root / 'source-types.d.ts'
+            source.write_text('old checkout Vue types')
+            (generated / 'vue.d.ts').symlink_to(source)
+            dependency = frontend / 'node_modules/test-utils.cjs'
+            dependency.symlink_to(source)
+            for name in ('tsconfig.tsbuildinfo', 'tsconfig.node.tsbuildinfo'):
+                (frontend / name).write_text('old resolution paths')
+            result = subprocess.run(['bash', '-ec', function + '''
+frontend_pnpm() { printf '%s\\n' "$*"; }
+check_frontend_install
+'''], capture_output=True, text=True, env=os.environ | {'WORKTREE': str(frontend.parent)})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertIn('install --frozen-lockfile', result.stdout)
+            self.assertFalse(generated.exists())
+            self.assertFalse(dependency.exists())
+            self.assertFalse(list(frontend.glob('*.tsbuildinfo')))
+            self.assertEqual(source.read_text(), 'old checkout Vue types')
+
     def test_uncommittable_repair_is_revalidated_and_retried(self):
         shell = SCRIPT.read_text()
         name = 'run_validation_with_repairs'

@@ -623,7 +623,7 @@ func IsOpenAICodexTicketExtraKey(key string) bool {
 // blobs supplied by an account edit. The repository repeats this under the row
 // lock so a concurrent harvest cannot be overwritten by a stale admin snapshot.
 func MergeOpenAICodexTicketExtra(extra, current map[string]any) map[string]any {
-	result := maps.Clone(extra)
+	result := StripRetiredAccountExtra(extra)
 	for key := range result {
 		if IsOpenAICodexTicketExtraKey(key) {
 			delete(result, key)

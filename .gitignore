@@ -155,6 +155,7 @@ docs/*
 !docs/account-protection.md
 !docs/account-generation-preview.md
 !docs/codex-credits.md
+!docs/qq-bot.md
 !docs/legal/
 !docs/legal/*.md
 !docs/screenshots/

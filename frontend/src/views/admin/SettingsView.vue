@@ -9608,7 +9608,7 @@ const opencodeGoUsageForm = reactive({
 const overloadCooldownLoading = ref(true);
 const overloadCooldownSaving = ref(false);
 const overloadCooldownForm = reactive({
-  enabled: false,
+  enabled: true,
   cooldown_minutes: 10,
 });
 

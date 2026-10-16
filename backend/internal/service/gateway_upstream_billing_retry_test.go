@@ -83,7 +83,7 @@ func TestBedrockBilling403SkipsSameAccountRetry(t *testing.T) {
 		NewBedrockSigner("access", "secret", "", "us-east-1"), "", "",
 	)
 	require.NoError(t, err)
-	result, err := svc.handleBedrockUpstreamErrors(context.Background(), resp, c, account)
+	result, err := svc.handleBedrockUpstreamErrors(context.Background(), resp, c, account, "claude-3-5-sonnet-20241022")
 
 	var failoverErr *UpstreamFailoverError
 	require.Nil(t, result)

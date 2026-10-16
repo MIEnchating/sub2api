@@ -1,6 +1,9 @@
 package service
 
-import "net/http"
+import (
+	"net/http"
+	"time"
+)
 
 func (s *OpenAIGatewayService) SetPluginManager(manager *PluginManager) {
 	s.pluginManager = manager
@@ -52,19 +55,20 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	}
 	perform := func(attemptRequest *http.Request) (*http.Response, error) {
 		if profile != nil && (s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
-			return s.httpUpstream.DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
+			return s.doAccountTestHTTPWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
 		if s.pluginManager != nil {
+			started := time.Now().UTC()
 			response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
 			if handled {
-				return response, err
+				return observeAccountTestResponse(attemptRequest.Context(), started, response, err)
 			}
 		}
 		if profile != nil {
-			return s.httpUpstream.DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
+			return s.doAccountTestHTTPWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
 		if useTLSFallback && (account == nil || !account.IdentityProtectionEnabled()) {
-			return s.httpUpstream.DoWithTLS(
+			return s.doAccountTestHTTPWithTLS(
 				attemptRequest,
 				proxyURL,
 				account.ID,
@@ -72,9 +76,9 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 				s.tlsFPProfileService.ResolveTLSProfile(account),
 			)
 		}
-		return s.httpUpstream.Do(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
+		return s.doAccountTestHTTP(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
 	}
-	if request.Context().Value(generationPreviewContextKey{}) == true {
+	if request.Context().Value(generationPreviewContextKey{}) == true || request.Context().Value(accountTestUsageKey{}) != nil {
 		return perform(request)
 	}
 	return doAccount429Retry(request, account, perform)

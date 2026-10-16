@@ -1027,6 +1027,7 @@ export interface ProxyQualityCheckResult {
 export interface GeminiCredentials {
   // API Key authentication
   api_key?: string
+  base_url?: string
 
   // OAuth authentication
   access_token?: string
@@ -1051,11 +1052,15 @@ export interface GeminiCredentials {
   model_mapping?: Record<string, string>
 }
 
+export type TempUnschedulableScope = 'account' | 'model'
+
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
   duration_minutes: number
   description: string
+  // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型；缺省时 401 按 account、其余按 model 处理。
+  scope?: TempUnschedulableScope
 }
 
 export interface TempUnschedulableState {
@@ -1063,6 +1068,8 @@ export interface TempUnschedulableState {
   triggered_at_unix: number
   status_code: number
   matched_keyword: string
+  scope?: TempUnschedulableScope
+  model?: string
   rule_index: number
   error_message: string
   trigger_count?: number
@@ -2553,7 +2560,29 @@ export interface ScheduledTestPlan {
   updated_at: string
 }
 
+export interface TestTokenUsage {
+  input_tokens: number | null
+  output_tokens: number | null
+  reasoning_tokens: number | null
+  cache_read_tokens: number | null
+  cache_creation_tokens: number | null
+}
+export interface TestRequestAttempt extends TestTokenUsage {
+  started_at: string
+  http_status?: number
+  failure_kind?: string
+  retry_after?: string | null
+}
+export interface TestExecutionInfo extends TestTokenUsage {
+  attempts: TestRequestAttempt[]
+  failure_kind?: string
+  retry_after?: string | null
+  next_check_at?: string | null
+  consecutive_failures?: number
+}
+
 export interface ScheduledTestResult {
+  execution_info?: TestExecutionInfo | null
   id: number
   plan_id: number
   status: string
@@ -2597,6 +2626,17 @@ export interface TestType {
   updated_at?: string
 }
 
+export interface TestSchedulePeriod {
+  start: string
+  end: string
+  interval_minutes: number
+}
+
+export interface TestSchedule {
+  timezone: string
+  periods: TestSchedulePeriod[]
+}
+
 export interface TestPlan {
   id: number
   /** Ordered strategy groups; this order is also used by the user result tabs. */
@@ -2617,6 +2657,7 @@ export interface TestPlan {
   /** Optional effort forwarded to the selected model (Codex-style). */
   reasoning_effort?: string | null
   cron_expression?: string
+  schedule?: TestSchedule | null
   enabled: boolean
   max_results?: number
   protection?: TestProtectionConfig
@@ -2668,7 +2709,8 @@ export interface TestProtectionRule {
 }
 export interface TestProtectionConfig {
   enabled: boolean
-  mode?: 'per_test' | 'combined'
+  mode?: 'per_test' | 'combined' | 'all_pass'
+  pass_group_ids?: number[]
   rules: TestProtectionRule[]
   combinations?: TestCombinationRule[]
 }
@@ -2722,6 +2764,13 @@ export interface TestOutputStatistics {
   cache_samples?: number
   /** Latest ten outcomes, newest first; older snapshots may omit this field. */
   recent_requests?: TestStatisticsRecentRequest[] | null
+  /** Connectivity evidence kept separate from real usage statistics. */
+  recovery_probe?: {
+    status: 'success' | 'failed'
+    started_at: string
+    finished_at: string
+    latency_ms: number
+  } | null
 }
 
 export interface TestOutputModelCheck {
@@ -2744,6 +2793,9 @@ export interface TestProtectionDecision {
 }
 
 export interface TestResult {
+  execution_info?: TestExecutionInfo | null
+  /** Current account status and scheduling switch; absent for account-free results. */
+  account_schedulable?: boolean | null
   /** Returned only by administrator result endpoints. */
   account_name?: string
   plan_name?: string
@@ -2801,6 +2853,7 @@ export interface CreateTestPlanRequest {
   model_id: string
   reasoning_effort?: string | null
   cron_expression?: string
+  schedule?: TestSchedule | null
   enabled?: boolean
   max_results?: number
   protection?: TestProtectionConfig

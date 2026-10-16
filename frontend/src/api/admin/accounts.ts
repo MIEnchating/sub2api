@@ -78,6 +78,17 @@ export interface AccountListWithEtagResult {
   data: PaginatedResponse<AccountListItem> | null
 }
 
+export interface AccountPlatformCount {
+  platform: string
+  count: number
+}
+
+/** Global platform counts, independent of account-list pagination and filters. */
+export async function getPlatformCounts(options?: { signal?: AbortSignal }): Promise<AccountPlatformCount[]> {
+  const { data } = await apiClient.get<AccountPlatformCount[]>('/admin/accounts/platforms', options)
+  return data
+}
+
 export interface AccountUpstreamBillingRatesWithEtagResult {
   notModified: boolean
   etag: string | null
@@ -645,8 +656,29 @@ export interface UpstreamModelMetadata {
  * @param id - Account ID
  * @returns List of model IDs returned by the upstream
  */
-export async function syncUpstreamModels(id: number): Promise<SyncUpstreamModelsResult> {
-  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`)
+export async function syncUpstreamModels(id: number, options?: { replace: boolean }): Promise<SyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, undefined, {
+    params: options,
+    timeout: 180000
+  })
+  return data
+}
+
+export interface BatchSyncUpstreamModelsResult {
+  total: number
+  success: number
+  failed: number
+  success_ids: number[]
+  failed_ids: number[]
+  errors: Array<{ account_id: number; error: string }>
+  warnings?: Array<{ account_id: number; code: string; message: string }>
+}
+
+/** Replace each selected account's model mapping with its live upstream list. */
+export async function batchSyncUpstreamModels(accountIds: number[]): Promise<BatchSyncUpstreamModelsResult> {
+  const { data } = await apiClient.post<BatchSyncUpstreamModelsResult>('/admin/accounts/models/sync-upstream-batch', {
+    account_ids: accountIds
+  }, { timeout: 180000 })
   return data
 }
 
@@ -1152,6 +1184,7 @@ export const accountsAPI = {
   getCodexTicketHistory,
   list,
   listWithEtag,
+  getPlatformCounts,
   getUpstreamBillingRatesWithEtag,
   getById,
   create,
@@ -1180,6 +1213,7 @@ export const accountsAPI = {
   setSchedulable,
   getAvailableModels,
   syncUpstreamModels,
+  batchSyncUpstreamModels,
   syncUpstreamModelsPreview,
   generateAuthUrl,
   exchangeCode,

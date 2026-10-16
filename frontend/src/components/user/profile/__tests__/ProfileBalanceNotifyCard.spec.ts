@@ -40,11 +40,14 @@ describe('ProfileBalanceNotifyCard', () => {
   })
 
   afterEach(() => {
+    vi.restoreAllMocks()
     vi.clearAllTimers()
     vi.useRealTimers()
   })
 
   it.each(['remove', 'unmount'])('does not start a pending email timer after %s', async (action) => {
+    // Vitest also schedules task-reporting timeouts; observe only the countdown.
+    const startCountdown = vi.spyOn(globalThis, 'setInterval')
     const request = deferred()
     sendNotifyEmailCode.mockReturnValueOnce(request.promise)
     const wrapper = mount(ProfileBalanceNotifyCard, {
@@ -58,10 +61,12 @@ describe('ProfileBalanceNotifyCard', () => {
 
     request.resolve()
     await flushPromises()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(startCountdown).not.toHaveBeenCalled()
   })
 
   it('does not start a saved email timer after unmount', async () => {
+    // Vitest also schedules task-reporting timeouts; observe only the countdown.
+    const startCountdown = vi.spyOn(globalThis, 'setInterval')
     const request = deferred()
     sendNotifyEmailCode.mockReturnValueOnce(request.promise)
     const wrapper = mount(ProfileBalanceNotifyCard, {
@@ -74,7 +79,7 @@ describe('ProfileBalanceNotifyCard', () => {
     wrapper.unmount()
     request.resolve()
     await flushPromises()
-    expect(vi.getTimerCount()).toBe(0)
+    expect(startCountdown).not.toHaveBeenCalled()
   })
 
   it.each([0, 1])('removes only verified emails when request %i finishes first', async (first) => {

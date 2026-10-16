@@ -68,7 +68,7 @@ INSERT INTO groups(id,name) VALUES(8,'Source tier'),(10,'Higher tier'),(11,'Unre
 		"260_scheduled_test_model_check.sql", "260_scheduled_test_model_check.sql",
 		"261_scheduled_test_admin_review.sql",
 		"262_scheduled_test_execution_snapshot.sql",
-		"264_scheduled_test_cache_recovery.sql", "265_scheduled_test_generic_policy.sql", "268_scheduled_test_combination_states.sql",
+		"264_scheduled_test_cache_recovery.sql", "265_scheduled_test_generic_policy.sql", "268_scheduled_test_combination_states.sql", "270_scheduled_test_time_periods.sql", "276_scheduled_test_cost_control.sql",
 	} {
 		raw, err := migrations.FS.ReadFile(name)
 		require.NoError(t, err)
@@ -131,6 +131,72 @@ INSERT INTO account_groups(account_id,group_id) VALUES(62,8),(62,11);`)
 		}
 	}
 
+	t.Run("usage persistence and durable backoff", func(t *testing.T) {
+		reset(t)
+		plan := newPlan(t, nil)
+		stamp := time.Now().UTC().Truncate(time.Microsecond)
+		input, output := int64(17), int64(9)
+		original := &service.ScheduledTestResult{PlanID: plan.ID, TestDefinitionID: &definitionID, AccountID: &accountID, TargetMode: plan.TargetMode, ModelID: plan.ModelID, OutputKind: "text", Status: "pending", StartedAt: stamp, FinishedAt: stamp}
+		frozen, err := results.BeginRun(ctx, plan, "usage-round", []*service.ScheduledTestResult{original})
+		require.NoError(t, err)
+		result := frozen[0]
+		result.Status = "failed"
+		result.ExecutionInfo = &service.ScheduledTestExecutionInfo{ScheduledTestTokenUsage: service.ScheduledTestTokenUsage{InputTokens: &input, OutputTokens: &output}, Attempts: []service.ScheduledTestRequestAttempt{{HTTPStatus: 503, StartedAt: stamp, ScheduledTestTokenUsage: service.ScheduledTestTokenUsage{InputTokens: &input, OutputTokens: &output}}}}
+		require.NoError(t, results.Update(ctx, result))
+		read, err := results.GetByID(ctx, result.ID)
+		require.NoError(t, err)
+		require.EqualValues(t, 17, *read.ExecutionInfo.InputTokens)
+		require.Nil(t, read.ExecutionInfo.ReasoningTokens)
+		for i, minutes := range []int{5, 15, 30, 60, 60} {
+			result.StartedAt = stamp.Add(time.Duration(i) * time.Second)
+			require.NoError(t, results.RecordTestBackoff(ctx, plan, result, "policy", true, nil))
+			state, err := results.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+			require.NoError(t, err)
+			require.Equal(t, i+1, state.ConsecutiveFailures)
+			require.WithinDuration(t, time.Now().Add(time.Duration(minutes)*time.Minute), state.NextCheckAt, 2*time.Second)
+		}
+		// A new repository instance observes persisted cooldown after a restart.
+		another := &scheduledTestResultRepository{db: db}
+		state, err := another.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.Equal(t, 5, state.ConsecutiveFailures)
+		list, err := results.ListByPlanID(ctx, plan.ID, 1)
+		require.NoError(t, err)
+		require.Len(t, list, 1)
+		require.NotNil(t, list[0].ExecutionInfo.NextCheckAt)
+		require.Len(t, list[0].ExecutionInfo.Attempts, 1)
+		result.StartedAt = stamp.Add(6 * time.Second)
+		retryAt := time.Now().Add(3 * time.Hour)
+		require.NoError(t, results.RecordTestBackoff(ctx, plan, result, "policy", true, &retryAt))
+		state, err = results.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.WithinDuration(t, retryAt, state.NextCheckAt, time.Millisecond)
+		result.StartedAt = stamp.Add(7 * time.Second)
+		require.NoError(t, results.RecordTestBackoff(ctx, plan, result, "policy", false, nil))
+		state, err = results.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.Zero(t, state.ConsecutiveFailures)
+		result.StartedAt = stamp // an older completion cannot restore a cooldown
+		require.NoError(t, results.RecordTestBackoff(ctx, plan, result, "policy", true, nil))
+		state, err = results.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.Zero(t, state.ConsecutiveFailures)
+		result.StartedAt = stamp.Add(8 * time.Second)
+		require.NoError(t, results.RestartFailed(ctx, result))
+		read, err = results.GetByID(ctx, result.ID)
+		require.NoError(t, err)
+		require.EqualValues(t, 17, *read.ExecutionInfo.InputTokens, "manual retry retains past spending")
+		exec(t, `UPDATE scheduled_test_plans SET latest_run_id='new-round' WHERE id=$1`, plan.ID)
+		require.NoError(t, results.RecordTestBackoff(ctx, plan, result, "policy", true, nil))
+		state, err = results.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.Zero(t, state.ConsecutiveFailures)
+		require.NoError(t, results.PruneOldResults(ctx, plan.ID, 0))
+		state, err = another.GetTestBackoff(ctx, plan.ID, accountID, "policy")
+		require.NoError(t, err)
+		require.NotNil(t, state, "history pruning cannot erase cooldown state")
+	})
+
 	t.Run("model check definition migration is idempotent", func(t *testing.T) {
 		var count int
 		var kind, prompt string
@@ -154,7 +220,8 @@ INSERT INTO account_groups(account_id,group_id) VALUES(62,8),(62,11);`)
 		for i := range checks {
 			stored = append(stored, persist(t, plan, "success", &checks[i]))
 		}
-		persist(t, plan, "failed", &service.ScheduledTestModelCheck{RequestedModel: plan.ModelID, UpstreamModel: "gpt-5.6-sol", ReturnedModels: []string{}, MatchMode: "exact", Verdict: "unknown", Reason: "upstream_error"})
+		failedCheck := service.ScheduledTestModelCheck{RequestedModel: plan.ModelID, UpstreamModel: "gpt-5.6-sol", ReturnedModels: []string{}, MatchMode: "exact", Verdict: "unknown", Reason: "upstream_error"}
+		failed := persist(t, plan, "failed", &failedCheck)
 		adminRows, err := svc.ListResults(ctx, plan.ID, 10)
 		require.NoError(t, err)
 		require.Len(t, adminRows, 5)
@@ -167,7 +234,10 @@ INSERT INTO account_groups(account_id,group_id) VALUES(62,8),(62,11);`)
 		}
 		visible, err := svc.ListVisibleResults(ctx, 1, 3)
 		require.NoError(t, err)
-		require.Empty(t, visible, "the latest failed execution must not fall back to older successful model checks")
+		require.Len(t, visible, 1)
+		require.Equal(t, failed.ID, visible[0].ID, "show the latest failure without falling back to an older successful model check")
+		require.Equal(t, "failed", visible[0].Status)
+		assertSnapshot(t, visible[0], failedCheck, true)
 		latest := persist(t, plan, "success", &checks[3])
 		visible, err = svc.ListVisibleResults(ctx, 1, 3)
 		require.NoError(t, err)

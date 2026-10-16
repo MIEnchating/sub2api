@@ -203,7 +203,10 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 }
 
 func (s *ScheduledTestRunnerService) runDuePlans(ctx context.Context) {
-	now := time.Now()
+	s.runDuePlansAt(ctx, time.Now())
+}
+
+func (s *ScheduledTestRunnerService) runDuePlansAt(ctx context.Context, now time.Time) {
 	queryCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
 	plans, err := s.planRepo.ListDue(queryCtx, now)
 	cancel()
@@ -221,6 +224,25 @@ func (s *ScheduledTestRunnerService) runDuePlans(ctx context.Context) {
 		if ctx.Err() != nil {
 			return
 		}
+		// An overdue run (for example after downtime) must wait if discovery
+		// happens outside the configured periods. Do not record a phantom run.
+		allowed, err := scheduledTestScheduleAllows(plan.Schedule, now)
+		if err != nil {
+			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d invalid schedule: %v", plan.ID, err)
+			continue
+		}
+		if !allowed {
+			next, err := computeScheduledTestNextRun(plan, now)
+			if err == nil {
+				persistCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
+				err = s.planRepo.UpdateNextRun(persistCtx, plan, next)
+				cancel()
+			}
+			if err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d defer outside time periods: %v", plan.ID, err)
+			}
+			continue
+		}
 		// Register before launching. Repeated ticks cannot accumulate blocked
 		// goroutines for the same rule, and shutdown waits for admitted work.
 		// The scan context ends when discovery returns; executions instead
@@ -231,7 +253,7 @@ func (s *ScheduledTestRunnerService) runDuePlans(ctx context.Context) {
 		}
 		go func() {
 			defer finish()
-			s.executePlan(runCtx, plan)
+			s.executePlan(context.WithValue(runCtx, scheduledTestAutomaticRunKey{}, true), plan)
 		}()
 	}
 }
@@ -284,8 +306,9 @@ func (s *ScheduledTestRunnerService) executePlan(ctx context.Context, plan *Sche
 		}
 	}
 	executions := scheduledTestExecutionPlans(plan)
-	// Local statistics must not wait behind a potentially fifteen-minute model
-	// generation. Display ordering remains a separate definition setting.
+	// Keep local statistics ahead of upstream calls, as in the snapshot path.
+	// Other definitions retain their configured order. Each account's verdicts
+	// then carry across definitions so a failed check skips its remaining work.
 	var local, upstream []*ScheduledTestPlan
 	for _, execution := range executions {
 		queryCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
@@ -297,11 +320,9 @@ func (s *ScheduledTestRunnerService) executePlan(ctx context.Context, plan *Sche
 			upstream = append(upstream, execution)
 		}
 	}
-
-	// Each definition has an independent result stream. A disabled definition
-	// must not prevent the remaining checks in the same rule from executing.
+	progress := make(map[int64]*scheduledTestAccountProgress)
 	for _, execution := range append(local, upstream...) {
-		s.runPlanDefinition(ctx, execution)
+		s.runPlanDefinitionWithProgress(ctx, execution, progress)
 		if ctx.Err() != nil {
 			break
 		}
@@ -323,7 +344,23 @@ func scheduledTestExecutionPlans(plan *ScheduledTestPlan) []*ScheduledTestPlan {
 	return result
 }
 
+func scheduledTestUniqueAccountIDs(ids []int64) []int64 {
+	seen := make(map[int64]bool, len(ids))
+	unique := make([]int64, 0, len(ids))
+	for _, id := range ids {
+		if id > 0 && !seen[id] {
+			seen[id] = true
+			unique = append(unique, id)
+		}
+	}
+	return unique
+}
+
 func (s *ScheduledTestRunnerService) runPlanDefinition(ctx context.Context, plan *ScheduledTestPlan) {
+	s.runPlanDefinitionWithProgress(ctx, plan, nil)
+}
+
+func (s *ScheduledTestRunnerService) runPlanDefinitionWithProgress(ctx context.Context, plan *ScheduledTestPlan, progress map[int64]*scheduledTestAccountProgress) {
 	if ctx.Err() != nil {
 		return
 	}
@@ -339,12 +376,13 @@ func (s *ScheduledTestRunnerService) runPlanDefinition(ctx context.Context, plan
 	}
 	if outputKind == "statistics" {
 		cancel()
-		s.runStatisticsDefinition(ctx, plan)
+		s.runStatisticsDefinitionWithProgress(ctx, plan, progress)
 		return
 	}
 
 	accountIDs, resolveErr := s.resolveTargetAccounts(queryCtx, plan)
 	cancel()
+	accountIDs = scheduledTestUniqueAccountIDs(accountIDs)
 	if ctx.Err() != nil {
 		return
 	}
@@ -361,12 +399,23 @@ func (s *ScheduledTestRunnerService) runPlanDefinition(ctx context.Context, plan
 	// failing upstream and users only see results for their entitled group.
 	sem := make(chan struct{}, scheduledTestDefaultMaxWorkers)
 	var wg sync.WaitGroup
+	var progressMu sync.Mutex
 dispatchAccounts:
 	for _, accountID := range accountIDs {
 		if ctx.Err() != nil {
 			break
 		}
 		accountID := accountID
+		if progress != nil {
+			progressMu.Lock()
+			accountProgress := progress[accountID]
+			stopped := accountProgress != nil && accountProgress.stopped
+			progressMu.Unlock()
+			if stopped {
+				s.saveSkippedAccountResultWithReason(ctx, plan, accountID, outputKind, "前一项检测未满足条件")
+				continue
+			}
+		}
 		select {
 		case sem <- struct{}{}:
 		case <-ctx.Done():
@@ -376,7 +425,17 @@ dispatchAccounts:
 		go func() {
 			defer wg.Done()
 			defer func() { <-sem }()
-			s.runOneAccount(ctx, plan, accountID, prompt, outputKind)
+			result := s.runOneAccount(ctx, plan, accountID, prompt, outputKind)
+			if progress != nil {
+				progressMu.Lock()
+				accountProgress := progress[accountID]
+				if accountProgress == nil {
+					accountProgress = &scheduledTestAccountProgress{}
+					progress[accountID] = accountProgress
+				}
+				accountProgress.allowsNext(plan, result)
+				progressMu.Unlock()
+			}
 		}()
 	}
 	wg.Wait()
@@ -442,13 +501,13 @@ func (s *ScheduledTestRunnerService) resolveTargetAccounts(ctx context.Context, 
 	return ids, nil
 }
 
-func (s *ScheduledTestRunnerService) runOneAccount(ctx context.Context, plan *ScheduledTestPlan, accountID int64, prompt, outputKind string) {
+func (s *ScheduledTestRunnerService) runOneAccount(ctx context.Context, plan *ScheduledTestPlan, accountID int64, prompt, outputKind string) *ScheduledTestResult {
 	if ctx.Err() != nil {
-		return
+		return nil
 	}
 	if !s.beginAccountRun(plan.ID, accountID, plan.TestDefinitionID) {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d is already running; skipping overlapping run", plan.ID, accountID)
-		return
+		return nil
 	}
 	defer s.endAccountRun(plan.ID, accountID, plan.TestDefinitionID)
 
@@ -458,7 +517,7 @@ func (s *ScheduledTestRunnerService) runOneAccount(ctx context.Context, plan *Sc
 		cancel()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d skipped: account unavailable for detection (%v)", plan.ID, accountID, eligibleErr)
 		s.saveSkippedAccountResult(ctx, plan, accountID, outputKind, eligibleErr)
-		return
+		return nil
 	}
 	pending, err := s.startAccountResult(persistCtx, plan, accountID, outputKind)
 	if err == nil {
@@ -474,13 +533,21 @@ func (s *ScheduledTestRunnerService) runOneAccount(ctx context.Context, plan *Sc
 				_ = s.scheduledSvc.CompleteResult(cleanupCtx, plan.MaxResults, pending)
 				cleanupCancel()
 			}
-			return
+			return nil
 		}
 	}
-	s.runAccountWithResult(ctx, plan, accountID, prompt, outputKind, pending)
+	return s.runAccountWithResult(ctx, plan, accountID, prompt, outputKind, pending)
 }
 
 func (s *ScheduledTestRunnerService) saveSkippedAccountResult(ctx context.Context, plan *ScheduledTestPlan, accountID int64, outputKind string, cause error) {
+	reason := "账号未开启调度或当前状态不可检测"
+	if cause != nil {
+		reason += ": " + cause.Error()
+	}
+	s.saveSkippedAccountResultWithReason(ctx, plan, accountID, outputKind, reason)
+}
+
+func (s *ScheduledTestRunnerService) saveSkippedAccountResultWithReason(ctx context.Context, plan *ScheduledTestPlan, accountID int64, outputKind, reason string) {
 	if s.scheduledSvc == nil {
 		return
 	}
@@ -498,10 +565,7 @@ func (s *ScheduledTestRunnerService) saveSkippedAccountResult(ctx context.Contex
 		return
 	}
 	created.Status = "failed"
-	created.ErrorMessage = "检测跳过：账号未开启调度或当前状态不可检测"
-	if cause != nil {
-		created.ErrorMessage += ": " + cause.Error()
-	}
+	created.ErrorMessage = "检测跳过：" + reason
 	created.FinishedAt = time.Now()
 	created.LatencyMs = created.FinishedAt.Sub(created.StartedAt).Milliseconds()
 	if err := s.scheduledSvc.CompleteResult(persistCtx, plan.MaxResults, created); err != nil {
@@ -532,10 +596,9 @@ func (s *ScheduledTestRunnerService) startAccountResult(ctx context.Context, pla
 	return s.scheduledSvc.StartResult(ctx, plan.ID, pending)
 }
 
-func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, plan *ScheduledTestPlan, accountID int64, prompt, outputKind string, pending *ScheduledTestResult) {
+func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, plan *ScheduledTestPlan, accountID int64, prompt, outputKind string, pending *ScheduledTestResult) *ScheduledTestResult {
 	if outputKind == "statistics" {
-		s.runStatisticsResult(ctx, plan, &accountID, pending, time.Now().UTC())
-		return
+		return s.runStatisticsResult(ctx, plan, &accountID, pending, time.Now().UTC())
 	}
 	if release, acquired := s.acquireAccountExecution(ctx, accountID); acquired {
 		defer release()
@@ -573,10 +636,18 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 		}
 		result, err := s.accountTestSvc.RunTestBackgroundWithPromptAndReasoning(executionCtx, accountID, plan.ModelID, prompt, plan.ReasoningEffort)
 		if deadlineErr := executionCtx.Err(); deadlineErr != nil {
-			return scheduledTestFailedAttempt(attemptStarted, deadlineErr)
+			failed := scheduledTestFailedAttempt(attemptStarted, deadlineErr)
+			if result != nil {
+				failed.ExecutionInfo = result.ExecutionInfo
+			}
+			return failed
 		}
 		if err != nil {
-			return scheduledTestFailedAttempt(attemptStarted, err)
+			failed := scheduledTestFailedAttempt(attemptStarted, err)
+			if result != nil {
+				failed.ExecutionInfo = result.ExecutionInfo
+			}
+			return failed
 		}
 		if result == nil {
 			return scheduledTestFailedAttempt(attemptStarted, fmt.Errorf("account test returned no result"))
@@ -589,6 +660,7 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	result.AccountID = &accountID
 	result.PlanID = plan.ID
 	if pending != nil {
+		result.ExecutionInfo = mergeScheduledTestExecution(pending.ExecutionInfo, result.ExecutionInfo)
 		result.RunID = pending.RunID
 		result.ID = pending.ID
 		result.StartedAt = pending.StartedAt
@@ -607,16 +679,16 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	defer cancel()
 	if s.scheduledSvc == nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d SaveResult skipped: scheduled test service unavailable", plan.ID, accountID)
-		return
+		return nil
 	}
 	if pending != nil && pending.ID > 0 {
 		if err := s.scheduledSvc.CompleteResult(persistCtx, plan.MaxResults, result); err != nil {
 			logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d CompleteResult error: %v", plan.ID, accountID, err)
-			return
+			return nil
 		}
 	} else if err := s.scheduledSvc.SaveResult(persistCtx, plan.ID, plan.MaxResults, result); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d SaveResult error: %v", plan.ID, accountID, err)
-		return
+		return nil
 	}
 	// Shutdown/cancellation is not an account-quality observation.
 	if ctx.Err() == nil {
@@ -632,6 +704,7 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 		}
 		cancelRecovery()
 	}
+	return result
 }
 
 func (s *ScheduledTestRunnerService) savePlanFailure(ctx context.Context, plan *ScheduledTestPlan, outputKind string, cause error) {
@@ -667,14 +740,14 @@ func (s *ScheduledTestRunnerService) advancePlan(ctx context.Context, plan *Sche
 		return
 	}
 	now := time.Now()
-	nextRun, err := computeNextRun(plan.CronExpression, now)
+	nextRun, err := computeScheduledTestNextRun(plan, now)
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d computeNextRun error: %v", plan.ID, err)
 		return
 	}
 	persistCtx, cancel := scheduledTestPersistenceContext()
 	defer cancel()
-	if err := s.planRepo.UpdateAfterRun(persistCtx, plan.ID, now, nextRun); err != nil {
+	if err := s.planRepo.UpdateAfterRun(persistCtx, plan, now, nextRun); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d UpdateAfterRun error: %v", plan.ID, err)
 	}
 }
@@ -994,7 +1067,8 @@ func (s *ScheduledTestRunnerService) RetryAccount(ctx context.Context, plan *Sch
 	}
 	started := time.Now()
 	pending := &ScheduledTestResult{
-		ID: previous.ID, RunID: previous.RunID, PlanID: plan.ID, CreatedAt: previous.CreatedAt,
+		ExecutionInfo: previous.ExecutionInfo,
+		ID:            previous.ID, RunID: previous.RunID, PlanID: plan.ID, CreatedAt: previous.CreatedAt,
 		TestDefinitionID: previous.TestDefinitionID, TargetMode: plan.TargetMode,
 		Status: "running", OutputKind: outputKind, AccountID: &accountID,
 		ModelID: plan.ModelID, ReasoningEffort: plan.ReasoningEffort, GroupID: plan.GroupID,

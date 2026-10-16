@@ -190,7 +190,7 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	dataAccounts := make([]DataAccount, 0, len(accounts))
 	for i := range accounts {
 		acc := accounts[i]
-		extra := exportCodexTicketExtra(&acc)
+		extra := service.StripRetiredAccountExtra(exportCodexTicketExtra(&acc))
 		var proxyKey *string
 		if acc.ProxyID != nil {
 			if key, ok := proxyKeyByID[*acc.ProxyID]; ok {
@@ -462,7 +462,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			continue
 		}
 
-		item.Extra = stripLegacyCodexTicketProxyExtra(item.Extra)
+		item.Extra = service.StripRetiredAccountExtra(stripLegacyCodexTicketProxyExtra(item.Extra))
 		enrichCredentialsFromIDToken(&item)
 
 		accountInput := &service.CreateAccountInput{
