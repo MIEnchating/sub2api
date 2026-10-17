@@ -33,6 +33,44 @@ func TestDeriveAuditAction(t *testing.T) {
 	}
 }
 
+func TestGPTDirectAndQQTransferAuditNeverCapturesCredentials(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	repository := &auditCaptureRepository{}
+	audit := service.NewAuditLogService(repository, nil)
+	audit.Start()
+	router := gin.New()
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(audit)))
+	paths := []string{
+		"/api/v1/gpt-direct/verify",
+		"/api/v1/gpt-direct/query",
+		"/api/v1/gpt-direct/redeem",
+		"/api/v1/gpt-direct/subscription",
+		"/api/v1/gpt-direct/task",
+		"/api/v1/qqbot/transfer/preview",
+		"/api/v1/qqbot/transfer/confirm",
+	}
+	for _, path := range paths {
+		router.POST(path, func(c *gin.Context) {
+			var input map[string]string
+			require.NoError(t, c.ShouldBindJSON(&input))
+			require.Equal(t, "audit-canary-session", input["session"])
+			c.Status(200)
+		})
+		request := httptest.NewRequest(http.MethodPost, path, bytes.NewBufferString(`{"code":"audit-canary-cdk","session":"audit-canary-session","token":"audit-canary-token"}`))
+		request.Header.Set("Content-Type", "application/json")
+		recorder := httptest.NewRecorder()
+		router.ServeHTTP(recorder, request)
+		require.Equal(t, 200, recorder.Code)
+	}
+	audit.Stop()
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, len(paths))
+	for _, entry := range repository.logs {
+		require.Equal(t, "<credential-bearing body omitted>", entry.RequestBody)
+	}
+}
+
 type auditCaptureRepository struct {
 	mu   sync.Mutex
 	logs []*service.AuditLog

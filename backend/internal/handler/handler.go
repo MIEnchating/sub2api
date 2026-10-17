@@ -48,6 +48,7 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	GPTDirect        *GPTDirectHandler
 	QQBot            *QQBotHandler
 	Auth             *AuthHandler
 	User             *UserHandler

@@ -341,6 +341,7 @@ type DefaultSubscriptionSetting struct {
 }
 
 type PublicSettings struct {
+	GPTDirectEnabled                    bool
 	RegistrationEnabled                 bool
 	EmailVerifyEnabled                  bool
 	ForceEmailOnThirdPartySignup        bool

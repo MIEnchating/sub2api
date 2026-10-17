@@ -177,6 +177,7 @@ func ProvideAdminSettingHandler(settingService *service.SettingService, emailSer
 
 // ProvideHandlers creates the Handlers struct
 func ProvideHandlers(
+	gptDirectHandler *GPTDirectHandler,
 	qqBotHandler *QQBotHandler,
 	authHandler *AuthHandler,
 	userHandler *UserHandler,
@@ -204,6 +205,7 @@ func ProvideHandlers(
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		GPTDirect:        gptDirectHandler,
 		QQBot:            qqBotHandler,
 		Auth:             authHandler,
 		User:             userHandler,
@@ -252,6 +254,7 @@ var ProviderSet = wire.NewSet(
 	ProvideUserHandler,
 	NewAPIKeyHandler,
 	NewUsageHandler,
+	NewGPTDirectHandler,
 	NewRedeemHandler,
 	NewSubscriptionHandler,
 	NewAnnouncementHandler,

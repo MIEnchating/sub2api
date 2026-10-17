@@ -629,3 +629,57 @@ QQ 转账安全复核补充了具体修复：锁定绑定及双方账号，核�
 本轮没有新增共享账号池或批量生图排除路径，既有排除列表继续生效；没有未解决的合并冲突。所有 SQL 迁移及 `migrations_runner.go` 保持本轮修复前内容，不处理历史表、记录或冻结余额。仅修改候选工作树，未 fetch、暂存、提交、推送、打标签、发布或重启服务。
 
 验证记录：后端普通专项及 unit 标签的 112 个测试／子用例通过，本地 golangci-lint 零问题；使用缓存 Go 1.27.1、golangci-lint 2.13 和 `/tmp` 隔离 modfile 依赖映射，未改动仓库 Go 1.27.2 或依赖要求，不替代外层正式工具链验证。QQ 命令配置专项通过；`TestQQBotFullGroupCommandsAndMentionedChat` 的 integration 标签编译通过，但因本地缺少 `QQBOT_TEST_DSN` 跳过执行，沙箱也无法连接 Docker，须由外层数据库环境复验。前端完整执行 407 个文件、3302 项测试，3299 项通过，额外发现的三条余额通知断言修复后该文件 5 项全部通过；类型检查、生产构建、i18n 与 ESLint 通过。验证脚本回归 12 项、Release 工作流／打包元数据回归 11 项及 Release actionlint 通过。功能排除、真实冲突标记与差异空白检查通过，外层仍须在本轮修复结束后执行完整验证。
+
+## 2026-10-17 第二上游集中冲突修复（第 1/3 轮）
+
+本轮项目基线为 `origin/main=HEAD=c29dab54f`，主上游 `upstream/main=b0a02a330` 已包含在基线中；第二上游推进到 `807fb4b89`，新增 `33fb94be9` 的 QQ 群共享上下文和 `807fb4b89` 的 GPT 直充。累计审查仍以已发布的 `v2026.10.13`（`13e903e4210bc9254a1cf6ba1d1f8d73d1e3a166`）为起点：主上游 63 个、第二上游 105 个非合并提交，两路去重 106 个，第二上游独有 43 个。此前已合并但未发布的更新继续纳入审查，不能只按本轮两个提交描述发布内容。
+
+### 文本与语义融合
+
+- `backend/cmd/server/VERSION` 保留本项目日期版本 `2026.10.13`；`FORK_VERSION` 保留第二上游 `v0.2.17-custom.11`。
+- `backend/cmd/server/wire_gen.go` 提前构造唯一的设置服务供 GPT 直充与 QQ 共同使用，补回本项目 `NewProxyRepository` 的配置参数；合入 `gptDirectHandler`，排除冲突侧 `batchImageHandler`，保留普通/异步单图、Gemini 缓存和账号健康生命周期。
+- `backend/internal/server/middleware/audit_log.go` 同时保留 QQ 转账预览/确认与五个 GPT 直充接口的整段凭证请求体排除规则；审计回归同时覆盖这七个入口，防止解决一侧冲突时泄露另一侧的令牌。
+- 逐文件重建本轮 58 个上游路径的三方合并：54 个与无冲突合并结果一致，3 个文本冲突按上述语义融合，另 1 个为补强的审计回归；没有选择性遗漏第二上游的其他增量。
+
+### 保留行为与累计复核
+
+QQ 群上下文按应用/群隔离、同群任务串行，兼容旧 `history_turns` 配置，保留显式零禁用、消息条数和 token 上限、空闲过期、重投去重及明确引用。旧个人会话不迁入共享历史，绑定/转账等命令及其引用结果不写入共享上下文；普通单图继续支持。这里的“共享上下文”不是被排除的共享账号池。
+
+GPT 直充保留管理员配置、默认关闭的菜单开关、购买、验码、订阅查询、确认兑换、任务查询和浏览器恢复；用户接口保留认证与面板限流，服务器固定产品/渠道，写请求不自动重试、不跟随重定向，任务凭据不进入浏览器 URL，公开配置与上游返回按白名单投影。直充 CDK 独立于本站余额兑换码，不改写本站账户余额或原有计费。
+
+累计窗口保留 Gemini 显式缓存/存储计费、Vertex API Key 与服务账号模型目录、Argon/Haiku、思考兼容、Responses 时间戳、Web Search、工作区隔离、模型级错误处理、支付查询确认与退款待定扣款；同时保留第二上游账号平台统计、模型目录替换/同步、质量保护与恢复探测、每日时段/时区、顺序检查、失败退避、测试用量归集、QQ 活动/邀请/抽奖/转账、调用错误页和安全依赖更新。复核本项目 Codex 采票/身份保护、普通代理池、429 重试、DeepSeek Pro 独立价卡、纯缓存存储不按次计价、QQ 转账身份行锁/到期复核/失败回滚及 EasyPay 有限正金额校验均仍存在。迁移 269 继续只清理废弃私有采票代理字段，不移除有效采票设置。
+
+### 本轮明确排除位置
+
+- 批量生图：`backend/cmd/server/wire_gen.go` 冲突侧的 `batchImageHandler` 及批量依赖；累计复核 `backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen_test.go`、`backend/internal/repository/wire.go` 的批量依赖仍被排除，`backend/ent/mutation.go`、`backend/ent/runtime/runtime.go` 不恢复批量分组字段。`frontend/src/i18n/locales/en/batchImage.ts`、`frontend/src/i18n/locales/zh/batchImage.ts` 仍不存在；`frontend/src/i18n/locales/en/admin/accounts.ts`、`frontend/src/i18n/locales/zh/admin/accounts.ts` 保留 Vertex 认证/缓存说明但不恢复批量生图说明。
+- 共享账号池：`backend/internal/handler/dto/types.go` 不恢复 `SharedTotalCallCount` / `SharedListingStatus`；`backend/migrations/255_retire_shared_account_pool.sql`、`backend/migrations/retire_shared_account_pool_integration_test.go` 继续排除。普通账号池及代理池保持。
+
+发布基准的 322 份历史 SQL 与 `backend/internal/repository/migrations_runner.go`（共 323 个文件）逐字节未变；本轮新增迁移 278 仅创建群历史表与引用可共享标志，不搬运旧个人会话。不删除批量生图历史表、记录或冻结余额。
+
+剩余已知兼容限制仍是 EasyPay 拒绝非标准附加回调字段，此类支付需使用标准回调或由主动查询/对账恢复；未发现新增的产品、权限、计费或数据库风险。本阶段仅修改临时工作树，没有 fetch、git add、commit、push、标签、发布或服务重启，真实索引的 9 条冲突 stage 记录保持原样供外层核验。
+
+本阶段验证：前端 7 个相关测试文件、63 项测试全部通过，类型检查、ESLint、i18n 检查及生产构建通过。后端 QQ 群历史、直充设置/鉴权、七个敏感接口审计及服务清理专项通过；直充请求隔离/幂等/禁止重定向与重试、QQ 转账授权/回滚/金额边界、缓存及账号统计计费、EasyPay 有限金额专项通过；后端生产构建与 QQ/迁移 integration 标签编译通过。后端采用缓存 Go 1.27.1 和 `/tmp` 隔离 modfile 映射本机缺失依赖，仓库 Go 1.27.2 与依赖声明未改动；直充 HTTP 用例通过临时 Go overlay 使用内存 transport，保留原断言且未修改仓库用例。一次扩大审计匹配范围的检查命中了需要本地监听的既有内容审核测试，随后改为精确匹配本次相关用例；未禁用仓库测试。以上是兼容专项验证，不代表正式工具链全量测试、真实数据库集成或漏洞扫描通过，外层仍需完整验证。
+
+最终功能排除、真实源码冲突标记、差异空白及原始冲突索引不变检查通过；源码未解决冲突为空。
+
+## 2026-10-17 最终双上游兼容审查
+
+本阶段起始候选为 `25930a081`，项目基线为 `origin/main=c29dab54f`，已包含主上游 `b0a02a330` 和第二上游 `807fb4b89`。外层已完成合并，进入本阶段时工作树干净、索引没有未合并条目；上节的 9 条冲突 stage 记录属于前一阶段。本阶段不 fetch、不暂存、不提交、不推送、不打标签、不发布、不重启服务。
+
+累计审查从已发布的 `v2026.10.13`（`13e903e4210bc9254a1cf6ba1d1f8d73d1e3a166`）计算，覆盖两上游去重后的 106 个非合并提交（主上游 63 个、第二上游独有 43 个）。核对累计提交记录、双方文件差异、前次融合差异和当前实现；重新逐文件复算本轮第二上游的 58 个路径，54 个与自动三方合并一致，版本、依赖注入和审计脱敏三个冲突文件已语义融合，另一个差异为敏感接口联合审计回归。
+
+最终复核发现并修复 GPT 直充传输层自动重放：`bytes.Reader` 使 `http.NewRequestWithContext` 自动设置 `GetBody`，兑换请求又携带 `Idempotency-Key`，因此 Go 默认传输层会在复用连接丢失响应时自动重放兑换 POST。新增 `backend/internal/service/gpt_direct_transport_test.go`，以真实 `http.Transport` 和内存连接模拟上游接收兑换后断开响应；修复前一次调用产生两次兑换请求，回归失败。`backend/internal/service/gpt_direct_service.go` 现对 POST 清空 `GetBody`，关闭请求体重放；修复后回归通过，同时验证用户主动重试仍可沿用原幂等键取得回执。未修改直充的购买、验码、订阅查询、任务查询、鉴权、渠道隔离、审计脱敏或本站余额计费。
+
+此前未发布的更新继续保留：Gemini 显式缓存与存储计费、Vertex 认证及模型目录、Argon/Haiku、思考兼容、Responses 时间戳、Web Search、工作区隔离、模型级错误策略、支付主动查询和退款待定扣款；第二上游的账号平台统计、模型同步、质量保护、每日时段/时区、顺序检查、统计恢复探测、失败退避、测试用量归集、QQ 活动/绑定/邀请/抽奖/转账、调用错误页和安全依赖更新。QQ 群共享上下文及 GPT 直充完整保留；群上下文不是共享账号池，仍按应用/群隔离并排除账号命令及私密引用。已有 Codex 采票、身份保护、普通代理池、429 策略、DeepSeek Pro 独立价卡、QQ 转账事务保护和纯缓存存储不按次计费均保留。
+
+本阶段明确复核并继续排除以下位置，混合用途文件中的其他功能保留：
+
+- 共享账号池：`backend/internal/handler/dto/types.go` 中的 `SharedTotalCallCount` / `SharedListingStatus`，以及专属的 `backend/migrations/255_retire_shared_account_pool.sql`、`backend/migrations/retire_shared_account_pool_integration_test.go`。
+- 批量生图：`backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/cmd/server/wire_gen_test.go`、`backend/internal/repository/wire.go` 中的批量依赖；`backend/ent/mutation.go`、`backend/ent/runtime/runtime.go` 中的批量分组字段；`frontend/src/i18n/locales/en/batchImage.ts`、`frontend/src/i18n/locales/zh/batchImage.ts` 专属文案；`frontend/src/i18n/locales/en/admin/accounts.ts`、`frontend/src/i18n/locales/zh/admin/accounts.ts` 中的批量说明。
+- 累计双方文件差异中再次确认不引入的批量专属路径：`backend/ent/batchimagejob.go`、`backend/ent/batchimagejob/batchimagejob.go`、`backend/ent/batchimagejob/where.go`、`backend/ent/batchimagejob_create.go`、`backend/ent/batchimagejob_update.go`、`backend/ent/schema/batch_image_job.go`、`backend/internal/handler/batch_image_handler.go`、`backend/internal/repository/batch_image_repo.go`、`backend/internal/service/batch_image.go`、`backend/internal/service/batch_image_processor_test.go`、`backend/internal/service/batch_image_public.go`、`backend/internal/service/batch_image_public_test.go`、`backend/internal/service/batch_image_settlement.go`。
+
+发布树中的 322 份历史 SQL 与 `backend/internal/repository/migrations_runner.go`，共 323 个文件，重新逐字节比对一致。本阶段不改写迁移，不删除历史表、记录或冻结余额。累计新增迁移继续保留，迁移 269 只清理废弃的私有采票代理字段，迁移 278 不搬运旧个人会话。普通生图、编辑及异步单图提交/查询路由继续存在。
+
+剩余具体兼容限制仍为 EasyPay 拒绝非标准附加回调字段，此类订单需要标准回调或主动查询/对账恢复；本次发现的直充自动重放问题已修复，不再列作剩余风险。最终没有未解决的文本或语义冲突。
+
+本阶段验证：前端 8 个相关文件、66 项测试及类型检查通过；同步自动化回归 101 项，99 项通过、2 项按条件跳过。后端普通专项 37 项、unit 标签专项 547 项测试及子用例通过，覆盖直充、QQ 群历史/转账、敏感接口审计、EasyPay 金额、服务清理、缓存存储/账号统计计费和定时测试；后端生产构建通过。新增连接中断回归使用真实 `http.Transport`，已确认修复前失败、修复后通过。后端沿用缓存 Go 1.27.1 和 `/tmp` 隔离 modfile，既有直充 HTTP 用例通过临时内存 transport overlay 执行原断言；仓库 Go 1.27.2、依赖要求和既有测试未改写。本阶段为兼容专项复验，不将其表述为正式全量测试、实际数据库集成或漏洞扫描通过。功能排除、真实源码冲突标记和差异空白检查通过，真实索引保持未暂存状态，外层继续完整验证。
