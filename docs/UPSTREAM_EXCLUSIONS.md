@@ -683,3 +683,113 @@ GPT 直充保留管理员配置、默认关闭的菜单开关、购买、验码�
 剩余具体兼容限制仍为 EasyPay 拒绝非标准附加回调字段，此类订单需要标准回调或主动查询/对账恢复；本次发现的直充自动重放问题已修复，不再列作剩余风险。最终没有未解决的文本或语义冲突。
 
 本阶段验证：前端 8 个相关文件、66 项测试及类型检查通过；同步自动化回归 101 项，99 项通过、2 项按条件跳过。后端普通专项 37 项、unit 标签专项 547 项测试及子用例通过，覆盖直充、QQ 群历史/转账、敏感接口审计、EasyPay 金额、服务清理、缓存存储/账号统计计费和定时测试；后端生产构建通过。新增连接中断回归使用真实 `http.Transport`，已确认修复前失败、修复后通过。后端沿用缓存 Go 1.27.1 和 `/tmp` 隔离 modfile，既有直充 HTTP 用例通过临时内存 transport overlay 执行原断言；仓库 Go 1.27.2、依赖要求和既有测试未改写。本阶段为兼容专项复验，不将其表述为正式全量测试、实际数据库集成或漏洞扫描通过。功能排除、真实源码冲突标记和差异空白检查通过，真实索引保持未暂存状态，外层继续完整验证。
+
+
+## 2026-10-19 主上游集中冲突修复（第 1/3 轮）
+
+本轮项目基线为 `origin/main=HEAD=5226b8e08`，合并主上游 `upstream/main=8f2cbb53d`；第二上游 `overdraft/sub2api-custom=807fb4b89` 已完整进入基线。使用外层已获取的引用，不 fetch、不暂存、不提交、不推送、不打标签、不发布、不重启服务；两个冲突文件的 6 条真实索引 stage 记录保持原样，供外层继续核对 `:2` / `:3`。
+
+累计审查从已发布的 `v2026.10.13`（`13e903e4210bc9254a1cf6ba1d1f8d73d1e3a166`）起算，覆盖两上游去重后 109 个非合并提交：主上游 66 个、第二上游独有 43 个（第二上游累计 105 个，包含共同祖先）。本次主上游新增 3 个非合并提交，涉及 11 个路径；审查同时覆盖此前已合并但未发布的更新，没有将累计窗口缩减到本次增量。
+
+### 冲突及语义处理
+
+- `backend/internal/service/gemini_chat_completions_compat_service.go`：延迟发送 `message_start`，先识别余额错误以允许首帧前换号；同时保留主上游的断连计费结果。所有退出路径统一返回已收集用量、断连标志和完成标志，在首次客户端写入前记录上游完成状态及首帧时间，避免首帧写失败丢失状态或误用图片兜底计费。
+- `backend/internal/service/gemini_messages_compat_service.go`：同时保留原生 SSE 前缀缓冲与 `clientDisconnect` / `finished` 状态；保留余额错误脱敏、已输出后禁止重放、模型观测和账号错误策略。Messages、Chat Completions、原生 Gemini 三个入口继续按已收集用量处理客户端取消；完成前图片按实际支持的输出计数，完成后的模型计价规则保留。
+- Chat Completions 同步原生及 Messages 的残行语义：取消或读错误携带的未终止 SSE 行不进入计费，正常 EOF 的最后一行仍处理。新增首帧写失败（未完成、已完成、空流）、取消与 EOF 尾帧、原生缓冲前缀后断连共 8 个回归子场景。已有上游断连与余额故障转移回归全部保留。
+- 主上游 `9c41b3269` 的输入 token 下限修复完整保留，避免只报缓存命中时出现负输入用量；`ab71e12ec` 的异步单图下载策略完整保留，包括私网/元数据地址拒绝、直连 socket IP 校验、逐跳重定向校验、代理分支解析检查、连接池复用和图片类型校验。
+- 逐文件复算本次三方合并：除上述两个冲突文件及追加回归的测试文件，其余 8 个路径与自动三方合并结果完全一致；没有省略主上游其他更新。
+
+### 累计保留行为
+
+主上游的 Gemini 显式缓存、存储计费及预留、Vertex API Key/服务账号模型目录、Argon/Haiku、思考摘要、Responses 时间戳、Web Search、工作区隔离、模型级错误处理、支付通知主动确认、Stripe 本地订单快照与退款待定扣款均保留。
+
+第二上游的账号平台统计、模型目录替换/同步、质量暂停与恢复探测、每日时段/时区、顺序检查、失败退避、测试用量归集、调用错误页及安全依赖升级继续保留。QQ 群助手、绑定、签到/邀请/抽奖/转账及群共享上下文完整保留；群上下文按应用/群隔离，不把命令或私密引用加入群历史，它不是共享账号池。GPT 直充保持默认关闭、认证、配置/渠道隔离、凭证审计脱敏、响应白名单和显式重试；此前修复的兑换 POST 禁止传输层自动重放仍在。
+
+本项目的 Codex 采票/身份保护、普通账号代理池、429 重试、DeepSeek Pro 独立价卡、纯缓存存储不按次计价、QQ 转账绑定/双方邮箱行锁/到期复核/失败回滚、EasyPay 有限正金额校验继续保留。迁移 269 仅清理废弃私有采票代理字段，不删除有效采票配置。
+
+### 本轮明确复核并继续排除的路径
+
+共享账号池专属迁移及测试继续不引入：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+混合 DTO `backend/internal/handler/dto/types.go` 不恢复 `SharedTotalCallCount` / `SharedListingStatus`；普通账号、调度、代理池及 QQ 群上下文保持。
+
+累计上游窗口涉及的批量生图专属路径均不存在：
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+
+混合用途文件继续排除批量依赖、分组字段及专属说明，其他实现保留：
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/cmd/server/wire_gen_test.go`
+- `backend/internal/repository/wire.go`
+- `backend/ent/mutation.go`
+- `backend/ent/runtime/runtime.go`
+- `frontend/src/i18n/locales/en/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+
+重新逐字节比较发布基准的 322 份历史 SQL 与 `backend/internal/repository/migrations_runner.go`，共 323 个文件，全部未变。批量生图历史迁移 159–169、187、234 及校验和兼容记录保留，不操作旧表、记录或冻结余额；新增的 Gemini 缓存、QQ 和定时测试迁移保持。普通生图/编辑和异步单图提交/查询路由仍存在。
+
+剩余具体兼容限制沿用累计窗口已记录的 EasyPay 非标准附加回调字段拒绝策略：此类订单需要标准回调或主动查询/对账恢复。保留商户绑定、签名防伪及有限正金额校验，不为兼容未知字段放宽安全边界。
+
+另保留主上游图片下载实现明确注明的代理信任边界：`backend/internal/service/image_storage.go:72` 的代理 Transport 不校验最终目标 socket，`:129` 的路由分支只检查本地 DNS 解析，然后将原域名交给环境代理。若代理侧解析结果不同或发生 DNS 重绑定，且代理自身不限制私网目的地，仍可能访问代理可达的私网资源；直连分支的实际 socket IP 校验不受此限制。环境代理需要执行目的地址限制；本轮保留代理下载能力，没有把本地预检描述成代理目标 IP 的强保证。该项属于代码的剩余安全边界，不是验证环境或工具限制。
+
+没有未解决的文本或语义冲突。
+
+### 本阶段验证
+
+- 前端完整测试：409 个文件、3315 项测试全部通过；类型检查、ESLint、i18n 检查与生产构建通过。
+- 后端 Gemini、图片转存、显式缓存、定时测试及 GPT 直充传输回归：413 个测试函数及子用例共 1405 项通过，新增 8 个断连子场景全部通过。Antigravity、协议转换和配置包测试通过；QQ 转账授权/回滚、群上下文及 EasyPay 金额边界专项通过。
+- 后端生产构建、相关包 unit 标签 go vet 和 golangci-lint 2.14.0 通过，静态扫描为零问题。仓储、QQ 与迁移 integration 标签编译通过；这不表示已执行真实数据库集成测试。
+- 同步自动化回归 101 项，99 项通过、2 项按条件跳过；Release 工作流/打包元数据回归 11 项通过。
+- 后端使用缓存 Go 1.27.1 和 `/tmp` 隔离 modfile，将缺失的五项 golang.org/x 模块仅映射到本机缓存版本。仓库 Go 1.27.2 与依赖声明未改动。静态扫描的临时 go 包装器只在 go/packages 的非模块标准库探测中移除 modfile 参数，业务模块加载仍使用隔离 modfile。
+- 较宽的初次专项命中 Vertex 令牌和图片转存测试的本地监听限制，随后仅在临时测试选择中排除需要监听的用例并完成上述专项复跑；仓库测试未禁用或改写以绕过失败。本阶段不冒充正式工具链全量测试、实际数据库集成或在线漏洞扫描；外层继续完整验证。
+- 最终功能排除、源码冲突标记、差异空白、323 个历史迁移/校验和源码逐字节不变及真实冲突索引不变检查通过。最终决策 JSON 已用项目 schema 校验通过。
+
+## 2026-10-19 最终双上游兼容审查
+
+本阶段起始候选为 `1b9b9af78`，项目基线为 `origin/main=5226b8e08`，已包含主上游 `8f2cbb53d` 和第二上游 `807fb4b89`。进入本阶段时工作树干净、真实索引没有未合并条目；上节的 6 条冲突 stage 记录属于已由外层完成的主上游合并阶段。本阶段仅修改临时工作树，不更新远程引用，不暂存、提交、推送、打标签、发布或重启服务。
+
+累计审查从已发布的 `v2026.10.13`（`13e903e4210bc9254a1cf6ba1d1f8d73d1e3a166`）计算，覆盖去重的 109 个上游非合并提交（主上游 66 个、第二上游独有 43 个），起始候选相对发布树共 534 个文件变化。已核对双方提交记录、累计涉及路径、与候选的逐文件差异及前阶段的三方融合；没有把审查窗口缩减为本轮主上游的 3 个提交。第二上游独有提交涉及的 286 个路径中，216 个与第二上游文件逐字节相同，66 个保留本项目兼容融合，4 个为上游自身删除或替换的路径。66 个差异包含依赖注入的批量生图移除、既有设置及账号保护、普通代理池、重试边界、审计脱敏、QQ 转账事务保护、GPT 直充禁止自动重放及测试清理，没有另行删减第二上游功能。
+
+### 本阶段新增修复
+
+三协议写失败回归复现了前阶段未覆盖的计费边界：Messages 和原生 Gemini 的流式处理忽略下游 `Write` 错误，在客户端已无法接收时仍读取后续上游事件；没有读取错误、仅以 EOF 结束时还会保留正常请求的图片兜底计数。Chat Completions 已有写失败处理，作为对照保留。
+
+- `backend/internal/service/gemini_stream_client_abort.go` 新增请求内的写失败记录器，记录首次错误或短写，后续写入直接返回该错误。
+- `backend/internal/service/gemini_messages_compat_service.go` 的 Messages 和原生流在读取下一事件前停止，所有返回路径保留已收集用量、完成标志及断连状态；未完成且尚无图片时不触发图片兜底。已收到完成帧的计费口径、首帧前余额故障转移、输出后的错误脱敏与禁止重放、模型观测、账号策略及原生 SSE 前缀缓冲继续保留。
+- `backend/internal/service/gemini_stream_client_abort_test.go` 增加三协议对照，覆盖未完成、已完成、缓冲前缀和兼容空流的写失败，断言不再读取后续上游用量。本阶段开始时 Messages/原生的 5 个子场景失败，修复后专项通过；原有断连、正常 EOF 和上游读取错误断言保留。
+
+### 累计功能与排除边界
+
+主上游的 Gemini 显式缓存与存储计费/预留、Vertex 认证和模型目录、Argon/Haiku、思考摘要、最小输出 token、Responses 时间戳、Web Search、工作区隔离、模型级错误处理、支付主动确认、Stripe 订单快照、退款待定扣款，以及本轮负输入 token 修复和异步单图安全下载均保留。
+
+第二上游的账号平台统计、模型替换与同步、质量暂停/恢复探测、每日时段及时区、顺序检查、失败退避、测试用量归集、调用错误页、安全依赖更新、QQ 活动/绑定/邀请/抽奖/转账及群共享上下文、GPT 直充完整保留。群上下文按应用/群隔离并排除命令和私密引用，不属于共享账号池。本项目 Codex 采票/身份保护、普通账号代理池、429 策略、DeepSeek Pro 独立价卡、纯缓存存储不按次计价、转账绑定及双方邮箱行锁、到期复核和失败回滚继续生效。
+
+本阶段重新确认上节列出的 15 个累计批量生图专属路径仍不存在；混合用途文件中的批量依赖、ORM 字段和专属说明仍排除。另明确检查 `backend/internal/handler/wire.go`、`backend/internal/service/wire.go` 的批量依赖，`frontend/src/router/index.ts`、`frontend/src/components/layout/AppSidebar.vue` 的批量路由和导航，以及 `backend/internal/server/routes/gateway.go` 的 `/images/batches` 路由均未恢复；普通图片生成/编辑及异步单图提交/查询路由仍保留。共享账号池专属的 `backend/migrations/255_retire_shared_account_pool.sql` 和 `backend/migrations/retire_shared_account_pool_integration_test.go` 继续排除；混合 DTO `backend/internal/handler/dto/types.go` 不恢复 `SharedTotalCallCount`、`SharedListingStatus`。
+
+发布树中的 322 份历史 SQL 与 `backend/internal/repository/migrations_runner.go` 共 323 个文件再次逐字节比对一致，包括批量生图历史迁移及校验和兼容记录。不操作历史表、数据或冻结余额；累计新增迁移保留，269 仅清理废弃私有代理字段，278 不搬运旧个人会话。
+
+仍存在两项既有具体边界：EasyPay 拒绝非标准附加回调字段，此类订单需标准回调或主动查询/对账恢复；图片下载经环境代理时，本地 DNS 预检不能保证代理最终解析地址，代理自身仍须限制私网目的地。此次写失败计费问题已修复，不列为剩余风险。工具链或验证环境限制不作为产品风险。
+
+### 本阶段验证
+
+- 后端 414 个专项测试函数，共 1420 项测试及子用例全部通过，包含新增的 11 个三协议写失败场景；余额故障转移、断连计费、图片下载、显式缓存、定时测试及 GPT 直充传输回归保持通过。Antigravity、协议转换、配置包以及 QQ 转账/群历史、EasyPay 金额和回调安全专项通过。
+- 前端重新完整运行 409 个测试文件、3315 项测试，全部通过；使用仓库指定的 pnpm 9.15.9，类型检查、ESLint、i18n 检查和生产构建通过。
+- 后端生产构建、服务包 unit 标签 go vet、golangci-lint 2.14.0（零问题），以及仓储、QQ、迁移 integration 标签编译通过。首次 lint 指出的 QF1006 循环条件已简化，随后重新运行全部 414 个后端专项（1420 项测试及子用例）、构建、go vet 和完整 lint，均通过。同步自动化回归 101 项（99 项通过、2 项条件跳过），Release 元数据回归 11 项通过。
+- 后端沿用缓存 Go 1.27.1 与 `/tmp` 隔离 modfile，仓库 Go 1.27.2 和依赖声明未改动。一次较宽的 QQ 测试选择命中本地监听限制，随后收窄为无需监听的转账、群历史和支付安全专项并通过；没有改写或禁用仓库测试。以上不代表正式工具链全量测试、真实数据库集成或在线漏洞扫描通过，外层仍执行完整验证。
+- 重算本轮主上游 11 个路径的三方合并：7 个与自动结果逐字节一致，其余为两个已融合冲突文件、断连辅助实现和追加回归测试。历史 SQL/校验和源码不变、功能排除、真实源码冲突标记、差异空白、决策 JSON schema 及真实索引不变检查通过；源码未解决冲突为空。
