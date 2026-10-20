@@ -34,6 +34,84 @@ beforeEach(() => {
 afterEach(() => vi.useRealTimers())
 
 describe('configurable test management', () => {
+  it('edits and copies independent output limits and rejects invalid token counts', async () => {
+    api.listTypes.mockResolvedValue([
+      { id: 1, name: 'Pelican', key: 'pelican', output_kind: 'html', prompt: 'Draw a pelican', enabled: true, max_output_tokens: 32768 },
+      { id: 2, name: 'Candy', key: 'candy', output_kind: 'number', prompt: 'Count candies', enabled: true, max_output_tokens: 0 },
+    ])
+    const wrapper = makeWrapper(); await flushPromises()
+    await wrapper.get('article button[aria-label="common.copy"]').trigger('click'); await flushPromises()
+    expect(api.createType).toHaveBeenCalledWith(expect.objectContaining({ key: 'pelican-copy', max_output_tokens: 32768 }))
+    await wrapper.get('article button[aria-label="common.edit"]').trigger('click')
+    const dialog = wrapper.get('[data-dialog]')
+    const input = dialog.get('[data-type-max-output-tokens]')
+    expect((input.element as HTMLInputElement).value).toBe('32768')
+    const save = dialog.findAll('button').find(button => button.text() === 'common.save')!
+    for (const invalid of [-1, 1.5, 131073, '']) {
+      await input.setValue(invalid)
+      expect(save.attributes('disabled')).toBeDefined()
+    }
+    await input.setValue(49152)
+    expect(save.attributes('disabled')).toBeUndefined()
+    await save.trigger('click'); await flushPromises()
+    expect(api.updateType).toHaveBeenCalledWith(1, expect.objectContaining({ max_output_tokens: 49152 }))
+    await wrapper.findAll('article button[aria-label="common.edit"]')[1].trigger('click')
+    const candyDialog = wrapper.get('[data-dialog]')
+    expect((candyDialog.get('[data-type-max-output-tokens]').element as HTMLInputElement).value).toBe('0')
+    await candyDialog.get('[data-type-max-output-tokens]').setValue(1024)
+    await candyDialog.findAll('button').find(button => button.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updateType).toHaveBeenLastCalledWith(2, expect.objectContaining({ max_output_tokens: 1024 }))
+    wrapper.unmount()
+  })
+
+  it('searches group accounts, saves exclusions and clears them explicitly', async () => {
+    api.getAccounts.mockResolvedValueOnce({ items: [{ id: 3, name: 'Account Three', group_ids: [8] }], pages: 2, total: 2 })
+      .mockResolvedValueOnce({ items: [{ id: 4, name: 'Other Group Account', group_ids: [9] }, { id: 5, name: 'Disabled Account', status: 'disabled', group_ids: [8] }], pages: 2, total: 2 })
+    const wrapper = makeWrapper(); await flushPromises()
+    expect(api.getAccounts).toHaveBeenCalledWith(2, 1000, { lite: '1' })
+    await wrapper.get('tbody button[aria-label="common.edit"]').trigger('click'); await flushPromises()
+    let dialog = wrapper.get('[data-dialog]')
+    expect(dialog.find('[data-excluded-account="4"]').exists()).toBe(false)
+    expect(dialog.find('[data-excluded-account="5"]').exists()).toBe(true)
+    await dialog.get('[data-excluded-account="3"]').setValue(true)
+    await dialog.get('#plan-excluded-account-search').setValue('Disabled')
+    expect(dialog.find('[data-excluded-account="3"]').exists()).toBe(false)
+    await dialog.get('[data-excluded-account="5"]').setValue(true)
+    await dialog.get('#plan-excluded-account-search').setValue('#3')
+    expect((dialog.get('[data-excluded-account="3"]').element as HTMLInputElement).checked).toBe(true)
+    await dialog.findAll('button').find(button => button.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updatePlan).toHaveBeenCalledWith(10, expect.objectContaining({ excluded_account_ids: [3, 5] }))
+    api.listPlans.mockResolvedValue([{ ...plan, excluded_account_ids: [3] }])
+    wrapper.unmount()
+    const second = makeWrapper(); await flushPromises()
+    await second.get('tbody button[aria-label="common.edit"]').trigger('click'); await flushPromises()
+    dialog = second.get('[data-dialog]')
+    await dialog.get('[data-excluded-account="3"]').setValue(false)
+    await dialog.findAll('button').find(button => button.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updatePlan).toHaveBeenLastCalledWith(10, expect.objectContaining({ excluded_account_ids: [] }))
+    second.unmount()
+  })
+
+  it('copies exclusions and retains saved IDs outside the selected groups', async () => {
+    const excluded = [3, 4, 99]
+    api.listPlans.mockResolvedValue([{ ...plan, excluded_account_ids: excluded }])
+    const wrapper = makeWrapper(); await flushPromises()
+    await wrapper.get('tbody button[aria-label="common.copy"]').trigger('click'); await flushPromises()
+    expect(api.createPlan).toHaveBeenCalledWith(expect.objectContaining({ excluded_account_ids: [3, 4, 99] }))
+    api.createPlan.mock.calls[0][0].excluded_account_ids.push(100)
+    expect(excluded).toEqual([3, 4, 99])
+    await wrapper.get('tbody button[aria-label="common.edit"]').trigger('click'); await flushPromises()
+    const dialog = wrapper.get('[data-dialog]')
+    expect(dialog.get('[data-excluded-account="99"]').exists()).toBe(true)
+    await dialog.get('[data-plan-group="8"]').setValue(false)
+    expect((dialog.get('[data-excluded-account="3"]').element as HTMLInputElement).checked).toBe(true)
+    await dialog.get('[data-plan-group="8"]').setValue(true); await flushPromises()
+    await dialog.findAll('button').find(button => button.text() === 'common.save')!.trigger('click'); await flushPromises()
+    expect(api.updatePlan).toHaveBeenCalledWith(10, expect.objectContaining({ excluded_account_ids: [3, 4, 99] }))
+    expect(excluded).toEqual([3, 4, 99])
+    wrapper.unmount()
+  })
+
   it('validates, saves and copies time periods and can switch back to cron', async () => {
     const schedule = { timezone: 'Asia/Shanghai', periods: [
       { start: '08:00', end: '20:00', interval_minutes: 60 },

@@ -44,7 +44,7 @@
       </section>
     </div>
 
-    <BaseDialog :show="!!editingType" :title="editingType?.id ? t('common.edit') : t('common.create')" width="wide" @close="editingType = null"><div v-if="editingType" class="space-y-3"><label class="input-label">{{ t('admin.tests.name') }}<input v-model.trim="editingType.name" class="input mt-1 w-full" /></label><label class="input-label">{{ t('admin.tests.key') }}<input v-model.trim="editingType.key" class="input mt-1 w-full" /></label><label class="input-label">{{ t('admin.tests.sortOrder') }}<input v-model.number="editingType.sort_order" min="0" type="number" class="input mt-1 w-full" /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.sortOrderHint') }}</span></label><label class="input-label">{{ t('admin.tests.kind') }}<select v-model="editingType.output_kind" class="input mt-1 w-full" data-type-kind><option value="html">HTML / SVG</option><option value="number">{{ t('admin.tests.number') }}</option><option value="text">{{ t('admin.tests.text') }}</option><option value="statistics">{{ t('admin.tests.statistics') }}</option><option value="model_check">{{ t('admin.tests.modelCheck') }}</option><option v-if="!['html', 'number', 'text', 'statistics', 'model_check'].includes(editingType.output_kind)" :value="editingType.output_kind">{{ editingType.output_kind }}</option></select></label><label class="input-label">{{ t('admin.tests.descriptionLabel') }}<input v-model.trim="editingType.description" class="input mt-1 w-full" /></label><p v-if="editingType.output_kind === 'statistics'" class="text-sm text-gray-500 dark:text-gray-400" data-statistics-hint>{{ t('admin.tests.statisticsHint') }}</p><p v-else-if="editingType.output_kind === 'model_check'" class="text-sm text-gray-500 dark:text-gray-400" data-model-check-hint>{{ t('admin.tests.modelCheckHint') }}</p><label v-else class="input-label">{{ t('admin.tests.prompt') }}<textarea v-model="editingType.prompt" rows="6" class="input mt-1 w-full" /></label><label class="flex items-center gap-2 text-sm"><input v-model="editingType.enabled" type="checkbox" /> {{ t('common.enabled') }}</label></div><template #footer><button class="btn btn-secondary" @click="editingType = null">{{ t('common.cancel') }}</button><button class="btn btn-primary" :disabled="saving || !canSaveType" @click="saveType">{{ t('common.save') }}</button></template></BaseDialog>
+    <BaseDialog :show="!!editingType" :title="editingType?.id ? t('common.edit') : t('common.create')" width="wide" @close="editingType = null"><div v-if="editingType" class="space-y-3"><label class="input-label">{{ t('admin.tests.name') }}<input v-model.trim="editingType.name" class="input mt-1 w-full" /></label><label class="input-label">{{ t('admin.tests.key') }}<input v-model.trim="editingType.key" class="input mt-1 w-full" /></label><label class="input-label">{{ t('admin.tests.sortOrder') }}<input v-model.number="editingType.sort_order" min="0" type="number" class="input mt-1 w-full" /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.sortOrderHint') }}</span></label><label class="input-label">{{ t('admin.tests.kind') }}<select v-model="editingType.output_kind" class="input mt-1 w-full" data-type-kind><option value="html">HTML / SVG</option><option value="number">{{ t('admin.tests.number') }}</option><option value="text">{{ t('admin.tests.text') }}</option><option value="statistics">{{ t('admin.tests.statistics') }}</option><option value="model_check">{{ t('admin.tests.modelCheck') }}</option><option v-if="!['html', 'number', 'text', 'statistics', 'model_check'].includes(editingType.output_kind)" :value="editingType.output_kind">{{ editingType.output_kind }}</option></select></label><label class="input-label">{{ t('admin.tests.descriptionLabel') }}<input v-model.trim="editingType.description" class="input mt-1 w-full" /></label><p v-if="editingType.output_kind === 'statistics'" class="text-sm text-gray-500 dark:text-gray-400" data-statistics-hint>{{ t('admin.tests.statisticsHint') }}</p><p v-else-if="editingType.output_kind === 'model_check'" class="text-sm text-gray-500 dark:text-gray-400" data-model-check-hint>{{ t('admin.tests.modelCheckHint') }}</p><label v-else class="input-label">{{ t('admin.tests.prompt') }}<textarea v-model="editingType.prompt" rows="6" class="input mt-1 w-full" /></label><label v-if="editingType.output_kind !== 'statistics'" class="input-label">{{ t('admin.tests.maxOutputTokens') }}<input v-model.number="editingType.max_output_tokens" type="number" min="0" max="131072" step="1" class="input mt-1 w-full" data-type-max-output-tokens /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.maxOutputTokensHint') }}</span></label><label class="flex items-center gap-2 text-sm"><input v-model="editingType.enabled" type="checkbox" /> {{ t('common.enabled') }}</label></div><template #footer><button class="btn btn-secondary" @click="editingType = null">{{ t('common.cancel') }}</button><button class="btn btn-primary" :disabled="saving || !canSaveType" @click="saveType">{{ t('common.save') }}</button></template></BaseDialog>
 
     <BaseDialog :show="!!editingPlan" :title="editingPlan?.id ? t('common.edit') : t('common.create')" width="wide" @close="editingPlan = null">
       <div v-if="editingPlan" class="grid gap-4 sm:grid-cols-2">
@@ -72,6 +72,21 @@
           </ol>
           <p v-if="editingPlan.group_ids.length && !validStrategyGroups(editingPlan.group_ids)" role="alert" class="text-xs text-red-600 dark:text-red-400">{{ t('admin.tests.invalidStrategyGroups') }}</p>
         </fieldset>
+        <div class="space-y-2 sm:col-span-2" data-plan-exclusions>
+          <div class="flex items-center justify-between gap-2">
+            <label for="plan-excluded-account-search" class="input-label">{{ t('admin.tests.excludedAccounts') }}</label>
+            <span class="text-xs text-gray-500">{{ t('admin.tests.excludedAccountsCount', { count: editingPlan.excluded_account_ids.length }) }}</span>
+          </div>
+          <p class="text-xs text-gray-500">{{ t('admin.tests.excludedAccountsHint') }}</p>
+          <input id="plan-excluded-account-search" v-model="excludedAccountSearch" type="search" class="input w-full" :placeholder="t('admin.tests.searchExcludedAccounts')" />
+          <div v-if="excludedAccountChoices.length" class="max-h-48 space-y-2 overflow-y-auto rounded-md border border-gray-200 p-3 dark:border-dark-700">
+            <label v-for="account in excludedAccountChoices" :key="account.id" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
+              <input v-model="editingPlan.excluded_account_ids" type="checkbox" :value="account.id" :data-excluded-account="account.id" />
+              <span>{{ account.name }} (#{{ account.id }})<span v-if="!account.inScope" class="ml-2 text-xs text-gray-500">{{ t('admin.tests.excludedAccountOutsideGroups') }}</span></span>
+            </label>
+          </div>
+          <p v-else class="text-xs text-gray-500">{{ t(editingPlan.group_ids.length ? 'admin.tests.noExclusionAccounts' : 'admin.tests.selectGroupFirst') }}</p>
+        </div>
         <label class="input-label">{{ t('admin.tests.model') }}<Select v-model="editingPlan.model_id" :options="modelOptions" :loading="modelOptionsLoading" searchable :disabled="!editingPlan.group_ids.length || modelOptionsLoading" :placeholder="editingPlan.group_ids.length ? t('admin.tests.model') : t('admin.tests.selectGroupFirst')" class="mt-1" /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.commonModelsHint') }}</span></label>
         <p v-if="editingPlan.group_ids.length && !modelOptionsLoading && !modelOptions.length" class="text-xs text-amber-700 dark:text-amber-300" data-no-common-model>{{ t('admin.tests.noCommonModels') }}</p>
         <label v-if="reasoningEffortOptions.length" class="input-label">{{ t('admin.tests.reasoningEffort') }}<select v-model="editingPlan.reasoning_effort" class="input mt-1 w-full"><option :value="null">{{ t('admin.tests.reasoningEffortDefault') }}</option><option v-for="effort in reasoningEffortOptions" :key="effort" :value="effort">{{ effort }}</option></select><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.reasoningEffortHint') }}</span></label>
@@ -128,6 +143,7 @@ const types = ref<TestType[]>([])
 const plans = ref<TestPlan[]>([])
 const groups = ref<AdminGroup[]>([])
 const accounts = ref<AccountListItem[]>([])
+const excludedAccountSearch = ref('')
 const modelOptions = ref<SelectOption[]>([])
 const modelOptionsLoading = ref(false)
 const results = ref<TestResult[]>([])
@@ -140,11 +156,17 @@ const pendingRuns = ref(new Map<number, TestResult[]>())
 const deletingResultId = ref<number | null>(null)
 const retryingResultId = ref<number | null>(null)
 const editingType = ref<(CreateTestTypeRequest & { id?: number }) | null>(null)
-const editingPlan = ref<(CreateTestPlanRequest & { id?: number; protection: TestProtectionConfig; migration_note?: string }) | null>(null)
+const editingPlan = ref<(CreateTestPlanRequest & { id?: number; excluded_account_ids: number[]; protection: TestProtectionConfig; migration_note?: string }) | null>(null)
 const resultPlan = ref<TestPlan | null>(null)
 let modelOptionsRequest = 0
 
-const canSaveType = computed(() => Boolean(editingType.value?.name && editingType.value?.key && editingType.value?.output_kind && (['statistics', 'model_check'].includes(editingType.value.output_kind) || editingType.value.prompt.trim())))
+const canSaveType = computed(() => {
+  const type = editingType.value
+  if (!type?.name || !type.key || !type.output_kind) return false
+  if (type.output_kind === 'statistics') return true
+  return (type.output_kind === 'model_check' || Boolean(type.prompt.trim())) &&
+    Number.isInteger(type.max_output_tokens) && type.max_output_tokens! >= 0 && type.max_output_tokens! <= 131072
+})
 const typeKindLabel = (kind: string) => kind === 'statistics' ? t('admin.tests.statistics') : kind === 'model_check' ? t('admin.tests.modelCheck') : kind
 const orderedTypes = computed(() => [...types.value].sort((a, b) => {
   const orderA = a.sort_order == null ? Number.MAX_SAFE_INTEGER : a.sort_order
@@ -173,6 +195,24 @@ const validStrategyGroups = (ids: number[]) => {
     && selected.every(group => group.status === 'active' && group.platform !== 'composite' && group.platform === selected[0].platform)
 }
 const protectionGroups = computed(() => strategyGroups(editingPlan.value?.group_ids || []).filter(group => group.status === 'active' && group.platform !== 'composite'))
+const excludedAccountChoices = computed(() => {
+  const plan = editingPlan.value
+  if (!plan) return []
+  const selected = new Set(plan.excluded_account_ids)
+  const choices = new Map(accounts.value.map(account => [account.id, {
+    id: account.id,
+    name: account.name,
+    inScope: account.group_ids?.some(id => plan.group_ids.includes(id)) ?? false,
+  }]))
+  // Preserve exclusions when an account moves groups or is temporarily missing.
+  // Only an explicit uncheck removes a saved exclusion.
+  for (const id of selected) {
+    if (!choices.has(id)) choices.set(id, { id, name: t('admin.tests.unavailableExcludedAccount'), inScope: false })
+  }
+  const search = excludedAccountSearch.value.trim().toLowerCase()
+  return [...choices.values()].filter(account => (account.inScope || selected.has(account.id))
+    && (!search || (account.name + ' #' + account.id).toLowerCase().includes(search)))
+})
 const selectableGroup = (group: AdminGroup) => {
   const selected = strategyGroups(editingPlan.value?.group_ids || [])
   return group.status === 'active' && group.platform !== 'composite' && (!selected.length || group.platform === selected[0].platform)
@@ -194,7 +234,8 @@ const moveGroup = (index: number, direction: number) => {
 const reasoningEffortOptions = computed(() => {
   const plan = editingPlan.value
   if (!plan?.model_id || !plan.group_ids.length) return []
-  const choices = plan.group_ids.map(id => reasoningEffortsForTestModel(plan.model_id, accounts.value.filter(account => account.schedulable !== false), id))
+  const choices = plan.group_ids.map(id => reasoningEffortsForTestModel(plan.model_id, accounts.value.filter(account => account.schedulable !== false
+    && (!account.status || ['active', 'quality_paused'].includes(account.status)) && !plan.excluded_account_ids.includes(account.id)), id))
   return choices.slice(1).reduce((common, options) => common.filter(effort => options.includes(effort)), choices[0])
 })
 const canSavePlan = computed(() => {
@@ -242,25 +283,20 @@ const load = async () => {
   }
 }
 
-// Include quality-paused accounts when resolving model capabilities and
-// labeling retained results. Manually stopped accounts do not constrain
-// strategy reasoning options and are skipped by the runner.
+// Include every status so exclusions can be configured before an account is
+// re-enabled. Only schedulable accounts constrain strategy reasoning options.
 const loadTestAccounts = async (): Promise<AccountListItem[]> => {
   const pageSize = 1000
-  const loadStatus = async (status: 'active' | 'quality_paused') => {
-    const first = await adminAPI.accounts.list(1, pageSize, { lite: '1', status })
-    const items = [...(first.items || [])]
-    const pages = Math.max(first.pages || 1, Math.ceil((first.total || items.length) / pageSize))
-    const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) => adminAPI.accounts.list(index + 2, pageSize, { lite: '1', status })))
-    for (const page of rest) items.push(...(page.items || []))
-    return items
-  }
-  const batches = await Promise.all([loadStatus('active'), loadStatus('quality_paused')])
-  return [...new Map(batches.flat().map(account => [account.id, account])).values()]
+  const first = await adminAPI.accounts.list(1, pageSize, { lite: '1' })
+  const items = [...(first.items || [])]
+  const pages = Math.max(first.pages || 1, Math.ceil((first.total || items.length) / pageSize))
+  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) => adminAPI.accounts.list(index + 2, pageSize, { lite: '1' })))
+  for (const page of rest) items.push(...(page.items || []))
+  return [...new Map(items.map(account => [account.id, account])).values()]
 }
 
-const openType = (type?: TestType) => { editingType.value = type ? { id: type.id, name: type.name, key: type.key, output_kind: type.output_kind, prompt: type.prompt, description: type.description || '', enabled: type.enabled, sort_order: type.sort_order ?? 0 } : { name: '', key: '', output_kind: 'html', prompt: '', description: '', enabled: true, sort_order: orderedTypes.value.length ? Math.max(...orderedTypes.value.map(item => item.sort_order ?? 0)) + 1 : 0 } }
-const saveType = async () => { if (!editingType.value) return; saving.value = true; try { const { id, ...body } = editingType.value; if (['statistics', 'model_check'].includes(body.output_kind)) body.prompt = ''; if (id) await adminAPI.tests.updateType(id, body); else await adminAPI.tests.createType(body); editingType.value = null; await load() } catch (error) { reportError(error) } finally { saving.value = false } }
+const openType = (type?: TestType) => { editingType.value = type ? { id: type.id, name: type.name, key: type.key, output_kind: type.output_kind, prompt: type.prompt, max_output_tokens: type.max_output_tokens ?? 0, description: type.description || '', enabled: type.enabled, sort_order: type.sort_order ?? 0 } : { name: '', key: '', output_kind: 'html', prompt: '', max_output_tokens: 0, description: '', enabled: true, sort_order: orderedTypes.value.length ? Math.max(...orderedTypes.value.map(item => item.sort_order ?? 0)) + 1 : 0 } }
+const saveType = async () => { if (!editingType.value || !canSaveType.value) return; saving.value = true; try { const { id, ...body } = editingType.value; if (['statistics', 'model_check'].includes(body.output_kind)) body.prompt = ''; if (body.output_kind === 'statistics') body.max_output_tokens = 0; if (id) await adminAPI.tests.updateType(id, body); else await adminAPI.tests.createType(body); editingType.value = null; await load() } catch (error) { reportError(error) } finally { saving.value = false } }
 const copyType = async (type: TestType) => {
   if (saving.value) return
   saving.value = true
@@ -280,6 +316,7 @@ const copyType = async (type: TestType) => {
       key,
       description: type.description || '',
       output_kind: type.output_kind,
+      max_output_tokens: type.max_output_tokens ?? 0,
       prompt: ['statistics', 'model_check'].includes(type.output_kind) ? '' : type.prompt,
       enabled: type.enabled,
       sort_order: type.sort_order,
@@ -308,15 +345,17 @@ const removeType = async (type: TestType) => { if (!window.confirm(`${t('common.
 const planPayload = (plan: TestPlan): CreateTestPlanRequest => ({
   name: plan.name || '', sort_order: plan.sort_order ?? 0,
   group_ids: [...(plan.group_ids || [])], test_definition_ids: planTypeIDs(plan),
+  excluded_account_ids: [...(plan.excluded_account_ids || [])],
   model_id: plan.model_id || '', reasoning_effort: plan.reasoning_effort ?? null,
   cron_expression: plan.cron_expression || '0 * * * *', enabled: plan.enabled,
   schedule: copyTestSchedule(plan.schedule),
   max_results: plan.max_results || 50, protection: copyTestProtection(plan.protection),
 })
 const openPlan = (plan?: TestPlan) => {
+  excludedAccountSearch.value = ''
   editingPlan.value = plan
-    ? { ...planPayload(plan), id: plan.id, migration_note: plan.migration_note, protection: copyTestProtection(plan.protection) }
-    : { name: '', sort_order: plans.value.length ? Math.max(...plans.value.map(item => item.sort_order ?? 0)) + 1 : 0, test_definition_ids: [], group_ids: [], model_id: '', reasoning_effort: null, cron_expression: '0 * * * *', schedule: defaultTestSchedule(), enabled: true, max_results: 50, protection: { enabled: false, mode: 'all_pass', rules: [] } }
+    ? { ...planPayload(plan), excluded_account_ids: [...(plan.excluded_account_ids || [])], id: plan.id, migration_note: plan.migration_note, protection: copyTestProtection(plan.protection) }
+    : { name: '', sort_order: plans.value.length ? Math.max(...plans.value.map(item => item.sort_order ?? 0)) + 1 : 0, test_definition_ids: [], group_ids: [], excluded_account_ids: [], model_id: '', reasoning_effort: null, cron_expression: '0 * * * *', schedule: defaultTestSchedule(), enabled: true, max_results: 50, protection: { enabled: false, mode: 'all_pass', rules: [] } }
 }
 const savePlan = async () => {
   if (!editingPlan.value || !canSavePlan.value) return

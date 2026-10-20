@@ -1,10 +1,23 @@
 import { apiClient } from './client'
 
 export interface QQBotCustomCommand { command: string; reply: string; enabled: boolean }
+export interface QQAutonomousConfig {
+  enabled: boolean; groups: string[]; names: string[]; topics: string[]
+  sample_percent: number; cooldown_seconds: number; min_messages: number
+  member_cooldown_seconds: number; hourly_replies: number; daily_replies: number; daily_calls: number
+  start_hour: number; end_hour: number; followup_seconds: number; max_chars: number; mention_user: boolean
+}
+export function defaultAutonomousConfig(): QQAutonomousConfig {
+  return { enabled: false, groups: [], names: ['CTAV'], topics: [], sample_percent: 15, cooldown_seconds: 120,
+    min_messages: 6, member_cooldown_seconds: 600, hourly_replies: 3, daily_replies: 20, daily_calls: 40,
+    start_hour: 9, end_hour: 23, followup_seconds: 60, max_chars: 100, mention_user: false }
+}
 export interface QQBotConfig {
+  autonomous?: QQAutonomousConfig
   enabled: boolean; app_id: string; app_secret: string; app_secret_set: boolean; sandbox: boolean
   allowed_groups: string[]; base_url: string; api_key: string; api_key_set: boolean
   custom_commands: QQBotCustomCommand[]
+  price_notifications?: { enabled: boolean; scheduled: boolean; groups: string[] }
   chat_model: string; chat_protocol: 'chat_completions' | 'responses'
   image_enabled: boolean; image_base_url: string; image_api_key: string; image_api_key_set: boolean
   image_model: string; image_size: string; system_prompt: string; max_output_tokens: number
@@ -15,9 +28,10 @@ export interface QQBotConfig {
   clear_app_secret?: boolean; clear_api_key?: boolean; clear_image_api_key?: boolean
 }
 export interface QQBotRuntime {
+  autonomous_stats?: { group_id: string; reason: string; count: number }[]
   encryption_ready: boolean; bindings: number
   groups: { id: string; last_event: string; last_seen_at: string }[]
-  jobs: { id: string; group_id: string; member_id: string; kind: string; status: string; error: string; input_tokens: number; output_tokens: number; created_at: string }[]
+  jobs: { trigger_reason?: string; decision_reason?: string; id: string; group_id: string; member_id: string; kind: string; status: string; error: string; input_tokens: number; output_tokens: number; created_at: string }[]
   rewards: { id: number; user_id: number; kind: string; amount: number; created_at: string }[]
 }
 export interface QQBindingRequest { code?: string; member_id: string; group_id: string; nickname: string; expires_at: string }
@@ -53,7 +67,7 @@ export interface QQLotteryConfig {
   enabled: boolean; title: string; recharge_step: number; chances_per_step: number; prizes: QQLotteryPrize[]
   guarantee_enabled: boolean; guarantee_every: number; guarantee_prizes: QQLotteryPrize[]
 }
-export interface QQLotteryState { user_id: number; recharge_total: number; earned: number; used: number; remaining: number; next_recharge: number; guarantee_every: number; draws_until_guarantee: number }
+export interface QQLotteryState { user_id: number; recharge_total: number; earned: number; bonus_chances?: number; used: number; remaining: number; next_recharge: number; guarantee_every: number; draws_until_guarantee: number }
 export interface QQLotteryDraw { id: number; user_id: number; email: string; member_id: string; prize_name: string; amount: number; remaining: number; created_at: string; is_guaranteed: boolean }
 export interface QQLotteryDrawsPage { items: QQLotteryDraw[]; total: number; page: number; page_size: number }
 export type QQActivityKind = 'checkin' | 'lottery' | 'invite'
@@ -68,7 +82,22 @@ export interface QQActivityRecord {
   reward_user_id: number; reward_email: string
 }
 export interface QQActivityRecordsPage { items: QQActivityRecord[]; total: number; page: number; page_size: number }
+export type QQRewardType = 'balance' | 'chances' | 'physical' | 'other'
+export interface QQRewardCodeCreate {
+  batch_name: string; reward_type: QQRewardType; count: number; amount: number; quantity: number
+  prize_name: string; claim_instructions: string; target_user_id: number | null; expires_at: string | null
+}
+export interface QQGeneratedRewardCode { id: number; code: string }
+export interface QQRewardCode extends Omit<QQRewardCodeCreate, 'count'> {
+  id: number; app_id: string; code_hint: string; status: 'unused' | 'disabled' | 'expired' | 'pending' | 'fulfilled'
+  user_id: number | null; email: string; member_id: string; redeemed_at: string | null
+  fulfilled_at: string | null; fulfillment_note: string; created_at: string
+}
+export interface QQRewardCodesPage { items: QQRewardCode[]; total: number; page: number; page_size: number }
 export const qqbotAPI = {
+  rewardCodes: async (search: string, status: string, page: number) => (await apiClient.get<QQRewardCodesPage>('/admin/qqbot/reward-codes', { params: { search, status, page } })).data,
+  createRewardCodes: async (data: QQRewardCodeCreate) => (await apiClient.post<QQGeneratedRewardCode[]>('/admin/qqbot/reward-codes', data)).data,
+  updateRewardCode: async (id: number, action: 'disable' | 'fulfill', note = '') => (await apiClient.patch(`/admin/qqbot/reward-codes/${id}`, { action, note })).data,
   activityRecords: async (kind: QQActivityKind, search: string, page: number) => (await apiClient.get<QQActivityRecordsPage>(`/admin/qqbot/records/${kind}`, { params: { search, page, page_size: 20 } })).data,
   inviteConfig: async () => (await apiClient.get<QQInviteConfig>('/admin/qqbot/invite')).data,
   saveInvite: async (config: QQInviteConfig) => (await apiClient.put<QQInviteConfig>('/admin/qqbot/invite', config)).data,

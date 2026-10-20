@@ -43,6 +43,7 @@ export const useAppStore = defineStore('app', () => {
   const latestVersion = ref<string>('')
   const hasUpdate = ref<boolean>(false)
   const sourceUpdateEnabled = ref<boolean>(false)
+  const hostUpdateManaged = ref<boolean>(false)
   const buildType = ref<string>('source')
   const releaseInfo = ref<ReleaseInfo | null>(null)
   const upstreamVersions = ref<UpstreamVersionInfo[]>([])
@@ -251,6 +252,7 @@ export const useAppStore = defineStore('app', () => {
         latest_version: latestVersion.value,
         has_update: hasUpdate.value,
         source_update_enabled: sourceUpdateEnabled.value,
+        host_update_managed: hostUpdateManaged.value,
         build_type: buildType.value,
         release_info: releaseInfo.value || undefined,
         upstreams: upstreamVersions.value,
@@ -270,6 +272,7 @@ export const useAppStore = defineStore('app', () => {
       latestVersion.value = data.latest_version
       hasUpdate.value = data.has_update
       sourceUpdateEnabled.value = data.source_update_enabled === true
+      hostUpdateManaged.value = data.host_update_managed === true
       buildType.value = data.build_type || 'source'
       releaseInfo.value = data.release_info || null
       upstreamVersions.value = data.upstreams || []
@@ -290,6 +293,7 @@ export const useAppStore = defineStore('app', () => {
     versionLoaded.value = false
     hasUpdate.value = false
     sourceUpdateEnabled.value = false
+    hostUpdateManaged.value = false
   }
 
   // ==================== Public Settings Management ====================
@@ -470,6 +474,7 @@ export const useAppStore = defineStore('app', () => {
     latestVersion,
     hasUpdate,
     sourceUpdateEnabled,
+    hostUpdateManaged,
     buildType,
     releaseInfo,
     upstreamVersions,

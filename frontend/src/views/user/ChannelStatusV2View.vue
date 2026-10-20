@@ -254,12 +254,13 @@
           :coverage="snapshot?.coverage || null"
           :loading="loading && !snapshot"
         />
-        <RelayPulseMatrix
+        <ChannelHealthCards
           v-else-if="matrix"
           :rows="matrixRows"
-          :coverage="matrix.coverage"
+          :group-by="matrixGroupBy"
           :health-mode="healthMode"
-          :show-throughput="showThroughput"
+          :test-results="testResults"
+          :test-results-state="testResultsState"
         />
         <div
           v-else-if="loading"
@@ -469,12 +470,16 @@ import FilterMultiSelect from '@/features/channel-monitor-v2/FilterMultiSelect.v
 import MetricCell from '@/features/channel-monitor-v2/MetricCell.vue'
 import MonitorRankBadge from '@/features/channel-monitor-v2/MonitorRankBadge.vue'
 import MonitorTrendChart from '@/features/channel-monitor-v2/MonitorTrendChart.vue'
-import RelayPulseMatrix from '@/features/channel-monitor-v2/RelayPulseMatrix.vue'
+import ChannelHealthCards from '@/features/channel-monitor-v2/ChannelHealthCards.vue'
+import { compareMonitorModels, monitorModelOptions } from '@/features/channel-monitor-v2/monitorModels'
 import { useAuthStore } from '@/stores/auth'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden, isChannelMonitorUserRankingHidden } from '@/utils/featureFlags'
 import * as api from '@/api/channelMonitorV2'
+import { listForMonitor } from '@/api/testResults'
+import type { TestResult } from '@/types'
+import type { TestResultsState } from '@/features/channel-monitor-v2/monitorTestResults'
 import type {
   HealthState,
   MonitorDimensions,
@@ -537,7 +542,6 @@ const tabs = computed(() => {
 const matrixGroupOptions = computed(() => [
   { value: 'platform' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platform') },
   { value: 'platform_group' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platformGroup') },
-  { value: 'platform_model' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platformModel') },
   { value: 'platform_group_model' as MonitorMatrixGroupBy, label: t('channelMonitorV2.groupBy.platformGroupModel') },
 ])
 const healthModeOptions = computed(() => [
@@ -558,6 +562,8 @@ const matrixGroupBy = ref<MonitorMatrixGroupBy>(parseMatrixGroupBy(route.query.g
 const healthMode = ref<HealthMode>(parseHealthMode(route.query.health_mode))
 const trendView = ref<TrendView>(parseTrendView(route.query.trend_view))
 const dimensions = ref<MonitorDimensions>({ platforms: [], groups: [], models: [] })
+const testResults = ref<TestResult[]>([])
+const testResultsState = ref<TestResultsState>('loading')
 const snapshot = ref<MonitorSnapshot | null>(null)
 const matrix = ref<MonitorMatrixResponse | null>(null)
 const modelRows = ref<MonitorModelRow[]>([])
@@ -597,20 +603,7 @@ const groupOptions = computed(() =>
     }))
 )
 const modelOptions = computed(() =>
-  (dimensions.value.models || [])
-    .filter(
-      (item) =>
-        selectedPlatforms.value.size === 0 ||
-        !item.platform ||
-        selectedPlatforms.value.has(item.platform),
-    )
-    .map((item) => ({
-      value: item.value,
-      label:
-        item.platform && !item.label.includes(item.platform)
-          ? `${item.platform} / ${item.label}`
-          : item.label,
-    }))
+  monitorModelOptions(dimensions.value.models || [], filter.value.platforms)
 )
 const selectedGroupIds = computed({
   get: () => filter.value.groupIds.map(String),
@@ -670,15 +663,9 @@ function parseRange(value: unknown): MonitorRange {
   return ['90m', '24h', '7d', '30d'].includes(String(value)) ? (value as MonitorRange) : '90m'
 }
 function parseMatrixGroupBy(value: unknown): MonitorMatrixGroupBy {
-  const allowed: MonitorMatrixGroupBy[] = [
-    'platform',
-    'platform_group',
-    'platform_model',
-    'platform_group_model',
-  ]
-  return allowed.includes(value as MonitorMatrixGroupBy)
-    ? (value as MonitorMatrixGroupBy)
-    : 'platform_group'
+  if (value === 'platform_model') return 'platform_group_model'
+  if (value === 'platform' || value === 'platform_group_model') return value
+  return 'platform_group'
 }
 function parseTab(value: unknown, allowUsers: boolean): Tab {
   const allowed: Tab[] = allowUsers ? ['models', 'errors', 'users'] : ['models', 'errors']
@@ -718,10 +705,24 @@ async function loadDimensions(signal?: AbortSignal, id = sequence) {
   dimensions.value = next
 }
 
+async function loadTestResults(signal: AbortSignal, id: number) {
+  testResultsState.value = 'loading'
+  try {
+    const results = await listForMonitor(signal)
+    if (id !== sequence || signal.aborted) return
+    testResults.value = results
+    testResultsState.value = 'ready'
+  } catch {
+    if (id !== sequence || signal.aborted) return
+    testResults.value = []
+    testResultsState.value = 'error'
+  }
+}
+
 async function loadMetrics(signal?: AbortSignal, id = sequence) {
   const [nextSnapshot, nextMatrix] = await Promise.all([
     api.getSnapshot(filter.value, isAdmin.value, signal),
-    api.getMatrix(filter.value, matrixGroupBy.value, isAdmin.value, signal),
+    api.getMatrix(filter.value, matrixGroupBy.value, isAdmin.value, signal, true),
   ])
   if (id !== sequence) return
   snapshot.value = nextSnapshot
@@ -742,6 +743,7 @@ async function reload(silent = true) {
     await Promise.all([
       loadDimensions(request.signal, id),
       loadMetrics(request.signal, id),
+      loadTestResults(request.signal, id),
     ])
   } catch (error) {
     if ((error as { name?: string }).name !== 'CanceledError') {
@@ -765,7 +767,7 @@ async function reloadMetricsOnly(silent = true) {
   refreshing.value = true
   if (!silent) loading.value = true
   try {
-    await loadMetrics(request.signal, id)
+    await Promise.all([loadMetrics(request.signal, id), loadTestResults(request.signal, id)])
   } catch (error) {
     if ((error as { name?: string }).name !== 'CanceledError') {
       appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.loadFailed')))
@@ -782,7 +784,8 @@ async function loadTab(signal?: AbortSignal, id = sequence) {
   tabLoading.value = true
   try {
     if (activeTab.value === 'models') {
-      modelRows.value = (await api.getModels(filter.value, isAdmin.value, signal)).items || []
+      modelRows.value = ((await api.getModels(filter.value, isAdmin.value, signal)).items || [])
+        .sort((a, b) => a.platform.localeCompare(b.platform) || compareMonitorModels(a.model, b.model))
     } else if (activeTab.value === 'errors') {
       errorRows.value = (await api.getErrors(filter.value, isAdmin.value, signal)).items || []
     } else if (showUserRanking.value) {
@@ -819,11 +822,12 @@ function scheduleAutoRefresh() {
   const seconds = bootstrapActive.value
     ? 10
     : snapshot.value?.config?.refresh_interval_seconds || 300
+  const intervalMs = Math.max(bootstrapActive.value ? 10 : 60, seconds) * 1000
   autoRefreshTimer = window.setInterval(() => {
     if (!loading.value && !refreshing.value) {
       void reload(true)
     }
-  }, Math.max(bootstrapActive.value ? 10 : 60, seconds) * 1000)
+  }, intervalMs)
 }
 function drillModel(row: MonitorModelRow) {
   filter.value.platforms = [row.platform]

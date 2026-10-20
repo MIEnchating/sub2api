@@ -27,18 +27,19 @@ func TestScheduledTestPlanRepositoryCreatePersistsName(t *testing.T) {
 	mock.ExpectBegin()
 	mock.ExpectExec(`SELECT pg_advisory_xact_lock`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectQuery(`(?s)INSERT INTO scheduled_test_plans \(name, sort_order, account_id`).
-		WithArgs("nightly candy", 0, nil, groupID, nil, "candy", "all_accounts", "model", "", "*/5 * * * *", true, 20, false, nextRun, "{2}", sqlmock.AnyArg(), "{3}", "", sqlmock.AnyArg()).
+		WithArgs("nightly candy", 0, nil, groupID, nil, "candy", "all_accounts", "model", "", "*/5 * * * *", true, 20, false, nextRun, "{2}", sqlmock.AnyArg(), "{3}", "", sqlmock.AnyArg(), "{7}").
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "name", "sort_order", "account_id", "group_id", "test_definition_id", "test_type", "target_mode", "model_id", "reasoning_effort", "cron_expression", "enabled", "max_results", "auto_recover", "last_run_at", "next_run_at", "created_at", "updated_at", "test_definition_ids", "protection", "group_ids", "migration_note", "schedule_config",
-		}).AddRow(10, "nightly candy", 0, nil, groupID, nil, "candy", "all_accounts", "model", "", "*/5 * * * *", true, 20, false, nil, nextRun, createdAt, createdAt, "{2}", "{}", "{3}", "", nil))
+			"id", "name", "sort_order", "account_id", "group_id", "test_definition_id", "test_type", "target_mode", "model_id", "reasoning_effort", "cron_expression", "enabled", "max_results", "auto_recover", "last_run_at", "next_run_at", "created_at", "updated_at", "test_definition_ids", "protection", "group_ids", "migration_note", "schedule_config", "excluded_account_ids",
+		}).AddRow(10, "nightly candy", 0, nil, groupID, nil, "candy", "all_accounts", "model", "", "*/5 * * * *", true, 20, false, nil, nextRun, createdAt, createdAt, "{2}", "{}", "{3}", "", nil, "{7}"))
 	mock.ExpectCommit()
 
 	got, err := repo.Create(context.Background(), &service.ScheduledTestPlan{
-		Name: "nightly candy", GroupID: &groupID, GroupIDs: []int64{groupID}, TestDefinitionIDs: []int64{2}, TargetMode: "all_accounts", TestType: "candy", ModelID: "model", CronExpression: "*/5 * * * *", Enabled: true, MaxResults: 20, NextRunAt: &nextRun,
+		Name: "nightly candy", ExcludedAccountIDs: []int64{7}, GroupID: &groupID, GroupIDs: []int64{groupID}, TestDefinitionIDs: []int64{2}, TargetMode: "all_accounts", TestType: "candy", ModelID: "model", CronExpression: "*/5 * * * *", Enabled: true, MaxResults: 20, NextRunAt: &nextRun,
 	})
 	require.NoError(t, err)
 	require.Equal(t, "nightly candy", got.Name)
 	require.Equal(t, []int64{3}, got.GroupIDs)
+	require.Equal(t, []int64{7}, got.ExcludedAccountIDs)
 	require.Equal(t, []int64{2}, got.TestDefinitionIDs)
 	require.NoError(t, mock.ExpectationsWereMet())
 }
@@ -111,12 +112,14 @@ func TestScheduledTestResultRepositoryVisibleUsesResultReasoningEffort(t *testin
 	mock.ExpectQuery(`(?s)WITH projected_results AS .*ranked_results AS.*PARTITION BY vr.group_id, vr.result_target_key, vr.test_definition_id, vr.model_id, vr.reasoning_effort.*WHERE execution.run_id = plan.latest_run_id.*WHERE history_rank = 1 AND status IN \('success', 'passed', 'failed', 'error'\).*ORDER BY vr.account_schedulable DESC NULLS LAST.*vr.started_at DESC, vr.id DESC`).
 		WithArgs(int64(5)).
 		WillReturnRows(sqlmock.NewRows([]string{
-			"id", "plan_id", "plan_name", "test_name", "test_order", "group_name", "plan_order", "target_mode", "status", "response_text", "output_kind", "output_html", "output_numeric", "account_id", "model_id", "reasoning_effort", "group_id", "error_message", "latency_ms", "started_at", "finished_at", "created_at", "test_definition_id", "group_order", "account_schedulable",
-		}).AddRow(1, 10, "nightly candy", "糖果数字测试", 0, "公开组", 12, "all_accounts", "success", "29", "number", "", 29.0, 7, "model", "medium", 3, "", 42, now, now, now, 2, 0, true))
+			"id", "plan_id", "plan_name", "test_name", "test_order", "group_name", "plan_order", "target_mode", "status", "response_text", "output_kind", "output_html", "output_numeric", "account_id", "model_id", "reasoning_effort", "group_id", "error_message", "latency_ms", "started_at", "finished_at", "created_at", "test_definition_id", "group_order", "account_schedulable", "test_key", "quality_verdict",
+		}).AddRow(1, 10, "nightly candy", "糖果数字测试", 0, "公开组", 12, "all_accounts", "success", "29", "number", "", 29.0, 7, "model", "medium", 3, "", 42, now, now, now, 2, 0, true, "candy", "fail"))
 	results, err := repo.ListVisible(context.Background(), 5, 20)
 	require.NoError(t, err)
 	require.Len(t, results, 1)
 	require.Equal(t, "medium", results[0].ReasoningEffort)
+	require.Equal(t, "candy", results[0].TestKey)
+	require.Equal(t, "fail", results[0].QualityVerdict)
 	require.NotNil(t, results[0].GroupOrder)
 	require.Zero(t, *results[0].GroupOrder)
 	require.NotNil(t, results[0].AccountSchedulable)

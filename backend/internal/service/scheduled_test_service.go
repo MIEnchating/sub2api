@@ -38,6 +38,9 @@ func ValidateScheduledTestDefinitionInput(d *ScheduledTestDefinition) error {
 	if d.SortOrder < 0 {
 		return fmt.Errorf("sort_order must be non-negative")
 	}
+	if d.MaxOutputTokens < 0 || d.MaxOutputTokens > 131072 {
+		return fmt.Errorf("max_output_tokens must be between 0 and 131072")
+	}
 	if d.Key == "" || !scheduledTestDefinitionKeyPattern.MatchString(d.Key) {
 		return fmt.Errorf("key must contain only lowercase letters, numbers, '.', '_' or '-' and be at most 100 characters")
 	}
@@ -82,6 +85,18 @@ func validateScheduledTestPlan(plan *ScheduledTestPlan) error {
 		}
 	}
 	plan.GroupIDs = groups
+	seenExcluded := make(map[int64]bool, len(plan.ExcludedAccountIDs))
+	excluded := make([]int64, 0, len(plan.ExcludedAccountIDs))
+	for _, id := range plan.ExcludedAccountIDs {
+		if id <= 0 {
+			return fmt.Errorf("excluded_account_ids must contain positive IDs")
+		}
+		if !seenExcluded[id] {
+			excluded = append(excluded, id)
+			seenExcluded[id] = true
+		}
+	}
+	plan.ExcludedAccountIDs = excluded
 	// These scalar columns are internal anchors for historical result joins.
 	// They no longer select an alternative execution mode.
 	plan.GroupID = &plan.GroupIDs[0]
@@ -425,6 +440,22 @@ func (s *ScheduledTestService) ListVisibleResults(ctx context.Context, userID in
 	return results, nil
 }
 
+// ListVisibleGroupResults projects existing checks to every authorized current group.
+func (s *ScheduledTestService) ListVisibleGroupResults(ctx context.Context, userID int64) ([]*ScheduledTestResult, error) {
+	repo, ok := s.resultRepo.(interface {
+		ListVisibleByGroup(context.Context, int64) ([]*ScheduledTestResult, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("group test results unavailable")
+	}
+	results, err := repo.ListVisibleByGroup(ctx, userID)
+	if err != nil {
+		return nil, err
+	}
+	normalizePublicTestResults(results)
+	return results, nil
+}
+
 func (s *ScheduledTestService) ListVisibleResultHistory(ctx context.Context, userID, resultID, beforeID int64, limit int) (*ScheduledTestResultHistory, error) {
 	if limit <= 0 {
 		limit = 20
@@ -453,6 +484,17 @@ func normalizePublicTestResults(results []*ScheduledTestResult) {
 	for _, result := range results {
 		if result != nil {
 			result.ErrorMessage = ""
+			result.ProtectionDecision = nil
+			// Transport success alone is not a quality pass. Only publish the
+			// saved verdict, and never report a failed execution as passing.
+			switch result.QualityVerdict {
+			case "pass", "fail", "pending":
+			default:
+				result.QualityVerdict = ""
+			}
+			if result.Status == "failed" || result.Status == "error" {
+				result.QualityVerdict = "fail"
+			}
 		}
 	}
 }

@@ -21,6 +21,7 @@ import (
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
+	"github.com/Wei-Shaw/sub2api/internal/updatepolicy"
 	"golang.org/x/mod/semver"
 )
 
@@ -31,19 +32,17 @@ var (
 )
 
 const (
+	updateChannel  = "published-image-v1"
 	updateCacheKey = "update_check_cache"
 	updateCacheTTL = 1200 // 20 minutes
 
-	releaseRepo            = "MIEnchating/sub2api"
-	releaseSourceBranch    = "main"
-	releaseSourceVersion   = "backend/cmd/server/VERSION"
-	releaseSourceUpdateURL = "https://github.com/MIEnchating/sub2api/commits/main"
+	releaseRepo = updatepolicy.Repository
 
 	officialUpstreamRepo      = "Wei-Shaw/sub2api"
-	officialUpstreamBaseline  = "5097b31457e6dc9f49e5f5c9c72b925ce79543b3"
+	officialUpstreamBaseline  = "8f2cbb53d9d1c40e1865b07ac460571f7d4c48de"
 	customUpstreamRepo        = "DeanZFC/sub2api-custom"
 	customUpstreamBranch      = "sub2api-custom"
-	customUpstreamBaseline    = "b920047c7eedc785e886e67650f1146749f59413"
+	customUpstreamBaseline    = "5d05f665e03e11f239de2fff29a34c4fbb1a0bee"
 	customUpstreamVersion     = "FORK_VERSION"
 	customUpstreamUpdateURL   = "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom"
 	upstreamBaselineSignature = officialUpstreamBaseline + ":" + customUpstreamBaseline
@@ -106,8 +105,8 @@ func NewUpdateService(cache UpdateCache, githubClient GitHubReleaseClient, versi
 	}
 }
 
-// SetSourceUpdateAgent attaches the optional host-side updater used by source
-// builds. Release builds continue to use the existing binary updater.
+// SetSourceUpdateAgent attaches the optional host-side updater for managed
+// deployments, including containers running prebuilt release binaries.
 func (s *UpdateService) SetSourceUpdateAgent(agent SourceUpdateAgent) {
 	if s == nil {
 		return
@@ -147,6 +146,7 @@ type UpdateInfo struct {
 	CurrentVersion      string                `json:"current_version"`
 	LatestVersion       string                `json:"latest_version"`
 	HasUpdate           bool                  `json:"has_update"`
+	HostUpdateManaged   bool                  `json:"host_update_managed,omitempty"`
 	SourceUpdateEnabled bool                  `json:"source_update_enabled,omitempty"`
 	ReleaseInfo         *ReleaseInfo          `json:"release_info,omitempty"`
 	Upstreams           []UpstreamVersionInfo `json:"upstreams"`
@@ -215,21 +215,17 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 	if !force {
 		if cached, err := s.getFromCache(ctx); err == nil && cached != nil {
 			cached.SourceUpdateEnabled = s.sourceUpdateReady(ctx)
+			cached.HostUpdateManaged = s.SourceUpdateConfigured()
 			return cached, nil
 		}
 	}
 
-	var info *UpdateInfo
-	var err error
-	if s.isSourceBuild() {
-		info, err = s.fetchLatestSourceVersion(ctx)
-	} else {
-		info, err = s.fetchLatestRelease(ctx)
-	}
+	info, err := s.fetchPublishedUpdate(ctx)
 	if err != nil {
 		// Return cached on error
 		if cached, cacheErr := s.getFromCache(ctx); cacheErr == nil && cached != nil {
 			cached.SourceUpdateEnabled = s.sourceUpdateReady(ctx)
+			cached.HostUpdateManaged = s.SourceUpdateConfigured()
 			cached.Warning = "Using cached data: " + err.Error()
 			return cached, nil
 		}
@@ -243,6 +239,7 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 		}
 	}
 	info.SourceUpdateEnabled = s.sourceUpdateReady(ctx)
+	info.HostUpdateManaged = s.SourceUpdateConfigured()
 	info.Upstreams = s.fetchUpstreamVersions(ctx)
 
 	if err == nil {
@@ -254,6 +251,9 @@ func (s *UpdateService) CheckUpdate(ctx context.Context, force bool) (*UpdateInf
 // PerformUpdate downloads and applies the update
 // Uses atomic file replacement pattern for safe in-place updates
 func (s *UpdateService) PerformUpdate(ctx context.Context) error {
+	if s.SourceUpdateConfigured() {
+		return ErrSourceUpdaterUnavailable
+	}
 	if s.isSourceBuild() {
 		return ErrSourceBuildUpdateRequired
 	}
@@ -375,6 +375,9 @@ func (s *UpdateService) applyReleaseAssets(ctx context.Context, releaseAssets []
 
 // Rollback restores the previous version
 func (s *UpdateService) Rollback() error {
+	if s.SourceUpdateConfigured() || s.isSourceBuild() {
+		return ErrSourceBuildUpdateRequired
+	}
 	exePath, err := os.Executable()
 	if err != nil {
 		return fmt.Errorf("failed to get executable path: %w", err)
@@ -401,7 +404,7 @@ func (s *UpdateService) Rollback() error {
 // strictly older than the current version (the current version itself is excluded),
 // newest first. Draft and prerelease entries are skipped.
 func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVersion, error) {
-	if s.isSourceBuild() {
+	if s.SourceUpdateConfigured() || s.isSourceBuild() {
 		return []RollbackVersion{}, nil
 	}
 	releases, err := s.fetchRollbackCandidates(ctx)
@@ -424,7 +427,7 @@ func (s *UpdateService) ListRollbackVersions(ctx context.Context) ([]RollbackVer
 // The target must be one of the versions returned by ListRollbackVersions;
 // anything else (including the current version) is rejected.
 func (s *UpdateService) RollbackToVersion(ctx context.Context, version string) error {
-	if s.isSourceBuild() {
+	if s.SourceUpdateConfigured() || s.isSourceBuild() {
 		return ErrSourceBuildUpdateRequired
 	}
 	target := strings.TrimPrefix(strings.TrimSpace(version), "v")
@@ -499,65 +502,61 @@ func (s *UpdateService) fetchRollbackCandidates(ctx context.Context) ([]*GitHubR
 	return candidates, nil
 }
 
-func (s *UpdateService) fetchLatestRelease(ctx context.Context) (*UpdateInfo, error) {
-	release, err := s.githubClient.FetchLatestRelease(ctx, releaseRepo)
+// A manifest is uploaded last by release CI. Branch commits and unfinished
+// releases must never be advertised as an installable update. Scan recent
+// stable fork releases so an unfinished latest release does not hide a ready one.
+func (s *UpdateService) fetchPublishedUpdate(ctx context.Context) (*UpdateInfo, error) {
+	releases, err := s.githubClient.FetchRecentReleases(ctx, releaseRepo, 30)
 	if err != nil {
 		return nil, err
 	}
-	if release == nil {
-		return nil, fmt.Errorf("latest release for %s is empty", releaseRepo)
-	}
-
-	latestVersion := strings.TrimPrefix(release.TagName, "v")
-
-	assets := make([]Asset, len(release.Assets))
-	for i, a := range release.Assets {
-		assets[i] = Asset{
-			Name:        a.Name,
-			DownloadURL: a.BrowserDownloadURL,
-			Size:        a.Size,
+	sort.SliceStable(releases, func(i, j int) bool {
+		if releases[i] == nil {
+			return false
 		}
+		if releases[j] == nil {
+			return true
+		}
+		return compareVersions(releases[i].TagName, releases[j].TagName) > 0
+	})
+	var invalid error
+	for _, r := range releases {
+		if r == nil || r.Draft || r.Prerelease || !updatepolicy.ValidVersion(r.TagName) {
+			continue
+		}
+		expectedURL, _ := updatepolicy.AssetURL(r.TagName)
+		ready := false
+		for _, a := range r.Assets {
+			if a.Name == updatepolicy.AssetName && a.BrowserDownloadURL == expectedURL && a.Size > 0 && a.Size <= updatepolicy.MaxManifestSize {
+				ready = true
+				break
+			}
+		}
+		if !ready {
+			continue
+		}
+		raw, fetchErr := s.githubClient.FetchChecksumFile(ctx, expectedURL)
+		if fetchErr != nil {
+			return nil, fmt.Errorf("read release readiness manifest: %w", fetchErr)
+		}
+		manifest, parseErr := updatepolicy.Parse(raw, r.TagName)
+		if parseErr != nil {
+			invalid = parseErr
+			continue
+		}
+		if _, supported := manifest.Images[runtime.GOARCH]; !supported {
+			continue
+		}
+		assets := make([]Asset, 0, len(r.Assets))
+		for _, a := range r.Assets {
+			assets = append(assets, Asset{Name: a.Name, DownloadURL: a.BrowserDownloadURL, Size: a.Size})
+		}
+		return &UpdateInfo{CurrentVersion: s.currentVersion, LatestVersion: strings.TrimPrefix(r.TagName, "v"), HasUpdate: compareVersions(s.currentVersion, r.TagName) < 0, BuildType: s.buildType, ReleaseInfo: &ReleaseInfo{Name: r.Name, Body: r.Body, PublishedAt: r.PublishedAt, HTMLURL: r.HTMLURL, Assets: assets}}, nil
 	}
-
-	return &UpdateInfo{
-		CurrentVersion:      s.currentVersion,
-		LatestVersion:       latestVersion,
-		HasUpdate:           compareVersions(s.currentVersion, latestVersion) < 0,
-		SourceUpdateEnabled: s.sourceUpdateReady(ctx),
-		ReleaseInfo: &ReleaseInfo{
-			Name:        release.Name,
-			Body:        release.Body,
-			PublishedAt: release.PublishedAt,
-			HTMLURL:     release.HTMLURL,
-			Assets:      assets,
-		},
-		Cached:    false,
-		BuildType: s.buildType,
-	}, nil
-}
-
-func (s *UpdateService) fetchLatestSourceVersion(ctx context.Context) (*UpdateInfo, error) {
-	raw, err := s.githubClient.FetchRepositoryFile(ctx, releaseRepo, releaseSourceBranch, releaseSourceVersion)
-	if err != nil {
-		return nil, err
+	if invalid != nil {
+		return nil, invalid
 	}
-	latestVersion := strings.TrimSpace(string(raw))
-	if canonicalVersion(latestVersion) == "" {
-		return nil, fmt.Errorf("source version file contains invalid semantic version %q", latestVersion)
-	}
-
-	return &UpdateInfo{
-		CurrentVersion:      s.currentVersion,
-		LatestVersion:       latestVersion,
-		HasUpdate:           compareVersions(s.currentVersion, latestVersion) < 0,
-		SourceUpdateEnabled: s.sourceUpdateReady(ctx),
-		ReleaseInfo: &ReleaseInfo{
-			Name:    "sub2api " + latestVersion,
-			HTMLURL: releaseSourceUpdateURL,
-		},
-		Cached:    false,
-		BuildType: s.buildType,
-	}, nil
+	return &UpdateInfo{CurrentVersion: s.currentVersion, LatestVersion: s.currentVersion, BuildType: s.buildType}, nil
 }
 
 func (s *UpdateService) fetchUpstreamVersions(ctx context.Context) []UpstreamVersionInfo {
@@ -807,6 +806,9 @@ func (s *UpdateService) extractBinary(archivePath, destPath string) error {
 }
 
 func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
+	if s.cache == nil {
+		return nil, fmt.Errorf("no update cache")
+	}
 	data, err := s.cache.GetUpdateInfo(ctx)
 	if err != nil {
 		return nil, err
@@ -818,6 +820,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 		Upstreams         []UpstreamVersionInfo `json:"upstreams"`
 		UpstreamBaselines string                `json:"upstream_baselines"`
 		Timestamp         int64                 `json:"timestamp"`
+		Channel           string                `json:"channel"`
 		Repository        string                `json:"repository"`
 		BuildType         string                `json:"build_type"`
 	}
@@ -828,7 +831,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if time.Now().Unix()-cached.Timestamp > updateCacheTTL {
 		return nil, fmt.Errorf("cache expired")
 	}
-	if cached.Repository != releaseRepo || cached.BuildType != s.buildType {
+	if cached.Channel != updateChannel || cached.Repository != releaseRepo || cached.BuildType != s.buildType {
 		return nil, fmt.Errorf("cache belongs to a different update source")
 	}
 	if cached.UpstreamBaselines != upstreamBaselineSignature || len(cached.Upstreams) != 2 {
@@ -853,12 +856,16 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 }
 
 func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
+	if s.cache == nil {
+		return
+	}
 	cacheData := struct {
 		Latest            string                `json:"latest"`
 		ReleaseInfo       *ReleaseInfo          `json:"release_info"`
 		Upstreams         []UpstreamVersionInfo `json:"upstreams"`
 		UpstreamBaselines string                `json:"upstream_baselines"`
 		Timestamp         int64                 `json:"timestamp"`
+		Channel           string                `json:"channel"`
 		Repository        string                `json:"repository"`
 		BuildType         string                `json:"build_type"`
 	}{
@@ -867,6 +874,7 @@ func (s *UpdateService) saveToCache(ctx context.Context, info *UpdateInfo) {
 		Upstreams:         info.Upstreams,
 		UpstreamBaselines: upstreamBaselineSignature,
 		Timestamp:         time.Now().Unix(),
+		Channel:           updateChannel,
 		Repository:        releaseRepo,
 		BuildType:         s.buildType,
 	}

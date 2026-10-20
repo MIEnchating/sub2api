@@ -36,6 +36,9 @@ func TestQQBotFullMigrationChain(t *testing.T) {
 	defer func() { _ = db.Close() }()
 	require.NoError(t, repository.ApplyMigrations(context.Background(), db))
 	require.NoError(t, repository.ApplyMigrations(context.Background(), db))
+	var rewardTables int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('qq_bot_reward_codes','qq_bot_reward_attempts','qq_bot_reward_limits')`).Scan(&rewardTables))
+	require.Equal(t, 3, rewardTables)
 	var exists bool
 	require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='qq_bot_rewards')`).Scan(&exists))
 	require.True(t, exists)
@@ -47,4 +50,13 @@ func TestQQBotFullMigrationChain(t *testing.T) {
 	require.True(t, exists)
 	require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='qq_bot_message_references' AND column_name='shareable')`).Scan(&exists))
 	require.True(t, exists)
+	require.NoError(t, db.QueryRow(`SELECT EXISTS(SELECT 1 FROM information_schema.tables WHERE table_schema='public' AND table_name='qq_bot_price_snapshots')`).Scan(&exists))
+	require.True(t, exists)
+	var autonomousTables int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.tables WHERE table_schema='public' AND table_name IN ('qq_bot_autonomous_state','qq_bot_autonomous_seen','qq_bot_autonomous_decisions')`).Scan(&autonomousTables))
+	require.Equal(t, 3, autonomousTables)
+	var autonomousColumns int
+	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM information_schema.columns WHERE table_schema='public' AND table_name='qq_bot_jobs' AND column_name IN ('trigger_reason','decision_reason','model_reserved_at','reply_reserved_at','reply_sent_at')`).Scan(&autonomousColumns))
+	require.Equal(t, 5, autonomousColumns)
+
 }
