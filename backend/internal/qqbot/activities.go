@@ -20,9 +20,13 @@ const (
 )
 
 type CheckinConfig struct {
-	Enabled   bool    `json:"enabled"`
-	MinAmount float64 `json:"min_amount"`
-	MaxAmount float64 `json:"max_amount"`
+	StreakReward  *GrowthReward `json:"streak_reward,omitempty"`
+	StreakDays    int           `json:"streak_days"`
+	StreakChances int           `json:"streak_chances"`
+	Growth        GrowthConfig  `json:"growth"`
+	Enabled       bool          `json:"enabled"`
+	MinAmount     float64       `json:"min_amount"`
+	MaxAmount     float64       `json:"max_amount"`
 	RechargeRequirement
 }
 type InviteConfig struct {
@@ -73,6 +77,8 @@ func loadCheckinConfig(ctx context.Context, db queryRower, legacy float64) (Chec
 		RechargeRequirement: RechargeRequirement{RechargeWindowDays: DefaultRechargeWindowDays}}
 	_, err := readActivityConfig(ctx, db, checkinConfigKey, &c)
 	c.RechargeWindowDays = c.windowDays()
+	c.StreakDays = c.streakDays()
+	c.Growth.Tasks = c.Growth.tasks()
 	return c, err
 }
 func (s *Service) CheckinConfig(ctx context.Context) (CheckinConfig, error) {
@@ -123,6 +129,9 @@ func (s *Service) SaveInviteConfig(ctx context.Context, c InviteConfig) error {
 	return err
 }
 func validateCheckin(c CheckinConfig) error {
+	if err := validateGrowth(c); err != nil {
+		return err
+	}
 	if !validRewardAmount(c.MinAmount) || !validRewardAmount(c.MaxAmount) || c.MinAmount > c.MaxAmount {
 		return errors.New("签到金额需在 0 到 1000 USD 之间，最多 8 位小数，最低金额不能高于最高金额")
 	}
@@ -195,6 +204,8 @@ func (s *Service) SaveCheckinConfig(ctx context.Context, c CheckinConfig) error 
 		return err
 	}
 	c.RechargeWindowDays = c.windowDays()
+	c.StreakDays = c.streakDays()
+	c.Growth.Tasks = c.Growth.tasks()
 	return s.saveActivityConfig(ctx, checkinConfigKey, checkinConfigLock, c)
 }
 func (s *Service) SaveLotteryConfig(ctx context.Context, c LotteryConfig) error {

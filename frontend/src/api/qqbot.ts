@@ -12,7 +12,16 @@ export function defaultAutonomousConfig(): QQAutonomousConfig {
     min_messages: 6, member_cooldown_seconds: 600, hourly_replies: 3, daily_replies: 20, daily_calls: 40,
     start_hour: 9, end_hour: 23, followup_seconds: 60, max_chars: 100, mention_user: false }
 }
+export interface QQHealthNotificationConfig {
+  enabled: boolean; groups: string[]; minimum_samples: number; error_percent: number
+  recovery_percent: number; ttft_seconds: number; failure_minutes: number; recovery_minutes: number; cooldown_minutes: number
+}
+export function defaultHealthNotificationConfig(): QQHealthNotificationConfig {
+  return { enabled: false, groups: [], minimum_samples: 50, error_percent: 20, recovery_percent: 5,
+    ttft_seconds: 10, failure_minutes: 3, recovery_minutes: 2, cooldown_minutes: 30 }
+}
 export interface QQBotConfig {
+  health_notifications?: QQHealthNotificationConfig
   autonomous?: QQAutonomousConfig
   enabled: boolean; app_id: string; app_secret: string; app_secret_set: boolean; sandbox: boolean
   allowed_groups: string[]; base_url: string; api_key: string; api_key_set: boolean
@@ -46,7 +55,24 @@ export interface QQBindingState {
   binding: { member_id: string; group_id: string; nickname: string; created_at: string } | null
   pending: QQBindingRequest | null
 }
+export type QQGrowthTaskKind = 'binding' | 'usage_count' | 'checkin_total' | 'checkin_streak' | 'recharge_total' | 'usage_tokens' | 'usage_amount'
+export interface QQGrowthReward {
+  type: QQRewardType; amount: number; quantity: number; prize_name: string; claim_instructions: string
+}
+export interface QQGrowthTask {
+  reward: QQGrowthReward
+  id: string; name: string; kind: QQGrowthTaskKind; target: number; chances: number; enabled: boolean
+}
+export interface QQRankingPrize { rank: number; reward: QQGrowthReward }
+export interface QQRankingConfig {
+  enabled: boolean; rewards_enabled: boolean; effective_day: string
+  token_rewards: QQRankingPrize[]; amount_rewards: QQRankingPrize[]
+}
 export interface QQCheckinConfig {
+  streak_reward: QQGrowthReward
+  streak_days: number
+  streak_chances: number
+  growth: { binding_chances: number; first_usage_chances: number; checkin_30_chances: number; tasks: QQGrowthTask[]; periodic_tasks: QQGrowthTask[] }
   enabled: boolean; min_amount: number; max_amount: number
   min_recharge_total: number; min_recharge_30d: number; recharge_window_days: number
 }
@@ -83,20 +109,19 @@ export interface QQActivityRecord {
 }
 export interface QQActivityRecordsPage { items: QQActivityRecord[]; total: number; page: number; page_size: number }
 export type QQRewardType = 'balance' | 'chances' | 'physical' | 'other'
-export interface QQRewardCodeCreate {
-  batch_name: string; reward_type: QQRewardType; count: number; amount: number; quantity: number
+export interface QQRewardCode {
+  batch_name: string; reward_type: QQRewardType; amount: number; quantity: number
   prize_name: string; claim_instructions: string; target_user_id: number | null; expires_at: string | null
-}
-export interface QQGeneratedRewardCode { id: number; code: string }
-export interface QQRewardCode extends Omit<QQRewardCodeCreate, 'count'> {
+  source_kind?: 'code' | 'growth' | 'streak' | 'ranking'
   id: number; app_id: string; code_hint: string; status: 'unused' | 'disabled' | 'expired' | 'pending' | 'fulfilled'
   user_id: number | null; email: string; member_id: string; redeemed_at: string | null
   fulfilled_at: string | null; fulfillment_note: string; created_at: string
 }
 export interface QQRewardCodesPage { items: QQRewardCode[]; total: number; page: number; page_size: number }
 export const qqbotAPI = {
+  rankingConfig: async () => (await apiClient.get<QQRankingConfig>('/admin/qqbot/rankings')).data,
+  saveRankings: async (config: QQRankingConfig) => (await apiClient.put<QQRankingConfig>('/admin/qqbot/rankings', config)).data,
   rewardCodes: async (search: string, status: string, page: number) => (await apiClient.get<QQRewardCodesPage>('/admin/qqbot/reward-codes', { params: { search, status, page } })).data,
-  createRewardCodes: async (data: QQRewardCodeCreate) => (await apiClient.post<QQGeneratedRewardCode[]>('/admin/qqbot/reward-codes', data)).data,
   updateRewardCode: async (id: number, action: 'disable' | 'fulfill', note = '') => (await apiClient.patch(`/admin/qqbot/reward-codes/${id}`, { action, note })).data,
   activityRecords: async (kind: QQActivityKind, search: string, page: number) => (await apiClient.get<QQActivityRecordsPage>(`/admin/qqbot/records/${kind}`, { params: { search, page, page_size: 20 } })).data,
   inviteConfig: async () => (await apiClient.get<QQInviteConfig>('/admin/qqbot/invite')).data,

@@ -200,6 +200,21 @@ describe('admin AccountsView lite account list', () => {
     wrapper.unmount()
   })
 
+  it.each(['active', 'quality_paused', 'rate_limited'])('restores persisted %s filters alongside platform tabs', async (status) => {
+    localStorage.setItem('account-filter-values', JSON.stringify({ platform: 'openai', status }))
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      expect(listAccounts).toHaveBeenCalledWith(
+        1, 20,
+        expect.objectContaining({ platform: 'openai', status, lite: '1' }),
+        expect.objectContaining({ signal: expect.any(AbortSignal) })
+      )
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
   it('maps group_ids through the group catalog for the table cell', async () => {
     const wrapper = mountView()
     await flushPromises()

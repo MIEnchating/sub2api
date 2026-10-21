@@ -310,10 +310,11 @@ func TestRemovedAndUnknownCommandsDoNotCallModelsOrAccessData(t *testing.T) {
 		require.Contains(t, replies[i], "/帮助")
 	}
 	j := Job{GroupID: "group", MessageID: "help", CreatedAt: time.Now()}
+	before := len(replies)
 	require.NoError(t, s.message(context.Background(), c, &j, Event{Content: "/帮助"}))
-	help := replies[len(replies)-1]
-	require.Contains(t, help, "- **/我的邀请**：查询邀请状态和人数")
-	require.Contains(t, help, "- **/邀请奖励**：查看邀请奖励规则、条件和今日进度")
+	help := strings.Join(replies[before:], "\n")
+	require.Contains(t, help, "/我的余额")
+	require.Contains(t, help, "/成长任务")
 	for _, removed := range []string{"/查看结果", "/新对话", "/清空"} {
 		require.NotContains(t, help, removed)
 	}

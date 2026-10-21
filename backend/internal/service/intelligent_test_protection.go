@@ -51,6 +51,11 @@ func prepareIntelligentTestProtection(c *gin.Context, account *Account, payload 
 			identity.threadID = ids.threadID
 		}
 	}
+	// Background scheduled probes construct a request without HTTP headers.
+	// Initialize them before staging the same identity as an interactive probe.
+	if c.Request.Header == nil {
+		c.Request.Header = make(http.Header)
+	}
 	c.Request.Header.Set("session-id", rawSession)
 	c.Set(intelligentTestIdentityKey, identity)
 	applyStagedCodexFingerprintClientMetadata(c, account, payload)

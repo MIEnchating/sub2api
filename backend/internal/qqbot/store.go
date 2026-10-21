@@ -115,6 +115,9 @@ FOR UPDATE OF r FOR NO KEY UPDATE OF u`, user, c.AppID).Scan(&r.MemberID, &r.Gro
 }
 
 func (s *Service) Enqueue(ctx context.Context, c Config, p Payload) (err error) {
+	if p.Type == interactionCreate {
+		return s.enqueueInteraction(ctx, c, p)
+	}
 	var e Event
 	j := Job{AppID: c.AppID, EventType: p.Type}
 	outcome, reason := "failed", "database_error"
@@ -216,17 +219,15 @@ func (s *Service) Enqueue(ctx context.Context, c Config, p Payload) (err error) 
 		return errors.New("机器人队列已满")
 	}
 	jobID := randomID()
-	var rewardHash string
-	if cmd, _ := command(e.Content); isGroupMessageEvent(p.Type) && cmd == "奖励兑换" {
-		clean, hash := redactRewardCommand(e)
-		rewardHash = hash
+	if isGroupMessageEvent(p.Type) && containsRewardCode(e.Content) {
+		clean := redactRewardCommand(e)
 		p.Data, err = json.Marshal(clean)
 		if err != nil {
 			return err
 		}
 	}
-	res, err := tx.ExecContext(ctx, `INSERT INTO qq_bot_jobs(id,app_id,event_key,event_type,group_id,member_id,message_id,payload,reward_code_hash) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9) ON CONFLICT(app_id,event_key) DO UPDATE SET event_type=EXCLUDED.event_type,payload=EXCLUDED.payload,kind='event',trigger_reason='',decision_reason=''
- WHERE EXCLUDED.event_type='GROUP_AT_MESSAGE_CREATE' AND qq_bot_jobs.kind='ambient_chat' AND qq_bot_jobs.status='queued' AND qq_bot_jobs.model_reserved_at IS NULL`, jobID, c.AppID, eventKey, p.Type, e.GroupID, member, e.ID, string(p.Data), rewardHash)
+	res, err := tx.ExecContext(ctx, `INSERT INTO qq_bot_jobs(id,app_id,event_key,event_type,group_id,member_id,message_id,payload) VALUES($1,$2,$3,$4,$5,$6,$7,$8) ON CONFLICT(app_id,event_key) DO UPDATE SET event_type=EXCLUDED.event_type,payload=EXCLUDED.payload,kind='event',trigger_reason='',decision_reason=''
+ WHERE EXCLUDED.event_type='GROUP_AT_MESSAGE_CREATE' AND qq_bot_jobs.kind='ambient_chat' AND qq_bot_jobs.status='queued' AND qq_bot_jobs.model_reserved_at IS NULL`, jobID, c.AppID, eventKey, p.Type, e.GroupID, member, e.ID, string(p.Data))
 	if err != nil {
 		return err
 	}
@@ -246,13 +247,13 @@ func (s *Service) Enqueue(ctx context.Context, c Config, p Payload) (err error) 
 	return nil
 }
 
-const jobColumns = `id,app_id,event_type,group_id,member_id,message_id,payload,kind,status,result_text,result_image,image_type,error,input_tokens,output_tokens,created_at,finished_at,reward_code_hash,trigger_reason,decision_reason`
+const jobColumns = `id,app_id,event_type,group_id,member_id,message_id,payload,kind,status,result_text,result_image,image_type,error,input_tokens,output_tokens,created_at,finished_at,trigger_reason,decision_reason`
 
 type scanner interface{ Scan(...any) error }
 
 func scanJob(r scanner) (Job, error) {
 	var j Job
-	err := r.Scan(&j.ID, &j.AppID, &j.EventType, &j.GroupID, &j.MemberID, &j.MessageID, &j.Payload, &j.Kind, &j.Status, &j.ResultText, &j.Image, &j.ImageType, &j.Error, &j.InputTokens, &j.OutputTokens, &j.CreatedAt, &j.FinishedAt, &j.RewardCodeHash, &j.TriggerReason, &j.DecisionReason)
+	err := r.Scan(&j.ID, &j.AppID, &j.EventType, &j.GroupID, &j.MemberID, &j.MessageID, &j.Payload, &j.Kind, &j.Status, &j.ResultText, &j.Image, &j.ImageType, &j.Error, &j.InputTokens, &j.OutputTokens, &j.CreatedAt, &j.FinishedAt, &j.TriggerReason, &j.DecisionReason)
 	return j, err
 }
 func (s *Service) claimJob(ctx context.Context) (Job, error) {
@@ -272,9 +273,9 @@ func (s *Service) claimJob(ctx context.Context) (Job, error) {
 		return Job{}, sql.ErrNoRows
 	}
 	j, err := scanJob(tx.QueryRowContext(ctx, `SELECT `+jobColumns+` FROM qq_bot_jobs q WHERE status='queued'
- AND (event_type <> 'PRICE_CHANGE_NOTIFICATION' OR (
-   NOT EXISTS(SELECT 1 FROM qq_bot_jobs p WHERE p.app_id=q.app_id AND p.event_type='PRICE_CHANGE_NOTIFICATION' AND p.status='running')
-   AND NOT EXISTS(SELECT 1 FROM qq_bot_jobs p WHERE p.app_id=q.app_id AND p.event_type='PRICE_CHANGE_NOTIFICATION' AND p.started_at>NOW()-INTERVAL '3100 milliseconds')
+ AND (event_type NOT IN ('PRICE_CHANGE_NOTIFICATION','HEALTH_CHANGE_NOTIFICATION') OR (
+   NOT EXISTS(SELECT 1 FROM qq_bot_jobs p WHERE p.app_id=q.app_id AND p.event_type IN ('PRICE_CHANGE_NOTIFICATION','HEALTH_CHANGE_NOTIFICATION') AND p.status='running')
+   AND NOT EXISTS(SELECT 1 FROM qq_bot_jobs p WHERE p.app_id=q.app_id AND p.event_type IN ('PRICE_CHANGE_NOTIFICATION','HEALTH_CHANGE_NOTIFICATION') AND p.started_at>NOW()-INTERVAL '3100 milliseconds')
  ))
  AND NOT EXISTS(SELECT 1 FROM qq_bot_jobs r WHERE r.status='running' AND r.app_id=q.app_id AND r.group_id=q.group_id) ORDER BY (kind='ambient_chat'),created_at,id LIMIT 1 FOR UPDATE SKIP LOCKED`))
 	if err != nil {
@@ -374,6 +375,8 @@ func (s *Service) reward(ctx context.Context, c Config, j Job, kind string) (str
 	c = current
 	amount := c.CheckinReward
 	var requirement RechargeRequirement
+	var streakDays int
+	var streakReward GrowthReward
 	if kind == "invite" {
 		if c.InviteReward <= 0 || c.InviteDailyLimit <= 0 {
 			return "邀请奖励未开启。", nil
@@ -401,6 +404,8 @@ func (s *Service) reward(ctx context.Context, c Config, j Job, kind string) (str
 			return "签到活动未开启。", nil
 		}
 		requirement = cfg.RechargeRequirement
+		streakReward = cfg.streakReward()
+		streakDays = cfg.streakDays()
 		amount, err = randomCheckinAmount(cfg)
 		if err != nil {
 			return "", err
@@ -499,14 +504,36 @@ func (s *Service) reward(ctx context.Context, c Config, j Job, kind string) (str
 	if err != nil {
 		return "", err
 	}
+	var streak int
+	var bonus bool
+	if kind == "checkin" {
+		streak, bonus, err = grantStreak(ctx, tx, c, j, userID, rewardAt, streakReward, streakDays)
+		if err != nil {
+			return "", err
+		}
+		cfg, configErr := loadCheckinConfig(ctx, tx, c.CheckinReward)
+		if configErr != nil {
+			return "", configErr
+		}
+		if _, _, _, err = settleGrowthForUser(ctx, tx, c, j, userID, cfg, rewardAt); err != nil {
+			return "", err
+		}
+	}
 	if err = tx.Commit(); err != nil {
 		return "", err
 	}
 	s.invalidate(ctx, userID)
 	if kind == "invite" {
-		return fmt.Sprintf("🎁 **邀请奖励已发放**\n\n邀请人到账额度：USD %.2f", amount), nil
+		return fmt.Sprintf("🎁 邀请奖励已发放：USD %.2f", amount), nil
 	}
-	return fmt.Sprintf("✅ **签到成功**\n\n到账额度：USD %.2f", amount), nil
+	text := fmt.Sprintf("✅ **签到成功**\n到账：USD %.2f\n连签 %d 天", amount, streak)
+	if bonus {
+		text += "\n\n连签奖励：" + streakReward.description() + "\n" + streakReward.deliveryNote()
+	}
+	if streakReward.enabled() {
+		text += fmt.Sprintf("\n距下次奖励 %d 天", streakDays-streak%streakDays)
+	}
+	return text, nil
 }
 
 func (s *Service) Runtime(ctx context.Context, c Config) (Runtime, error) {

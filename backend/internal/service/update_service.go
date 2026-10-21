@@ -39,10 +39,10 @@ const (
 	releaseRepo = updatepolicy.Repository
 
 	officialUpstreamRepo      = "Wei-Shaw/sub2api"
-	officialUpstreamBaseline  = "8f2cbb53d9d1c40e1865b07ac460571f7d4c48de"
+	officialUpstreamBaseline  = "7da09cab4e875463baa79fc150adde700c5438df"
 	customUpstreamRepo        = "DeanZFC/sub2api-custom"
 	customUpstreamBranch      = "sub2api-custom"
-	customUpstreamBaseline    = "5d05f665e03e11f239de2fff29a34c4fbb1a0bee"
+	customUpstreamBaseline    = "a08b781730967d5a88d906406faea0177248ffdb"
 	customUpstreamVersion     = "FORK_VERSION"
 	customUpstreamUpdateURL   = "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom"
 	upstreamBaselineSignature = officialUpstreamBaseline + ":" + customUpstreamBaseline

@@ -40,7 +40,7 @@ func TestCheckinRandomRangeLegacyAndZeroDedup(t *testing.T) {
 	s := savedBot(t, db)
 	cfg, err := s.CheckinConfig(ctx)
 	require.NoError(t, err)
-	require.Equal(t, CheckinConfig{Enabled: true, MinAmount: .1, MaxAmount: .1, RechargeRequirement: RechargeRequirement{RechargeWindowDays: 30}}, cfg)
+	require.Equal(t, CheckinConfig{Enabled: true, MinAmount: .1, MaxAmount: .1, StreakDays: 7, Growth: GrowthConfig{Tasks: (GrowthConfig{}).tasks()}, RechargeRequirement: RechargeRequirement{RechargeWindowDays: 30}}, cfg)
 	require.NoError(t, s.SaveCheckinConfig(ctx, CheckinConfig{Enabled: true, MinAmount: .12345678, MaxAmount: .22345678}))
 	c, err := s.Config(ctx)
 	require.NoError(t, err)
@@ -284,6 +284,7 @@ func TestLotteryWaitsForRefundBeforeEligibility(t *testing.T) {
 func TestQQWorkerLotteryCommandsAndMessageDedup(t *testing.T) {
 	ctx := context.Background()
 	s, db, c, uid, _ := lotteryFixture(t, 20)
+	insightsUsageTable(t, db)
 	var replies []string
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -326,12 +327,12 @@ func TestQQWorkerLotteryCommandsAndMessageDedup(t *testing.T) {
 	s.runOne(ctx)
 	chancesReply := replies[len(replies)-1]
 	require.Contains(t, chancesReply, "剩余抽奖次数：1 次")
-	require.Contains(t, chancesReply, "下次赠送还需充值：USD 10.00")
+	require.Contains(t, chancesReply, "再充值 USD 10.00 获赠")
 	require.NotContains(t, chancesReply, "概率")
 	enqueue(groupAtMessageCreate, "rules", "/抽奖活动")
 	s.runOne(ctx)
 	rulesReply := replies[len(replies)-1]
-	require.Contains(t, rulesReply, "每累计有效充值 USD 10.00 赠送 1 次")
+	require.Contains(t, rulesReply, "累计有效充值每满 USD 10.00 送 1 次")
 	require.Contains(t, rulesReply, "概率 100.00%")
 	require.NotContains(t, rulesReply, "剩余抽奖次数")
 	// Durable message deduplication also survives pruning the job tombstone.

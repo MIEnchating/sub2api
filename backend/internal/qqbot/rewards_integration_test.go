@@ -23,7 +23,7 @@ func TestQQBotMyRewardsSummarizesHistoryByCategory(t *testing.T) {
 	job := Job{MemberID: "member"}
 	info, err := s.myRewards(ctx, c, job)
 	require.NoError(t, err)
-	require.Equal(t, "🎁 **累计奖励**\n\n- 抽奖奖励：USD 0.00\n- 邀请奖励：USD 0.00\n- 签到奖励：USD 0.00\n- 兑换奖励：USD 0.00\n\n**合计：USD 0.00**", info)
+	require.Equal(t, "🎁 **累计奖励**\n合计：USD 0.00\n\n抽奖：USD 0.00\n邀请：USD 0.00\n签到：USD 0.00\n成长：USD 0.00\n连签：USD 0.00\n排行：USD 0.00", info)
 	_, err = db.Exec(`INSERT INTO qq_bot_rewards(reward_key,app_id,group_id,member_id,user_id,kind,amount,created_at) VALUES
  ('lottery-1','app','group','member',$1,'lottery',2.50,NOW()-INTERVAL '60 days'),
  ('lottery-2','app','other-group','member',$1,'lottery',0.75,NOW()),
@@ -31,11 +31,21 @@ func TestQQBotMyRewardsSummarizesHistoryByCategory(t *testing.T) {
  ('invite','app','group','member',$1,'invite',2.50,NOW()),
  ('checkin-1','app','group','member',$1,'checkin',0.10,NOW()-INTERVAL '1 day'),
  ('checkin-2','app','other-group','member',$1,'checkin',0.20,NOW()),
+ ('growth','app','group','member',$1,'growth',1.25,NOW()),
+ ('streak','app','group','member',$1,'streak',0.50,NOW()),
+ ('ranking','app','group','member',$1,'ranking',0.75,NOW()),
  ('other-user','app','group','someone-else',$2,'lottery',99,NOW())`, uid, otherUser)
 	require.NoError(t, err)
 	info, err = s.myRewards(ctx, c, job)
 	require.NoError(t, err)
-	require.Equal(t, "🎁 **累计奖励**\n\n- 抽奖奖励：USD 3.25\n- 邀请奖励：USD 2.50\n- 签到奖励：USD 0.30\n- 兑换奖励：USD 0.00\n\n**合计：USD 6.05**", info)
+	require.Equal(t, "🎁 **累计奖励**\n合计：USD 8.55\n\n抽奖：USD 3.25\n邀请：USD 2.50\n签到：USD 0.30\n成长：USD 1.25\n连签：USD 0.50\n排行：USD 0.75", info)
+
+	_, err = db.Exec(`INSERT INTO qq_bot_rewards(reward_key,app_id,group_id,member_id,user_id,kind,amount) VALUES('historical','app','group','member',$1,'redemption',2)`, uid)
+	require.NoError(t, err)
+	info, err = s.myRewards(ctx, c, job)
+	require.NoError(t, err)
+	require.Contains(t, info, "历史奖励：USD 2.00")
+	require.Contains(t, info, "合计：USD 10.55")
 
 	info, err = s.myRewards(ctx, c, Job{MemberID: "unbound"})
 	require.NoError(t, err)
@@ -49,6 +59,7 @@ func TestQQBotMyRewardsSummarizesHistoryByCategory(t *testing.T) {
 
 func TestQQBotMyRewardsCommandSettlesInvitesWithoutDuplicatePayouts(t *testing.T) {
 	db := testDB(t)
+	insightsUsageTable(t, db)
 	s := savedBot(t, db)
 	ctx := context.Background()
 	c, err := s.Config(ctx)
@@ -82,6 +93,11 @@ func TestQQBotMyRewardsCommandSettlesInvitesWithoutDuplicatePayouts(t *testing.T
 		require.NoError(t, marshalErr)
 		require.NoError(t, s.Enqueue(ctx, c, Payload{ID: id, Type: groupMessageCreate, Data: raw}))
 		s.runOne(ctx)
+		require.Contains(t, reply, "<qqbot-at-user id=\""+member+"\" />\n🎁 **累计奖励**")
+		require.Contains(t, reply, "🎁 **累计奖励**")
+		for _, category := range []string{"抽奖", "签到", "成长", "连签", "排行"} {
+			require.Contains(t, reply, category+"：USD 0.00")
+		}
 	}
 	addInvite := func(group, member string) {
 		t.Helper()
@@ -90,7 +106,8 @@ func TestQQBotMyRewardsCommandSettlesInvitesWithoutDuplicatePayouts(t *testing.T
 	}
 	addInvite("group", "first-invitee")
 	query("invitee-query", "first-invitee")
-	require.Equal(t, "<qqbot-at-user id=\"first-invitee\" />\n🎁 **累计奖励**\n\n- 抽奖奖励：USD 0.00\n- 邀请奖励：USD 0.00\n- 签到奖励：USD 0.00\n- 兑换奖励：USD 0.00\n\n**合计：USD 0.00**", reply)
+	require.Contains(t, reply, "邀请：USD 0.00")
+	require.Contains(t, reply, "合计：USD 0.00")
 	var balance float64
 	require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, inviter).Scan(&balance))
 	require.Equal(t, c.InviteReward, balance)
@@ -99,7 +116,8 @@ func TestQQBotMyRewardsCommandSettlesInvitesWithoutDuplicatePayouts(t *testing.T
 	addInvite("other-group", "second-invitee")
 	for _, id := range []string{"inviter-query", "repeat-query"} {
 		query(id, "inviter")
-		require.Equal(t, "<qqbot-at-user id=\"inviter\" />\n🎁 **累计奖励**\n\n- 抽奖奖励：USD 0.00\n- 邀请奖励：USD 2.00\n- 签到奖励：USD 0.00\n- 兑换奖励：USD 0.00\n\n**合计：USD 2.00**", reply)
+		require.Contains(t, reply, "邀请：USD 2.00")
+		require.Contains(t, reply, "合计：USD 2.00")
 	}
 	require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, inviter).Scan(&balance))
 	require.Equal(t, 2*c.InviteReward, balance)

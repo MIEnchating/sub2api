@@ -66,6 +66,12 @@ func testDB(t *testing.T) *sql.DB {
 		_, err = db.Exec(string(raw))
 		require.NoError(t, err)
 	}
+	raw, err = migrations.FS.ReadFile("286_qq_bot_health_notifications.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
 	raw, err = migrations.FS.ReadFile("283_qq_bot_price_notifications.sql")
 	require.NoError(t, err)
 	for range 2 {
@@ -111,6 +117,30 @@ func testDB(t *testing.T) *sql.DB {
 		require.NoError(t, err)
 	}
 	raw, err = migrations.FS.ReadFile("280_qq_bot_reward_redemption.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
+	raw, err = migrations.FS.ReadFile("287_qq_bot_growth_rewards.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
+	raw, err = migrations.FS.ReadFile("288_qq_bot_daily_rankings.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
+	raw, err = migrations.FS.ReadFile("289_qq_bot_ranking_claims.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
+	raw, err = migrations.FS.ReadFile("290_qq_bot_periodic_growth.sql")
 	require.NoError(t, err)
 	for range 2 {
 		_, err = db.Exec(string(raw))
