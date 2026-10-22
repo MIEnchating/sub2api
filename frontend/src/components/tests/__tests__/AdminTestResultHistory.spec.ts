@@ -40,6 +40,25 @@ const mountHistory = (results: TestResult[], extra = {}) => mount(AdminTestResul
 })
 
 describe('admin result account history', () => {
+  it('shows total duration and filters a slow completed pelican as a quality failure while preserving its output', async () => {
+    const wrapper = mountHistory([
+      result(1),
+      result(2, { latency_ms: 60001, protection_decision: { status: 'applied', verdict: 'fail', scheduling: 'pause', reason: 'Total duration exceeds 60 seconds' } }),
+    ])
+    await flushPromises()
+    const slow = wrapper.get('[data-result-id="2"]')
+    expect(slow.text()).toContain('Total duration: 60.001 s')
+    expect(slow.get('.badge').text()).toBe('Quality check failed')
+    expect(slow.get('.badge').classes()).toContain('badge-danger')
+    expect(slow.get('[data-output]').text()).toBe('<p>complete content</p>')
+    await slow.get('[data-expand-result]').trigger('click')
+    expect(slow.get('[data-result-summary]').text()).toBe('Total duration exceeds 60 seconds')
+    await wrapper.get('[data-status-filter]').setValue('failed')
+    expect(wrapper.findAll('[data-result-id]').map(item => item.attributes('data-result-id'))).toEqual(['2'])
+    expect(wrapper.get('[data-account-key="account:10"]').text()).toContain('1 failed')
+    wrapper.unmount()
+  })
+
   it('shows model mismatch and missing evidence instead of a successful execution badge', async () => {
     const check = { requested_model: 'alias', upstream_model: 'expected', returned_models: ['different'], match_mode: 'exact' as const, verdict: 'fail' as const, reason: 'mismatch' as const }
     const wrapper = mountHistory([
@@ -283,4 +302,13 @@ describe('admin result account history', () => {
     await wrapper.setProps({ results: [result(102)] })
     expect(wrapper.find('[data-output]').exists()).toBe(false)
   })
+})
+
+it('opens the linked account and distinguishes failed capability from HTTP success', async () => {
+ const w = mountHistory([result(1), result(2, { account_id: 20, output_kind: 'capability', execution_info: { attempts: [], capability: { version: 1, seed: 'a', samples: 3, required_passes: 2, passed: 0, verdict: 'fail', answers: [] } } })], { initialAccountId: 20 })
+ await flushPromises()
+ expect(w.get('[data-selected-account] h3').text()).toBe('Team Beta #20')
+ expect(w.get('[data-result-id="2"] .badge').text()).toBe('Failed')
+ expect(w.get('[data-result-id="2"] .badge').classes()).toContain('badge-danger')
+ w.unmount()
 })

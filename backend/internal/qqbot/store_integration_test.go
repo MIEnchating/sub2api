@@ -110,6 +110,12 @@ func testDB(t *testing.T) *sql.DB {
 		_, err = db.Exec(string(raw))
 		require.NoError(t, err)
 	}
+	raw, err = migrations.FS.ReadFile("292_qq_bot_image_references.sql")
+	require.NoError(t, err)
+	for range 2 {
+		_, err = db.Exec(string(raw))
+		require.NoError(t, err)
+	}
 	raw, err = migrations.FS.ReadFile("279_gpt_direct_lottery_rewards.sql")
 	require.NoError(t, err)
 	for range 2 {
@@ -430,10 +436,10 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 			chatCalls++
 			require.Zero(t, replies, "do not send a placeholder before generating the answer")
 			require.Equal(t, "Bearer operator-key", r.Header.Get("Authorization"))
-			_, _ = w.Write([]byte(`{"choices":[{"message":{"content":"free response"}}],"usage":{"prompt_tokens":4,"completion_tokens":2}}`))
+			_, _ = w.Write(textToolTestJSON(t, "chat_completions", "free response"))
 		case "/v1/images/generations":
 			imageCalls++
-			require.Equal(t, 1, replies, "image generation must not send a placeholder either")
+			require.Equal(t, 2, replies, "image generation starts after its processing notice")
 			require.Equal(t, "Bearer operator-key", r.Header.Get("Authorization"))
 			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]string{"b64_json": base64.StdEncoding.EncodeToString(picture.Bytes())}}})
 		case "/token":
@@ -443,6 +449,8 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 		case "/v2/groups/group/messages":
 			body := readQQTestReply(t, r)
 			if body.MsgType == 7 {
+				require.Equal(t, 3, body.Sequence)
+			} else if body.text() == "图片已生成。" {
 				require.Equal(t, 2, body.Sequence)
 			} else {
 				require.Equal(t, 1, body.Sequence)
@@ -490,7 +498,7 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 	require.NoError(t, s.Enqueue(ctx, c, p))
 	s.runOne(ctx)
 	require.Equal(t, 1, imageCalls)
-	require.Equal(t, 3, replies)
+	require.Equal(t, 4, replies)
 	var balance float64
 	require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, uid).Scan(&balance))
 	require.Zero(t, balance)

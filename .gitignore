@@ -136,6 +136,7 @@ deploy/docker-compose.override.yml
 .gocache/
 vite.config.js
 docs/*
+!docs/passive-quality.md
 !docs/codex-fingerprint.md
 !docs/codex-ticket-diagnostics.md
 
@@ -179,3 +180,5 @@ issues/
 
 # Managed by the host image updater (instance configuration)
 deploy/docker-compose.updater.json
+
+!docs/channel-quality.md

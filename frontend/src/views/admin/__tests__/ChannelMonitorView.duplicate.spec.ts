@@ -1,5 +1,5 @@
 import { defineComponent } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
 import type { ChannelMonitor } from '@/api/admin/channelMonitor'
@@ -108,6 +108,7 @@ function mountView() {
   return mount(ChannelMonitorView, {
     global: {
       stubs: {
+        RouterLink: RouterLinkStub,
         AppLayout: AppLayoutStub,
         TablePageLayout: TablePageLayoutStub,
         DataTable: DataTableStub,
@@ -147,6 +148,7 @@ describe('ChannelMonitorView duplicate action', () => {
     wrapper.findComponent(MonitorActionsCell).vm.$emit('duplicate', monitor)
     await flushPromises()
 
+    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/admin/tests?tab=overview')
     expect(duplicateMonitor).toHaveBeenCalledTimes(1)
     expect(duplicateMonitor).toHaveBeenCalledWith(42)
     expect(showSuccess).toHaveBeenCalledWith('admin.channelMonitor.duplicateSuccess')

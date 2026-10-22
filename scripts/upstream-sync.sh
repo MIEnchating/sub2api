@@ -1037,10 +1037,11 @@ PY
   )
 
   read -r accepted_risk_count blocking_risk_count < <(
-    python3 - "$REVIEW_DECISION_FILE" "$RELEASE_RISK_POLICY_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" <<'PY'
+    python3 - "$REVIEW_DECISION_FILE" "$RELEASE_RISK_POLICY_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" "$WORKTREE" <<'PY'
 import json
 import re
 import sys
+import subprocess
 
 with open(sys.argv[1], encoding="utf-8") as source:
     decision = json.load(source)
@@ -1071,6 +1072,15 @@ if risks is not None:
                 continue
             try:
                 if re.search(entry["pattern"], risk, re.IGNORECASE):
+                    # Reopen review if an inherited limitation's implementation changes.
+                    if "unchanged_path" in entry or "unchanged_blob" in entry:
+                        path, expected = entry.get("unchanged_path"), entry.get("unchanged_blob")
+                        if not isinstance(path, str) or not isinstance(expected, str):
+                            continue
+                        result = subprocess.run(["git", "-C", sys.argv[4], "hash-object", "--", path],
+                                                capture_output=True, text=True)
+                        if result.returncode or result.stdout.strip() != expected:
+                            continue
                     accepted.append(risk)
                     matched = True
                     break

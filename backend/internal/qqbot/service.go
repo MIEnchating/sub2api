@@ -106,6 +106,7 @@ func (s *Service) maintenance(ctx context.Context) {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_conversations WHERE updated_at<NOW()-INTERVAL '1 day'`)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_group_messages h WHERE NOT EXISTS (SELECT 1 FROM qq_bot_group_messages recent WHERE recent.app_id=h.app_id AND recent.group_id=h.group_id AND recent.created_at>NOW()-INTERVAL '30 minutes')`)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_message_references WHERE created_at<NOW()-INTERVAL '24 hours'`)
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_incoming_images WHERE created_at<NOW()-INTERVAL '24 hours'`)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_daily_usage WHERE day<CURRENT_DATE-32`)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_autonomous_seen WHERE created_at<NOW()-INTERVAL '1 day'`)
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_autonomous_decisions WHERE day<CURRENT_DATE-32`)
@@ -418,7 +419,23 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 	}
 	text := ""
 	var img []byte
+	imageEdited := false
 	seq := 1
+	progressAttempted := false
+	sendImageProgress := func(notice string) {
+		if progressAttempted {
+			return
+		}
+		progressAttempted = true
+		progressJob := *j
+		progressJob.TransientReply = true
+		progressCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+		defer cancel()
+		// A failed/uncertain notice must neither stop paid work nor be retried.
+		// Consume its sequence even on failure to avoid reusing a QQ message ID.
+		_ = s.send(progressCtx, c, progressJob, notice, nil, seq)
+		seq++
+	}
 	switch cmd {
 	case "帮助":
 		return s.sendHelp(ctx, c, *j, arg)
@@ -581,15 +598,46 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 		j.Kind = kind
 		var err error
 		if kind == "image" {
+			sendImageProgress("正在生成图片，请稍候。")
 			img, err = s.generateImage(ctx, c, prompt)
 		} else {
 			messages := s.history(ctx, c, *j)
 			var input Message
-			input, err = s.chatMessage(ctx, e, prompt, ref)
+			input, err = s.chatMessageWithImageProgress(ctx, c, e, prompt, ref, func() {
+				sendImageProgress("正在处理图片，请稍候。")
+			})
 			if err == nil {
 				messages = append(messages, groupUserMessage(c, e, input))
 				j.ShareHistory = shareableGroupEvent(e, ref)
-				text, j.InputTokens, j.OutputTokens, err = s.chatReply(ctx, c, messages)
+				var turn chatTurnResult
+				turn, err = s.chatTurn(ctx, c, messages)
+				text, j.InputTokens, j.OutputTokens = turn.Text, turn.InputTokens, turn.OutputTokens
+				if err == nil && turn.ImagePrompt != "" {
+					// The model chose the tool; validate current policy and reserve
+					// image usage separately from the already-paid chat request.
+					if usageErr := s.reserveUsage(ctx, c, *j, "image"); usageErr != nil {
+						text = "生图服务暂时不可用，请稍后重试。"
+						if errors.Is(usageErr, errFeatureUnavailable) || errors.Is(usageErr, errUsageCooldown) || errors.Is(usageErr, errUsageLimit) {
+							text = "无法生成图片：" + usageErr.Error()
+						}
+					} else {
+						kind, j.Kind = "image", "image"
+						if turn.EditImageIndex > 0 {
+							imageEdited = true
+							sendImageProgress("正在修改图片，请稍候。")
+							img, err = s.editImage(ctx, c, turn.ImagePrompt, input.Images[turn.EditImageIndex-1])
+						} else {
+							sendImageProgress("正在生成图片，请稍候。")
+							img, err = s.generateImage(ctx, c, turn.ImagePrompt)
+						}
+						if err == nil {
+							text = "图片已生成。"
+							if imageEdited {
+								text = "图片已修改。"
+							}
+						}
+					}
+				}
 			} else {
 				text = err.Error()
 			}
@@ -601,9 +649,12 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 			}
 			if kind == "image" {
 				text = "图片生成失败，请稍后重试。"
+				if imageEdited {
+					text = "图片编辑失败，请稍后重试。"
+				}
 			}
 			j.Error = err.Error()
-			_, _ = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET error=$2 WHERE id=$1`, j.ID, j.Error)
+			_, _ = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET error=$2,input_tokens=$3,output_tokens=$4 WHERE id=$1`, j.ID, j.Error, j.InputTokens, j.OutputTokens)
 			if sendErr := s.send(ctx, c, *j, text, nil, seq); sendErr != nil {
 				return sendErr
 			}
@@ -615,7 +666,11 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 		}
 	}
 	if len(img) > 0 {
-		if err := s.send(ctx, c, *j, "图片已生成。", nil, seq); err != nil {
+		notice := "图片已生成。"
+		if imageEdited {
+			notice = "图片已修改。"
+		}
+		if err := s.send(ctx, c, *j, notice, nil, seq); err != nil {
 			return err
 		}
 		return s.send(ctx, c, *j, text, img, seq+1)

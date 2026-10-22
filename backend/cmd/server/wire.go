@@ -121,6 +121,7 @@ func provideCleanup(
 	openAIGateway *service.OpenAIGatewayService,
 	accountHealth *service.AccountHealthService,
 	scheduledTestRunner *service.ScheduledTestRunnerService,
+	passiveQuality *service.PassiveQualityService,
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
@@ -354,6 +355,12 @@ func provideCleanup(
 			{"OpenAICodexTicketHarvester", func() error {
 				if openAIGateway != nil {
 					openAIGateway.StopOpenAICodexTicketHarvester()
+				}
+				return nil
+			}},
+			{"PassiveQualityService", func() error {
+				if passiveQuality != nil {
+					passiveQuality.Stop()
 				}
 				return nil
 			}},

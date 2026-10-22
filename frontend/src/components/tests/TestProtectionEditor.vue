@@ -46,6 +46,7 @@
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.required_pass || false" :disabled="ruleFor(type.id)?.vote?.enabled" type="checkbox" data-rule-required-pass @change="patchRule(type.id, { required_pass: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.requiredPass') }}</label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.requiredPassHint') }}</p>
           </template>
+          <p v-if="type.output_kind === 'capability'" class="text-sm text-gray-500">{{ t('admin.tests.capability.protectionHint') }}</p>
           <h4 class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.conditions') }}</h4>
           <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.pause_on_failure || !!ruleFor(type.id)?.on_fail" :disabled="!!ruleFor(type.id)?.on_fail" type="checkbox" data-rule-failure @change="patchRule(type.id, { pause_on_failure: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.pauseOnFailure') }}</label>
           <p v-if="!allPass && ruleFor(type.id)?.on_fail" class="text-xs text-gray-500 dark:text-gray-400" data-rule-failure-action-hint>{{ t(combined ? 'admin.tests.protection.combined.failureActionHint' : 'admin.tests.protection.failureActionHint') }}</p>
@@ -54,16 +55,21 @@
             <label class="input-label block">{{ t('tests.modelCheck.matchMode') }}<select :value="ruleFor(type.id)?.model_match || 'exact'" class="input mt-1 w-full" data-rule-model-match @change="patchRule(type.id, { model_match: ($event.target as HTMLSelectElement).value as TestProtectionRule['model_match'] })"><option value="exact">{{ t('tests.modelCheck.exact') }}</option><option value="snapshot">{{ t('tests.modelCheck.snapshot') }}</option></select></label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.modelMatchHint') }}</p>
           </template>
+          <div v-if="type.output_kind === 'html'" class="space-y-2 rounded-md border border-gray-200 p-3 dark:border-dark-700" data-duration-condition>
+            <label class="flex items-center gap-2 text-sm"><input :checked="hasDurationLimit(type.id)" type="checkbox" data-duration-enabled @change="setDurationLimit(type.id, ($event.target as HTMLInputElement).checked ? 60 : undefined)" />{{ t('admin.tests.protection.durationEnabled') }}</label>
+            <label v-if="hasDurationLimit(type.id)" class="input-label block">{{ t('admin.tests.protection.durationLimitSeconds') }}<input :value="durationLimit(type.id)" type="number" min="0" step="0.001" class="input ml-2 w-32" data-duration-limit @input="setDurationLimit(type.id, ($event.target as HTMLInputElement).valueAsNumber)" /></label>
+            <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.durationHint') }}</p>
+          </div>
           <template v-if="!allPass || !ruleFor(type.id)?.vote?.enabled">
-            <div v-for="(threshold, index) in ruleFor(type.id)?.thresholds || []" :key="index" class="flex flex-wrap items-center gap-2" data-threshold>
+            <div v-for="{ threshold, index } in editableThresholds(type)" :key="index" class="flex flex-wrap items-center gap-2" data-threshold>
               <select :value="threshold.metric" class="input w-full min-w-0 flex-none sm:w-auto sm:flex-1" :aria-label="t('admin.tests.protection.metric')" @change="patchThreshold(type.id, index, { metric: ($event.target as HTMLSelectElement).value as TestProtectionMetric })"><option v-for="metric in protectionMetrics(type.output_kind)" :key="metric" :value="metric">{{ t(`admin.tests.protection.metrics.${metric}`) }}</option></select>
               <select :value="threshold.operator" class="input w-28" :aria-label="t('admin.tests.protection.operator')" @change="patchThreshold(type.id, index, { operator: ($event.target as HTMLSelectElement).value as 'lt' | 'gt' })"><option value="lt">{{ t('admin.tests.protection.below') }}</option><option value="gt">{{ t('admin.tests.protection.above') }}</option></select>
               <input :value="threshold.value" type="number" step="any" :min="threshold.metric === 'output_numeric' ? undefined : 0" :max="threshold.metric.endsWith('_rate') ? 100 : undefined" class="input w-28" :aria-label="t('admin.tests.protection.threshold')" @input="patchThreshold(type.id, index, { value: ($event.target as HTMLInputElement).valueAsNumber })" />
               <button type="button" class="btn btn-secondary btn-sm" :aria-label="t('admin.tests.protection.removeThreshold')" @click="removeThreshold(type.id, index)">{{ t('common.delete') }}</button>
             </div>
-            <button type="button" class="text-xs font-medium text-primary-600 dark:text-primary-400" :disabled="(ruleFor(type.id)?.thresholds?.length || 0) >= 20" data-add-threshold @click="addThreshold(type)">+ {{ t('admin.tests.protection.addThreshold') }}</button>
+            <button v-if="type.output_kind !== 'html'" type="button" class="text-xs font-medium text-primary-600 dark:text-primary-400" :disabled="(ruleFor(type.id)?.thresholds?.length || 0) >= 20" data-add-threshold @click="addThreshold(type)">+ {{ t('admin.tests.protection.addThreshold') }}</button>
           </template>
-          <template v-if="!['statistics', 'model_check'].includes(type.output_kind)">
+          <template v-if="!['statistics', 'model_check', 'capability'].includes(type.output_kind)">
             <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.vote?.enabled || false" type="checkbox" data-rule-vote @change="toggleVote(type.id, ($event.target as HTMLInputElement).checked)" />{{ t('admin.tests.protection.vote') }}</label>
             <template v-if="!allPass && ruleFor(type.id)?.vote?.enabled">
               <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.vote?.public_enabled === true" type="checkbox" data-rule-public-vote @change="patchVote(type.id, { public_enabled: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.publicVote') }}</label>
@@ -127,7 +133,7 @@ const update = (change: (value: TestProtectionConfig) => void) => {
   emit('update:modelValue', next)
 }
 type AllPassRole = 'automatic' | 'review' | 'observe'
-const canReview = (type: TestType) => !['statistics', 'model_check'].includes(type.output_kind)
+const canReview = (type: TestType) => !['statistics', 'model_check', 'capability'].includes(type.output_kind)
 const ruleRole = (id: number): AllPassRole => !ruleFor(id) ? 'observe' : ruleFor(id)?.vote?.enabled ? 'review' : 'automatic'
 // Keep edits when switching to display-only and back within this editor.
 const roleDrafts = new Map<number, TestProtectionRule>()
@@ -183,6 +189,12 @@ const patchRule = (id: number, patch: Partial<TestProtectionRule>) => update(nex
   const rule = next.rules.find(item => item.test_definition_id === id)
   if (rule) Object.assign(rule, patch)
 })
+const hasDurationLimit = (id: number) => !!ruleFor(id)?.thresholds?.some(item => item.metric === 'latency_ms' && item.operator === 'gt')
+const durationLimit = (id: number) => Math.min(...(ruleFor(id)?.thresholds || []).filter(item => item.metric === 'latency_ms' && item.operator === 'gt').map(item => item.value)) / 1000
+const setDurationLimit = (id: number, seconds?: number) => patchRule(id, {
+  thresholds: [...(ruleFor(id)?.thresholds || []).filter(item => item.metric !== 'latency_ms' || item.operator !== 'gt'), ...(seconds === undefined ? [] : [{ metric: 'latency_ms' as const, operator: 'gt' as const, value: Math.round(seconds * 1000) }])],
+})
+const editableThresholds = (type: TestType) => (ruleFor(type.id)?.thresholds || []).map((threshold, index) => ({ threshold, index })).filter(({ threshold }) => type.output_kind !== 'html' || threshold.metric !== 'latency_ms' || threshold.operator !== 'gt')
 const addThreshold = (type: TestType) => {
   const metric = protectionMetrics(type.output_kind)[0]
   patchRule(type.id, { thresholds: [...(ruleFor(type.id)?.thresholds || []), { metric, operator: metric.endsWith('_ms') ? 'gt' : 'lt', value: metric.endsWith('_rate') ? 90 : 0 }] })

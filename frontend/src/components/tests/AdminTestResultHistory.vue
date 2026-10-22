@@ -76,6 +76,7 @@ import TestExecutionUsage from '@/components/tests/TestExecutionUsage.vue'
 import TestResultOutput from '@/components/tests/TestResultOutput.vue'
 
 const props = defineProps<{
+  initialAccountId?: number
   results: TestResult[]
   accounts: AccountListItem[]
   types: TestType[]
@@ -88,18 +89,19 @@ const props = defineProps<{
 const emit = defineEmits<{ retry: [result: TestResult]; delete: [result: TestResult] }>()
 const { t } = useI18n()
 const accountSearch = ref('')
-const selectedKey = ref('')
+const selectedKey = ref(props.initialAccountId ? `account:${props.initialAccountId}` : '')
 const typeFilter = ref('')
 const statusFilter = ref('')
 const page = ref(1)
 const pageSize = 15
 const expanded = ref(new Set<number>())
 const isRunning = (result: TestResult) => result.status === 'running' || result.status === 'pending'
-const isSkippedResult = (result: TestResult) => result.status === 'failed' && (result.error_message || '').startsWith('检测跳过：')
+const isSkippedResult = (result: TestResult) => result.execution_info?.failure_kind === 'quality_deferred' || (result.status === 'failed' && (result.error_message || '').startsWith('检测跳过：'))
 const resultStatus = (result: TestResult) => {
   if (isRunning(result)) return 'running'
   if (isSkippedResult(result)) return 'skipped'
-  if (result.status === 'failed') return 'failed'
+  if (result.status === 'failed' || result.protection_decision?.verdict === 'fail') return 'failed'
+  if (result.output_kind === 'capability') return result.execution_info?.capability?.verdict === 'pass' ? 'success' : result.execution_info?.capability?.verdict === 'fail' ? 'failed' : 'unknown'
   if (result.output_kind === 'model_check') return result.output_model_check?.verdict === 'pass' ? 'success' : result.output_model_check?.verdict === 'fail' ? 'failed' : 'unknown'
   return result.status === 'passed' ? 'success' : result.status
 }
@@ -139,10 +141,10 @@ const visibleAccounts = computed(() => {
   return accountGroups.value.filter(account => account.label.toLocaleLowerCase().includes(query))
 })
 watch(visibleAccounts, accounts => {
-  if (!accounts.some(account => account.key === selectedKey.value)) selectedKey.value = accounts[0]?.key || ''
+  if (!accounts.some(account => account.key === selectedKey.value)) selectedKey.value = accounts.find(a => a.id === props.initialAccountId)?.key || accounts[0]?.key || ''
 }, { immediate: true })
 const selectedAccount = computed(() => visibleAccounts.value.find(account => account.key === selectedKey.value))
-const hasModelChecks = computed(() => selectedAccount.value?.results.some(result => result.output_kind === 'model_check') || false)
+const hasModelChecks = computed(() => selectedAccount.value?.results.some(result => ['model_check', 'capability'].includes(result.output_kind)) || false)
 const availableTypes = computed(() => {
   const types = new Map<string, string>()
   for (const result of selectedAccount.value?.results || []) types.set(resultTypeKey(result), resultTypeName(result))
@@ -175,7 +177,7 @@ const toggleResult = (id: number) => {
 const formatDate = (value?: string) => value ? new Date(value).toLocaleString() : '-'
 const resultDuration = (result: TestResult) => {
   if (result.status === 'pending') return t('admin.tests.queued')
-  if (!isRunning(result)) return result.latency_ms == null ? '-' : `${result.latency_ms}ms`
+  if (!isRunning(result)) return result.latency_ms == null || result.latency_ms < 0 ? '-' : t('admin.tests.totalDuration', { seconds: Number((result.latency_ms / 1000).toFixed(3)) })
   const started = timestamp(result)
   if (!started) return '-'
   const seconds = Math.max(0, Math.floor((props.now - started) / 1000))
@@ -187,10 +189,13 @@ const resultDuration = (result: TestResult) => {
 }
 const statusClass = (result: TestResult) => resultStatus(result) === 'failed' ? 'badge badge-danger' : ['running', 'unknown', 'skipped'].includes(resultStatus(result)) ? 'badge badge-warning' : resultStatus(result) === 'success' ? 'badge badge-success' : 'badge badge-gray'
 const statusLabel = (result: TestResult) => result.status === 'pending' ? t('admin.tests.queued') : isRunning(result) ? t('admin.scheduledTests.running') : isSkippedResult(result) ? t('admin.tests.skipped') : result.status === 'failed' ? t('admin.scheduledTests.failed')
+  : result.protection_decision?.verdict === 'fail' ? t('admin.tests.qualityFailed')
+  : result.output_kind === 'capability' ? t(`admin.tests.capability.verdicts.${result.execution_info?.capability?.verdict || 'pending'}`)
   : result.output_kind === 'model_check' ? t(`tests.modelCheck.${result.output_model_check?.verdict || 'unknown'}`) : ['success', 'passed'].includes(result.status) ? t('admin.scheduledTests.success') : result.status
 const resultSummary = (result: TestResult) => {
   if (result.status === 'failed') return (result.error_message || t('admin.scheduledTests.failed')).slice(0, 180)
   if (isRunning(result)) return t('tests.running')
+  if (result.protection_decision?.verdict === 'fail') return result.protection_decision.reason || t('admin.tests.qualityFailed')
   if (result.output_kind === 'statistics') return result.output_statistics ? t('admin.tests.statistics') : t('tests.noOutput')
   if (result.output_kind === 'model_check') return result.output_model_check?.returned_models?.join(', ') || t('tests.modelCheck.unknown')
   if (result.output_kind === 'number' && result.output_numeric != null) return String(result.output_numeric)

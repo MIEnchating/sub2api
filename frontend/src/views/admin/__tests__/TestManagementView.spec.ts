@@ -1,7 +1,7 @@
 import { mount, flushPromises } from '@vue/test-utils'
 import { beforeEach, afterEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
-import TestManagementView from '../TestManagementView.vue'
+import TestManagementView from '@/components/tests/ActiveQualityPanel.vue'
 import AdminTestResultHistory from '@/components/tests/AdminTestResultHistory.vue'
 import Select from '@/components/common/Select.vue'
 
@@ -11,11 +11,12 @@ const api = vi.hoisted(() => ({
   retryResult: vi.fn(), deleteResult: vi.fn(), getGroups: vi.fn(), getAccounts: vi.fn(), getModelAllowlistCandidates: vi.fn(), success: vi.fn(), error: vi.fn()
 }))
 vi.mock('@/api/admin', () => ({ adminAPI: { tests: api, groups: { getAll: api.getGroups, getModelAllowlistCandidates: api.getModelAllowlistCandidates }, accounts: { list: api.getAccounts } } }))
+vi.mock('vue-router', () => ({ useRoute: () => ({ query: {} }) }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showSuccess: api.success, showError: api.error }) }))
 
 const plan = { id: 10, name: 'Candy hourly', test_definition_id: 2, test_definition_ids: [2], group_ids: [8], model_id: 'test-model', cron_expression: '0 * * * *', enabled: true, max_results: 50 }
 const makeWrapper = () => mount(TestManagementView, { global: {
-  plugins: [createI18n({ legacy: false, locale: 'en', missingWarn: false, fallbackWarn: false, messages: { en: { admin: { tests: { elapsed: ({ named }: { named: (key: string) => string }) => `Elapsed ${named('duration')}` } } } } })],
+  plugins: [createI18n({ legacy: false, locale: 'en', missingWarn: false, fallbackWarn: false, messages: { en: { admin: { tests: { totalDuration: 'Total duration {seconds}s', elapsed: ({ named }: { named: (key: string) => string }) => `Elapsed ${named('duration')}` } } } } })],
   stubs: { AppLayout: { template: '<main><slot /></main>' }, Icon: true, BaseDialog: { props: ['show', 'title'], template: '<section v-if="show" data-dialog><h3>{{ title }}</h3><slot /><slot name="footer" /></section>' } }
 } })
 
@@ -321,7 +322,7 @@ describe('configurable test management', () => {
 
     api.listResults.mockResolvedValue([{ ...running, status: 'success', latency_ms: 130123, output_numeric: 29 }])
     await vi.advanceTimersByTimeAsync(5000); await flushPromises()
-    expect(wrapper.get('[data-dialog] article').text()).toContain('130123ms')
+    expect(wrapper.get('[data-dialog] article').text()).toContain('Total duration 130.123s')
     expect(wrapper.get('[data-dialog] article').text()).not.toContain('Elapsed')
     wrapper.unmount()
   })
@@ -354,7 +355,7 @@ describe('configurable test management', () => {
     ])
     const wrapper = makeWrapper(); await flushPromises()
 
-    expect(wrapper.find('[role="tablist"]').exists()).toBe(false)
+    expect(wrapper.findAll('[role="tablist"] [role="tab"]')).toHaveLength(0)
     expect(wrapper.text()).toContain('Pelican plan')
     expect(wrapper.text()).toContain('Candy plan')
     await wrapper.findAll('tbody tr')[0].get('button[aria-label="common.edit"]').trigger('click')

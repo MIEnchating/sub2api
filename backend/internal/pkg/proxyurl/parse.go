@@ -7,6 +7,7 @@
 package proxyurl
 
 import (
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -30,7 +31,7 @@ var allowedSchemes = map[string]bool{
 // 验证规则:
 //   - TrimSpace 后为空视为直连
 //   - url.Parse 失败返回 error（不含原始 URL，防凭据泄露）
-//   - Host 为空返回 error（用 Redacted() 脱敏）
+//   - Host 为空返回 error（不回显原始 URL）
 //   - Scheme 必须为 http/https/socks5/socks5h
 //   - socks5:// 自动升级为 socks5h://（确保 DNS 由代理端解析，防止 DNS 泄漏）
 func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
@@ -41,12 +42,12 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 
 	parsed, err = url.Parse(trimmed)
 	if err != nil {
-		// 不使用 %w 包装，避免 url.Parse 的底层错误消息泄漏原始 URL（可能含凭据）
-		return "", nil, fmt.Errorf("invalid proxy URL: %v", err)
+		// url.Error includes the original URL even with %v; never echo credentials.
+		return "", nil, errors.New("invalid proxy URL")
 	}
 
 	if parsed.Host == "" || parsed.Hostname() == "" {
-		return "", nil, fmt.Errorf("proxy URL missing host: %s", parsed.Redacted())
+		return "", nil, errors.New("proxy URL missing host")
 	}
 
 	scheme := strings.ToLower(parsed.Scheme)
@@ -63,4 +64,27 @@ func Parse(raw string) (trimmed string, parsed *url.URL, err error) {
 	}
 
 	return trimmed, parsed, nil
+}
+
+// Redact returns a log-safe representation of a proxy URL. Proxy credentials
+// are removed entirely, including the username. Invalid input is represented
+// by a fixed marker so parser errors cannot echo user-supplied secrets.
+func Redact(raw string) string {
+	trimmed := strings.TrimSpace(raw)
+	if trimmed == "" {
+		return ""
+	}
+	u, err := url.Parse(trimmed)
+	if err != nil || u.Host == "" {
+		return "<configured-proxy>"
+	}
+	u.User = nil
+	// Proxy URLs should be origins; strip path/query/fragment defensively so
+	// even malformed legacy values cannot smuggle tokens into log output.
+	u.Path = ""
+	u.RawPath = ""
+	u.RawQuery = ""
+	u.Fragment = ""
+	u.ForceQuery = false
+	return u.String()
 }

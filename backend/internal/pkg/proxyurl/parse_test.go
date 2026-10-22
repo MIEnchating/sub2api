@@ -120,7 +120,7 @@ func TestParse_含密码URL脱敏(t *testing.T) {
 		t.Error("升级后应保留 UserInfo")
 	}
 
-	// 场景 2: 带密码但缺少 host（触发 Redacted 脱敏路径）
+	// 场景 2: 带密码但缺少 host（错误不回显原始 URL）
 	_, _, err = Parse("http://user:secret_password@:0/")
 	if err == nil {
 		t.Fatal("缺少 host 应返回错误")
@@ -211,5 +211,48 @@ func TestParse_无Scheme裸地址(t *testing.T) {
 	_, _, err := Parse("proxy.example.com:8080")
 	if err == nil {
 		t.Fatal("无 scheme 的裸地址应返回错误")
+	}
+}
+
+func TestRedact_RemovesProxyCredentials(t *testing.T) {
+	got := Redact("http://alice:super-secret@proxy.example.com:8080")
+	if got != "http://proxy.example.com:8080" {
+		t.Fatalf("Redact() = %q", got)
+	}
+	if strings.Contains(got, "alice") || strings.Contains(got, "super-secret") {
+		t.Fatalf("redacted URL still contains credentials: %q", got)
+	}
+}
+
+func TestRedact_RemovesQueryAndPath(t *testing.T) {
+	got := Redact("http://proxy.example.com:8080/route?token=secret#fragment")
+	if got != "http://proxy.example.com:8080" {
+		t.Fatalf("Redact() = %q", got)
+	}
+}
+
+func TestRedact_InvalidInputDoesNotEchoSecret(t *testing.T) {
+	got := Redact("http://alice:super-secret@[bad")
+	if got != "<configured-proxy>" {
+		t.Fatalf("Redact() = %q", got)
+	}
+}
+
+func TestParse_InvalidURLDoesNotExposeCredentials(t *testing.T) {
+	for name, raw := range map[string]string{
+		"malformed host": "http://private-user:private-password@[bad/private-path?token=private-token",
+		"bad escape":     "http://private-user:private-password@proxy.example/%zz?token=private-token",
+		"invalid port":   "http://private-user:private-password@proxy.example:private-port",
+		"missing host":   "http://private-user:private-password@:0/private-path?token=private-token#private-fragment",
+	} {
+		t.Run(name, func(t *testing.T) {
+			trimmed, parsed, err := Parse(raw)
+			if err == nil || trimmed != "" || parsed != nil {
+				t.Fatal("invalid proxy must fail without returning a usable route")
+			}
+			if strings.Contains(err.Error(), "private-") {
+				t.Fatalf("parse error exposes proxy secrets: %s", err)
+			}
+		})
 	}
 }

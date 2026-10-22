@@ -50,28 +50,68 @@ check_backend_lint() {
 }
 
 check_frontend_audit() {
-  (cd "$WORKTREE/frontend" && frontend_pnpm audit --prod --audit-level=high --json > audit.json || true)
+  local audit_file
+  audit_file="$(mktemp "${STATE_DIR:-${TMPDIR:-/tmp}}/${RUN_ID:-upstream-sync}-frontend-audit.XXXXXX.json")" || return 1
+  printf 'Frontend audit report: %s\n' "$audit_file"
+  (cd "$WORKTREE/frontend" && frontend_pnpm audit --prod --audit-level=high --json > "$audit_file" || true)
   python3 "$WORKTREE/tools/check_pnpm_audit_exceptions.py" \
-    --audit "$WORKTREE/frontend/audit.json" \
+    --audit "$audit_file" \
     --exceptions "$WORKTREE/.github/audit-exceptions.yml"
 }
 
+check_validation_worktree() {
+  local status
+  status="$(git -C "$WORKTREE" status --porcelain=v1)" || return 1
+  if [[ -n "$status" ]]; then
+    printf 'Validation modified the candidate; repair the generating check before pushing:\n%s\n' "$status" >&2
+    git -C "$WORKTREE" diff --stat >&2
+    return 1
+  fi
+}
+
 check_backend_integration() (
-  local database_id port attempt
-  database_id="$(docker run -d --rm -p 127.0.0.1::5432 \
-    -e POSTGRES_PASSWORD=integration-test -e POSTGRES_DB=sub2api_test postgres:18-alpine)" || return 1
+  local database_id port attempt rc ready=false
+  # Retain a failed container until diagnostics are collected; the EXIT trap
+  # removes only this check's database on both success and failure.
+  database_id="$(docker run -d -p 127.0.0.1::5432 \
+    -e POSTGRES_PASSWORD=integration-test -e POSTGRES_DB=sub2api_test postgres:18-alpine)" || {
+    printf 'Failed to start integration PostgreSQL.\n' >&2
+    return 1
+  }
   trap 'docker rm -f "$database_id" >/dev/null 2>&1 || true' EXIT
   for attempt in {1..30}; do
-    if docker exec "$database_id" pg_isready -U postgres -d sub2api_test >/dev/null 2>&1; then
+    # The image's temporary init server accepts Unix sockets before restarting
+    # into the TCP server used by the tests. Do not mistake it for readiness.
+    if docker exec "$database_id" pg_isready -h 127.0.0.1 -p 5432 -t 1 \
+      -U postgres -d sub2api_test >/dev/null 2>&1; then
+      ready=true
       break
     fi
     sleep 1
   done
-  docker exec "$database_id" pg_isready -U postgres -d sub2api_test >/dev/null || return 1
-  port="$(docker port "$database_id" 5432/tcp)" || return 1
-  docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
+  if [[ "$ready" != true ]]; then
+    printf 'Integration PostgreSQL did not become TCP-ready after 30 attempts.\n' >&2
+    docker logs --tail 50 "$database_id" >&2 || true
+    return 1
+  fi
+  port="$(docker port "$database_id" 5432/tcp)" || {
+    printf 'Failed to resolve integration PostgreSQL port.\n' >&2
+    return 1
+  }
+  if [[ ! "$port" =~ ^127\.0\.0\.1:[0-9]{1,5}$ ]] || \
+    ! (( 10#${port##*:} >= 1 && 10#${port##*:} <= 65535 )); then
+    printf 'Invalid integration PostgreSQL port mapping.\n' >&2
+    return 1
+  fi
+  if docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
     "QQBOT_TEST_DSN=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
-    go test -count=1 -tags=integration ./...
+    go test -count=1 -tags=integration ./...; then
+    return 0
+  else
+    rc=$?
+    printf 'Backend integration: go test -count=1 -tags=integration ./... failed (exit %d).\n' "$rc" >&2
+    return "$rc"
+  fi
 )
 
 check_deployment_scripts() {
@@ -147,6 +187,7 @@ run_validation_checks() {
   record_check '前端生产构建及 i18n' frontend_pnpm --dir "$WORKTREE/frontend" run build
   record_check '前端依赖安全审计' check_frontend_audit
   record_check '部署脚本验证' check_deployment_scripts
+  record_check '验证后工作树清洁检查' check_validation_worktree
   CURRENT_STAGE="全量验证结果汇总"
   if [[ -s "$VALIDATION_FAILURES_FILE" ]]; then
     VALIDATION_RESULT="第 $pass 轮失败（$(awk 'END {print NR}' "$VALIDATION_FAILURES_FILE") 项）"

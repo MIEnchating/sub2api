@@ -215,12 +215,12 @@ func validateProtectionOutputKind(rule *ScheduledTestProtectionRule, kind string
 		if rule.ModelMatch != "" {
 			return fmt.Errorf("model_match requires a model_check test")
 		}
-		if (rule.Vote == nil || !rule.Vote.Enabled) && !rule.PauseOnFailure && rule.ExpectedAnswer == "" && len(rule.Thresholds) == 0 && rule.OnFail == nil {
+		if kind != "capability" && (rule.Vote == nil || !rule.Vote.Enabled) && !rule.PauseOnFailure && rule.ExpectedAnswer == "" && len(rule.Thresholds) == 0 && rule.OnFail == nil {
 			return fmt.Errorf("each protection rule needs a threshold, answer, voting, or failure check")
 		}
 	}
-	if kind == "statistics" && ((rule.Vote != nil && rule.Vote.Enabled) || rule.ExpectedAnswer != "") {
-		return fmt.Errorf("statistics cannot use answer comparison or voting")
+	if (kind == "statistics" || kind == "capability") && ((rule.Vote != nil && rule.Vote.Enabled) || rule.ExpectedAnswer != "") {
+		return fmt.Errorf("%s cannot use answer comparison or voting", kind)
 	}
 	for _, threshold := range rule.Thresholds {
 		switch threshold.Metric {
@@ -244,8 +244,14 @@ func validateProtectionOutputKind(rule *ScheduledTestProtectionRule, kind string
 // Missing observations are inconclusive, never a synthetic zero or a pass that
 // could release an existing suspension. Any observed violation wins.
 func evaluateScheduledTestProtection(rule ScheduledTestProtectionRule, result *ScheduledTestResult) (string, string) {
+	if QualityResultDeferred(result) {
+		return "pending", result.ErrorMessage
+	}
 	if result == nil || result.Status == "pending" || result.Status == "running" {
 		return "pending", "检测未完成，等待下一轮"
+	}
+	if verdict, reason := EvaluateScheduledTestDuration(rule, result); verdict != "pass" {
+		return verdict, reason
 	}
 	if result.Status != "success" && result.Status != "passed" {
 		// A configured failure action is an explicit request to resolve an
@@ -259,6 +265,14 @@ func evaluateScheduledTestProtection(rule ScheduledTestProtectionRule, result *S
 		return "pending", "检测未完成，等待下一轮"
 	}
 	missing := false
+	if result.OutputKind == "capability" {
+		if result.ExecutionInfo == nil || result.ExecutionInfo.Capability == nil || result.ExecutionInfo.Capability.Verdict == "pending" {
+			return "pending", "能力检测未完成，等待复测"
+		}
+		if result.ExecutionInfo.Capability.Verdict != "pass" {
+			return "fail", "随机能力检测未达到通过标准"
+		}
+	}
 	if result.OutputKind == "model_check" {
 		check := result.OutputModelCheck
 		if check != nil && check.Verdict == "fail" {
@@ -267,6 +281,9 @@ func evaluateScheduledTestProtection(rule ScheduledTestProtectionRule, result *S
 		missing = check == nil || check.Verdict != "pass"
 	}
 	for _, threshold := range rule.Thresholds {
+		if threshold.Metric == "latency_ms" {
+			continue // Checked independently, including on administrator-reviewed results.
+		}
 		value, ok := scheduledTestMetric(result, threshold.Metric, rule.MinSamples)
 		if !ok {
 			missing = true
@@ -324,6 +341,39 @@ func evaluateScheduledTestProtection(rule ScheduledTestProtectionRule, result *S
 	return "pass", ""
 }
 
+func (r ScheduledTestProtectionRule) HasDurationThreshold() bool {
+	for _, threshold := range r.Thresholds {
+		if threshold.Metric == "latency_ms" {
+			return true
+		}
+	}
+	return false
+}
+
+// A configured duration condition is independent of content review. Missing or
+// unfinished timing cannot release a hold; a human approval cannot erase it.
+func EvaluateScheduledTestDuration(rule ScheduledTestProtectionRule, result *ScheduledTestResult) (string, string) {
+	if !rule.HasDurationThreshold() {
+		return "pass", ""
+	}
+	if result == nil || QualityResultDeferred(result) || result.Status == "" || result.Status == "pending" || result.Status == "running" || result.LatencyMs < 0 {
+		return "pending", "等待完整检测耗时"
+	}
+	if result.Status != "success" && result.Status != "passed" {
+		return "fail", "检测执行失败"
+	}
+	for _, threshold := range rule.Thresholds {
+		if threshold.Metric != "latency_ms" {
+			continue
+		}
+		value := float64(result.LatencyMs)
+		if (threshold.Operator == "gt" && value > threshold.Value) || (threshold.Operator == "lt" && value < threshold.Value) {
+			return "fail", scheduledTestThresholdReason(threshold, value)
+		}
+	}
+	return "pass", ""
+}
+
 func scheduledTestThresholdReason(threshold ScheduledTestThreshold, observed float64) string {
 	label, unit := threshold.Metric, ""
 	switch threshold.Metric {
@@ -334,7 +384,7 @@ func scheduledTestThresholdReason(threshold ScheduledTestThreshold, observed flo
 	case "avg_first_token_ms":
 		label, unit = "平均首字延迟", "ms"
 	case "latency_ms":
-		label, unit = "检测耗时", "ms"
+		label, unit = "检测总耗时", "ms"
 	case "output_numeric":
 		label = "输出数值"
 	}

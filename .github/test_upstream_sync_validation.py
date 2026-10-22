@@ -261,6 +261,24 @@ class ReleaseWindowTest(unittest.TestCase):
         easypay = ['累计更新中的 EasyPay 回调白名单会拒绝携带额外自定义字段的兼容支付商回调；主动查询和对账恢复仍保留，防重放校验未放宽。']
         self.assertIn('待发布', evaluate(easypay))
         self.assertIn('不发布', evaluate(['EasyPay 新增签名绕过漏洞。']))
+        self.assertIn('待发布', evaluate([
+            'backend/internal/payment/provider/easypay.go 的签名白名单仍拒绝非标准附加回调字段；相关支付渠道需使用标准回调或主动查询/对账恢复到账，不能通过放宽签名校验恢复兼容。']))
+
+        inherited = [
+            'backend/internal/service/image_storage.go 经环境代理下载图片时，本地 DNS 预检不能约束代理最终连接目标；若代理允许私网访问，仍存在代理侧 SSRF 风险。',
+            'backend/internal/sourceupdater/updater.go 升级失败只回滚镜像，不回退已经执行的数据库迁移；仍需升级前备份及新旧数据库模式兼容。',
+        ]
+        policy = json.loads((SCRIPT.parent.parent / '.github/release-risk-policy.json').read_text())
+        guarded = [entry for entry in policy if 'unchanged_path' in entry]
+        self.assertEqual(len(guarded), 2)
+        self.assertIn('风险=2 已接受=0 可阻塞风险=2', evaluate(inherited))
+        for entry in guarded:
+            path = self.repo / entry['unchanged_path']
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes((SCRIPT.parent.parent / entry['unchanged_path']).read_bytes())
+        self.assertIn('风险=2 已接受=2 可阻塞风险=0', evaluate(inherited))
+        path.write_text(path.read_text() + '\n// changed implementation\n')
+        self.assertIn('风险=2 已接受=1 可阻塞风险=1', evaluate(inherited))
 
         blocked_output = evaluate(accepted + ['新增未知的数据库兼容性风险。'])
         self.assertIn('不发布', blocked_output)

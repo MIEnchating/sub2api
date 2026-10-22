@@ -5,13 +5,14 @@ package qqbot
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"net/http"
 	"net/http/httptest"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/stretchr/testify/require"
 )
 
 type priceSourceFunc func(context.Context, time.Time) (PriceSnapshot, error)
@@ -152,20 +153,42 @@ func TestPriceNotificationsScheduledOnlyAndSourceFailure(t *testing.T) {
 	require.NoError(t, err)
 	snapshot := priceTestSnapshot("USD 2")
 	var sourceErr error
-	bot.SetPriceSnapshotProvider(priceSourceFunc(func(context.Context, time.Time) (PriceSnapshot, error) { return snapshot, sourceErr }))
-	at := time.Now()
+	sourceCalls := 0
+	bot.SetPriceSnapshotProvider(priceSourceFunc(func(context.Context, time.Time) (PriceSnapshot, error) {
+		sourceCalls++
+		return snapshot, sourceErr
+	}))
+	// PostgreSQL stores timestamptz at microsecond precision. Align the clock so
+	// its round trip cannot move the deadline after our exact-boundary call.
+	at := time.Now().Truncate(time.Microsecond)
 	snapshot.NextCheck = at.Add(time.Second)
 	due, err := bot.checkPriceChanges(ctx, at)
 	require.NoError(t, err)
 	require.Equal(t, snapshot.NextCheck, due)
+	var baseline string
+	var storedDue time.Time
+	require.NoError(t, db.QueryRow(`SELECT snapshot::text,next_check_at FROM qq_bot_price_snapshots WHERE app_id=$1`, c.AppID).Scan(&baseline, &storedDue))
+	require.True(t, due.Equal(storedDue))
 	snapshot = priceTestSnapshot("USD 2")
 	snapshot.States[0].Fields[1].Value = "0.5×"
 	sourceErr = errors.New("database unavailable")
-	_, err = bot.checkPriceChanges(ctx, at.Add(time.Second))
-	require.Error(t, err)
-	sourceErr = nil
-	_, err = bot.checkPriceChanges(ctx, at.Add(time.Second))
+	// Before the boundary the source must not run; at the boundary its error
+	// must propagate without advancing the baseline or the persisted deadline.
+	next, err := bot.checkPriceChanges(ctx, due.Add(-time.Nanosecond))
 	require.NoError(t, err)
+	require.True(t, due.Equal(next))
+	require.Equal(t, 1, sourceCalls)
+	_, err = bot.checkPriceChanges(ctx, due)
+	require.ErrorIs(t, err, sourceErr)
+	require.Equal(t, 2, sourceCalls)
+	var afterFailure string
+	require.NoError(t, db.QueryRow(`SELECT snapshot::text,next_check_at FROM qq_bot_price_snapshots WHERE app_id=$1`, c.AppID).Scan(&afterFailure, &storedDue))
+	require.Equal(t, baseline, afterFailure)
+	require.True(t, due.Equal(storedDue))
+	sourceErr = nil
+	_, err = bot.checkPriceChanges(ctx, due)
+	require.NoError(t, err)
+	require.Equal(t, 3, sourceCalls)
 	var payload string
 	require.NoError(t, db.QueryRow(`SELECT payload::text FROM qq_bot_jobs WHERE kind='price_notification'`).Scan(&payload))
 	require.Contains(t, payload, "定时切换")

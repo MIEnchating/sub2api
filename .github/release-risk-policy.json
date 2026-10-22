@@ -7,6 +7,20 @@
   {
     "id": "upstream-easypay-extra-callback-fields",
     "description": "接受主上游 d1aac6b98 原有的 EasyPay 防伪回调字段白名单兼容限制；保留签名、防重放及对账恢复校验",
-    "pattern": "EasyPay.*(?:回调白名单|回调字段白名单|拒绝附加自定义回调字段).*(?:额外自定义字段|兼容支付商回调|自定义回调字段|主动查询|对账恢复)"
+    "pattern": "^(?!.*(?:签名绕过|重复到账|重复扣款|资金损失|数据丢失)).*EasyPay.*(?:回调白名单|回调字段白名单|签名白名单|拒绝附加自定义回调字段).*(?:额外自定义字段|非标准附加回调字段|兼容支付商回调|自定义回调字段|主动查询|对账恢复)"
+  },
+  {
+    "id": "upstream-image-proxy-trust-boundary",
+    "description": "保留主上游 dba770d56 的环境代理图片下载边界；代理必须限制私网目标，文件内容改变后必须重新审查。",
+    "pattern": "^backend/internal/service/image_storage\\.go 经环境代理下载图片时，本地 DNS 预检不能约束代理最终连接目标；若代理允许私网访问，仍存在代理侧 SSRF 风险。$",
+    "unchanged_path": "backend/internal/service/image_storage.go",
+    "unchanged_blob": "f0e0d110d9483b42dc488fb864d3f001cab236d5"
+  },
+  {
+    "id": "upstream-updater-image-only-rollback",
+    "description": "保留第二上游 5f988ae20 的更新器回滚行为：只回滚镜像，数据库需预先备份和模式兼容；文件变化后重新审查。",
+    "pattern": "^backend/internal/sourceupdater/updater\\.go 升级失败只回滚镜像，不回退已经执行的数据库迁移；仍需升级前备份及新旧数据库模式兼容。$",
+    "unchanged_path": "backend/internal/sourceupdater/updater.go",
+    "unchanged_blob": "c923bdea3611a0dcfa4c5d21cb039af2fd28a74c"
   }
 ]
