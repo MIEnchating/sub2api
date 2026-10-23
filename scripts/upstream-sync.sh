@@ -1036,6 +1036,8 @@ print(
 PY
   )
 
+  # Bash 3.2 parses quotes in process-substitution heredoc comments too;
+  # keep the embedded Python comments free of unmatched quotes.
   read -r accepted_risk_count blocking_risk_count < <(
     python3 - "$REVIEW_DECISION_FILE" "$RELEASE_RISK_POLICY_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" "$WORKTREE" <<'PY'
 import json
@@ -1072,7 +1074,7 @@ if risks is not None:
                 continue
             try:
                 if re.search(entry["pattern"], risk, re.IGNORECASE):
-                    # Reopen review if an inherited limitation's implementation changes.
+                    # Reopen review when the inherited implementation changes.
                     if "unchanged_path" in entry or "unchanged_blob" in entry:
                         path, expected = entry.get("unchanged_path"), entry.get("unchanged_blob")
                         if not isinstance(path, str) or not isinstance(expected, str):

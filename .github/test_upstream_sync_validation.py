@@ -224,7 +224,8 @@ class ReleaseWindowTest(unittest.TestCase):
             RELEASE_REQUIRE_NO_RISKS='true', RELEASE_IGNORE_ENVIRONMENT_RISKS='false',
             RELEASE_RISK_POLICY_FILE=str(SCRIPT.parent.parent / '.github/release-risk-policy.json'),
             DECISION_FILE=str(review), REVIEW_DECISION_FILE=str(review))
-        result = subprocess.run(['bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\nabort_sync() { exit 9; }\n' + function +
+        # Exercise system Bash (3.2 on macOS), even with a newer Bash on PATH.
+        result = subprocess.run(['/bin/bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\nabort_sync() { exit 9; }\n' + function +
             '\nevaluate_release_eligibility\necho "$RELEASE_STATE $RELEASE_REASON"'], env=env, capture_output=True, text=True)
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn('待发布', result.stdout)
@@ -236,11 +237,11 @@ class ReleaseWindowTest(unittest.TestCase):
         shell = SCRIPT.read_text()
         function = 'evaluate_release_eligibility() {' + shell.split('evaluate_release_eligibility() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
 
-        def evaluate(risks, ignore_environment=False):
+        def evaluate(risks, ignore_environment=False, policy_path=None):
             review = self.root / 'audit-review.json'
             review.write_text(json.dumps({'decision': 'resolved', 'risks': risks,
                 'merged_behavior': ['upstream behavior']}))
-            result = subprocess.run(['bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\n' + function +
+            result = subprocess.run(['/bin/bash', '-c', 'set -eu\nlog() { :; }\nfail() { exit 9; }\n' + function +
                 '\nevaluate_release_eligibility\nprintf "%s\\n%s\\n" "$RELEASE_STATE" "$RELEASE_REASON"'],
                 env=dict(self.env, SCRIPT_DIR=str(SCRIPT.parent.parent / 'scripts'),
                     WORKTREE=str(self.repo), REPO_DIR=str(self.repo), PRIMARY_HEAD=upstream,
@@ -248,9 +249,10 @@ class ReleaseWindowTest(unittest.TestCase):
                     RELEASE_BASE_COMMIT=self.base, RELEASE_ENABLED='true',
                     RELEASE_MIN_UPSTREAM_COMMITS='3', RELEASE_MIN_CHANGED_FILES='3',
                     RELEASE_MIN_DIFF_LINES='3', RELEASE_REQUIRE_NO_RISKS='true',
-                    RELEASE_IGNORE_ENVIRONMENT_RISKS='true' if ignore_environment else 'false', RELEASE_RISK_POLICY_FILE=str(SCRIPT.parent.parent / '.github/release-risk-policy.json'),
+                    RELEASE_IGNORE_ENVIRONMENT_RISKS='true' if ignore_environment else 'false', RELEASE_RISK_POLICY_FILE=str(policy_path or SCRIPT.parent.parent / '.github/release-risk-policy.json'),
                     REVIEW_DECISION_FILE=str(review)),
-                text=True, capture_output=True, check=True)
+                text=True, capture_output=True)
+            self.assertEqual(result.returncode, 0, result.stderr)
             return result.stdout
 
         accepted = ['上游依赖审计发现的高危漏洞属于上游现状，本项目未新增依赖风险。']
@@ -272,13 +274,31 @@ class ReleaseWindowTest(unittest.TestCase):
         guarded = [entry for entry in policy if 'unchanged_path' in entry]
         self.assertEqual(len(guarded), 2)
         self.assertIn('风险=2 已接受=0 可阻塞风险=2', evaluate(inherited))
+        # Test content guards using independent fixtures: ordinary source changes
+        # must not fail this regression merely because a policy exemption expires.
         for entry in guarded:
             path = self.repo / entry['unchanged_path']
             path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_bytes((SCRIPT.parent.parent / entry['unchanged_path']).read_bytes())
-        self.assertIn('风险=2 已接受=2 可阻塞风险=0', evaluate(inherited))
-        path.write_text(path.read_text() + '\n// changed implementation\n')
-        self.assertIn('风险=2 已接受=1 可阻塞风险=1', evaluate(inherited))
+            path.write_text('reviewed inherited implementation\n')
+            entry['unchanged_blob'] = self.git('hash-object', str(path))
+        fixture_policy = self.root / 'reviewed-policy.json'
+        fixture_policy.write_text(json.dumps(policy))
+        inherited_output = evaluate(inherited, policy_path=fixture_policy)
+        self.assertIn('待发布', inherited_output)
+        self.assertIn('风险=2 已接受=2 可阻塞风险=0', inherited_output)
+        for entry in guarded:
+            with self.subTest(unchanged_path=entry['unchanged_path']):
+                path = self.repo / entry['unchanged_path']
+                reviewed = path.read_bytes()
+                path.write_bytes(reviewed + b'\n// changed implementation\n')
+                changed_output = evaluate(inherited, policy_path=fixture_policy)
+                self.assertIn('不发布', changed_output)
+                self.assertIn('风险=2 已接受=1 可阻塞风险=1', changed_output)
+                path.unlink()
+                missing_output = evaluate(inherited, policy_path=fixture_policy)
+                self.assertIn('不发布', missing_output)
+                self.assertIn('风险=2 已接受=1 可阻塞风险=1', missing_output)
+                path.write_bytes(reviewed)
 
         blocked_output = evaluate(accepted + ['新增未知的数据库兼容性风险。'])
         self.assertIn('不发布', blocked_output)
