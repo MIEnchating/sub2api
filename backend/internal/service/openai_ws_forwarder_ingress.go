@@ -991,6 +991,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		wroteDownstream := false
 		pendingClientMessages := make([][]byte, 0, 4)
 		pendingClientBytes := int64(0)
+		capturePassiveQualityCacheWire(c, account, payload, wsURL, baseAcquireReq.Headers)
 		if err := lease.WriteJSONWithContextTimeout(ctx, json.RawMessage(payload), s.openAIWSWriteTimeout()); err != nil {
 			return nil, wrapOpenAIWSIngressTurnError(
 				"write_upstream",

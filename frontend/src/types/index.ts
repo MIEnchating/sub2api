@@ -749,6 +749,7 @@ export interface CompositeRouteDecision {
 export interface ApiKey {
   id: number
   user_id: number
+  /** Display mask; a full credential is returned only when secret_available is true. */
   key: string
   name: string
   group_id: number | null
@@ -2067,6 +2068,7 @@ export interface DashboardStats {
 }
 
 export interface UsageStatsResponse {
+  cache_hit_rate?: number | null
   period?: string
   total_requests: number
   total_input_tokens: number
@@ -2087,6 +2089,7 @@ export interface UsageStatsResponse {
 // ==================== Trend & Chart Types ====================
 
 export interface TrendDataPoint {
+  cache_hit_rate?: number | null
   date: string
   requests: number
   input_tokens: number

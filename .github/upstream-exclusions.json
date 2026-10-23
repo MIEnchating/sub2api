@@ -16,7 +16,7 @@
     {
       "name": "批量生图",
       "path_pattern": "(^|/)(?:batch[_-]?image|useBatchImage|\\d+_.*batch_image)",
-      "content_pattern": "batch[_-]?image|/images/batches|批量生图|批量图片生成",
+      "content_pattern": "batch[_-]?image|/images/batches|/key-image-batches|批量生图|批量图片生成",
       "content_roots": [
         "frontend/src/",
         "backend/internal/",

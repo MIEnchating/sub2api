@@ -1512,6 +1512,7 @@ const filterGroups = computed(() => groups.value
 const handlePlatformChange = async (platform: string) => {
   if (params.platform === platform) return
   params.platform = platform
+  saveAccountFilterValues()
   if (params.group && params.group !== 'ungrouped' &&
       !filterGroups.value.some(group => String(group.id) === params.group)) {
     params.group = ''

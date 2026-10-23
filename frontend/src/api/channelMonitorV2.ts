@@ -42,6 +42,7 @@ export interface MonitorMetric {
   tpm: number
   error_rate: number
   cache_rate: number
+  has_cache_samples?: boolean
   cache_rate_numerator: number
   cache_rate_denominator: number
   ttft: LatencyMetric
@@ -178,7 +179,16 @@ export interface MonitorRecentRequest {
   ttft_ms?: number
   duration_ms?: number
   cache_rate?: number
+  /** Error categories and diagnostics are administrator-only. */
   error_category?: string
+  /** Present only in administrator responses. */
+  error?: {
+    log_id: number
+    error_type?: string
+    status_code?: number
+    upstream_status_code?: number
+    message?: string
+  }
 }
 
 export interface MonitorMatrixResponse {

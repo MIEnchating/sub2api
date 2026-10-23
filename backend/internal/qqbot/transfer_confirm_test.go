@@ -14,7 +14,7 @@ import (
 // These cases exercise the full public confirmation transaction without SMTP or
 // network listeners, including failures after the account locks are acquired.
 func TestConfirmTransferAuthorizationAndAtomicity(t *testing.T) {
-	for _, scenario := range []string{"success", "revoked_binding", "changed_sender_email", "changed_recipient_email", "missing_recipient", "insufficient_balance", "expired_after_lock", "credit_failure"} {
+	for _, scenario := range []string{"success", "revoked_binding", "changed_sender_email", "changed_recipient_email", "missing_recipient", "insufficient_balance", "expired_after_lock", "credit_failure", "history_failure"} {
 		t.Run(scenario, func(t *testing.T) {
 			db, mock, err := sqlmock.New()
 			require.NoError(t, err)
@@ -50,18 +50,24 @@ func TestConfirmTransferAuthorizationAndAtomicity(t *testing.T) {
 					rows.AddRow(2, recipientEmail, "0.00000000")
 				}
 				mock.ExpectQuery("SELECT id,email,balance::text FROM users.*ORDER BY id FOR NO KEY UPDATE").WithArgs(int64(1), int64(2)).WillReturnRows(rows).RowsWillBeClosed()
-				if scenario == "success" || scenario == "expired_after_lock" || scenario == "credit_failure" {
+				if scenario == "success" || scenario == "expired_after_lock" || scenario == "credit_failure" || scenario == "history_failure" {
 					mock.ExpectExec("UPDATE users SET balance=balance-\\$1").WithArgs("5.00000000", int64(1)).WillReturnResult(sqlmock.NewResult(0, 1))
 					credit := mock.ExpectExec("UPDATE users SET balance=balance\\+\\$1").WithArgs("4.95000000", int64(2))
 					if scenario == "credit_failure" {
 						credit.WillReturnError(errors.New("credit failed"))
 					} else {
 						credit.WillReturnResult(sqlmock.NewResult(0, 1))
-						var affected int64 = 1
-						if scenario == "expired_after_lock" {
-							affected = 0
+						history := mock.ExpectExec("INSERT INTO qq_bot_transfer_history.*SELECT.*FROM qq_bot_transfer_requests WHERE token_hash=\\$1").WithArgs(codeHash(token))
+						if scenario == "history_failure" {
+							history.WillReturnError(errors.New("history failed"))
+						} else {
+							history.WillReturnResult(sqlmock.NewResult(1, 1))
+							var affected int64 = 1
+							if scenario == "expired_after_lock" {
+								affected = 0
+							}
+							mock.ExpectExec("DELETE FROM qq_bot_transfer_requests.*expires_at>clock_timestamp").WithArgs(codeHash(token)).WillReturnResult(sqlmock.NewResult(0, affected))
 						}
-						mock.ExpectExec("DELETE FROM qq_bot_transfer_requests.*expires_at>clock_timestamp").WithArgs(codeHash(token)).WillReturnResult(sqlmock.NewResult(0, affected))
 					}
 				}
 			}

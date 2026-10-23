@@ -35,6 +35,8 @@ class UpstreamExclusionsTest(unittest.TestCase):
         for path, content in (
             ('frontend/src/utils/navigationVisibility.ts', "{ path: '/batch-image' }"),
             ('backend/internal/server/routes/gateway.go', 'gateway.POST("/images/batches", handler)'),
+            ('backend/internal/server/routes/user.go', 'authenticated.Group("/key-image-batches/:key_id")'),
+            ('backend/internal/server/middleware/api_key_auth.go', 'strings.HasPrefix(path, "/api/v1/key-image-batches/")'),
             ('backend/internal/config/config.go', 'BatchImage BatchImageConfig'),
             ('deploy/docker-compose.yml', 'BATCH_IMAGE_ENABLED=true'),
         ):

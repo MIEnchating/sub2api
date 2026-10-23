@@ -22,6 +22,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 	clientBody := append([]byte(nil), body...)
 	RecordOpenAIToolIngressDiagnostics(c, clientBody, openai.IsCodexOfficialClientByHeaders(c.GetHeader("User-Agent"), c.GetHeader("originator")))
 	stageMode1Request(c, account, body)
+	ctx = CapturePassiveQualityCacheRequest(ctx, c, account, body, passiveQualityRequestSession(c, body), gjson.GetBytes(body, "model").String())
 	defer releaseStagedCodexFingerprintLease(c)
 	beginUpstreamResponseModelObservation(c)
 	ClearActualOpenAIUpstreamEndpoint(c)
@@ -1540,6 +1541,7 @@ func (s *OpenAIGatewayService) buildUpstreamRequest(ctx context.Context, c *gin.
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
 		return nil, err
 	}
+	capturePassiveQualityCacheHTTPRequest(c, account, req)
 	return req, nil
 }
 

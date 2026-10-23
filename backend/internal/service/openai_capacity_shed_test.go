@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -14,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 )
 
 const openAIServiceBusyFailedEvent = `{"request_id":"713b7521-f8ba-4d7f-b2bd-76f91a4e7cd9","response":{"created_at":1789562042,"error":{"code":"server_error","message":"The service is busy. Please retry later.","request_id":"713b7521-f8ba-4d7f-b2bd-76f91a4e7cd9","type":"server_error"},"id":"resp_03295dfe983e821d016aaa8cb9e5b087d1a8c25de256f22b57","model":"gpt-5.6-sol","object":"response","status":"failed"},"sequence_number":3,"type":"response.failed"}`
@@ -226,6 +228,137 @@ func TestOpenAIHTTPCapacityShedIsRequestScopedForOAuthAccounts(t *testing.T) {
 	require.Zero(t, repo.tempUnschedCalls)
 }
 
+func TestOpenAICapacityShedHonorsRetryAfter(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		headers http.Header
+		body    string
+		want    time.Duration
+	}{
+		{name: "http seconds", headers: http.Header{"Retry-After": []string{"6"}}, want: 6 * time.Second},
+		{name: "http milliseconds", headers: http.Header{"Retry-After-Ms": []string{"6000"}}, want: 6 * time.Second},
+		{name: "body seconds", body: `{"error":{"headers":{"retry-after":"7"},"message":"Our servers are currently overloaded. Please try again later."}}`, want: 7 * time.Second},
+		{name: "body milliseconds", body: `{"response":{"error":{"headers":{"retry-after-ms":"7000"},"message":"Our servers are currently overloaded. Please try again later."}}}`, want: 7 * time.Second},
+		{name: "bounded", headers: http.Header{"Retry-After": []string{"60"}}, want: openAIRequestScopedRetryMaxDelay},
+		{name: "overflowing seconds", headers: http.Header{"Retry-After": []string{"1000000000000000000"}}, want: openAIRequestScopedRetryMaxDelay},
+		{name: "overflowing milliseconds", headers: http.Header{"Retry-After-Ms": []string{"1000000000000000000"}}, want: openAIRequestScopedRetryMaxDelay},
+		{name: "overflowing body seconds", body: `{"error":{"headers":{"retry-after":"1000000000000000000"},"message":"Our servers are currently overloaded. Please try again later."}}`, want: openAIRequestScopedRetryMaxDelay},
+		{name: "overflowing body milliseconds", body: `{"response":{"error":{"headers":{"retry-after-ms":"1000000000000000000"},"message":"Our servers are currently overloaded. Please try again later."}}}`, want: openAIRequestScopedRetryMaxDelay},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failoverErr := newOpenAIUpstreamFailoverError(
+				http.StatusServiceUnavailable,
+				test.headers,
+				[]byte(test.body),
+				"Our servers are currently overloaded. Please try again later.",
+				false,
+			)
+			require.True(t, failoverErr.RequestScopedTransient)
+			require.Equal(t, test.want, failoverErr.SameAccountRetryDelay)
+		})
+	}
+}
+
+func TestOpenAICapacityShedDoesNotOverrideAccountFailure(t *testing.T) {
+	for _, test := range []struct {
+		name          string
+		status        int
+		body          string
+		clientStatus  int
+		clientMessage string
+		reason        GatewayFailureReason
+	}{
+		{
+			name:          "billing code with overloaded message",
+			status:        http.StatusTooManyRequests,
+			body:          `{"error":{"code":"insufficient_quota","message":"Our servers are currently overloaded. Account balance: 0."}}`,
+			clientStatus:  http.StatusBadGateway,
+			clientMessage: UpstreamBillingExhaustedClientMessage,
+			reason:        UpstreamBillingExhaustedReason,
+		},
+		{
+			name:          "payment required with overloaded code",
+			status:        http.StatusPaymentRequired,
+			body:          `{"error":{"code":"server_is_overloaded"}}`,
+			clientStatus:  http.StatusBadGateway,
+			clientMessage: UpstreamBillingExhaustedClientMessage,
+			reason:        UpstreamBillingExhaustedReason,
+		},
+		{
+			name:          "body limit with overloaded code",
+			status:        http.StatusRequestEntityTooLarge,
+			body:          `{"error":{"code":"server_is_overloaded"}}`,
+			clientStatus:  http.StatusRequestEntityTooLarge,
+			clientMessage: OpenAIRequestBodyTooLargeClientMessage,
+			reason:        openAIRequestBodyTooLargeReason,
+		},
+		{
+			name:          "access state with overloaded message",
+			status:        http.StatusForbidden,
+			body:          `{"error":{"code":"deactivated_workspace","message":"Our servers are currently overloaded."}}`,
+			clientStatus:  http.StatusBadGateway,
+			clientMessage: openAIUpstreamAccessUnavailableClientMessage,
+			reason:        OpenAIUpstreamAccessStateReason,
+		},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			failoverErr := newOpenAIUpstreamFailoverError(test.status,
+				http.Header{"Retry-After": []string{"6"}}, []byte(test.body), "", true)
+			svc := &OpenAIGatewayService{}
+			account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+			accountErr := svc.newOpenAIAccountFailoverError(account, test.status,
+				http.Header{"Retry-After": []string{"6"}}, []byte(test.body), "", false, true)
+			for _, err := range []*UpstreamFailoverError{failoverErr, accountErr} {
+				require.Equal(t, GatewayFailureScopeAccount, err.Scope)
+				require.Equal(t, test.reason, err.Reason)
+				require.Equal(t, NextAccountRetry, err.NextAccountAction)
+				require.False(t, err.RetryableOnSameAccount)
+				require.False(t, err.RequestScopedTransient)
+				require.Zero(t, err.SameAccountRetryDelay)
+				require.True(t, err.SameAccountRetryDeadline.IsZero())
+				require.Equal(t, test.clientStatus, err.ClientStatusCode)
+				require.Equal(t, test.clientMessage, err.ClientMessage)
+			}
+		})
+	}
+}
+
+func TestOpenAIOAuthCapacityShedPreservesRetryAfterAndDeadline(t *testing.T) {
+	for _, test := range []struct {
+		name    string
+		headers http.Header
+		body    string
+		want    time.Duration
+	}{
+		{name: "HTTP milliseconds", headers: http.Header{"Retry-After-Ms": []string{"6000"}}, want: 6 * time.Second},
+		{name: "body seconds", body: `{"error":{"code":"server_is_overloaded","headers":{"retry-after":"7"}}}`, want: 7 * time.Second},
+		{name: "body milliseconds", body: `{"response":{"error":{"code":"slow_down","headers":{"retry-after-ms":"7000"}}}}`, want: 7 * time.Second},
+		{name: "bounded", body: `{"error":{"code":"server_is_overloaded","headers":{"retry-after":"60"}}}`, want: openAIRequestScopedRetryMaxDelay},
+		{name: "default", want: openAIOAuth429RetryDelay},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			svc := &OpenAIGatewayService{}
+			account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+			build := func() *UpstreamFailoverError {
+				return svc.newOpenAIAccountFailoverError(account, http.StatusTooManyRequests,
+					test.headers, []byte(test.body), "Our servers are currently overloaded.", false, false)
+			}
+			err := build()
+			require.True(t, err.RetryableOnSameAccount)
+			require.True(t, err.RequestScopedTransient)
+			require.False(t, err.SameAccountRetryDeadline.IsZero())
+			require.Equal(t, test.want, err.SameAccountRetryDelay)
+
+			startedAt := time.Now().Add(-openAIOAuth429RetryWindow + time.Second)
+			svc.openaiOAuth429RetryStartedAt.Store(account.ID, startedAt)
+			err = build()
+			require.Equal(t, startedAt.Add(openAIOAuth429RetryWindow), err.SameAccountRetryDeadline)
+			require.Positive(t, err.SameAccountRetryDelay)
+			require.LessOrEqual(t, err.SameAccountRetryDelay, time.Second)
+		})
+	}
+}
+
 // 上游降载的真实序列是「event: error → event: response.failed」。error 帧不算
 // 客户端输出：若把它当首输出 flush，clientOutputStarted 被固化，随后的 failed
 // 事件就进不了 pre-output failover 分支，只能把致命错误原样转发给客户端。
@@ -333,6 +466,69 @@ func TestOpenAIStreamMetadataAndKeepaliveBeforeOverloadFailOver(t *testing.T) {
 			require.False(t, c.Writer.Written())
 			require.Empty(t, rec.Body.String())
 		})
+	}
+}
+
+func TestOpenAIStreamEmptyContentBeforeFailureCanFailOver(t *testing.T) {
+	gin.SetMode(gin.TestMode)
+	for _, payload := range []string{
+		`{"type":"response.output_text.delta","delta":""}`,
+		`{"type":"response.reasoning_summary_text.delta","delta":""}`,
+		`{"type":"response.reasoning_text.delta","delta":""}`,
+		`{"type":"response.function_call_arguments.delta","delta":""}`,
+		`{"type":"response.custom_tool_call_input.delta","delta":""}`,
+		`{"type":"response.output_text.done","text":""}`,
+		`{"type":"response.reasoning_summary_text.done","text":""}`,
+		`{"type":"response.reasoning_text.done","text":""}`,
+		`{"type":"response.refusal.delta","delta":""}`,
+		`{"type":"response.refusal.done","refusal":""}`,
+		`{"type":"response.content_part.done","part":{"type":"output_text","text":""}}`,
+		`{"type":"response.reasoning_summary_part.done","part":{"type":"summary_text","text":""}}`,
+	} {
+		for _, passthrough := range []bool{false, true} {
+			t.Run(fmt.Sprintf("%s/passthrough=%t", payload, passthrough), func(t *testing.T) {
+				svc := &OpenAIGatewayService{cfg: &config.Config{Gateway: config.GatewayConfig{MaxLineSize: defaultMaxLineSize}}}
+				rec := httptest.NewRecorder()
+				c, _ := gin.CreateTestContext(rec)
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil)
+				resp := &http.Response{
+					StatusCode: http.StatusOK,
+					Header:     http.Header{},
+					Body: io.NopCloser(strings.NewReader("data: " + payload + "\n\n" +
+						`data: {"type":"response.failed","response":{"status":"failed","error":{"code":"server_is_overloaded","message":"Our servers are currently overloaded. Please try again later."}}}` + "\n\n")),
+				}
+				account := &Account{ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+				var err error
+				if passthrough {
+					_, err = svc.handleStreamingResponsePassthrough(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+				} else {
+					_, err = svc.handleStreamingResponse(c.Request.Context(), resp, c, account, time.Now(), "model", "model")
+				}
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.True(t, failoverErr.RequestScopedTransient)
+				require.Empty(t, rec.Body.String())
+			})
+		}
+	}
+}
+
+func TestOpenAIStreamReplayBoundaryPreservesContentAndToolCompletion(t *testing.T) {
+	for _, payload := range []string{
+		`{"type":"response.output_text.delta","delta":" "}`,
+		`{"type":"response.function_call_arguments.delta","delta":"{}"}`,
+		`{"type":"response.custom_tool_call_input.delta","delta":"run"}`,
+		`{"type":"response.function_call_arguments.done","arguments":""}`,
+		`{"type":"response.custom_tool_call_input.done","input":""}`,
+		`{"type":"response.output_item.done","item":{"type":"function_call","arguments":""}}`,
+		`{"type":"response.output_item.done","item":{"type":"reasoning","encrypted_content":"ciphertext"}}`,
+		`{"type":"response.output_text.delta","delta":null}`,
+		`{"type":"response.output_text.delta"}`,
+		`{"type":"response.output_text.delta","delta":{}}`,
+		`{"type":"response.new_kind.delta","delta":""}`,
+	} {
+		eventType := gjson.Get(payload, "type").String()
+		require.True(t, openAIStreamDataStartsClientOutput(payload, eventType), payload)
 	}
 }
 
