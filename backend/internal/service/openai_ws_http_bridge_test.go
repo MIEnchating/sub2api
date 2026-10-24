@@ -1056,7 +1056,7 @@ func TestProxyOpenAIWSHTTPBridgeTurnRewritesCapacityShedCodeAfterOutput(t *testi
 			require.Len(t, writes, 2)
 			require.Contains(t, string(writes[1]), `"code":"server_error"`)
 			require.NotContains(t, string(writes[1]), "server_is_overloaded")
-			require.Contains(t, string(writes[1]), "Our servers are currently overloaded")
+			require.Contains(t, string(writes[1]), OpenAIUpstreamFailureClientMessage)
 		})
 	}
 }

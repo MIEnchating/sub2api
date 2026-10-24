@@ -637,6 +637,7 @@ export interface SystemSettings {
 
   // Gateway forwarding behavior
   upstream_error_retry: UpstreamErrorRetrySettings;
+  upstream_error_message: string;
   openai_ttft_mode: string;
   enable_fingerprint_unification: boolean;
   gateway_stream_data_interval_timeout_seconds: number;
@@ -979,6 +980,7 @@ export interface UpdateSettingsRequest {
   max_claude_code_version?: string;
   allow_ungrouped_key_scheduling?: boolean;
   upstream_error_retry?: UpstreamErrorRetrySettings;
+  upstream_error_message?: string;
   openai_ttft_mode?: string;
   enable_fingerprint_unification?: boolean;
   gateway_stream_data_interval_timeout_seconds?: number;

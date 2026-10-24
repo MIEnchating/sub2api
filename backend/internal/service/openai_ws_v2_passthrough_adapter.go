@@ -938,7 +938,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			s.persistOpenAIWSRateLimitSignal(ctx, account, handshakeHeaders, nil, "rate_limit_exceeded", "rate_limit_error", strings.TrimSpace(err.Error()), capturedSessionModel)
 			return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, nil, err.Error(), account429RetryExhausted)
 		}
-		return s.mapOpenAIWSPassthroughDialError(err, statusCode, handshakeHeaders)
+		return s.mapOpenAIWSPassthroughDialError(err, statusCode, handshakeHeaders, ctx)
 	}
 	defer func() {
 		_ = upstreamConn.Close()
@@ -1252,7 +1252,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 		defer close(clientCancelDone)
 		clientOutputMu.Lock()
 		defer clientOutputMu.Unlock()
-		if !isOpenAIWSClientSessionDisconnected(ctx) || !turnOutputCommitted {
+		if GroupQualityFallbackActive(ctx) || !isOpenAIWSClientSessionDisconnected(ctx) || !turnOutputCommitted {
 			cancelRelay()
 		}
 	})
@@ -1261,6 +1261,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			<-clientCancelDone
 		}
 	}()
+	// Both callbacks run on the upstream relay goroutine. Keep the provider
+	// payload until the write completes so Ops never records a display rewrite.
+	var clientWriteUpstreamPayload []byte
 	relayResult, relayExit := openaiwsv2.RunEntry(openaiwsv2.EntryInput{
 		Ctx:                relayCtx,
 		ClientConn:         policyClientConn,
@@ -1351,10 +1354,15 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if writeErr == nil {
 					turnOutputCommitted = true
 				}
-				if msgType == coderws.MessageText && writeErr == nil {
-					eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
-					markOpenAIWSClientVisibleFailure(c, eventType, payload)
+				if (msgType == coderws.MessageText || msgType == coderws.MessageBinary) && writeErr == nil {
+					upstreamPayload := clientWriteUpstreamPayload
+					if upstreamPayload == nil {
+						upstreamPayload = payload
+					}
+					eventType, _, _ := parseOpenAIWSEventEnvelope(upstreamPayload)
+					markOpenAIWSClientVisibleFailure(c, eventType, upstreamPayload)
 				}
+				clientWriteUpstreamPayload = nil
 				if msgType == coderws.MessageText && openAIWSPassthroughIsTerminalOutput(payload) {
 					turnLifecycle.finishTerminalWrite(writeErr == nil, clientFrameConn.markTurnCompleted)
 				}
@@ -1367,6 +1375,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				status, reason, ok := openAIWSPassthroughRelayClientClose(exit, int(completedTurns.Load()), upstreamAccepted || clientControlAccepted.Load())
 				if !ok {
 					return
+				}
+				if exit.Stage == "read_upstream" || exit.Stage == "upstream_message" || exit.Stage == "write_upstream" {
+					reason = UpstreamErrorClientMessage(ctx, reason)
+					if configured := ConfiguredUpstreamErrorMessage(ctx); configured != "" && len(configured) > 120 {
+						writeCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.openAIWSWriteTimeout())
+						_ = clientConn.Write(writeCtx, coderws.MessageText, buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadGateway, configured))
+						cancel()
+					}
 				}
 				// Match the handler close path and stay within the WebSocket control
 				// frame limit; an oversized reason makes coder/websocket skip the
@@ -1402,7 +1418,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					if completedTurns.Load() > 0 {
 						return NewOpenAIWSClientCloseError(
 							coderws.StatusTryAgainLater,
-							"upstream service temporarily unavailable; please reconnect",
+							UpstreamErrorClientMessage(ctx, "upstream service temporarily unavailable; please reconnect"),
 							errors.New("later passthrough turn failed because the upstream account is unavailable"),
 						)
 					}
@@ -1429,21 +1445,22 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 				if completedTurns.Load() > 0 {
 					return NewOpenAIWSClientCloseError(
 						coderws.StatusTryAgainLater,
-						"upstream rate limit exceeded; please reconnect",
+						UpstreamErrorClientMessage(ctx, "upstream rate limit exceeded; please reconnect"),
 						errors.New("later passthrough turn was rate limited before output"),
 					)
 				}
 				return s.newOpenAIWSRateLimitFailoverError(account, handshakeHeaders, payload, errMsgRaw, false)
 			},
 			TransformClientPayload: func(msgType coderws.MessageType, payload []byte, wroteDownstream bool) []byte {
-				if msgType != coderws.MessageText {
+				clientWriteUpstreamPayload = payload
+				if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 					return payload
 				}
 				eventType, _, _ := parseOpenAIWSEventEnvelope(payload)
 				if eventType != "error" && eventType != "response.failed" {
 					return payload
 				}
-				if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(payload, eventType, wroteDownstream); changed {
+				if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(payload, eventType, wroteDownstream, ctx); changed {
 					return sanitized
 				}
 				return payload
@@ -1569,7 +1586,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			// duplicate the first turn, so later turns end the client session.
 			relayErr = NewOpenAIWSClientCloseError(
 				coderws.StatusGoingAway,
-				"upstream produced no semantic output; please reconnect",
+				UpstreamErrorClientMessage(ctx, "upstream produced no semantic output; please reconnect"),
 				firstOutputTimeoutErr,
 			)
 		}
@@ -1578,7 +1595,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if errors.As(relayErr, &activeTurnTimeoutErr) {
 		relayErr = NewOpenAIWSClientCloseError(
 			coderws.StatusGoingAway,
-			"upstream websocket read timeout; please reconnect",
+			UpstreamErrorClientMessage(ctx, "upstream websocket read timeout; please reconnect"),
 			activeTurnTimeoutErr,
 		)
 	}
@@ -1645,6 +1662,7 @@ func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(
 	err error,
 	statusCode int,
 	handshakeHeaders http.Header,
+	contexts ...context.Context,
 ) error {
 	if err == nil {
 		return nil
@@ -1668,31 +1686,35 @@ func (s *OpenAIGatewayService) mapOpenAIWSPassthroughDialError(
 	if errors.Is(err, context.Canceled) {
 		return err
 	}
+	var displayCtx context.Context
+	if len(contexts) > 0 {
+		displayCtx = contexts[0]
+	}
 	if errors.Is(err, context.DeadlineExceeded) {
 		return NewOpenAIWSClientCloseError(
 			coderws.StatusTryAgainLater,
-			"upstream websocket connect timeout",
+			UpstreamErrorClientMessage(displayCtx, "upstream websocket connect timeout"),
 			wrappedErr,
 		)
 	}
 	if statusCode == http.StatusTooManyRequests {
 		return NewOpenAIWSClientCloseError(
 			coderws.StatusTryAgainLater,
-			"upstream websocket is busy, please retry later",
+			UpstreamErrorClientMessage(displayCtx, "upstream websocket is busy, please retry later"),
 			wrappedErr,
 		)
 	}
 	if statusCode == http.StatusUnauthorized || statusCode == http.StatusForbidden {
 		return NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
-			"upstream websocket authentication failed",
+			UpstreamErrorClientMessage(displayCtx, "upstream websocket authentication failed"),
 			wrappedErr,
 		)
 	}
 	if statusCode >= http.StatusBadRequest && statusCode < http.StatusInternalServerError {
 		return NewOpenAIWSClientCloseError(
 			coderws.StatusPolicyViolation,
-			"upstream websocket handshake rejected",
+			UpstreamErrorClientMessage(displayCtx, "upstream websocket handshake rejected"),
 			wrappedErr,
 		)
 	}

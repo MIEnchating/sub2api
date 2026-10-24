@@ -105,11 +105,11 @@ check_backend_integration() (
   fi
   if docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
     "QQBOT_TEST_DSN=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
-    go test -count=1 -tags=integration ./...; then
+    go test -count=1 -tags=integration -timeout=30m ./...; then
     return 0
   else
     rc=$?
-    printf 'Backend integration: go test -count=1 -tags=integration ./... failed (exit %d).\n' "$rc" >&2
+    printf 'Backend integration: go test -count=1 -tags=integration -timeout=30m ./... failed (exit %d).\n' "$rc" >&2
     return "$rc"
   fi
 )

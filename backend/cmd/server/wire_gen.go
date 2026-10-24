@@ -49,7 +49,8 @@ func initializeApplication(buildInfo handler.BuildInfo) (*Application, error) {
 	}
 	groupRepository := repository.NewGroupRepository(client, db)
 	proxyRepository := repository.NewProxyRepository(client, db, configConfig)
-	settingService := service.ProvideSettingService(settingRepository, groupRepository, proxyRepository, configConfig)
+	scopedAdminKeyRepository := repository.NewScopedAdminKeyRepository(db)
+	settingService := service.ProvideSettingService(scopedAdminKeyRepository, settingRepository, groupRepository, proxyRepository, configConfig)
 	secretEncryptor, err := repository.NewAESEncryptor(configConfig)
 	if err != nil {
 		return nil, err

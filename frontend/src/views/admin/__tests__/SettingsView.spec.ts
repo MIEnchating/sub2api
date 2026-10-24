@@ -574,6 +574,7 @@ function mountView() {
         ProxySelector: true,
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
+        AdminAccessKeysSettings: true,
       },
     },
   });
@@ -1505,6 +1506,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+          AdminAccessKeysSettings: true,
         },
       },
     });
@@ -1625,6 +1627,39 @@ describe("admin SettingsView payment visible method controls", () => {
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(payload.grok_default_text_model).toBe("grok-custom-text");
     expect(payload.grok_cross_client_model_map_enabled).toBe(false);
+  });
+
+  it("loads, trims, saves and clears the unified upstream error message", async () => {
+    getSettings.mockResolvedValueOnce({
+      ...baseSettingsResponse,
+      upstream_error_message: "服务繁忙，请稍后重试。",
+    });
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    const message = wrapper.get('[data-testid="upstream-error-message"]');
+    expect((message.element as HTMLTextAreaElement).value).toBe("服务繁忙，请稍后重试。");
+    await message.setValue("  本次请求未能完成，请稍后重试。  ");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].upstream_error_message).toBe("本次请求未能完成，请稍后重试。");
+    await message.setValue("   ");
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings.mock.calls.at(-1)?.[0].upstream_error_message).toBe("");
+    wrapper.unmount();
+  });
+
+  it("rejects unified upstream error messages longer than 500 characters", async () => {
+    const wrapper = mountView();
+    await flushPromises();
+    await openGatewayTab(wrapper);
+    await wrapper.get('[data-testid="upstream-error-message"]').setValue("错".repeat(501));
+    await wrapper.find("form").trigger("submit.prevent");
+    await flushPromises();
+    expect(updateSettings).not.toHaveBeenCalled();
+    expect(showError).toHaveBeenCalledWith("admin.settings.upstreamErrorMessage.invalid");
+    wrapper.unmount();
   });
 
   it("loads and saves multiline upstream error message matching rules", async () => {
@@ -1943,6 +1978,7 @@ describe("admin SettingsView payment visible method controls", () => {
           ProxySelector: true,
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
+          AdminAccessKeysSettings: true,
         },
       },
     });

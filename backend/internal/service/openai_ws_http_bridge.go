@@ -563,7 +563,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
 			}
 			safeErr := sanitizeUpstreamErrorMessage(err.Error())
-			clientError := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadGateway, "Upstream request failed")
+			clientError := buildOpenAIWSHTTPBridgeErrorEvent(http.StatusBadGateway, UpstreamErrorClientMessage(ctx, OpenAIUpstreamFailureClientMessage))
 			if writeErr := writeClientMessage(clientError); writeErr == nil {
 				markOpenAIWSClientVisibleFailure(c, "error", clientError)
 			}
@@ -623,9 +623,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if account.Platform != PlatformGrok && (shouldFailover || shouldCooldownOpenAITransientUpstreamError(resp.StatusCode, respBody)) {
 			s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, actualModel)
 		}
-		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg)
+		clientError := buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, UpstreamErrorClientMessage(ctx, OpenAIUpstreamErrorClientMessage(respBody, upstreamMsg)))
 		if writeErr := writeClientMessage(clientError); writeErr == nil {
-			markOpenAIWSClientVisibleFailure(c, "error", clientError)
+			markOpenAIWSClientVisibleFailure(c, "error", buildOpenAIWSHTTPBridgeErrorEvent(resp.StatusCode, upstreamMsg))
 		}
 		return nil, fmt.Errorf("upstream http bridge error: status=%d message=%s", resp.StatusCode, upstreamMsg)
 	}
@@ -730,8 +730,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if clientDisconnected {
 			return nil
 		}
-		clientMessage := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, createdAtStamper.Value(), bareErrorPayload, bareErrorMessage)
-		if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(clientMessage, "response.failed", wroteDownstream); changed {
+		upstreamFailedEvent := buildOpenAIWSHTTPBridgeFailedEvent(responseID, originalModel, createdAtStamper.Value(), bareErrorPayload, bareErrorMessage)
+		clientMessage := upstreamFailedEvent
+		if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(clientMessage, "response.failed", wroteDownstream, ctx); changed {
 			clientMessage = sanitized
 		}
 		if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {
@@ -750,7 +751,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			}
 			wroteDownstream = true
 		}
-		markOpenAIWSClientVisibleFailure(c, "response.failed", clientMessage)
+		markOpenAIWSClientVisibleFailure(c, "response.failed", upstreamFailedEvent)
 		return nil
 	}
 	for scanner.Scan() {
@@ -902,7 +903,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		// 仍使用未改写的 upstreamMessage。
 		clientMessage := upstreamMessage
 		if eventType == "error" || eventType == "response.failed" {
-			if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(clientMessage, eventType, wroteDownstream); changed {
+			if sanitized, changed := sanitizeOpenAIResponseFailedEventForClient(clientMessage, eventType, wroteDownstream, ctx); changed {
 				clientMessage = sanitized
 			}
 			if rewritten, changed := sanitizeOpenAICapacityShedErrorCodeForClient(clientMessage); changed {

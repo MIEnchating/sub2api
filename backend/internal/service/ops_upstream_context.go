@@ -235,6 +235,19 @@ func BeginOpsStreamTurn(c *gin.Context, turn int) {
 	c.Set(OpsUpstreamErrorDetailKey, "")
 }
 
+// ResumeOpsStreamTurn starts a new forwarding attempt for the current logical
+// turn. A restarted WS proxy numbers its first frame as turn 1 even when it is
+// replaying a later turn; retain the admission already acquired by the handler.
+func ResumeOpsStreamTurn(c *gin.Context, turn int) {
+	if c == nil || turn <= 0 {
+		return
+	}
+	if _, exists := c.Get(passiveQualityTurnKey); exists {
+		c.Set("passive_quality_turn_number", turn)
+	}
+	BeginOpsStreamTurn(c, turn)
+}
+
 // MarkOpsStreamError 记录一次就地 SSE 错误，供 ops 日志采集。
 // 采用「首个标记生效」策略：同一请求若先后补发多帧（如上游透传错误后又追加通用兜底帧），
 // 保留最先记录的根因错误，而不是被后续的 "Upstream request failed" 覆盖。
@@ -459,6 +472,11 @@ type OpsUpstreamErrorEvent struct {
 	// Outcome
 	UpstreamStatusCode int    `json:"upstream_status_code,omitempty"`
 	UpstreamRequestID  string `json:"upstream_request_id,omitempty"`
+
+	// upstreamHTTPResponseObserved is set only where an actual HTTP error
+	// response was received. Logical SSE/WS statuses and local transport errors
+	// must not use it to survive downstream cancellation in passive capture.
+	upstreamHTTPResponseObserved bool
 
 	// UpstreamURL is the actual upstream URL that was called (host + path, query/fragment stripped).
 	// Helps debug 404/routing errors by showing which endpoint was targeted.

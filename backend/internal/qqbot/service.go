@@ -17,28 +17,29 @@ import (
 )
 
 type Service struct {
-	db              *sql.DB
-	encryptor       Encryptor
-	encryptionReady bool
-	invalidate      func(context.Context, int64)
-	bindingEmail    BindingEmailDelivery
-	channelStatus   ChannelStatusProvider
-	modelPrices     ModelPriceProvider
-	healthSource    HealthSnapshotProvider
-	priceSource     PriceSnapshotProvider
-	priceWake       chan struct{}
-	http            *http.Client
-	tokenURL        string
-	qqURL           string
-	tokenGate       chan struct{}
-	accessToken     string
-	tokenKey        string
-	tokenExpires    time.Time
-	groupBotMu      sync.Mutex
-	groupBots       map[string]groupBotIdentity
-	imageDownload   func(context.Context, string) ([]byte, error)
-	cancel          context.CancelFunc
-	wg              sync.WaitGroup
+	db                    *sql.DB
+	encryptor             Encryptor
+	encryptionReady       bool
+	invalidate            func(context.Context, int64)
+	bindingEmail          BindingEmailDelivery
+	channelStatus         ChannelStatusProvider
+	modelPrices           ModelPriceProvider
+	healthSource          HealthSnapshotProvider
+	priceSource           PriceSnapshotProvider
+	priceWake             chan struct{}
+	http                  *http.Client
+	tokenURL              string
+	qqURL                 string
+	tokenGate             chan struct{}
+	accessToken           string
+	tokenKey              string
+	tokenExpires          time.Time
+	groupBotMu            sync.Mutex
+	groupBots             map[string]groupBotIdentity
+	spamSourceDiagnostics spamSourceReceptionDiagnostics
+	imageDownload         func(context.Context, string) ([]byte, error)
+	cancel                context.CancelFunc
+	wg                    sync.WaitGroup
 }
 
 func New(db *sql.DB, encryptor Encryptor, ready bool, invalidate func(context.Context, int64)) *Service {
@@ -95,6 +96,7 @@ func (s *Service) Stop() {
 func (s *Service) maintenance(ctx context.Context) {
 	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_pending_image_plans WHERE expires_at<NOW() OR EXISTS(SELECT 1 FROM qq_bot_jobs j WHERE j.id=job_id AND j.status NOT IN ('running','completed'))`)
 	s.maintainModeration(ctx)
+	s.maintainSpamReports(ctx)
 	// An interrupted model request may already have cost money. Preserve its
 	// status for inspection and never replay it after a process crash.
 	_, _ = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET status='interrupted',error='处理进程中断，未自动重试；请检查调用用量',finished_at=NOW(),payload='{}' WHERE status='running' AND started_at<NOW()-INTERVAL '10 minutes'`)
@@ -456,6 +458,8 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 		seq++
 	}
 	switch cmd {
+	case "举报垃圾信息":
+		return s.reportSpam(ctx, c, j, e, arg)
 	case "帮助":
 		return s.sendHelp(ctx, c, *j, arg)
 	case "价格":

@@ -5,6 +5,7 @@ package admin
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
@@ -290,4 +291,29 @@ func TestUpdateSettingsNavigationItemVisibilityIsWritableAndKeptWhenOmitted(t *t
 	require.NoError(t, json.Unmarshal([]byte(repo.values[service.SettingKeyNavigationItemVisibility]), &stored))
 	require.Equal(t, map[string]bool{"/usage": false, "/admin/users": true}, stored,
 		"a payload without navigation_item_visibility must preserve the stored visibility map")
+}
+
+func TestUpstreamErrorMessageSettingsRoundTripAndPartialUpdate(t *testing.T) {
+	h, repo := newStepUpSwitchTestHandler(t, map[string]string{})
+	rec := doUpdateSettings(t, h, map[string]any{"upstream_error_message": "  服务暂时不可用，请重试。  "}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "服务暂时不可用，请重试。", repo.values[service.SettingKeyUpstreamErrorMessage])
+	var envelope struct {
+		Data struct {
+			Message string `json:"upstream_error_message"`
+		} `json:"data"`
+	}
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Equal(t, "服务暂时不可用，请重试。", envelope.Data.Message)
+	rec = doUpdateSettings(t, h, map[string]any{"site_name": "Changed"}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Equal(t, "服务暂时不可用，请重试。", repo.values[service.SettingKeyUpstreamErrorMessage])
+	rec = doUpdateSettings(t, h, map[string]any{"upstream_error_message": strings.Repeat("错", 501)}, nil)
+	require.Equal(t, http.StatusBadRequest, rec.Code, rec.Body.String())
+	require.Equal(t, "服务暂时不可用，请重试。", repo.values[service.SettingKeyUpstreamErrorMessage])
+	rec = doUpdateSettings(t, h, map[string]any{"upstream_error_message": "  "}, nil)
+	require.Equal(t, http.StatusOK, rec.Code, rec.Body.String())
+	require.Empty(t, repo.values[service.SettingKeyUpstreamErrorMessage])
+	require.NoError(t, json.Unmarshal(rec.Body.Bytes(), &envelope))
+	require.Empty(t, envelope.Data.Message)
 }

@@ -1042,6 +1042,7 @@ func (h *GatewayHandler) Messages(c *gin.Context) {
 						ctx := context.WithValue(c.Request.Context(), ctxkey.ForcePlatform, "")
 						c.Request = c.Request.WithContext(ctx)
 						currentAPIKey = fallbackAPIKey
+						service.SetPassiveQualityAttemptGroup(c, fallbackGroup.ID)
 						currentSubscription = nil
 						fallbackUsed = true
 						retryWithFallback = true
@@ -1945,6 +1946,8 @@ func (h *GatewayHandler) handleFailoverExhausted(c *gin.Context, failoverErr *se
 			msg := service.ExtractUpstreamErrorMessage(responseBody)
 			if !rule.PassthroughBody && rule.CustomMessage != nil {
 				msg = *rule.CustomMessage
+			} else if platform == service.PlatformOpenAI || platform == service.PlatformGrok {
+				msg = service.OpenAIUpstreamErrorClientMessage(responseBody, msg)
 			}
 
 			if rule.SkipMonitoring {

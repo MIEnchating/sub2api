@@ -474,6 +474,9 @@ func diffSettings(before *service.SystemSettings, after *service.SystemSettings,
 	if !reflect.DeepEqual(before.GatewayPlatformEnabled, after.GatewayPlatformEnabled) {
 		changed = append(changed, service.SettingKeyGatewayPlatformEnabled)
 	}
+	if before.UpstreamErrorMessage != after.UpstreamErrorMessage {
+		changed = append(changed, "upstream_error_message")
+	}
 	if !reflect.DeepEqual(before.UpstreamErrorRetry, after.UpstreamErrorRetry) {
 		changed = append(changed, "upstream_error_retry")
 	}

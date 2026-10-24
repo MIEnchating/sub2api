@@ -18,7 +18,9 @@ test-unit:
 	go test -tags=unit ./...
 
 test-integration:
-	go test -tags=integration ./...
+	# The QQ suite rebuilds isolated PostgreSQL schemas for hundreds of cases.
+	# This is the package budget; individual operation deadlines stay unchanged.
+	go test -count=1 -tags=integration -timeout=30m ./...
 
 test-e2e:
 	./scripts/e2e-test.sh

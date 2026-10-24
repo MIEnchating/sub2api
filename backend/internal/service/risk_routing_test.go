@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
@@ -121,4 +122,87 @@ func TestGatewayRiskRoutingOverridesGroupAndFailsClosedForAccount(t *testing.T) 
 
 	_, err = svc.SelectAccountWithLoadAwareness(accountCtx, &groupOne, "", "claude-sonnet-4-6", map[int64]struct{}{32: {}}, "", 0)
 	require.ErrorIs(t, err, ErrNoAvailableAccounts)
+}
+
+func TestOpenAIRiskRoutingSchedulerPreservesTargetAndBilling(t *testing.T) {
+	for _, mode := range []string{"legacy", "legacy_nonbatch", "advanced"} {
+		for _, action := range []string{RiskHitActionRouteAccount, RiskHitActionRouteGroup} {
+			t.Run(mode+"/"+action, func(t *testing.T) {
+				resetOpenAIAdvancedSchedulerSettingCacheForTest()
+				defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+				primary, target := int64(43), int64(44)
+				gate := &groupQualityFallbackTestGate{normal: map[int64]bool{1: true, 2: true}}
+				svc := groupQualityFallbackService(mode, []Account{
+					groupQualityRoutingTestAccount(1, primary, -100, "insufficient"),
+					groupQualityRoutingTestAccount(2, target, 100, "insufficient"),
+				}, gate)
+				key := &APIKey{GroupID: &primary, Group: &Group{ID: primary, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}}
+				ctx := WithAPIKeyForUsageContext(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
+					Key: "risk-request", GroupID: primary, Model: "public-model",
+				}), key)
+				ctx = WithRiskRoutingTarget(ctx, RiskRoutingTarget{Action: action, AccountID: 2, GroupID: target, Platform: PlatformOpenAI})
+				selection, decision, err := svc.SelectAccountWithScheduler(ctx, key.GroupID, "", "", "public-model", nil, OpenAIUpstreamTransportHTTPSSE, false)
+				require.NoError(t, err)
+				require.NotNil(t, selection)
+				t.Cleanup(selection.ReleaseFunc)
+				require.EqualValues(t, 2, selection.Account.ID, "moderation's target overrides ordinary priority and group selection")
+				require.EqualValues(t, 2, decision.SelectedAccountID)
+				require.False(t, selection.UsedAPIKeyFallback)
+				require.EqualValues(t, 43, *key.GroupID, "moderation routing does not change billing authorization")
+			})
+		}
+	}
+}
+
+func TestOpenAIRiskRoutingSchedulerCannotRecoverThroughAnotherAccount(t *testing.T) {
+	for _, mode := range []string{"legacy", "legacy_nonbatch", "advanced"} {
+		t.Run(mode, func(t *testing.T) {
+			resetOpenAIAdvancedSchedulerSettingCacheForTest()
+			defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
+			groupID := int64(43)
+			gate := &groupQualityFallbackTestGate{recovery: true}
+			svc := groupQualityFallbackService(mode, []Account{
+				groupQualityRoutingTestAccount(1, groupID, 0, "insufficient"),
+				groupQualityFallbackTestAccount(2, groupID, -100, true),
+			}, gate)
+			ctx := WithRiskRoutingTarget(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
+				Key: "risk-request", GroupID: groupID, Model: "public-model",
+			}), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 1})
+			selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "public-model", nil, OpenAIUpstreamTransportHTTPSSE, false)
+			require.ErrorIs(t, err, ErrGroupQualityTrafficBudget)
+			require.Nil(t, selection)
+			require.Empty(t, gate.calls, "the generic recovery pass must not replace a risk-pinned account")
+		})
+	}
+}
+
+func TestOpenAIRiskRoutingSchedulerPreservesResponseOwnership(t *testing.T) {
+	for _, owner := range []int64{0, 1, 2} {
+		t.Run(map[int64]string{0: "unknown", 1: "different account", 2: "same account"}[owner], func(t *testing.T) {
+			groupID := int64(43)
+			gate := &groupQualityFallbackTestGate{normal: map[int64]bool{1: true, 2: true}}
+			svc := groupQualityFallbackService("legacy", []Account{
+				groupQualityRoutingTestAccount(1, groupID, 0, "insufficient"),
+				groupQualityRoutingTestAccount(2, groupID, 0, "insufficient"),
+			}, gate)
+			svc.openaiWSStateStore = NewOpenAIWSStateStore(nil)
+			ctx := WithRiskRoutingTarget(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
+				Key: "risk-request", GroupID: groupID, Model: "public-model",
+			}), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 2})
+			if owner != 0 {
+				require.NoError(t, svc.openaiWSStateStore.BindResponseAccount(ctx, groupID, "resp_owner", owner, time.Hour))
+			}
+			selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "resp_owner", "", "public-model", nil, OpenAIUpstreamTransportHTTPSSE, false)
+			if owner == 2 {
+				require.NoError(t, err)
+				require.NotNil(t, selection)
+				t.Cleanup(selection.ReleaseFunc)
+				require.EqualValues(t, 2, selection.Account.ID)
+			} else {
+				require.ErrorIs(t, err, ErrNoAvailableAccounts)
+				require.Nil(t, selection)
+				require.Empty(t, gate.groups, "reject foreign or unknown response ownership before admission")
+			}
+		})
+	}
 }

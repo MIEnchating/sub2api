@@ -291,6 +291,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		AllowUngroupedKeyScheduling:               settings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                        settings.BackendModeEnabled,
 		UpstreamErrorRetry:                        settings.UpstreamErrorRetry,
+		UpstreamErrorMessage:                      settings.UpstreamErrorMessage,
 		OpenAITTFTMode:                            settings.OpenAITTFTMode,
 		EnableFingerprintUnification:              settings.EnableFingerprintUnification,
 		GatewayStreamDataIntervalTimeoutSeconds:   settings.GatewayStreamDataIntervalTimeoutSeconds,

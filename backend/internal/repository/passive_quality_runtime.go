@@ -34,7 +34,7 @@ func (r *passiveQualityRepository) RecordFailures(ctx context.Context, items []s
 			}
 			continue
 		}
-		if _, err = tx.ExecContext(ctx, `INSERT INTO passive_quality_failures(account_id,model,request_key,started_at,created_at) SELECT $1,$2,$3,$4,$5 WHERE EXISTS(SELECT 1 FROM accounts WHERE id=$1) ON CONFLICT(account_id,request_key) DO NOTHING`, f.AccountID, f.Model, f.RequestKey, f.StartedAt, f.At); err != nil {
+		if _, err = tx.ExecContext(ctx, `INSERT INTO passive_quality_failures(account_id,model,request_key,started_at,created_at,group_id,non_text) SELECT $1,$2,$3,$4,$5,$6,$7 WHERE EXISTS(SELECT 1 FROM accounts WHERE id=$1) ON CONFLICT(account_id,request_key) DO NOTHING`, f.AccountID, f.Model, f.RequestKey, f.StartedAt, f.At, f.GroupID, f.NonText); err != nil {
 			return err
 		}
 	}
@@ -46,6 +46,9 @@ func (r *passiveQualityRepository) RecordFailures(ctx context.Context, items []s
 	return tx.Commit()
 }
 func passiveSamples(ctx context.Context, tx *sql.Tx, p service.PassiveQualityPolicy, s service.PassiveQualityState, now time.Time) (service.PassiveQualityEvidence, error) {
+	if p.IsGroupQualityTarget() {
+		return passiveGroupTargetSamples(ctx, tx, p, s, now)
+	}
 	from := now.Add(-time.Duration(p.WindowSeconds) * time.Second)
 	if s.ObserveAfter.After(from) {
 		from = s.ObserveAfter
@@ -161,9 +164,14 @@ func (r *passiveQualityRepository) Sweep(ctx context.Context, now time.Time, pro
 				probes = append(probes, *s)
 			}
 		}
+		if err = r.refreshGroupQualityTrafficSnapshot(ctx, p, now); err != nil {
+			return probes, err
+		}
 	}
 	// Bounded retention; delete in batches so housekeeping never monopolizes DB.
 	for _, q := range []string{
+		`DELETE FROM group_quality_traffic_leases WHERE (lease_id,policy_id) IN (SELECT lease_id,policy_id FROM group_quality_traffic_leases WHERE created_at<now()-INTERVAL '2 days' LIMIT 5000)`,
+		`DELETE FROM group_quality_traffic_denials WHERE (policy_id,minute) IN (SELECT policy_id,minute FROM group_quality_traffic_denials WHERE minute<now()-INTERVAL '2 days' LIMIT 1000)`,
 		`DELETE FROM passive_quality_failures WHERE id IN (SELECT id FROM passive_quality_failures WHERE created_at<now()-INTERVAL '2 days' LIMIT 5000)`,
 		`DELETE FROM passive_quality_events WHERE id IN (SELECT id FROM passive_quality_events WHERE created_at<now()-INTERVAL '30 days' LIMIT 1000)`,
 		`DELETE FROM passive_quality_telemetry_gaps WHERE created_at<now()-INTERVAL '2 days'`,
@@ -219,7 +227,7 @@ func (r *passiveQualityRepository) advance(ctx context.Context, pid, aid int64, 
 	}
 	metricEvents := []string{}
 	metricPolicy := p
-	if p.IsolatedMetrics() && s.Phase != "exempt" {
+	if p.IsolatedMetrics() && !p.IsGroupQualityTarget() && s.Phase != "exempt" {
 		p.PassiveQualityConfig = service.PassiveQualityMetricConfig(p.PassiveQualityConfig, "availability")
 	}
 	switch s.Phase {
@@ -239,6 +247,12 @@ func (r *passiveQualityRepository) advance(ctx context.Context, pid, aid int64, 
 			service.PassiveQualityPause(p.PassiveQualityConfig, &s, now, "probe_timeout")
 		}
 	case "paused":
+		if p.IsGroupQualityTarget() {
+			if !now.Before(s.NextAt) && !s.OtherHold {
+				beginPassiveTrial(p, &s, now, "group_target_trial")
+			}
+			break
+		}
 		if !now.Before(s.NextAt) && canProbe && !s.OtherHold {
 			if p.Model != "" {
 				s.ProbeModel = p.Model
@@ -258,7 +272,7 @@ func (r *passiveQualityRepository) advance(ctx context.Context, pid, aid int64, 
 		if err != nil {
 			return nil, err
 		}
-		if p.IsolatedMetrics() && !p.ErrorRate.Enabled && p.ConsecutiveFailures == 0 {
+		if p.IsolatedMetrics() && !p.IsGroupQualityTarget() && !p.ErrorRate.Enabled && p.ConsecutiveFailures == 0 {
 			s.Evidence = e
 			s.Phase, s.Reason = "healthy", "availability_not_enabled"
 			break
@@ -267,7 +281,7 @@ func (r *passiveQualityRepository) advance(ctx context.Context, pid, aid int64, 
 	}
 	// Apply availability first so a new hard pause cannot simultaneously expand
 	// cache restrictions. Replay uses the same order and transition helpers.
-	if metricPolicy.IsolatedMetrics() && oldPhase != "exempt" {
+	if metricPolicy.IsolatedMetrics() && !metricPolicy.IsGroupQualityTarget() && oldPhase != "exempt" {
 		metricEvents, err = advancePassiveMetrics(ctx, tx, metricPolicy, &s, now)
 		if err != nil {
 			return nil, err
@@ -318,16 +332,11 @@ func (r *passiveQualityRepository) FinishProbe(ctx context.Context, probe servic
 	if !valid || !p.Enabled || s.Generation != probe.Generation || s.Version != probe.Version || s.Phase != "probing" || !now.Before(s.NextAt) {
 		return nil
 	}
+	if p.IsGroupQualityTarget() {
+		return nil // Group objectives never recover from a connectivity probe.
+	}
 	if success && !s.OtherHold {
-		s.Phase = "trial"
-		s.Reason = "probe_passed"
-		s.Generation++
-		s.TrialStartedAt = now
-		s.TrialEndsAt = now.Add(time.Duration(p.TrialSeconds) * time.Second)
-		s.Used = 0
-		s.Inflight = 0
-		s.LastEvidenceAt = now
-		s.Evidence = service.PassiveQualityEvidence{Complete: true}
+		beginPassiveTrial(p, &s, now, "probe_passed")
 	} else {
 		service.PassiveQualityPause(p.PassiveQualityConfig, &s, now, "probe_failed_or_other_hold")
 	}
@@ -347,6 +356,11 @@ func (r *passiveQualityRepository) FinishProbe(ctx context.Context, probe servic
 // Every applicable hold must approve. Account locking serializes all policies,
 // all gateway instances, membership edits, and trial lease reservations.
 func (r *passiveQualityRepository) AcquirePassiveQuality(ctx context.Context, aid int64, model, lease string) (bool, bool, error) {
+	// This only defers automatic-quality holds to the following durable emergency
+	// gate. That gate fails closed without a matching policy and exact lease.
+	if groupQualityFallbackMatches(ctx, aid, model) {
+		return true, false, nil
+	}
 	var held bool
 	if err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM passive_quality_states s JOIN passive_quality_policies p ON p.id=s.policy_id WHERE s.account_id=$1 AND p.config->>'enabled'='true' AND p.config->>'mode'='enforce' AND s.data->>'phase' IN ('paused','probing','trial') AND `+passiveMembership+` AND (p.config->>'scope'='account' OR COALESCE(NULLIF(s.model_key,''),p.config->>'model')=$2 OR $2=''))`, aid, model).Scan(&held); err != nil || !held {
 		return !held, false, err

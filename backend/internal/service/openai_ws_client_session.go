@@ -93,6 +93,15 @@ func newOpenAIWSClientUpstreamContext(ctx context.Context) (context.Context, con
 		return context.WithCancel(ctx)
 	}
 	upstreamCtx, cancel := context.WithCancelCause(context.WithoutCancel(ctx))
+	// A later turn can enter fallback after this relay context was created.
+	// Check the live lease on cancellation, preserving ordinary usage drains.
+	fallbackDone := make(chan struct{})
+	stopFallback := context.AfterFunc(ctx, func() {
+		defer close(fallbackDone)
+		if GroupQualityFallbackActive(ctx) {
+			cancel(context.Cause(ctx))
+		}
+	})
 	parentDone := make(chan struct{})
 	stopParent := context.AfterFunc(session.parent, func() {
 		defer close(parentDone)
@@ -104,10 +113,17 @@ func newOpenAIWSClientUpstreamContext(ctx context.Context) (context.Context, con
 	var cleanupOnce sync.Once
 	return upstreamCtx, func() {
 		cleanupOnce.Do(func() {
+			if !stopFallback() {
+				<-fallbackDone
+			}
 			if !stopParent() {
 				<-parentDone
 			}
-			cancel(context.Canceled)
+			cause := context.Cause(ctx)
+			if cause == nil {
+				cause = context.Canceled
+			}
+			cancel(cause)
 		})
 	}
 }
@@ -117,7 +133,7 @@ func newOpenAIWSCommittedTurnContext(ctx context.Context) (context.Context, cont
 	cancelDone := make(chan struct{})
 	stopCancellation := context.AfterFunc(ctx, func() {
 		defer close(cancelDone)
-		if !isOpenAIWSClientSessionDisconnected(ctx) {
+		if GroupQualityFallbackActive(ctx) || !isOpenAIWSClientSessionDisconnected(ctx) {
 			cancelUpstream()
 			return
 		}

@@ -5,18 +5,22 @@ package repository
 import (
 	"context"
 	"database/sql"
+	"strings"
 	"testing"
 	"time"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
 
 func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.DB, plans *scheduledTestPlanRepository, results *scheduledTestResultRepository, definitionID int64, scenario string) {
+	scoped := strings.HasPrefix(scenario, "scoped ")
+	scenario = strings.TrimPrefix(scenario, "scoped ")
 	exec := func(query string, args ...any) {
 		t.Helper()
 		_, err := db.ExecContext(ctx, query, args...)
@@ -38,6 +42,24 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 	exec(`UPDATE accounts SET status='quality_paused',extra='{"quality_protection_reason":"old policy hold","setting":"keep"}'`)
 	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 	accounts := newAccountRepositoryWithSQL(client, db, nil)
+	bindGroups := func(ctx context.Context, id int64, groupIDs []int64) error {
+		if !scoped {
+			return accounts.BindGroups(ctx, id, groupIDs)
+		}
+		tx, err := client.Tx(ctx)
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		txctx := adminaccess.WithPrincipal(dbent.NewTxContext(ctx, tx), &adminaccess.Principal{})
+		if err = accounts.ScopedAdminLockAccount(txctx, id); err != nil {
+			return err
+		}
+		if err = accounts.BindGroups(txctx, id, groupIDs); err != nil {
+			return err
+		}
+		return tx.Commit()
+	}
 	kept := scenario == "same policy" || scenario == "remove one source"
 	if scenario == "manual disabled" {
 		exec(`UPDATE accounts SET status='disabled' WHERE id=62`)
@@ -73,7 +95,7 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 		_, txErr = lockProtectionPlan(ctx, tx, plan.ID)
 		require.NoError(t, txErr)
 		completed := make(chan error, 1)
-		go func() { completed <- accounts.BindGroups(ctx, 62, []int64{9}) }()
+		go func() { completed <- bindGroups(ctx, 62, []int64{9}) }()
 		require.Eventually(t, func() bool {
 			var waiting bool
 			err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_stat_activity WHERE application_name=current_setting('application_name') AND pid<>pg_backend_pid() AND wait_event_type='Lock')`).Scan(&waiting)
@@ -88,13 +110,13 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 			t.Fatal("membership edit did not finish after the protection writer committed")
 		}
 	case "same policy":
-		err = accounts.BindGroups(ctx, 62, []int64{10})
+		err = bindGroups(ctx, 62, []int64{10})
 	case "remove one source", "remove last source":
 		err = accounts.RemoveFromGroup(ctx, 62, 8)
 	case "clear all":
-		err = accounts.BindGroups(ctx, 62, nil)
+		err = bindGroups(ctx, 62, nil)
 	default:
-		err = accounts.BindGroups(ctx, 62, []int64{9})
+		err = bindGroups(ctx, 62, []int64{9})
 	}
 	if scenario == "outbox rollback" {
 		require.Error(t, err)
@@ -159,7 +181,7 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 		require.Equal(t, rows[0].RunID, latest, "rejected snapshot must not invalidate the active round")
 	}
 	if scenario == "detach" {
-		require.NoError(t, accounts.BindGroups(ctx, 62, []int64{8}))
+		require.NoError(t, bindGroups(ctx, 62, []int64{8}))
 		eligible, err := results.IsPlanRunAccountEligible(ctx, plan.ID, rows[0].RunID, 62)
 		require.NoError(t, err)
 		require.False(t, eligible, "moving back cannot resurrect the old round")

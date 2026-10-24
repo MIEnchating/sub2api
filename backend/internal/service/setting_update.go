@@ -47,6 +47,9 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
+	if _, skipped := omitted[SettingKeyUpstreamErrorMessage]; !skipped {
+		s.publishUpstreamErrorMessage(settings.UpstreamErrorMessage)
+	}
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
 }
@@ -76,6 +79,9 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
+	}
+	if _, skipped := omitted[SettingKeyUpstreamErrorMessage]; !skipped {
+		s.publishUpstreamErrorMessage(settings.UpstreamErrorMessage)
 	}
 	s.refreshCachedSettingsAfterWrite(ctx, settings, omitted)
 	return nil
@@ -483,6 +489,12 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyBackendModeEnabled] = strconv.FormatBool(settings.BackendModeEnabled)
 
 	// Gateway forwarding behavior
+	upstreamErrorMessage, err := normalizeUpstreamErrorMessage(settings.UpstreamErrorMessage)
+	if err != nil {
+		return nil, err
+	}
+	settings.UpstreamErrorMessage = upstreamErrorMessage
+	updates[SettingKeyUpstreamErrorMessage] = upstreamErrorMessage
 	if settings.UpstreamErrorRetry != nil {
 		value, err := marshalUpstreamErrorRetrySettings(settings.UpstreamErrorRetry)
 		if err != nil {
@@ -744,6 +756,7 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	s.storeGatewayRuntimePolicy(settings)
 
 	s.publishUpstreamErrorRetrySettings(settings.UpstreamErrorRetry)
+	s.publishUpstreamErrorMessage(settings.UpstreamErrorMessage)
 
 	// 先使 inflight singleflight 失效，再刷新缓存，缩小旧值覆盖新值的竞态窗口
 	versionBoundsSF.Forget("version_bounds")

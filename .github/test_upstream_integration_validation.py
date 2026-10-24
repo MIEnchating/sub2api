@@ -1,6 +1,7 @@
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -96,8 +97,16 @@ else:
         self.assertIn('/var/run/docker.sock:/var/run/docker.sock', args)
         for key in ('MIGRATION_TEST_DATABASE_URL', 'QQBOT_TEST_DSN'):
             self.assertIn(key + '=postgres://postgres:integration-test@127.0.0.1:54329/sub2api_test?sslmode=disable', args)
-        self.assertEqual(args[-5:], ['go', 'test', '-count=1', '-tags=integration', './...'])
+        self.assertEqual(args[-6:], ['go', 'test', '-count=1', '-tags=integration', '-timeout=30m', './...'])
         self.assert_cleaned()
+
+    def test_local_and_ci_make_target_match_scheduled_integration_budget(self):
+        result = self.run_check()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        scheduled = self.docker_calls('run')[-1][-6:]
+        recipe = (ROOT / 'backend/Makefile').read_text().split('\ntest-integration:\n', 1)[1].split('\n\n', 1)[0]
+        commands = [shlex.split(line) for line in recipe.splitlines() if line.startswith('\tgo test ')]
+        self.assertEqual(commands, [scheduled])
 
     def test_last_readiness_attempt_is_accepted_without_extra_probe(self):
         result = self.run_check(READY_AFTER='30')
@@ -146,7 +155,7 @@ else:
     def test_silent_test_failure_keeps_exit_code_even_if_cleanup_fails(self):
         result = self.run_check(GO_TEST_STATUS='23', CLEANUP_STATUS='43')
         self.assertEqual(result.returncode, 23, result.stderr)
-        self.assertIn('go test -count=1 -tags=integration ./... failed (exit 23)', result.stderr)
+        self.assertIn('go test -count=1 -tags=integration -timeout=30m ./... failed (exit 23)', result.stderr)
         self.assert_cleaned()
 
     def test_record_check_keeps_diagnostics_and_continues_validation(self):

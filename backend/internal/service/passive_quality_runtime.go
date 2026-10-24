@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -21,6 +22,29 @@ var ErrPassiveQualityModelRequired = errors.New("select a model for this model-i
 const passiveQualityCaptureKey = "passive_quality_capture"
 const passiveQualityStartedKey = "passive_quality_started"
 const passiveQualityTurnKey = "passive_quality_turn"
+const passiveQualityAttemptGroupKey = "passive_quality_attempt_group"
+
+// SetPassiveQualityAttemptGroup records the effective routing group without
+// changing the authenticated API key (for request-local group fallbacks).
+func SetPassiveQualityAttemptGroup(c *gin.Context, groupID int64) {
+	if c != nil {
+		c.Set(passiveQualityAttemptGroupKey, groupID)
+		SetGroupQualityTrafficGroup(c, groupID)
+	}
+}
+
+func passiveQualityNonTextEndpoint(endpoint string) bool {
+	parsed, err := url.Parse(endpoint)
+	if err != nil {
+		return false
+	}
+	for _, segment := range strings.Split(strings.ToLower(parsed.Path), "/") {
+		if segment == "images" || segment == "videos" || segment == "audio" {
+			return true
+		}
+	}
+	return false
+}
 
 type PassiveQualityService struct {
 	Repo         PassiveQualityRepository
@@ -223,7 +247,13 @@ func (s *PassiveQualityService) Capture() gin.HandlerFunc {
 		}))
 		PassiveQualityBeginTurn(c)
 		c.Set(passiveQualityCaptureKey, func(ev OpsUpstreamErrorEvent) {
-			if !s.enabled.Load() || c.Request == nil || c.Request.Context().Err() != nil || ev.AccountID <= 0 || !PassiveQualityUpstreamFailure(ev) {
+			if !s.enabled.Load() || c.Request == nil || ev.AccountID <= 0 || !PassiveQualityUpstreamFailure(ev) {
+				return
+			}
+			// A detached upstream can return an HTTP failure after the client has
+			// disconnected. Keep that independent evidence, but continue rejecting
+			// cancellation-derived transport errors and logical stream statuses.
+			if c.Request.Context().Err() != nil && (!ev.upstreamHTTPResponseObserved || ev.UpstreamStatusCode == 0) {
 				return
 			}
 			if strings.Contains(c.Request.URL.Path, "count_tokens") {
@@ -250,12 +280,22 @@ func (s *PassiveQualityService) Capture() gin.HandlerFunc {
 			if at.IsZero() {
 				at = time.Now()
 			}
-			s.enqueue(PassiveQualityFailure{AccountID: ev.AccountID, Model: model, RequestKey: key, StartedAt: at, At: time.Now()})
+			groupID := int64(0)
+			if override, ok := c.Get(passiveQualityAttemptGroupKey); ok {
+				groupID, _ = override.(int64)
+			} else if raw, ok := c.Get("api_key"); ok {
+				if key, ok := raw.(*APIKey); ok && key != nil && key.GroupID != nil {
+					groupID = *key.GroupID
+				}
+			}
+			nonText := passiveQualityNonTextEndpoint(c.Request.URL.Path) || passiveQualityNonTextEndpoint(ev.UpstreamURL)
+			s.enqueue(PassiveQualityFailure{AccountID: ev.AccountID, GroupID: groupID, NonText: nonText, Model: model, RequestKey: key, StartedAt: at, At: time.Now()})
 		})
 	}
 }
 func PassiveQualityBeginTurn(c *gin.Context) {
 	if c != nil {
+		beginGroupQualityTrafficTurn(c)
 		key := uuid.NewString()
 		c.Set(passiveQualityStartedKey, time.Now())
 		c.Set(passiveQualityTurnKey, key)
@@ -304,7 +344,7 @@ func PassiveQualityUsageContext(parent, base context.Context) context.Context {
 			base = context.WithValue(base, key, value)
 		}
 	}
-	return base
+	return freezeGroupQualityTrafficContext(parent, base)
 }
 
 // Record cache reporting presence and correlate WS usage IDs with failure turn

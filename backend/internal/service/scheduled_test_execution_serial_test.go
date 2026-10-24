@@ -38,6 +38,10 @@ func TestScheduledTestAccountExecutionSerializesOtherDefinitions(t *testing.T) {
 				},
 			}
 			runner := newScheduledTestExecutionRunner(repo, accounts)
+			// This test releases the first execution explicitly. The lifecycle
+			// helper's 40ms deadline can trigger a retry during the overlap check
+			// on a busy runner, which is not a concurrent second definition.
+			runner.executionTimeout = 3 * time.Second
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			defer cancel()
 			var wg sync.WaitGroup

@@ -46,8 +46,10 @@
 
         <!-- Tab: Security — Admin API Key -->
         <div v-show="activeTab === 'security'" class="space-y-6">
-          <!-- Admin API Key Settings -->
-          <div class="card">
+          <AdminAccessKeysSettings />
+          <!-- 已有全权密钥只提供轮换和删除入口。 -->
+          <details v-if="adminApiKeyExists" class="card">
+            <summary class="cursor-pointer px-6 py-4 font-medium">{{ t("adminAccessKeys.legacy") }}</summary>
             <div
               class="border-b border-gray-100 px-6 py-4 dark:border-dark-700"
             >
@@ -84,48 +86,6 @@
                   class="h-4 w-4 animate-spin rounded-full border-b-2 border-primary-600"
                 ></div>
                 {{ t("common.loading") }}
-              </div>
-
-              <!-- No Key Configured -->
-              <div
-                v-else-if="!adminApiKeyExists"
-                class="flex items-center justify-between"
-              >
-                <span class="text-gray-500 dark:text-gray-400">
-                  {{ t("admin.settings.adminApiKey.notConfigured") }}
-                </span>
-                <button
-                  type="button"
-                  @click="createAdminApiKey"
-                  :disabled="adminApiKeyOperating"
-                  class="btn btn-primary btn-sm"
-                >
-                  <svg
-                    v-if="adminApiKeyOperating"
-                    class="mr-1 h-4 w-4 animate-spin"
-                    fill="none"
-                    viewBox="0 0 24 24"
-                  >
-                    <circle
-                      class="opacity-25"
-                      cx="12"
-                      cy="12"
-                      r="10"
-                      stroke="currentColor"
-                      stroke-width="4"
-                    ></circle>
-                    <path
-                      class="opacity-75"
-                      fill="currentColor"
-                      d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                    ></path>
-                  </svg>
-                  {{
-                    adminApiKeyOperating
-                      ? t("admin.settings.adminApiKey.creating")
-                      : t("admin.settings.adminApiKey.create")
-                  }}
-                </button>
               </div>
 
               <!-- Key Exists -->
@@ -197,12 +157,33 @@
                 </div>
               </div>
             </div>
-          </div>
+          </details>
         </div>
         <!-- /Tab: Security — Admin API Key -->
 
         <!-- Tab: Gateway -->
         <div v-show="activeTab === 'gateway'" class="space-y-6">
+          <div class="card" data-testid="upstream-error-message-settings">
+            <div class="border-b border-gray-100 px-6 py-4 dark:border-dark-700">
+              <h2 class="text-lg font-semibold text-gray-900 dark:text-white">
+                {{ t('admin.settings.upstreamErrorMessage.title') }}
+              </h2>
+              <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.upstreamErrorMessage.description') }}
+              </p>
+            </div>
+            <div class="space-y-3 p-6">
+              <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
+                {{ t('admin.settings.upstreamErrorMessage.label') }}
+                <textarea v-model="form.upstream_error_message" rows="3" maxlength="500"
+                  class="input mt-2" data-testid="upstream-error-message"
+                  :placeholder="t('admin.settings.upstreamErrorMessage.placeholder')" />
+              </label>
+              <p class="text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.settings.upstreamErrorMessage.hint') }}
+              </p>
+            </div>
+          </div>
           <!-- Overload Cooldown (529) Settings -->
           <div class="card">
             <div
@@ -9407,6 +9388,7 @@ import {
   isStepUpBlocked,
   stepUpBlockReason,
 } from "@/composables/useStepUp";
+import AdminAccessKeysSettings from "@/components/admin/settings/AdminAccessKeysSettings.vue";
 import TotpStepUpDialog from "@/components/auth/TotpStepUpDialog.vue";
 import { affiliatesAPI, type AffiliateAdminEntry, type SimpleUser as AffiliateSimpleUser } from "@/api/admin/affiliates";
 import { extractApiErrorMessage, extractI18nErrorMessage } from "@/utils/apiError";
@@ -10438,6 +10420,7 @@ const form = reactive<SettingsForm>({
   openai_advanced_scheduler_weight_session_sticky: "",
   // Gateway forwarding behavior
   upstream_error_retry: { enabled: false, max_retries: 3, delay_ms: 1000, errors: "" },
+  upstream_error_message: "",
   openai_ttft_mode: "semantic",
   enable_fingerprint_unification: true,
   gateway_stream_data_interval_timeout_seconds: 180,
@@ -11781,6 +11764,12 @@ const siteBillingModeHint = computed(() =>
 async function saveSettings() {
   saving.value = true;
   try {
+    const upstreamErrorMessage = form.upstream_error_message.trim();
+    if (Array.from(upstreamErrorMessage).length > 500) {
+      appStore.showError(t("admin.settings.upstreamErrorMessage.invalid"));
+      activeTab.value = "gateway";
+      return;
+    }
     const retry = form.upstream_error_retry;
     const errorLines = retry.errors.split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
     if (!Number.isInteger(retry.max_retries) || retry.max_retries < 1 || retry.max_retries > 10 ||
@@ -12163,6 +12152,7 @@ async function saveSettings() {
       max_claude_code_version: form.max_claude_code_version,
       allow_ungrouped_key_scheduling: form.allow_ungrouped_key_scheduling,
       upstream_error_retry: { ...form.upstream_error_retry },
+      upstream_error_message: upstreamErrorMessage,
       openai_ttft_mode:
         form.openai_ttft_mode === "visible" ? "visible" : "semantic",
       enable_fingerprint_unification: form.enable_fingerprint_unification,
@@ -12555,15 +12545,17 @@ async function loadAdminApiKey() {
 }
 
 async function createAdminApiKey() {
+  if (!adminApiKeyExists.value) return;
   adminApiKeyOperating.value = true;
   try {
-    const result = await adminAPI.settings.regenerateAdminApiKey();
+    const result = await settingsStepUp.run(() => adminAPI.settings.regenerateAdminApiKey());
     newAdminApiKey.value = result.key;
     adminApiKeyExists.value = true;
     adminApiKeyMasked.value =
       result.key.substring(0, 10) + "..." + result.key.slice(-4);
     appStore.showSuccess(t("admin.settings.adminApiKey.keyGenerated"));
   } catch (error: unknown) {
+    if (isStepUpCancelled(error)) return;
     appStore.showError(extractApiErrorMessage(error, t("common.error")));
   } finally {
     adminApiKeyOperating.value = false;
@@ -12579,12 +12571,13 @@ async function deleteAdminApiKey() {
   if (!confirm(t("admin.settings.adminApiKey.deleteConfirm"))) return;
   adminApiKeyOperating.value = true;
   try {
-    await adminAPI.settings.deleteAdminApiKey();
+    await settingsStepUp.run(() => adminAPI.settings.deleteAdminApiKey());
     adminApiKeyExists.value = false;
     adminApiKeyMasked.value = "";
     newAdminApiKey.value = "";
     appStore.showSuccess(t("admin.settings.adminApiKey.keyDeleted"));
   } catch (error: unknown) {
+    if (isStepUpCancelled(error)) return;
     appStore.showError(extractApiErrorMessage(error, t("common.error")));
   } finally {
     adminApiKeyOperating.value = false;
