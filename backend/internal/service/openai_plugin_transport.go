@@ -1,6 +1,7 @@
 package service
 
 import (
+	"errors"
 	"net/http"
 	"time"
 )
@@ -19,7 +20,22 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err != nil {
 		return nil, err
 	}
+	vmRouted := false
 	return doAccount429Retry(request, account, func(attemptRequest *http.Request) (*http.Response, error) {
+		if s.openaiVM != nil {
+			if response, handled, err := s.openaiVM.RoundTrip(attemptRequest, account); handled {
+				vmRouted = true
+				return response, err
+			}
+		}
+		if vmRouted {
+			return nil, errors.New("OpenAI VM binding changed during retry; direct fallback is disabled")
+		}
+		if account != nil {
+			if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
+				return nil, err
+			}
+		}
 		if profile != nil && (s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
 			return s.httpUpstream.DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
@@ -53,7 +69,23 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	if err != nil {
 		return nil, err
 	}
+	vmRouted := false
 	perform := func(attemptRequest *http.Request) (*http.Response, error) {
+		if s.openaiVM != nil {
+			started := time.Now().UTC()
+			if response, handled, err := s.openaiVM.RoundTrip(attemptRequest, account); handled {
+				vmRouted = true
+				return observeAccountTestResponse(attemptRequest.Context(), started, response, err)
+			}
+		}
+		if vmRouted {
+			return nil, errors.New("OpenAI VM binding changed during test retry; direct fallback is disabled")
+		}
+		if account != nil {
+			if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
+				return nil, err
+			}
+		}
 		if profile != nil && (s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
 			return s.doAccountTestHTTPWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}

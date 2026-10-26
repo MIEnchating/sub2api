@@ -1953,7 +1953,22 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 	} else {
 		var directClient *http.Client
 		var proxyConfigErr error
+		vmRouted := false
 		doRequest := func(attemptReq *http.Request) (*http.Response, error) {
+			if s.openaiVM != nil {
+				if vmResp, handled, vmErr := s.openaiVM.RoundTrip(attemptReq, request.credentialAccount); handled {
+					vmRouted = true
+					return vmResp, vmErr
+				}
+			}
+			if vmRouted {
+				return nil, errors.New("OpenAI VM binding changed during manifest retry; direct fallback is disabled")
+			}
+			if request.credentialAccount != nil {
+				if proxyErr := validateOpenAIVMProxy(request.credentialAccount, request.credentialAccount.Proxy); proxyErr != nil {
+					return nil, proxyErr
+				}
+			}
 			if s.pluginManager != nil {
 				pluginResp, handled, pluginErr := s.pluginManager.RoundTripOpenAIOAuth(attemptReq.Context(), attemptReq, request.proxyURL, request.credentialAccount)
 				if handled {

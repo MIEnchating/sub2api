@@ -65,6 +65,17 @@ func ProvidePluginManager(
 	return manager
 }
 
+func ProvideOpenAIVMService(repo OpenAIVMRepository, accounts AccountRepository, proxies ProxyRepository, encryptor SecretEncryptor, gateway *OpenAIGatewayService, scheduler SchedulerCache) *OpenAIVMService {
+	svc := NewOpenAIVMService(repo, accounts, proxies, encryptor)
+	svc.scheduler = scheduler
+	svc.accessToken = func(ctx context.Context, a *Account) (string, error) {
+		token, _, err := gateway.GetAccessToken(ctx, a)
+		return token, err
+	}
+	gateway.openaiVM = svc
+	return svc
+}
+
 // ProvideEmailQueueService creates EmailQueueService with default worker count
 func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 	return NewEmailQueueService(emailService, 3)
@@ -265,6 +276,7 @@ func ProvideAccountTestService(
 	openAIGatewayService *OpenAIGatewayService,
 	settingService *SettingService,
 	pluginManager *PluginManager,
+	openaiVM *OpenAIVMService,
 ) *AccountTestService {
 	service := NewAccountTestService(
 		accountRepo,
@@ -281,6 +293,7 @@ func ProvideAccountTestService(
 	service.SetOpenAIGatewayService(openAIGatewayService)
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
+	service.openaiVM = openaiVM
 	return service
 }
 
@@ -983,6 +996,7 @@ var ProviderSet = wire.NewSet(
 	NewTLSFingerprintProfileService,
 	ProvideAccountHealthService,
 	ProvidePluginManager,
+	ProvideOpenAIVMService,
 	NewDigestSessionStore,
 	ProvideIdempotencyCoordinator,
 	ProvideSystemOperationLockService,

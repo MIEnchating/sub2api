@@ -113,7 +113,7 @@ func TestScopedAdminPolicyValidationAndGlobalIsolation(t *testing.T) {
 			all.Rules = append(all.Rules, Rule{Permissions: []string{perm.ID}, AllGroups: true, IncludeUngrouped: true, AccountTypes: []string{"oauth", "apikey"}})
 		}
 	}
-	for _, path := range []string{"/api/v1/admin/future-endpoint", "/api/v1/admin/settings/admin-api-key/regenerate", "/api/v1/admin/settings/admin-api-keys", "/api/v1/admin/system/restart", "/api/v1/admin/accounts/data", "/api/v1/admin/backups/:id/download-url"} {
+	for _, path := range []string{"/api/v1/admin/future-endpoint", "/api/v1/admin/settings/admin-api-key/regenerate", "/api/v1/admin/settings/admin-api-keys", "/api/v1/admin/system/restart", "/api/v1/admin/accounts/data", "/api/v1/admin/backups/:id/download-url", "/api/v1/admin/openai-vm/config", "/api/v1/admin/openai-vm/test", "/api/v1/admin/accounts/:id/vm", "/api/v1/admin/accounts/:id/vm/retry"} {
 		for _, method := range []string{"GET", "POST", "PUT", "DELETE"} {
 			require.False(t, RouteAllowed(all, method, path), method+" "+path)
 		}

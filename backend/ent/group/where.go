@@ -155,6 +155,11 @@ func AllowImageGeneration(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldAllowImageGeneration, v))
 }
 
+// ImageCountBilling applies equality check predicate on the "image_count_billing" field. It's identical to ImageCountBillingEQ.
+func ImageCountBilling(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCountBilling, v))
+}
+
 // ImageRateIndependent applies equality check predicate on the "image_rate_independent" field. It's identical to ImageRateIndependentEQ.
 func ImageRateIndependent(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldImageRateIndependent, v))
@@ -1303,6 +1308,16 @@ func AllowImageGenerationEQ(v bool) predicate.Group {
 // AllowImageGenerationNEQ applies the NEQ predicate on the "allow_image_generation" field.
 func AllowImageGenerationNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldAllowImageGeneration, v))
+}
+
+// ImageCountBillingEQ applies the EQ predicate on the "image_count_billing" field.
+func ImageCountBillingEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldImageCountBilling, v))
+}
+
+// ImageCountBillingNEQ applies the NEQ predicate on the "image_count_billing" field.
+func ImageCountBillingNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldImageCountBilling, v))
 }
 
 // ImageRateIndependentEQ applies the EQ predicate on the "image_rate_independent" field.

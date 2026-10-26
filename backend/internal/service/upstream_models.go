@@ -1358,6 +1358,29 @@ func (s *AccountTestService) fetchAntigravityOAuthUpstreamModels(ctx context.Con
 }
 
 func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL string, account *Account) (*http.Response, error) {
+	if err := validateRegisteredAntiDegrade(account); err != nil {
+		return nil, err
+	}
+	if s.openaiVM != nil {
+		bound, err := s.openaiVM.RouteBound(req.Context(), account)
+		if err != nil {
+			return nil, err
+		}
+		if bound {
+			return doAccount429Retry(req, account, func(attempt *http.Request) (*http.Response, error) {
+				response, handled, tripErr := s.openaiVM.RoundTrip(attempt, account)
+				if tripErr == nil && (!handled || response == nil) {
+					return nil, errors.New("OpenAI VM binding changed during model sync; direct fallback is disabled")
+				}
+				return response, tripErr
+			})
+		}
+	}
+	if account != nil {
+		if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
+			return nil, err
+		}
+	}
 	if s.tlsFPProfileService == nil {
 		return doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, nil)
 	}

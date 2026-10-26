@@ -89,6 +89,7 @@ const sourceGroup: AdminGroup = {
   weekly_limit_usd: null,
   monthly_limit_usd: null,
   allow_image_generation: false,
+  image_count_billing: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
   image_price_1k: null,
@@ -320,6 +321,45 @@ describe('GroupsView duplicate action', () => {
     expect(updateGroup).toHaveBeenCalledTimes(1)
     expect(showError).toHaveBeenCalledWith('group name already exists')
     wrapper.unmount()
+  })
+
+  it.each(['openai', 'composite'] as const)('preserves per-image billing when editing a %s group', async (platform) => {
+    const group = { ...sourceGroup, platform, allow_image_generation: true, image_count_billing: true }
+    listGroups.mockResolvedValue({ items: [group], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateGroup.mockResolvedValue(group)
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+      await flushPromises()
+      const label = wrapper.findAll('label').find(label => label.text() === 'admin.groups.imagePricing.perImageBilling')!
+      expect(label.get<HTMLInputElement>('input').element.checked).toBe(true)
+      await wrapper.get('#edit-group-form').trigger('submit')
+      await flushPromises()
+      expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ image_count_billing: true }))
+    } finally {
+      wrapper.unmount()
+    }
+  })
+
+  it('clears per-image billing when image generation is disabled', async () => {
+    const group = { ...sourceGroup, allow_image_generation: true, image_count_billing: true }
+    listGroups.mockResolvedValue({ items: [group], total: 1, page: 1, page_size: 20, pages: 1 })
+    updateGroup.mockResolvedValue(group)
+    const wrapper = mountView()
+    try {
+      await flushPromises()
+      await wrapper.findAll('button').find(button => button.text() === 'common.edit')!.trigger('click')
+      await flushPromises()
+      const imagePermission = wrapper.findAll('label').find(label => label.text() === 'admin.groups.imagePricing.allowImageGeneration')!
+      await imagePermission.get('input').setValue(false)
+      expect(wrapper.findAll('label').some(label => label.text() === 'admin.groups.imagePricing.perImageBilling')).toBe(false)
+      await wrapper.get('#edit-group-form').trigger('submit')
+      await flushPromises()
+      expect(updateGroup).toHaveBeenCalledWith(42, expect.objectContaining({ allow_image_generation: false, image_count_billing: false }))
+    } finally {
+      wrapper.unmount()
+    }
   })
 
   it('loads, edits, and saves custom reasoning multipliers for group pricing', async () => {

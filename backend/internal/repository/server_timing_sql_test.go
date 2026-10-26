@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/servertiming"
@@ -150,6 +151,12 @@ func metricDuration(t *testing.T, header, metric string) float64 {
 }
 
 func TestServerTimingConnectorRecordsDriverCallsWithoutRowLifetime(t *testing.T) {
+	// Virtual time keeps driver delays independent of host scheduling and lets
+	// us check exact attribution instead of assuming app work outlasts DB calls.
+	synctest.Test(t, testServerTimingConnectorRecordsDriverCallsWithoutRowLifetime)
+}
+
+func testServerTimingConnectorRecordsDriverCallsWithoutRowLifetime(t *testing.T) {
 	startedAt := time.Now()
 	collector := servertiming.New(startedAt)
 	ctx := servertiming.WithCollector(context.Background(), collector)
@@ -192,8 +199,13 @@ func TestServerTimingConnectorRecordsDriverCallsWithoutRowLifetime(t *testing.T)
 	if strings.Contains(header, "sensitive") {
 		t.Fatalf("SQL text leaked into header: %q", header)
 	}
-	if app, db := metricDuration(t, header, "app"), metricDuration(t, header, "db"); app <= db {
-		t.Fatalf("row processing gap was counted as DB time: app=%.1fms db=%.1fms header=%q", app, db, header)
+	if app := metricDuration(t, header, "app"); app != 30 {
+		t.Fatalf("row processing gap was not attributed to app time: app=%.1fms header=%q", app, header)
+	}
+	// Connect, Exec, Query, two Next calls (including EOF), and Close each
+	// contribute one driver delay. The application gap must add no DB time.
+	if db, want := metricDuration(t, header, "db"), float64(6*fakeDriverDelay)/float64(time.Millisecond); db != want {
+		t.Fatalf("driver calls were not attributed to DB time: db=%.1fms want=%.1fms header=%q", db, want, header)
 	}
 }
 
