@@ -1583,6 +1583,7 @@ func openAICacheReadTokensFromUsage(value gjson.Result) int {
 		}
 	}
 
+	// Explicit numeric zero is authoritative; keep Gemini and DeepSeek aliases.
 	for _, path := range []string{"cache_read_input_tokens", "cache_read_tokens", "cached_tokens", "prompt_cache_hit_tokens", "cachedContentTokenCount"} {
 		if alias := value.Get(path); alias.Exists() && alias.Type == gjson.Number {
 			return max(int(alias.Int()), 0)

@@ -23,6 +23,10 @@ func qualityOperationsDB(t *testing.T) (context.Context, *sql.DB, *qualityOperat
 	require.NoError(t, err)
 	_, err = db.Exec(string(raw))
 	require.NoError(t, err)
+	raw, err = os.ReadFile("../../migrations/309_quality_recovery_budget_evidence.sql")
+	require.NoError(t, err)
+	_, err = db.Exec(string(raw))
+	require.NoError(t, err)
 	return ctx, db, &qualityOperationsRepository{db: db}, passive
 }
 func TestQualityOperationsBudgetConcurrentIntegration(t *testing.T) {
@@ -85,6 +89,71 @@ func TestQualityOperationsBudgetConcurrentIntegration(t *testing.T) {
 	require.NoError(t, err)
 	require.EqualValues(t, 1, snapshot.Usage[0].Requests)
 	require.EqualValues(t, 1024, snapshot.Usage[0].Tokens)
+}
+
+func TestQualityOperationsRecoveryReserveIntegration(t *testing.T) {
+	for _, scope := range []string{"global", "account"} {
+		for _, meter := range []string{"requests", "tokens"} {
+			t.Run(scope+"/"+meter, func(t *testing.T) {
+				ctx, _, repo, _ := qualityOperationsDB(t)
+				c := service.DefaultQualityOperationsConfig()
+				c.BudgetEnabled, c.RecoveryReservePercent, c.TokenReservation = true, 20, 1024
+				c.DailyRequests, c.DailyTokens, c.AccountDailyRequests, c.AccountDailyTokens = 0, 0, 0, 0
+				switch scope + "/" + meter {
+				case "global/requests":
+					c.DailyRequests = 10
+				case "global/tokens":
+					c.DailyTokens = 10240
+				case "account/requests":
+					c.AccountDailyRequests = 10
+				case "account/tokens":
+					c.AccountDailyTokens = 10240
+				}
+				require.NoError(t, repo.SaveOperationsConfig(ctx, &c))
+				var wg sync.WaitGroup
+				var mu sync.Mutex
+				admitted := 0
+				for i := 0; i < 30; i++ {
+					wg.Add(1)
+					go func() {
+						defer wg.Done()
+						_, err := repo.ReserveQualityProbe(ctx, 62, 100, false, "")
+						if err != nil {
+							var deferred *service.QualityDeferredError
+							require.ErrorAs(t, err, &deferred)
+							return
+						}
+						mu.Lock()
+						admitted++
+						mu.Unlock()
+					}()
+				}
+				wg.Wait()
+				require.Equal(t, 8, admitted)
+				recoveryCtx := service.WithQualityRecoveryProbe(ctx)
+				first, err := repo.ReserveQualityProbe(recoveryCtx, 62, 100, true, "recovery-a")
+				require.NoError(t, err)
+				second, err := repo.ReserveQualityProbe(recoveryCtx, 62, 100, true, "recovery-b")
+				require.NoError(t, err)
+				_, err = repo.ReserveQualityProbe(recoveryCtx, 62, 100, true, "recovery-c")
+				require.Error(t, err, "recovery never bypasses the hard cap")
+				actual := int64(512)
+				outcome := service.QualityProbeOutcome{Tokens: &actual, Kind: "healthy"}
+				require.NoError(t, repo.SettleQualityProbe(ctx, first, outcome))
+				require.NoError(t, repo.SettleQualityProbe(ctx, first, outcome))
+				require.NoError(t, repo.SettleQualityProbe(ctx, second, service.QualityProbeOutcome{Kind: "unknown"}))
+				snapshot, err := repo.OperationsSnapshot(ctx)
+				require.NoError(t, err)
+				require.Len(t, snapshot.Usage, 2)
+				for _, usage := range snapshot.Usage {
+					require.EqualValues(t, 10, usage.Requests)
+					require.EqualValues(t, 2, usage.RecoveryRequests)
+					require.EqualValues(t, 9728, usage.Tokens)
+					require.EqualValues(t, 1536, usage.RecoveryTokens, "unknown usage keeps its reservation; actual usage settles exactly once")
+				}
+			})
+		}
+	}
 }
 func TestQualityOperationsTokenOverspendAndUnknownIntegration(t *testing.T) {
 	ctx, _, r, _ := qualityOperationsDB(t)
@@ -210,6 +279,34 @@ func TestQualityOperationsHealthyFrequencyFencingIntegration(t *testing.T) {
 	next, err = r.QualityFrequencyDue(ctx, 1, id, "policy")
 	require.NoError(t, err)
 	require.Nil(t, next, "active success cannot slow tests of a passive-degraded account")
+}
+
+func TestQualityOperationsCapabilityHoldPreventsHealthyFrequencyIntegration(t *testing.T) {
+	ctx, db, r, _ := qualityOperationsDB(t)
+	c := service.DefaultQualityOperationsConfig()
+	c.DynamicEnabled, c.HealthyRounds, c.HealthyBaseSeconds, c.HealthyMaxSeconds = true, 2, 60, 240
+	require.NoError(t, r.SaveOperationsConfig(ctx, &c))
+	plan := &service.ScheduledTestPlan{ID: 1}
+	require.NoError(t, db.QueryRow(`SELECT updated_at FROM scheduled_test_plans WHERE id=1`).Scan(&plan.UpdatedAt))
+	id := int64(62)
+	result := &service.ScheduledTestResult{AccountID: &id, RunID: "run", StartedAt: time.Now().Add(-time.Minute)}
+	for range 2 {
+		result.StartedAt = result.StartedAt.Add(time.Second)
+		require.NoError(t, r.RecordQualityFrequency(ctx, plan, result, "policy", true))
+	}
+	next, err := r.QualityFrequencyDue(ctx, 1, id, "policy")
+	require.NoError(t, err)
+	require.NotNil(t, next)
+	_, err = db.Exec(`INSERT INTO scheduled_test_pass_rate_states(plan_id,account_id,test_definition_id,model_key,blocked) VALUES(1,62,2,'model',true)`)
+	require.NoError(t, err)
+	next, err = r.QualityFrequencyDue(ctx, 1, id, "policy")
+	require.NoError(t, err)
+	require.Nil(t, next, "capability recovery must not wait on a previous healthy streak")
+	result.StartedAt = time.Now()
+	require.NoError(t, r.RecordQualityFrequency(ctx, plan, result, "policy", true))
+	var streak int
+	require.NoError(t, db.QueryRow(`SELECT streak FROM quality_healthy_frequency WHERE plan_id=1 AND account_id=62`).Scan(&streak))
+	require.Zero(t, streak, "a passing round does not claim health while another independent capability hold persists")
 }
 func TestQualityOperationsReplayReadOnlyAndFreshEvidenceIntegration(t *testing.T) {
 	ctx, db, r, passive := qualityOperationsDB(t)

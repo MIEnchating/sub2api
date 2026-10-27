@@ -68,7 +68,20 @@ func (r *scheduledTestResultRepository) ListAdminReviews(ctx context.Context) ([
 			results = append(results, out)
 		}
 	}
-	return results, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	history := make([]*service.ScheduledTestResult, 0, len(results))
+	for _, review := range results {
+		history = append(history, review.Result)
+	}
+	if err := r.hydratePassRates(ctx, history); err != nil {
+		return nil, err
+	}
+	return results, nil
 }
 
 func (r *scheduledTestResultRepository) DecideTestResult(ctx context.Context, adminID, resultID, generation int64, verdict string) error {
@@ -123,6 +136,7 @@ func (r *scheduledTestResultRepository) DecideTestResult(ctx context.Context, ad
 		return err
 	}
 	state.adminVerdict = verdict
+	state.evidenceSource, state.evidenceActor = "administrator", &adminID
 	if err := saveProtectionVerdict(ctx, tx, state); err != nil {
 		return err
 	}

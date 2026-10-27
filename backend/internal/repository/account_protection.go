@@ -12,6 +12,22 @@ import (
 
 const accountProtectionEnabledSQL = "(CASE WHEN jsonb_typeof(extra -> 'anti_degradation') = 'boolean' THEN extra -> 'anti_degradation' = 'true'::jsonb ELSE COALESCE(extra #> '{anti_degrade,enabled}' = 'true'::jsonb, false) END)"
 
+// Quality projections belong to their durable state owners, which publish them
+// with dedicated SQL under the account lock. Generic inserts and JSONB patches
+// must not copy, inject or clear them, even through a protection-managed write.
+// Omitting these keys from patches preserves the live row atomically.
+func stripAccountQualityProjections(extra map[string]any) map[string]any {
+	_, passive := extra["passive_quality"]
+	_, active := extra["active_pass_rate_holds"]
+	if !passive && !active {
+		return extra
+	}
+	extra = copyJSONMap(extra)
+	delete(extra, "passive_quality")
+	delete(extra, "active_pass_rate_holds")
+	return extra
+}
+
 // preserveProtectionExtraSQL keeps the dedicated protection fields from being
 // replaced by stale full-object/key-level writes. Dedicated transitions opt
 // out through a private context value and are then checked by the revision CAS.

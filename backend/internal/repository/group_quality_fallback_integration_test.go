@@ -84,7 +84,7 @@ func TestGroupQualityFallbackConcurrentAdmissionIntegration(t *testing.T) {
 	close(start)
 	wg.Wait()
 	require.EqualValues(t, requests, admitted.Load(), "all gateway instances, accounts and models may fall back concurrently, including repeated account/model pairs")
-	s, err := r.groupQualityFallbackSummary(ctx, p, time.Now())
+	s, err := readGroupQualityFallbackSummary(ctx, r.db, p, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, requests, s.InFlight)
 	require.EqualValues(t, requests, s.Requests)
@@ -108,7 +108,7 @@ func TestGroupQualityFallbackConcurrentAdmissionIntegration(t *testing.T) {
 	}
 	allowed, _ = acquireFallback(t, other, req, 63)
 	require.False(t, allowed, "an existing reservation cannot move to another account")
-	s, err = r.groupQualityFallbackSummary(ctx, p, time.Now())
+	s, err = readGroupQualityFallbackSummary(ctx, r.db, p, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, requests, s.InFlight)
 	require.EqualValues(t, requests, s.Requests)
@@ -162,7 +162,7 @@ func TestGroupQualityFallbackIndependentLeaseLifecycleIntegration(t *testing.T) 
 	require.False(t, allowed, "expired attempts cannot be reacquired")
 	allowed, _ = acquireFallback(t, r, trafficRequest("crash-replacement", "B", "crash-replacement", 4096), 63)
 	require.True(t, allowed)
-	s, err := r.groupQualityFallbackSummary(ctx, p, time.Now())
+	s, err := readGroupQualityFallbackSummary(ctx, r.db, p, time.Now())
 	require.NoError(t, err)
 	require.Equal(t, 1, s.InFlight)
 	require.EqualValues(t, 3, s.Requests)
@@ -301,6 +301,26 @@ func TestGroupQualityFallbackCacheDisabledAccountingAndFinalGateIntegration(t *t
 	raw, err := json.Marshal(s)
 	require.NoError(t, err)
 	require.Contains(t, string(raw), `"fallback":{"enabled":true`)
+}
+
+func TestGroupQualityFallbackCannotBypassLivePassRateHoldIntegration(t *testing.T) {
+	ctx, db, r := passiveDB(t)
+	newGroupTargetPolicy(t, ctx, db, r)
+	req := trafficRequest("capability", "A", "capability", 4096)
+	req.AccountID = 62
+	allowed, _ := acquireFallback(t, r, req, 62)
+	require.True(t, allowed)
+	_, err := db.Exec(`INSERT INTO scheduled_test_pass_rate_states(account_id,model_key,blocked) VALUES(62,'A',true)`)
+	require.NoError(t, err)
+	gate := &accountRepository{sql: db}
+	allowed, err = gate.AcquireCacheRecoveryRequest(fallbackTrafficContext(req, 62), 62)
+	require.NoError(t, err)
+	require.False(t, allowed, "final admission checks the live table even with a previously valid fallback lease")
+	allowed, _ = acquireFallback(t, r, trafficRequest("blocked-new", "A", "blocked-new", 4096), 62)
+	require.False(t, allowed, "new fallback requests must also respect capability")
+	allowed, _ = acquireFallback(t, r, trafficRequest("different-model", "B", "different-model", 4096), 62)
+	require.True(t, allowed, "capability is scoped to the tested model")
+	require.NoError(t, r.ReleaseGroupQualityTraffic(ctx, "different-model", true))
 }
 
 func TestGroupQualityFallbackMarkerAndExclusionFencesIntegration(t *testing.T) {

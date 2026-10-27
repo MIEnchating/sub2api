@@ -8,8 +8,7 @@
         ></div>
       </div>
 
-      <!-- Settings Form -->
-      <form v-else @submit.prevent="saveSettings" class="space-y-6" novalidate>
+      <div v-else class="space-y-6">
         <!-- Tab Navigation -->
         <div class="settings-tabs-shell">
           <nav
@@ -44,6 +43,8 @@
           </nav>
         </div>
 
+      <!-- Independently saved settings stay outside this form. -->
+      <form v-show="activeTab !== 'openai-vm'" @submit.prevent="saveSettings" class="space-y-6" novalidate>
         <!-- Tab: Security — Admin API Key -->
         <div v-show="activeTab === 'security'" class="space-y-6">
           <AdminAccessKeysSettings />
@@ -9275,6 +9276,9 @@
         </div>
       </form>
 
+      <OpenAIVMSettings v-if="activeTab === 'openai-vm'" />
+      </div>
+
       <!-- Provider dialogs placed outside the settings form to prevent form submission bubbling -->
       <PaymentProviderDialog
         ref="providerDialogRef"
@@ -9314,7 +9318,9 @@
 
 <script setup lang="ts">
 import GPTDirectSettings from "@/components/admin/settings/GPTDirectSettings.vue";
+import OpenAIVMSettings from "@/components/admin/settings/OpenAIVMSettings.vue";
 import { ref, reactive, computed, onMounted, watch } from "vue";
+import { useRoute, useRouter } from "vue-router";
 import { listPlatformIds } from "@/constants/platformCatalog";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api";
@@ -9478,10 +9484,13 @@ type SettingsTab =
   | "security"
   | "users"
   | "gateway"
+  | "openai-vm"
   | "payment"
   | "email"
   | "backup";
 const activeTab = ref<SettingsTab>("general");
+const route = useRoute();
+const router = useRouter();
 const settingsTabs = [
   { key: "gptDirect" as SettingsTab, icon: "gift" as const },
   { key: "general" as SettingsTab, icon: "home" as const },
@@ -9490,6 +9499,7 @@ const settingsTabs = [
   { key: "security" as SettingsTab, icon: "shield" as const },
   { key: "users" as SettingsTab, icon: "user" as const },
   { key: "gateway" as SettingsTab, icon: "server" as const },
+  { key: "openai-vm" as SettingsTab, icon: "server" as const },
   { key: "payment" as SettingsTab, icon: "creditCard" as const },
   { key: "email" as SettingsTab, icon: "mail" as const },
   { key: "backup" as SettingsTab, icon: "database" as const },
@@ -9504,8 +9514,17 @@ const settingsTabKeyboardActions = {
   End: "last",
 } as const;
 
+watch(
+  () => route.query.tab,
+  (tab) => {
+    activeTab.value = settingsTabs.find((item) => item.key === tab)?.key ?? "general";
+  },
+  { immediate: true },
+);
+
 function selectSettingsTab(tab: SettingsTab): void {
   activeTab.value = tab;
+  void router.replace({ query: { ...route.query, tab } });
 }
 
 function focusSettingsTab(tab: SettingsTab): void {

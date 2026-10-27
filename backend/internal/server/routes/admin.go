@@ -796,6 +796,9 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	if h.Admin.ChannelQuality != nil {
 		admin.GET("/channel-quality", h.Admin.ChannelQuality.Overview)
 		q := h.Admin.ChannelQuality
+		admin.GET("/channel-quality/score-config", q.ScoreConfig)
+		admin.PUT("/channel-quality/score-config", q.SaveScoreConfig)
+		admin.GET("/channel-quality/scores", q.Scores)
 		admin.GET("/channel-quality/operations", q.Operations)
 		admin.PUT("/channel-quality/operations", q.SaveOperations)
 		admin.POST("/channel-quality/suppliers", q.SaveSupplier)
@@ -811,6 +814,8 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 		admin.PUT("/passive-quality-policies/:id", q.Save)
 		admin.DELETE("/passive-quality-policies/:id", q.Delete)
 		admin.GET("/passive-quality-states", q.States)
+		admin.GET("/passive-quality-states/summary", q.StateSummary)
+		admin.GET("/passive-quality/runtime", q.Runtime)
 		admin.GET("/passive-quality-events", q.Events)
 		admin.POST("/passive-quality-policies/:id/accounts/:account/action", q.Act)
 	}

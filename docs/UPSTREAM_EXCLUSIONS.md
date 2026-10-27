@@ -1714,3 +1714,239 @@ QQ 新增工具严格限制每轮一个图片操作，图片编辑只能选择�
 本阶段重新运行 VM 融合回归和跨网关图片上下文档位回归通过；真实冲突标记扫描、累计空白检查和功能排除检查通过。此前阶段记录的 24050 项后端测试/子用例及 3627 项前端测试通过结果已经核对日志，不冒充本阶段重新全量执行。此次扩大 VM 测试因本地监听受限而停止，前端重跑因工作树未安装依赖而无法启动；均未计为通过，也没有修改用例断言。此前集成标签检查仅为编译，真实数据库集成、在线漏洞审计等未完成项目仍由外层验证。
 
 剩余具体兼容风险保持不变：迁移 300 的密钥摘要转换、迁移 303 的质量主键变更均要求协调实例升级并准备数据库回退；已启用 VM 时须先解绑再停用桥接或回退；固定 vm2api v1.3.225 不支持 compact，绑定账号返回 404 且不回落直连。当前无未解决文本或语义冲突，产品排除规则满足。仅补充本审查文档，未 fetch、git add、commit、push、打标签、发布或重启服务。
+
+
+## 2026-10-27 主上游文本与语义冲突审查
+
+当前阶段为 `origin/main=HEAD=726ee3254` 合并 `upstream/main=MERGE_HEAD=f178e5ae3`。发布累计基准为 `v2026.10.23`（`23fd587350eb02645d5cac41796f837b2fb957a5`）。候选累计包含主上游及已经合入的第二上游 `8c54f4005` 的 54 个不同非合并提交，本次主上游增量为 33 个非合并提交。
+
+已经阅读第二上游最新 `136706a53` 及前序 `787154384`：新增质量恢复预算/证据、遥测范围、分组质量汇总、独立评分、定时测试通过率保护与 VM 设置界面。这两个提交尚不在当前主上游合并阶段的候选中，须由外层后续第二上游阶段完整合并；本阶段没有把它们当作功能排除，也不宣称已完成最终双上游同步。
+
+### 冲突与累计功能
+
+- 七个文件的 25 处文本冲突逐段融合。账号行锁 SELECT/Scan 同时保留 OpenCode/Ollama 用量、上游计费限流、Codex 票据与质量/手动调度状态，以及新增 Grok 目录与能力快照；同步更新所有关联 SQL mock，包括未产生文本冲突的票据、质量保护、限流及新 Grok 测试。回归另发现上游 Grok CAS 快照测试漏掉本项目普通多代理池查询，补齐 `account_proxies` 预期并保留单账号快照刷新断言。
+- DeepSeek Pro 保持官方 Pro 价格，保留命名空间/版本化名称、默认价请求时点峰谷倍率和自定义价不覆盖规则；同时合入上游固定计费时点接口及回归。缓存计数保留 DeepSeek `prompt_cache_hit_tokens`、Gemini `cachedContentTokenCount` 和显式数值零优先，避免折损计费与质量证据。
+- Grok 统一目录解析、CAS 观察快照、响应模型审计、诊断界面和编辑草稿/模式隔离保留；本项目显式替换白名单仍要求实时列表，404/405 不可用配置兜底覆盖白名单，但记录失败并保留旧成功快照。新增融合回归覆盖该边界。前端上游新增 API 测试同时适配本项目已有 180 秒超时和显式替换参数，新增携带替换参数时保留诊断响应的断言；未删除现有 API 行为。
+- 本次 GPT-6.1 Terra、UTF-16 Claude 指纹、OpenCode/DeepSeek developer 角色兼容、分页溢出保护、畸形工具调用拒绝、超限图片上传拒绝、Gemini fileData 图片计数、模型广场分组价格优先及国产频率型 429 短冷却完整保留。
+- 累计管理员 API 密钥操作/资源授权、二次验证、用户密钥摘要/轮换、普通图片按实际张数与上下文档位计费、模型级质量目标/共享缓存预算/评分兜底、QQ 配置版本/压缩兼容与群管理、VM 独占槽位/HTTP/WS 路由和失败禁止直连均保留。本项目账号健康、利润控制、指纹/票据隔离和网关策略保持。
+
+### 排除与兼容性
+
+独立比对完整树：主上游缺少的 65 个路径全部为批量生图专属实现；已经合入的第二上游缺少的 72 个路径为 70 个批量生图文件及两个共享账号池迁移/测试，没有遗漏其他已合入第二上游文件。最新第二上游另有 62 个新增路径等待后续阶段，均不属于本次排除。
+
+本轮明确核对并继续排除的共享账号池路径：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+本轮明确核对并继续排除的批量生图路径：
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/internal/handler/batch_image_error_message_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/server/middleware/panel_api_key_auth.go`
+- `backend/internal/server/middleware/panel_api_key_auth_test.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_error_message_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/__tests__/batchImage.panel.spec.ts`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+
+现存混合用途文件继续保留普通账号、生图和异步单图代码；功能排除检查覆盖路由、依赖注入、分组权限/计费、配置和前端入口。本轮无需新增删除，未恢复任何退役运行时实现。发布基准的 354 份历史 SQL 与 `backend/internal/repository/migrations_runner.go` 共 355 份文件逐字节一致；累计 16 份新增迁移保留，两份 308 按完整文件名独立记账。未删除历史表、记录或冻结余额。
+
+累计部署兼容边界仍包括：迁移 300 的密钥摘要转换不可仅回退镜像；迁移 303 的模型级质量主键不兼容旧进程。必须协调实例升级并准备数据库备份/回退。启用 VM 后须先解绑、恢复原代理再停用桥接或回退；固定 vm2api v1.3.225 的 compact 请求保留 404。新频率型 429 判断依赖额度快照，默认十分钟探测间隔内真实耗尽可能暂时按短冷却重试，刷新快照后恢复额度窗口冷却。历史批量任务如仍未终结，升级前仍须用旧版本完成或取消并核对冻结余额，当前版本不恢复旧队列处理。
+
+本轮只修改工作树，真实索引的七组 :2/:3 保留供外层验证后暂存；未 fetch、git add、commit、push、打标签、发布或重启服务。
+
+### 本阶段验证结果
+
+- 融合回归 311 项测试及子用例通过；本轮 Terra、图片上传/计数、定价、角色、UTF-16 指纹、频控及畸形响应等功能回归 158 项通过；管理权限/诊断回归 283 项通过、1 项按既有条件跳过；另完整覆盖本轮变更的仓储单元测试 104 项通过。这些集合有交集，不相加为独立用例总数。分页、响应、协议兼容、OpenAI 包测试及指定 Antigravity/审计测试通过。
+- 前端全量执行 444 个文件、3749 项测试：首轮 3747 项通过，新 Grok API 文件两项因未适配既有超时/替换参数失败；修正并新增回归后，该文件四项通过，全部六个本轮受影响前端测试文件重跑 212 项通过。没有再次执行未受修改影响的其余前端测试；不把首轮描述为全绿。类型检查、完整 ESLint、修正文件 ESLint、国际化测试和生产构建通过。
+- 后端构建、全仓 unit/integration 标签编译和十个受影响包的 go vet 通过。使用缓存 Go 1.27.1 与 `/tmp` modfile，构建将缺失的 x/term 映射到缓存 v0.45.0；仓库 Go 1.27.3 和依赖声明未改。标签编译使用 `-run=^$ -exec=/bin/true`，不计作真实数据库集成执行。
+- 同步自动化 113 项中 111 通过、2 项条件跳过；部署安全、网关环境、运行资源、Caddy 和脚本语法检查通过。需要本地监听的 Grok OAuth、Antigravity 列表、代理质量、审计外呼与 miniredis 权限用例未计为通过，其他独立检查完成；真实数据库集成、完整 golangci-lint 和在线漏洞审计未执行。本阶段不是外层发布验证完成声明。
+- 最终候选相对发布基准涉及 732 个路径。真实冲突标记扫描、累计空白检查、功能排除检查、指定决策 schema 校验通过。21 条冲突索引阶段保持原样，测试依赖临时符号链接已移除。
+
+
+## 2026-10-27 第二上游文本与语义冲突审查
+
+本阶段 `HEAD=8bd1f81ae` 已包含主上游 `f178e5ae3`，正在合并第二上游 `136706a53`；本项目基线为 `origin/main=726ee3254`。累计审查从正式发布基准 `v2026.10.23`（`23fd587350eb02645d5cac41796f837b2fb957a5`）开始，覆盖两上游 56 个不同的非合并提交，包括此前已经合入但未发布的更新。
+
+### 冲突处理与功能保留
+
+- 逐段解决四个文件、五处文本冲突。服务 `VERSION` 维持本项目已发布日期版本，`FORK_VERSION` 保留第二上游版本标识；没有生成新的发布版本。缓存恢复 SQL mock 同时保留本项目显式关闭错误处理和新增模型参数。质量集成测试提取共享建表夹具，同时保留排除账号字段与原分页/独立保护断言。设置页测试同时保留管理员访问密钥、导航排除与 Codex 打票代理断言，以及新增 VM 独立表单、URL 切换测试。
+- 语义复核修复新增通过率保护与本项目账号写入/缓存的衔接：`backend/internal/repository/account_repo.go` 在行锁内保留最新 `active_pass_rate_holds`，旧 OAuth 刷新、表单快照或显式账号状态编辑均不能清除、复活或注入其他保护所有者的限制；`backend/internal/repository/scheduler_cache.go` 将该字段纳入调度投影。新增 `account_pass_rate_merge_test.go` 覆盖五种状态交错，并经过真实缓存投影与 JSON 往返验证模型隔离，数据库最终准入保持不变。
+- 第二上游两个新增提交完整保留：独立真实流量评分及配置版本冲突检查、定时测试通过率保护/持久证据/删除投影修复、恢复预算预留及不可变证据、遥测缺口范围与运行诊断、分组质量报告与分钟预算、供应商隔离、评分/会话亲和回退、QQ 1–10 次连抽的事务及幂等、VM 全局设置与二次验证。QQ 连抽不属于批量生图。
+- 累计主上游 Terra、Grok CAS 目录/诊断/响应审计、DeepSeek 定价/角色/缓存、UTF-16 指纹、图片限额与实际张数计费、Gemini fileData 计数、分页/畸形响应/429 修复保留。既有管理员密钥范围权限、用户密钥摘要/轮换、账号健康与利润控制、票据/指纹隔离、普通多代理池、模型级质量目标与缓存预算、QQ 配置压缩/群管理、VM HTTP/WS 槽位与禁止直连回退均保留。新质量接口仍受管理员鉴权；受限管理密钥没有因接口新增而获得目录通配权限。
+
+### 排除与数据库兼容
+
+独立比对完整上游树：主上游缺少的 65 个路径均为批量生图专属；第二上游缺少的 72 个路径仅为 70 个批量生图专属文件和两个共享账号池专属迁移/测试，没有遗漏其他第二上游文件。混合用途的 `group_repo.go` 保留普通生图及按张计费，同时继续排除批量生图权限/折扣/冻结配置。
+
+本轮明确核对并继续排除的共享账号池路径：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+本轮明确核对并继续排除的批量生图路径（最后一项仅排除对应代码）：
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/internal/handler/batch_image_error_message_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/server/middleware/panel_api_key_auth.go`
+- `backend/internal/server/middleware/panel_api_key_auth_test.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_error_message_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/__tests__/batchImage.panel.spec.ts`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+- `backend/internal/repository/group_repo.go`
+
+发布基准的 354 份 SQL 与迁移运行器共 355 个兼容文件逐字节不变；累计新增 21 份 SQL，包括此前两份不同文件名的 308 及本轮 309–313。没有删除历史表、记录或冻结余额。普通生图和异步单图任务继续可用。历史批量任务如果仍未终结，升级前应使用旧版本完成或取消并核对冻结余额，当前版本不恢复退役队列。
+
+### 累计剩余兼容风险
+
+- 迁移 300 的密钥摘要转换与迁移 303 的模型级质量主键不兼容旧进程，必须协调实例升级并准备数据库备份/回退，不能仅回退镜像。启用新增通过率保护前也需完成所有服务实例升级，旧进程不识别该独立模型保护。
+- 已启用 VM 时，停用桥接或回退前必须解绑并恢复母账号/影子账号原代理。固定 vm2api v1.3.225 不支持 compact，绑定账号保留 404；CONNECT 白名单外的图片 CDN 下载也会失败，不自动绕过槽位。
+- 国产频率型 429 判断依赖额度快照，默认十分钟探测间隔内真实额度耗尽可能暂按秒级冷却重试，刷新快照后才恢复额度窗口冷却。
+
+本阶段只修改工作树，四组冲突的 12 条真实索引阶段保持原样；未 fetch、git add、commit、push、打标签、发布或重启服务。最终验证结果补记如下。
+
+### 本阶段最终验证
+
+- 后端融合及受影响用例去重后共 315 项测试/子用例通过，包括新增五种账号保护交错场景；前端关闭测试缓存后全量运行正常退出，454 个文件、3845 项测试全部通过。前端类型检查与完整 ESLint 通过。
+- 后端服务构建、前端生产构建通过；后端全仓 unit/integration 标签编译及五个修改包的 `go vet` 通过。编译检查不等同于数据库集成测试执行。
+- 同步自动化测试 113 项（111 通过、2 跳过）及发布工具测试 13 项通过；部署安全、环境配置、资源配置、Caddy 配置及 shell 语法检查通过。测试中的仓库和发布动作仅发生在临时测试夹具中。
+- 完整后端 unit 执行因沙箱禁止本地监听而在 miniredis/httptest 用例中中断；完整 golangci 检查遇到包加载器的 modfile 错误。真实数据库集成及在线漏洞审计未执行，均不计为通过。Go 检查使用缓存的 1.27.1 工具链和临时 modfile，未改仓库要求的工具链或依赖声明。
+- 全工作树文本冲突标记扫描、相对发布基准的 `git diff --check`、上游功能排除检查及决策 JSON schema 校验通过。再次核对 355 个已发布数据库兼容文件未变。临时前端依赖链接已移除，仅留下预期源码、测试和审查文档修改。
+
+## 2026-10-27 最终双上游兼容复核
+
+本阶段开始时，外层已将前两阶段修复纳入候选 `5a2e46947`，其父提交分别包含主上游 `f178e5ae3` 与第二上游 `136706a53`；真实索引没有未合并阶段，工作树干净。本阶段没有重建或暂存索引，也没有 fetch、commit、push、打标签、发布或重启服务。
+
+再次审阅 `origin/main=726ee3254`、两上游提交记录和合并差异，累计范围仍从 `v2026.10.23=23fd587350` 开始，包含 56 个不同的上游非合并提交及此前三轮已合并、未发布的更新。主上游 Terra、Grok 目录 CAS/诊断/响应审计、DeepSeek 定价/缓存/角色兼容、UTF-16 指纹、分页与畸形响应保护、普通图片按实际张数及上下文档位计费均保留；第二上游的密钥摘要与轮换、模型级质量目标/共享缓存预算、独立评分/通过率保护、恢复证据与遥测、会话亲和回退、QQ 配置/群管理/事务连抽、VM HTTP/WS 隔离槽位及独立设置均保留。共享缓存预算和 QQ 连抽不属于被排除的两个产品功能。本项目管理员范围权限、二次验证、账号健康、利润控制、票据/指纹隔离和普通多代理池保持。
+
+复核发现并修复一个此前未覆盖的语义缺口：完整账号保存已在行锁内保护 `active_pass_rate_holds` 与 `passive_quality`，但通用 `UpdateExtra` 和 `BulkUpdate` 仍会接收这些字段，允许旧表单清空限制或注入陈旧限制。`backend/internal/repository/account_protection.go` 新增专属投影过滤，`account_repo.go` 的通用增量写入仅合并普通字段，从而原子保留数据库当前限制；创建/导入/复制账号也不会复制没有对应持久所有者的限制。专用质量流程继续直接在账号锁下更新投影，恢复、计划删除和缓存事件语义不变。新增单元回归先确认四种更新场景失败，再确认修复后通过；新增数据库集成回归覆盖创建、清空、覆盖及恢复后旧快照重放。
+
+独立完整树比对再次确认：主上游缺少的 65 个路径全为批量生图专属；第二上游缺少的 72 个路径全为上一节列出的 70 个批量生图文件及两个共享账号池迁移/测试。继续明确排除上一节全部路径，`group_repo.go` 仅排除批量生图权限、折扣和冻结字段；没有删除任何其他第二上游功能。`panel_api_key_auth.go` 的上游调用链仅服务已退役的面板批量图片路由，普通密钥鉴权保留。354 份已发布 SQL 与迁移运行器共 355 个文件逐字节不变，累计 21 份新增 SQL 保留；历史批量生图 SQL、校验和、表、记录及冻结余额不变，普通生图与异步单图入口保留。
+
+最终复核的剩余兼容边界沿用上一节：迁移 300/303 与旧进程不兼容，启用通过率保护需所有实例支持；VM 停用/回退须先解绑并恢复原代理，固定 vm2api 版本不支持 compact 且 CDN 仍受 CONNECT 白名单约束；频率型 429 在额度快照刷新前可能误用短冷却。这些是累计代码/数据库兼容边界，不是工具或验证环境问题。
+
+本阶段重新执行仓储受影响测试与通用写入回归，去重后 133 项测试及子用例通过；后端构建与仓储 unit/integration 标签 `go vet` 通过。前端没有修改，沿用前阶段全量 454 文件/3845 项测试、类型检查、ESLint 和构建的已记录结果，不声称本阶段重跑。新增数据库集成回归的实际执行由外层完整验证负责；编译不替代数据库集成执行。
+
+最终全仓编译分别使用 `-tags=unit` 与 `-tags=integration`，两者均通过；最初同时启用两种标签触发现有 TLS 测试重名，改为项目规定的独立编译后消除。构建/编译沿用前阶段缓存工具链与临时 modfile，没有修改仓库依赖。全工作树冲突标记扫描、累计空白检查、新增文件空白检查、功能排除检查和指定决策 schema 校验通过。真实索引仍未修改，保留五个预期源码、测试与文档变更供外层检查暂存。

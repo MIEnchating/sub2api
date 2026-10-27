@@ -151,6 +151,7 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 		return service.ErrAccountNilInput
 	}
 
+	account.Extra = stripAccountQualityProjections(account.Extra)
 	service.PrepareNewAccountProtection(account)
 	// A configured billing ceiling always requires the automatic probe. Enforce
 	// this invariant on inserts as well as update paths so callers cannot create
@@ -741,7 +742,9 @@ func lockAndMergeAccountProbeExtra(
 			COALESCE(extra, '{}'::jsonb),
 			status,
 			schedulable,
-			COALESCE(error_message, '')
+			COALESCE(error_message, ''),
+			extra -> 'grok_observed_models',
+			extra -> 'upstream_model_metadata'
 		FROM accounts
 		WHERE id = $1 AND deleted_at IS NULL
 		FOR NO KEY UPDATE
@@ -772,6 +775,8 @@ func lockAndMergeAccountProbeExtra(
 		opencodeGroupIdentityUnchanged bool
 		currentOpenCodeAutoRefresh     []byte
 		currentOpenCodeSnapshot        []byte
+		currentGrokObservedModels      []byte
+		currentUpstreamModelMetadata   []byte
 	)
 	if err := rows.Scan(
 		&identityUnchanged,
@@ -790,6 +795,8 @@ func lockAndMergeAccountProbeExtra(
 		&currentSchedulingState.status,
 		&currentSchedulingState.schedulable,
 		&currentSchedulingState.errorMessage,
+		&currentGrokObservedModels,
+		&currentUpstreamModelMetadata,
 	); err != nil {
 		return nil, err
 	}
@@ -933,6 +940,21 @@ func lockAndMergeAccountProbeExtra(
 			}
 		}
 	}
+	// Grok 目录和能力 metadata 是同步写入的受管状态。普通更新在行锁内采用最新
+	// 数据库值，忽略表单旧值、缺键和注入。来源身份变化不删除已有成功快照。
+	for key, raw := range map[string][]byte{
+		"grok_observed_models":                currentGrokObservedModels,
+		service.UpstreamModelMetadataExtraKey: currentUpstreamModelMetadata,
+	} {
+		delete(extra, key)
+		value, ok, err := decodeAccountExtraJSON(raw)
+		if err != nil {
+			return nil, err
+		}
+		if ok {
+			extra[key] = value
+		}
+	}
 	return extra, nil
 }
 
@@ -959,9 +981,13 @@ func preserveLockedAccountSchedulingState(account *service.Account, current acco
 	// Enabling scheduling is an explicit SetSchedulable operation, never a side
 	// effect of saving an account snapshot loaded before a manual pause.
 	account.Schedulable = account.Schedulable && current.schedulable
-	delete(extra, "passive_quality")
-	if value, ok := currentExtra["passive_quality"]; ok {
-		extra["passive_quality"] = value
+	// Independent quality owners publish these projections under the account
+	// lock. Neither stale refreshes nor explicit status edits may replace them.
+	for _, key := range []string{"passive_quality", "active_pass_rate_holds"} {
+		delete(extra, key)
+		if value, ok := currentExtra[key]; ok {
+			extra[key] = value
+		}
 	}
 	delete(extra, qualityReasonKey)
 	if (!account.StatusChanged || account.Status == service.StatusQualityPaused) && currentHasQualityReason {
@@ -2963,7 +2989,7 @@ func (r *accountRepository) UpdateExtra(ctx context.Context, id int64, updates m
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.UpdateExtra(ctx, id, updates)
 	}
-	updates = stripCodexFingerprintSeedFromExtraUpdate(service.StripRetiredAccountExtra(updates))
+	updates = stripAccountQualityProjections(stripCodexFingerprintSeedFromExtraUpdate(service.StripRetiredAccountExtra(updates)))
 	if len(updates) == 0 {
 		return nil
 	}
@@ -3271,7 +3297,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if len(ids) == 0 {
 		return 0, nil
 	}
-	updates.Extra = stripCodexFingerprintSeedFromExtraUpdate(service.StripRetiredAccountExtra(updates.Extra))
+	updates.Extra = stripAccountQualityProjections(stripCodexFingerprintSeedFromExtraUpdate(service.StripRetiredAccountExtra(updates.Extra)))
 
 	setClauses := make([]string, 0, 8)
 	args := make([]any, 0, 8)

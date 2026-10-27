@@ -285,15 +285,21 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 			require.InDelta(t, tt.input, pricing.InputPricePerToken, 1e-15)
 			require.InDelta(t, tt.output, pricing.OutputPricePerToken, 1e-15)
 			require.InDelta(t, tt.cacheRead, pricing.CacheReadPricePerToken, 1e-15)
+			// 固定时点 2026-10-01 复核：仍走 Flash 新价。
+			atPricing, err := bs.getModelPricingAt(tt.model, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
+			require.NoError(t, err)
+			require.InDelta(t, tt.input, atPricing.InputPricePerToken, 1e-15)
+			require.InDelta(t, tt.output, atPricing.OutputPricePerToken, 1e-15)
+			require.InDelta(t, tt.cacheRead, atPricing.CacheReadPricePerToken, 1e-15)
 			require.True(t, bs.HasIdentifiedTokenPricing(tt.model))
 		})
 	}
 
-	// Pro 档（含版本化名称）始终使用官方 Pro 价。此前曾有一条已撤回的
-	// 9 月 14 日切换计划，不能让当前定价随日期改变。
+	// pro 档（含版本化名称）：断言经固定时点的 getModelPricingAt，不依赖墙上时钟。
+	// 官方确认 2026-09-14 后继续提供 Pro，计费方式保持不变。
 	for _, model := range []string{"deepseek-v4-pro", "deepseek-v4-pro-0813", "deepseek/deepseek-v4-pro"} {
-		t.Run(model, func(t *testing.T) {
-			pricing, err := bs.GetModelPricing(model)
+		t.Run(model+"/after-september-14", func(t *testing.T) {
+			pricing, err := bs.getModelPricingAt(model, time.Date(2026, 10, 1, 0, 0, 0, 0, time.UTC))
 			require.NoError(t, err)
 			require.InDelta(t, 6.6e-7, pricing.InputPricePerToken, 1e-15)
 			require.InDelta(t, 1.98e-6, pricing.OutputPricePerToken, 1e-15)
@@ -301,8 +307,20 @@ func TestGetModelPricing_DeepseekForcesOfficialRatesOverJSON(t *testing.T) {
 		})
 	}
 
+	// 原计划切换时点前后均保持 Pro 价。
+	proBefore, err := bs.getModelPricingAt("deepseek-v4-pro", time.Date(2026, 9, 14, 3, 59, 59, 0, time.UTC))
+	require.NoError(t, err)
+	require.InDelta(t, 6.6e-7, proBefore.InputPricePerToken, 1e-15)
+	require.InDelta(t, 1.98e-6, proBefore.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 2.2e-8, proBefore.CacheReadPricePerToken, 1e-15)
+	proAtCutoff, err := bs.getModelPricingAt("deepseek-v4-pro", time.Date(2026, 9, 14, 4, 0, 0, 0, time.UTC))
+	require.NoError(t, err)
+	require.InDelta(t, 6.6e-7, proAtCutoff.InputPricePerToken, 1e-15)
+	require.InDelta(t, 1.98e-6, proAtCutoff.OutputPricePerToken, 1e-15)
+	require.InDelta(t, 2.2e-8, proAtCutoff.CacheReadPricePerToken, 1e-15)
+
 	// 版本化名称（不在 JSON / fallbackPrices 精确表中）：按子串归档计价。
-	// flash-0731 归 flash 档，三档价与切换无关，GetModelPricing 断言稳定。
+	// flash-0731 归 flash 档，GetModelPricing 断言稳定。
 	versioned := []struct {
 		model                    string
 		input, output, cacheRead float64
@@ -401,7 +419,7 @@ func TestCalculateCostUnified_DeepseekFlashAndLegacyFlashShareNewRates(t *testin
 	offPeakTotal := 1000*1.5e-7 + 500*6e-7 + 1000*3e-9
 
 	// deepseek-flash 与 deepseek-v4-flash 都取 Flash 新价。
-	// 时点取切换日 2026-09-14（周一）12:00 UTC 低谷，峰谷倍率不影响断言。
+	// 时点取 2026-09-14（周一）12:00 UTC 低谷，峰谷倍率不影响断言。
 	for _, model := range []string{"deepseek-flash", "deepseek-v4-flash"} {
 		cost, err := bs.CalculateCostUnified(CostInput{
 			Ctx: context.Background(), Model: model, Tokens: tokens,

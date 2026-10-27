@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -883,27 +884,34 @@ func TestAntigravityCompatHandlerPreContentKeepalive(t *testing.T) {
 }
 
 func TestAntigravityCompatHandlerRepeatsPreContentKeepalive(t *testing.T) {
-	svc := newAntigravityCompatService(config.GatewayConfig{
-		MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, StreamKeepaliveInterval: 0,
-	}, nil)
-	c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
-	reader, pipeWriter := io.Pipe()
-	defer func() { _ = reader.Close() }()
-	resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
-	done := make(chan error, 1)
-	go func() {
-		_, err := svc.handleAntigravityCompatStreamWithKeepaliveInterval(
-			c, resp, time.Now().Add(-15*time.Millisecond), "gemini-3.1-pro",
-			newAntigravityResponsesStreamAdapter("gemini-3.1-pro"), "test", 15*time.Millisecond, time.Second,
-		)
-		done <- err
-	}()
-	time.Sleep(55 * time.Millisecond)
-	require.NoError(t, pipeWriter.Close())
-	require.Error(t, <-done)
-	require.GreaterOrEqual(t, strings.Count(recorder.Body.String(), ": ping\n\n"), 3)
-	require.Contains(t, recorder.Body.String(), "event: error")
-	require.True(t, IsResponseCommitted(c))
+	synctest.Test(t, func(t *testing.T) {
+		svc := newAntigravityCompatService(config.GatewayConfig{
+			MaxLineSize: defaultMaxLineSize, StreamDataIntervalTimeout: 30, StreamKeepaliveInterval: 0,
+		}, nil)
+		c, recorder := newAntigravityCompatContext(http.MethodPost, "/", nil)
+		reader, pipeWriter := io.Pipe()
+		defer func() { _ = reader.Close() }()
+		defer func() { _ = pipeWriter.Close() }()
+		resp := &http.Response{StatusCode: http.StatusOK, Body: reader}
+		done := make(chan error, 1)
+		go func() {
+			_, err := svc.handleAntigravityCompatStreamWithKeepaliveInterval(
+				c, resp, time.Now().Add(-15*time.Millisecond), "gemini-3.1-pro",
+				newAntigravityResponsesStreamAdapter("gemini-3.1-pro"), "test", 15*time.Millisecond, time.Second,
+			)
+			done <- err
+		}()
+		// Advance virtual time only after the handler is waiting for upstream data.
+		// Real-time sleeps can miss keepalives when the full suite saturates the CPU.
+		synctest.Wait()
+		time.Sleep(55 * time.Millisecond)
+		synctest.Wait()
+		require.NoError(t, pipeWriter.Close())
+		require.ErrorContains(t, <-done, "empty Antigravity compatibility stream after keepalive")
+		require.GreaterOrEqual(t, strings.Count(recorder.Body.String(), ": ping\n\n"), 3)
+		require.Equal(t, 1, strings.Count(recorder.Body.String(), "event: error"))
+		require.True(t, IsResponseCommitted(c))
+	})
 }
 
 func TestAntigravityCompatHandlerPreContentDeadlineWithCommentOnlyStream(t *testing.T) {

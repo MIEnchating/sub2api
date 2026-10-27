@@ -1276,6 +1276,7 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 	}
 	keys := []string{
 		"passive_quality",
+		"active_pass_rate_holds",
 		// Anthropic shared-window and Fable-only threshold checks run on this
 		// projection. UpdateExtra refreshes both payloads without a bucket rebuild.
 		"session_window_utilization",
