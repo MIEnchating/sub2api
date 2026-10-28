@@ -5,6 +5,7 @@ package repository
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sync"
 	"sync/atomic"
@@ -51,6 +52,14 @@ func TestGroupQualityTrafficNonOpenAIHasNoPartialBudgetIntegration(t *testing.T)
 func TestGroupQualityFallbackConcurrentAdmissionIntegration(t *testing.T) {
 	ctx, db, r := passiveDB(t)
 	p := newGroupTargetPolicy(t, ctx, db, r)
+	groupTrafficState(t, ctx, db, p, 62, "A", "trial")
+	groupTrafficState(t, ctx, db, p, 62, "model-0", "trial")
+	groupTrafficState(t, ctx, db, p, 62, "model-1", "trial")
+	groupTrafficState(t, ctx, db, p, 62, "model-2", "trial")
+	groupTrafficState(t, ctx, db, p, 63, "A", "trial")
+	groupTrafficState(t, ctx, db, p, 63, "model-0", "trial")
+	groupTrafficState(t, ctx, db, p, 63, "model-1", "trial")
+	groupTrafficState(t, ctx, db, p, 63, "model-2", "trial")
 	allowed, reserved := acquireTraffic(t, r, trafficRequest("spent", "A", "spent", 1000000), 62)
 	require.True(t, allowed)
 	require.True(t, reserved)
@@ -118,6 +127,10 @@ func TestGroupQualityFallbackConcurrentAdmissionIntegration(t *testing.T) {
 func TestGroupQualityFallbackIndependentLeaseLifecycleIntegration(t *testing.T) {
 	ctx, db, r := passiveDB(t)
 	p := newGroupTargetPolicy(t, ctx, db, r)
+	groupTrafficState(t, ctx, db, p, 62, "A", "paused")
+	groupTrafficState(t, ctx, db, p, 62, "B", "paused")
+	groupTrafficState(t, ctx, db, p, 63, "A", "paused")
+	groupTrafficState(t, ctx, db, p, 63, "B", "paused")
 	first := trafficRequest("first", "A", "first", 70000)
 	allowed, reserved := acquireFallback(t, r, first, 62)
 	require.True(t, allowed)
@@ -172,8 +185,13 @@ func TestGroupQualityFallbackIndependentLeaseLifecycleIntegration(t *testing.T) 
 func TestGroupQualityFallbackHealthySupplyAndExactModelIntegration(t *testing.T) {
 	ctx, db, r := passiveDB(t)
 	p := newGroupTargetPolicy(t, ctx, db, r)
+	groupTrafficState(t, ctx, db, p, 62, "A", "paused")
+	groupTrafficState(t, ctx, db, p, 62, "B", "paused")
+	groupTrafficState(t, ctx, db, p, 63, "A", "paused")
+	groupTrafficState(t, ctx, db, p, 63, "B", "paused")
 	allowed, _ := acquireFallback(t, r, trafficRequest("before-recovery", "A", "before-recovery", 4096), 63)
 	require.True(t, allowed)
+	groupTrafficState(t, ctx, db, p, 62, "A", "healthy")
 	healthyTrafficState(t, ctx, db, r, p, "A")
 	allowed, _ = acquireFallback(t, r, trafficRequest("same-model", "A", "same-model", 4096), 63)
 	require.False(t, allowed, "recovered healthy supply closes new fallback admission for that exact model")
@@ -186,10 +204,62 @@ func TestGroupQualityFallbackHealthySupplyAndExactModelIntegration(t *testing.T)
 	require.True(t, allowed, "manually disabled healthy state is not usable supply")
 }
 
+func TestGroupQualityFallbackRequestSupplyIsRecheckedAtAdmissionIntegration(t *testing.T) {
+	for _, outcome := range []string{"unusable", "usable", "read error"} {
+		t.Run(outcome, func(t *testing.T) {
+			ctx, db, r := passiveDB(t)
+			p := newGroupTargetPolicy(t, ctx, db, r)
+			groupTrafficState(t, ctx, db, p, 62, "A", "paused")
+			_, err := db.Exec(`ALTER TABLE accounts ADD COLUMN concurrency INT DEFAULT 3,ADD COLUMN load_factor INT;
+ INSERT INTO account_proxies(account_id,proxy_id,position) VALUES(63,8,1),(63,7,0);
+ INSERT INTO proxies(id,status,expires_at) VALUES(7,'active',NULL),(8,'disabled',now()-interval '1 hour')`)
+			require.NoError(t, err)
+			req := trafficRequest("request-scoped", "A", "request-scoped", 4096)
+			marked := fallbackTrafficContext(req, 62)
+			calls := 0
+			capacityErr := errors.New("live capacity read failed")
+			marked = service.WithGroupQualityFallbackSupplyChecker(marked, func(_ context.Context, accounts []*service.Account) (bool, error) {
+				calls++
+				require.Len(t, accounts, 1)
+				require.Equal(t, int64(63), accounts[0].ID)
+				require.Equal(t, []int64{8}, accounts[0].GroupIDs)
+				require.Equal(t, 4, accounts[0].Concurrency, "admission uses the current DB value")
+				require.Equal(t, []int64{7, 8}, accounts[0].ProxyIDs)
+				require.Len(t, accounts[0].Proxies, 2)
+				require.Equal(t, service.StatusDisabled, accounts[0].Proxies[1].Status)
+				require.True(t, accounts[0].Proxies[1].IsExpired(time.Now()))
+				if outcome == "read error" {
+					return false, capacityErr
+				}
+				return outcome == "usable", nil
+			})
+			// Change persisted capacity after the request scope was constructed.
+			_, err = db.Exec(`UPDATE accounts SET concurrency=4 WHERE id=63`)
+			require.NoError(t, err)
+			allowed, reserved, err := r.AcquireGroupQualityTraffic(marked, 62, "A", req.LeaseID)
+			if outcome == "read error" {
+				require.ErrorIs(t, err, capacityErr)
+			} else {
+				require.NoError(t, err)
+			}
+			require.Equal(t, outcome == "unusable", allowed)
+			require.Equal(t, outcome == "unusable", reserved)
+			require.Equal(t, 1, calls)
+			var leases int
+			require.NoError(t, db.QueryRow(`SELECT count(*) FROM group_quality_traffic_leases WHERE lease_id=$1`, req.LeaseID).Scan(&leases))
+			if outcome == "unusable" {
+				require.Equal(t, 1, leases)
+			} else {
+				require.Zero(t, leases)
+			}
+		})
+	}
+}
+
 func TestGroupQualityFallbackHardAndActiveProofFencesIntegration(t *testing.T) {
 	ctx, db, r := passiveDB(t)
 	newGroupTargetPolicy(t, ctx, db, r)
-	_, err := db.Exec(`ALTER TABLE accounts ADD COLUMN platform TEXT DEFAULT 'openai',ADD COLUMN type TEXT DEFAULT 'apikey',ADD COLUMN credentials JSONB DEFAULT '{}',ADD COLUMN overload_until TIMESTAMPTZ,ADD COLUMN expires_at TIMESTAMPTZ,ADD COLUMN auto_pause_on_expired BOOLEAN DEFAULT true,ADD COLUMN parent_account_id BIGINT;INSERT INTO scheduled_test_protection_states(account_id,blocked) VALUES(62,true)`)
+	_, err := db.Exec(`UPDATE accounts SET schedulable=false WHERE id=63;ALTER TABLE accounts ADD COLUMN platform TEXT DEFAULT 'openai',ADD COLUMN type TEXT DEFAULT 'apikey',ADD COLUMN credentials JSONB DEFAULT '{}',ADD COLUMN overload_until TIMESTAMPTZ,ADD COLUMN expires_at TIMESTAMPTZ,ADD COLUMN auto_pause_on_expired BOOLEAN DEFAULT true,ADD COLUMN parent_account_id BIGINT;INSERT INTO scheduled_test_protection_states(account_id,blocked) VALUES(62,true)`)
 	require.NoError(t, err)
 	cases := []struct{ name, patch string }{
 		{"manual", "schedulable=false"}, {"auth_error", "status='error'"}, {"manual_disabled", "status='disabled'"},
@@ -227,6 +297,9 @@ func TestGroupQualityFallbackAutomaticPassiveAndMissingPolicyIntegration(t *test
 	ctx, db, r := passiveDB(t)
 	p := newGroupTargetPolicy(t, ctx, db, r)
 	unrelated := newPassivePolicy()
+	unrelated.GroupIDs = []int64{9}
+	_, err := db.Exec(`UPDATE accounts SET schedulable=false WHERE id=63;INSERT INTO account_groups VALUES(62,9)`)
+	require.NoError(t, err)
 	require.NoError(t, r.SavePolicy(ctx, &unrelated))
 	for _, policy := range []service.PassiveQualityPolicy{p, unrelated} {
 		state := service.PassiveQualityState{PolicyID: policy.ID, AccountID: 62, Model: "A", Scope: policy.Scope, Version: policy.Version, Phase: "paused", Purpose: policy.Purpose}
@@ -260,7 +333,7 @@ func TestGroupQualityFallbackCacheDisabledAccountingAndFinalGateIntegration(t *t
 	p.CacheRate = service.PassiveQualityMetric{}
 	p.ErrorRate = service.PassiveQualityMetric{Enabled: true, Pause: 2, Recover: 1}
 	require.NoError(t, r.SavePolicy(ctx, &p))
-	_, err := db.Exec(`UPDATE accounts SET status='quality_paused' WHERE id=62;INSERT INTO scheduled_test_protection_states(account_id,blocked) VALUES(62,true)`)
+	_, err := db.Exec(`UPDATE accounts SET schedulable=false WHERE id=63;UPDATE accounts SET status='quality_paused' WHERE id=62;INSERT INTO scheduled_test_protection_states(account_id,blocked) VALUES(62,true)`)
 	require.NoError(t, err)
 	req := trafficRequest("active", "A", "active", 50000)
 	req.AccountID = 62
@@ -303,23 +376,30 @@ func TestGroupQualityFallbackCacheDisabledAccountingAndFinalGateIntegration(t *t
 	require.Contains(t, string(raw), `"fallback":{"enabled":true`)
 }
 
-func TestGroupQualityFallbackCannotBypassLivePassRateHoldIntegration(t *testing.T) {
+func TestGroupQualityFallbackCanServeWithLivePassRateHoldIntegration(t *testing.T) {
 	ctx, db, r := passiveDB(t)
 	newGroupTargetPolicy(t, ctx, db, r)
 	req := trafficRequest("capability", "A", "capability", 4096)
 	req.AccountID = 62
 	allowed, _ := acquireFallback(t, r, req, 62)
-	require.True(t, allowed)
-	_, err := db.Exec(`INSERT INTO scheduled_test_pass_rate_states(account_id,model_key,blocked) VALUES(62,'A',true)`)
+	require.False(t, allowed, "unprotected accounts must serve through normal admission")
+	_, err := db.Exec(`UPDATE accounts SET schedulable=false WHERE id=63;INSERT INTO scheduled_test_pass_rate_states(account_id,model_key,blocked) VALUES(62,'A',true)`)
 	require.NoError(t, err)
+	allowed, _ = acquireFallback(t, r, req, 62)
+	require.True(t, allowed)
 	gate := &accountRepository{sql: db}
 	allowed, err = gate.AcquireCacheRecoveryRequest(fallbackTrafficContext(req, 62), 62)
 	require.NoError(t, err)
-	require.False(t, allowed, "final admission checks the live table even with a previously valid fallback lease")
+	require.True(t, allowed, "the final gate accepts a live fallback lease for an automatic hold")
 	allowed, _ = acquireFallback(t, r, trafficRequest("blocked-new", "A", "blocked-new", 4096), 62)
-	require.False(t, allowed, "new fallback requests must also respect capability")
+	require.True(t, allowed, "automatic capability failure permits emergency fallback")
+	var blocked bool
+	require.NoError(t, db.QueryRow(`SELECT blocked FROM scheduled_test_pass_rate_states WHERE account_id=62 AND model_key='A'`).Scan(&blocked))
+	require.True(t, blocked, "fallback is not recovery evidence")
 	allowed, _ = acquireFallback(t, r, trafficRequest("different-model", "B", "different-model", 4096), 62)
-	require.True(t, allowed, "capability is scoped to the tested model")
+	require.False(t, allowed, "unprotected model stays on normal routing")
+	allowed, _ = acquireTraffic(t, r, trafficRequest("normal-B", "B", "normal-B", 4096), 62)
+	require.True(t, allowed)
 	require.NoError(t, r.ReleaseGroupQualityTraffic(ctx, "different-model", true))
 }
 
@@ -356,4 +436,24 @@ func TestGroupQualityFallbackMarkerAndExclusionFencesIntegration(t *testing.T) {
 	var count int
 	require.NoError(t, db.QueryRow(`SELECT count(*) FROM group_quality_traffic_leases`).Scan(&count))
 	require.Zero(t, count)
+}
+
+func TestGroupQualityFallbackRequiresMatchingModelProofIntegration(t *testing.T) {
+	ctx, db, repo := passiveDB(t)
+	newGroupTargetPolicy(t, ctx, db, repo)
+	_, err := db.Exec(`UPDATE accounts SET schedulable=false WHERE id=63;UPDATE accounts SET status='quality_paused',extra='{"active_test_model_holds":{"A":"stale","B":"failed"},"active_test_all_models_paused":true}' WHERE id=62;
+ INSERT INTO scheduled_test_pass_rate_states(account_id,model_key,blocked) VALUES(62,'B',true)`)
+	require.NoError(t, err)
+	allowed, _ := acquireFallback(t, repo, trafficRequest("stale-A", "A", "stale-A", 4096), 62)
+	require.False(t, allowed, "B's current hold cannot prove A's stale model projection")
+	allowed, _ = acquireFallback(t, repo, trafficRequest("proven-B", "B", "proven-B", 4096), 62)
+	require.True(t, allowed)
+	require.NoError(t, repo.ReleaseGroupQualityTraffic(ctx, "proven-B", true))
+	allowed, _ = acquireFallback(t, repo, trafficRequest("aggregate-C", "C", "aggregate-C", 4096), 62)
+	require.True(t, allowed, "an unmonitored model may temporarily use an automatically paused account")
+	require.NoError(t, repo.ReleaseGroupQualityTraffic(ctx, "aggregate-C", true))
+	_, err = db.Exec(`INSERT INTO scheduled_test_protection_states(account_id,model_key,blocked,test_definition_id) VALUES(62,'stats-model',true,1); INSERT INTO scheduled_test_definitions(id,output_kind) VALUES(1,'statistics')`)
+	require.NoError(t, err)
+	allowed, _ = acquireFallback(t, repo, trafficRequest("account-wide-A", "A", "account-wide-A", 4096), 62)
+	require.True(t, allowed, "account-wide statistics retain their scope")
 }

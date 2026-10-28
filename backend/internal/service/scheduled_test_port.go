@@ -22,6 +22,7 @@ type ScheduledTestPlan struct {
 	TestType           string                        `json:"test_type"`
 	TargetMode         string                        `json:"target_mode"`
 	ModelID            string                        `json:"model_id"`
+	ModelIDs           []string                      `json:"model_ids"`
 	ReasoningEffort    string                        `json:"reasoning_effort,omitempty"`
 	CronExpression     string                        `json:"cron_expression"`
 	Schedule           *ScheduledTestSchedule        `json:"schedule,omitempty"`
@@ -50,6 +51,9 @@ type ScheduledTestResult struct {
 	QualityVerdict string `json:"quality_verdict,omitempty"`
 	TestOrder      int    `json:"test_order"`
 	GroupName      string `json:"group_name"`
+	// ModelOrder is the zero-based position in the current plan's configured
+	// model selection. Models no longer selected sort after configured models.
+	ModelOrder int `json:"model_order"`
 	// PlanOrder belongs to the rule that produced the result. GroupOrder is
 	// resolved from the displayed group's current rules, so moving an account
 	// does not carry its source rule's display position into the new group.
@@ -68,6 +72,7 @@ type ScheduledTestResult struct {
 	ReturnedModels       []string                         `json:"-"`
 	ModelEvidenceInvalid bool                             `json:"-"`
 	AccountID            *int64                           `json:"account_id,omitempty"`
+	ModelSchedulable     *bool                            `json:"model_schedulable,omitempty"`
 	AccountSchedulable   *bool                            `json:"account_schedulable,omitempty"` // current account status and scheduling switch; nil for account-free results
 	AccountName          string                           `json:"account_name,omitempty"`        // populated by admin queries only
 	ModelID              string                           `json:"model_id"`
@@ -78,6 +83,10 @@ type ScheduledTestResult struct {
 	StartedAt            time.Time                        `json:"started_at"`
 	FinishedAt           time.Time                        `json:"finished_at"`
 	CreatedAt            time.Time                        `json:"created_at"`
+	// QualityScore is current real-traffic evidence for this account and model.
+	QualityScore *ChannelQualityScore `json:"quality_score,omitempty"`
+	// ExecutionSkipped is a safe public marker; skip diagnostics remain private.
+	ExecutionSkipped bool `json:"execution_skipped,omitempty"`
 }
 
 // ScheduledTestProtectionDecision is populated for administrator result views.
@@ -114,6 +123,8 @@ type ScheduledTestStatistics struct {
 	CacheRate         *float64                     `json:"cache_rate"`
 	AvgFirstTokenMs   *float64                     `json:"avg_first_token_ms"`
 	FirstTokenSamples int64                        `json:"first_token_samples"`
+	OutputTPS         *float64                     `json:"output_tps"`
+	TPSSamples        int64                        `json:"tps_samples"`
 	CacheReadTokens   int64                        `json:"cache_read_tokens"`
 	CacheInputTokens  int64                        `json:"cache_input_tokens"`
 	CacheSamples      int64                        `json:"cache_samples"`

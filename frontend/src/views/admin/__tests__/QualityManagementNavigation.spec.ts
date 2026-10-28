@@ -10,26 +10,27 @@ const mountView = () => mount(TestManagementView, { global: {
   plugins: [createI18n({ legacy: false, locale: 'en', missingWarn: false, fallbackWarn: false, messages: { en: { admin: resources } } })],
   stubs: {
     AppLayout: { template: '<div><slot /></div>' }, Icon: true,
-    ActiveQualityPanel: true, PassiveQualityPanel: true, ChannelQualityOverview: true, QualityOperationsPanel: true,
-    PassiveQualityManagementPanel: { props: ['targetPolicyId', 'advancedPolicy'], template: '<div data-management :data-policy="targetPolicyId" :data-advanced="advancedPolicy" />' },
+    ActiveQualityPanel: true, PassiveQualityPanel: true, ChannelQualityScoreSettings: true, ChannelQualityOverview: true, QualityOperationsPanel: true,
+    PassiveQualityManagementPanel: { props: ['targetPolicyId'], template: '<div data-management :data-policy="targetPolicyId" />' },
   },
 } })
 beforeEach(() => { navigation.route = reactive({ query: {} }); navigation.replace.mockReset() })
-describe('two quality configuration flows', () => {
+describe('simplified quality configuration flows', () => {
   it('keeps legacy group-target deep links under passive management', () => {
     navigation.route.query = { tab: 'group-targets', policy_id: '41' }
     const wrapper = mountView()
-    expect(wrapper.findAll('[data-quality-tab]')).toHaveLength(2)
-    expect(wrapper.get('[data-quality-tab="passive"]').attributes('aria-pressed')).toBe('true')
+    expect(wrapper.findAll('[role="tab"]')).toHaveLength(4)
+    expect(wrapper.get('[data-quality-section="group-targets"]').attributes('aria-selected')).toBe('true')
     expect(wrapper.get('[data-management]').attributes('data-policy')).toBe('41')
-    expect(wrapper.get('[data-management]').attributes('data-advanced')).toBe('false')
     wrapper.unmount()
   })
-  it('opens legacy individual passive policies in the advanced section and preserves active navigation', async () => {
-    navigation.route.query = { tab: 'passive', policy_id: '7' }
+  it.each(['passive', 'legacy'])('redirects removed %s rule links to group targets', async tab => {
+    navigation.route.query = { tab, policy_id: '7', advanced: '1' }
     const wrapper = mountView()
-    expect(wrapper.get('[data-management]').attributes('data-advanced')).toBe('true')
-    await wrapper.get('[data-quality-tab="plans"]').trigger('click')
+    expect(wrapper.find('[data-management]').exists()).toBe(true)
+    expect(wrapper.find('[data-quality-tab="legacy"]').exists()).toBe(false)
+    expect(wrapper.findComponent({ name: 'PassiveQualityPanel' }).exists()).toBe(false)
+    await wrapper.get('[data-quality-section="plans"]').trigger('click')
     expect(navigation.replace).toHaveBeenCalledWith({ query: { tab: 'plans' } })
     wrapper.unmount()
   })

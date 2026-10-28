@@ -129,6 +129,23 @@ func (r *passiveQualityRepository) SavePolicy(ctx context.Context, p *service.Pa
 func passivePolicyChange(old, next service.PassiveQualityConfig) (unchanged, metadataOnly bool) {
 	normalize := func(c service.PassiveQualityConfig) service.PassiveQualityConfig {
 		c.EvidenceStartedAt, c.EvaluationVersion = nil, 0
+		// traffic_mode was added after existing group-target policies. Treat an
+		// omitted value as the validated strict default so a no-op save does not
+		// reset evidence or holds merely because the field was introduced.
+		if c.IsGroupQualityTarget() && c.TrafficMode == "" {
+			c.TrafficMode = "strict"
+		}
+		if c.IsGroupQualityTarget() {
+			stability := c.GroupTargetStability()
+			c.Stability = &stability
+		}
+		// Older V2 policies predate TPS. Defaults supplied by validation or a
+		// newer editor cannot change behavior while this dimension is disabled,
+		// and must not clear existing holds on a no-op save or rename.
+		if !c.TPS.Enabled {
+			c.TPS = service.PassiveQualityMetric{}
+			c.TPSAction, c.TPSConcurrencyLimit, c.TPSPriorityPenalty = "", 0, 0
+		}
 		c.GroupIDs = append([]int64{}, c.GroupIDs...)
 		c.ExcludedAccountIDs = append([]int64{}, c.ExcludedAccountIDs...)
 		slices.Sort(c.GroupIDs)
@@ -287,10 +304,22 @@ func reconcilePassiveAccount(ctx context.Context, tx sqlExecutor, aid int64) err
  'concurrency_limit',config->'concurrency_limit','priority_penalty',config->'priority_penalty') AS value
  FROM active WHERE data->>'phase' IN ('paused','probing','trial','limited')
  UNION ALL
+ SELECT id,jsonb_build_object('policy_id',id,'policy_name',config->>'name','metric','performance',
+ 'scope','model','model',COALESCE(data->>'model',config->>'model'),'phase','cache_limited','reason',data->>'reason',
+ 'allocation_percent',COALESCE(config->'stability'->'new_session_percent','20'::jsonb))
+ FROM active WHERE config->>'purpose' IN ('group_quality_target','cache_target')
+ AND (data->>'cache_allocation_reduced'='true' OR (data->>'phase'='suspect' AND COALESCE((data->>'hits')::int,0)>0
+ AND data->>'confirmation_metric' IN ('cache_rate','ttft_p90','output_tps')))
+ UNION ALL
  SELECT id,jsonb_build_object('policy_id',id,'policy_name',config->>'name','metric','ttft',
  'scope',config->>'scope','model',COALESCE(data->>'model',config->>'model'),'phase','limited','reason',data->'latency'->>'reason',
  'concurrency_limit',config->'ttft_concurrency_limit','priority_penalty',config->'ttft_priority_penalty')
  FROM active WHERE config->>'schema_version'='2' AND data->'latency'->>'phase'='limited'
+ UNION ALL
+ SELECT id,jsonb_build_object('policy_id',id,'policy_name',config->>'name','metric','tps',
+ 'scope',config->>'scope','model',COALESCE(data->>'model',config->>'model'),'phase','limited','reason',data->'speed'->>'reason',
+ 'concurrency_limit',config->'tps_concurrency_limit','priority_penalty',config->'tps_priority_penalty')
+ FROM active WHERE config->>'schema_version'='2' AND data->'speed'->>'phase'='limited'
  UNION ALL
  SELECT id,jsonb_build_object('policy_id',id,'policy_name',config->>'name','metric','cache',
  'scope','model','model',entry.key,'phase','cache_limited','reason',entry.value->>'reason',
@@ -315,8 +344,8 @@ func reconcilePassiveAccount(ctx context.Context, tx sqlExecutor, aid int64) err
 	return enqueueSchedulerOutbox(ctx, tx, service.SchedulerOutboxEventAccountChanged, &aid, nil, nil)
 }
 
-// Healthy target evidence is projected too, so production routing can prefer
-// verified supply before TopK. Admission always repeats this check in SQL.
+// Project target evidence for status reporting. Verification does not change
+// normal routing priority or turn missing samples into a quality hold.
 func reconcileGroupQualityTargets(ctx context.Context, tx sqlExecutor, aid int64) (bool, error) {
 	rows, err := tx.QueryContext(ctx, `SELECT p.id,p.version,p.updated_at,p.config,s.data FROM passive_quality_states s JOIN passive_quality_policies p ON p.id=s.policy_id
  WHERE s.account_id=$1 AND p.config->>'enabled'='true' AND p.config->>'mode'='enforce'
@@ -493,6 +522,7 @@ func (r *passiveQualityRepository) Act(ctx context.Context, pid, aid int64, acti
 		s.Reason = "verification_requested"
 	case "exempt":
 		s.Latency = nil
+		s.Speed = nil
 		s.Cache = nil
 		s.CacheObserveAfter = now
 		s.Phase = "exempt"
@@ -506,6 +536,7 @@ func (r *passiveQualityRepository) Act(ctx context.Context, pid, aid int64, acti
 		s.ObserveAfter = now
 		s.CacheObserveAfter = now
 		s.Latency = nil
+		s.Speed = nil
 		s.Cache = nil
 		s.Hits = 0
 		s.Reason = "exemption_ended"

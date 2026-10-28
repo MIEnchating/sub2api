@@ -31,15 +31,43 @@ func activePassRateRoutingModel(ctx context.Context, requestedModel string) stri
 }
 
 // ActivePassRateBlocked is independent of legacy active protection and passive
-// quality. Fallback may relax those owners, but may never relax capability.
+// quality. Emergency fallback uses a request-local copy after durable admission.
 // The projection contains only blocked entries; live database admission is the
 // final authority if this scheduler snapshot is stale.
 func (a *Account) ActivePassRateBlocked(model string) bool {
 	if a == nil {
 		return false
 	}
-	model = strings.TrimSpace(model)
 	holds, _ := a.Extra["active_pass_rate_holds"].(map[string]any)
+	return activeTestProjectionBlocks(holds, model)
+}
+
+// ActiveTestModelBlocked combines an individual capability verdict with the
+// rolling pass-rate gate. It always uses the public request model. A provider alias
+// cannot bypass either owner on ordinary routes.
+func (a *Account) ActiveTestModelBlocked(model string) bool {
+	if a == nil {
+		return false
+	}
+	if a.ActiveTestAllModelsPaused() {
+		return true
+	}
+	holds, _ := a.Extra["active_test_model_holds"].(map[string]any)
+	return activeTestProjectionBlocks(holds, model) || a.ActivePassRateBlocked(model)
+}
+
+// An all-model failure suspends the account, including models outside the
+// monitored selection. Only fresh capability recovery may clear this marker.
+func (a *Account) ActiveTestAllModelsPaused() bool {
+	if a == nil {
+		return false
+	}
+	paused, _ := a.Extra["active_test_all_models_paused"].(bool)
+	return paused
+}
+
+func activeTestProjectionBlocks(holds map[string]any, model string) bool {
+	model = strings.TrimSpace(model)
 	for heldModel, value := range holds {
 		if blocked, ok := value.(bool); ok && !blocked {
 			continue

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -35,34 +36,53 @@ func (s *geminiAlways429Upstream) DoWithTLS(req *http.Request, proxyURL string, 
 
 func TestGeminiForwardPreservesExhaustedAccount429MarkerOnFailover(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-	upstream := &geminiAlways429Upstream{}
-	svc := &GeminiMessagesCompatService{
-		httpUpstream: upstream,
-		cfg:          &config.Config{},
-		retryBackoff: func(int) {},
+	forwarders := []struct {
+		name    string
+		forward func(*GeminiMessagesCompatService, context.Context, *gin.Context, *Account) (*ForwardResult, error)
+	}{
+		{"claude", func(s *GeminiMessagesCompatService, ctx context.Context, c *gin.Context, account *Account) (*ForwardResult, error) {
+			return s.Forward(ctx, c, account, []byte(`{"model":"gemini-2.5-flash","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`))
+		}},
+		{"native", func(s *GeminiMessagesCompatService, ctx context.Context, c *gin.Context, account *Account) (*ForwardResult, error) {
+			return s.ForwardNative(ctx, c, account, "gemini-2.5-flash", "generateContent", false,
+				[]byte(`{"contents":[{"role":"user","parts":[{"text":"hi"}]}]}`))
+		}},
+		{"chat_completions", func(s *GeminiMessagesCompatService, ctx context.Context, c *gin.Context, account *Account) (*ForwardResult, error) {
+			return s.ForwardAsChatCompletions(ctx, c, account, []byte(`{"model":"gemini-2.5-flash","messages":[{"role":"user","content":"hi"}]}`))
+		}},
 	}
-	retryCount := 1
-	account := &Account{
-		ID:       901,
-		Platform: PlatformGemini,
-		Type:     AccountTypeAPIKey,
-		Credentials: map[string]any{
-			"api_key":   "test-key",
-			"pool_mode": true,
-		},
-		RateLimit429RetryCount: &retryCount,
+	for _, retries := range []int{0, 1, 4} {
+		for _, fw := range forwarders {
+			t.Run(fmt.Sprintf("%s/retries=%d", fw.name, retries), func(t *testing.T) {
+				upstream := &geminiAlways429Upstream{}
+				var backoffs []int
+				svc := &GeminiMessagesCompatService{
+					httpUpstream: upstream,
+					cfg:          &config.Config{Gateway: config.GatewayConfig{MaxSameAccountRetriesGemini: retries}},
+					retryBackoff: func(attempt int) { backoffs = append(backoffs, attempt) },
+				}
+				retryCount := 1
+				account := &Account{
+					ID: 901, Platform: PlatformGemini, Type: AccountTypeAPIKey,
+					Credentials:            map[string]any{"api_key": "test-key", "pool_mode": true},
+					RateLimit429RetryCount: &retryCount,
+				}
+				c, _ := gin.CreateTestContext(httptest.NewRecorder())
+				requestCtx := WithAccount429RetryScope(context.Background())
+				c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(nil)).WithContext(requestCtx)
+
+				result, err := fw.forward(svc, requestCtx, c, account)
+
+				require.Nil(t, result)
+				var failoverErr *UpstreamFailoverError
+				require.ErrorAs(t, err, &failoverErr)
+				require.True(t, failoverErr.Account429RetryExhausted)
+				require.Equal(t, 1+retries+retryCount, upstream.calls, "透明预算只增加一次，随后仍执行配置的 Gemini 重试")
+				require.Len(t, backoffs, retries)
+				for i, attempt := range backoffs {
+					require.Equal(t, i+1, attempt)
+				}
+			})
+		}
 	}
-
-	rec := httptest.NewRecorder()
-	c, _ := gin.CreateTestContext(rec)
-	body := []byte(`{"model":"gemini-2.5-flash","max_tokens":1,"messages":[{"role":"user","content":"hi"}]}`)
-	requestCtx := WithAccount429RetryScope(context.Background())
-	c.Request = httptest.NewRequest(http.MethodPost, "/v1/messages", bytes.NewReader(body)).WithContext(requestCtx)
-
-	result, err := svc.Forward(requestCtx, c, account, body)
-	require.Nil(t, result)
-	var failoverErr *UpstreamFailoverError
-	require.ErrorAs(t, err, &failoverErr)
-	require.True(t, failoverErr.Account429RetryExhausted)
-	require.Equal(t, geminiMaxRetries+retryCount, upstream.calls, "透明预算只增加一次，随后仍执行官方 Gemini 重试")
 }

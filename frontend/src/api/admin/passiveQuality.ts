@@ -1,6 +1,9 @@
 import apiClient from '../client'
 
 export interface PassiveMetric { enabled: boolean; pause: number; recover: number }
+export interface GroupQualityStability {
+  availability_pause_seconds: number; performance_pause_seconds: number; recovery_seconds: number; new_session_percent: number
+}
 export interface PassiveCacheWindow {
   window_seconds: number; max_samples: number; min_samples: number; confirmations: number; new_samples: number
   min_tokens: number; min_sessions: number; max_session_share_percent: number
@@ -29,18 +32,22 @@ export interface PassiveCacheState extends Omit<PassiveMetricState, 'evidence'> 
 }
 export interface PassivePolicy {
   purpose?: 'cache_target' | 'group_quality_target'
+  stability?: GroupQualityStability
+  traffic_mode?: 'strict' | 'availability'
   schema_version?: number; ttft_action?: 'observe' | 'limit'; ttft_concurrency_limit?: number; ttft_priority_penalty?: number
+  tps_action?: 'observe' | 'limit'; tps_concurrency_limit?: number; tps_priority_penalty?: number
   cache_protection?: PassiveCacheProtection
   id: number; version: number; updated_at?: string
   name: string; enabled: boolean; mode: 'observe' | 'enforce'; group_ids: number[]; excluded_account_ids: number[]
   action: 'pause' | 'limit'; concurrency_limit: number; priority_penalty: number
   model: string; scope: 'model' | 'account'; window_seconds: number; max_samples: number; min_samples: number
-  confirmations: number; new_samples: number; error_rate: PassiveMetric; ttft: PassiveMetric; cache_rate: PassiveMetric
+  confirmations: number; new_samples: number; error_rate: PassiveMetric; ttft: PassiveMetric; tps: PassiveMetric; cache_rate: PassiveMetric
   consecutive_failures: number; cooldown_seconds: number; max_cooldown_seconds: number; trial_seconds: number
   trial_requests: number; trial_concurrency: number; recovery_samples: number
 }
 export interface PassiveEvidence {
-  cache_fresh?: number; ttft_fresh?: number
+  output_tps?: number | null; tps_samples?: number; tps_fresh?: number; tps_latest?: string; fresh_output_tps?: number | null
+  cache_fresh?: number; cache_latest?: string; ttft_fresh?: number; ttft_latest?: string
   fresh_error_rate?: number | null; fresh_ttft?: number | null; fresh_cache_rate?: number | null
   cache_read_tokens?: number; cache_input_tokens?: number
   samples: number; failures: number; consecutive_failures: number; error_rate: number | null; ttft: number | null
@@ -48,7 +55,8 @@ export interface PassiveEvidence {
 }
 export interface PassiveState {
   purpose?: 'cache_target' | 'group_quality_target'
-  latency?: PassiveMetricState; cache?: Record<string, PassiveCacheState>; allocation_percent?: number
+  suspicion_since?: string; recovery_since?: string; recovery_hits?: number; cache_allocation_reduced?: boolean; stability_evidence_at?: string; confirmation_metric?: string
+  speed?: PassiveMetricState; latency?: PassiveMetricState; cache?: Record<string, PassiveCacheState>; allocation_percent?: number
   policy_id: number; policy_name: string; account_id: number; account_name?: string; model: string; probe_model?: string; scope: string; mode: string
   phase: string; reason: string; hits: number; backoff: number; used: number; inflight: number; generation: number
   next_at: string; trial_started_at: string; trial_ends_at: string; updated_at: string; evidence: PassiveEvidence; other_hold: boolean
@@ -56,7 +64,9 @@ export interface PassiveState {
 export interface PassiveEvent { id: number; policy_id: number; account_id: number; policy_name: string; kind: string; detail: PassiveState; created_at: string }
 export interface GroupQualityTargetDraft {
   id: number; version: number; purpose: 'group_quality_target'; name: string; enabled: boolean; mode: 'observe' | 'enforce'; model: string
-  group_ids: number[]; cache_rate: PassiveMetric; error_rate: PassiveMetric; ttft: PassiveMetric
+  traffic_mode: 'strict' | 'availability'
+  stability: GroupQualityStability
+  group_ids: number[]; cache_rate: PassiveMetric; error_rate: PassiveMetric; ttft: PassiveMetric; tps: PassiveMetric
   excluded_account_ids: number[]
   window_seconds?: number; max_samples?: number; min_samples?: number; confirmations?: number; new_samples?: number
   cooldown_seconds?: number; max_cooldown_seconds?: number; trial_seconds?: number; trial_requests?: number; trial_concurrency?: number; recovery_samples?: number
@@ -76,12 +86,14 @@ export interface GroupQualityTargetSummary {
   policy_id: number; group_id: number; window_seconds: number; actual_cache_rate: number | null
   cache_samples: number; cache_read_tokens: number; cache_input_tokens: number; cache_unknown_samples: number
   actual_availability: number | null; success_samples: number; failure_samples: number; failure_unknown_samples: number
+  output_tps?: number | null; tps_samples?: number
   ttft_p90_ms: number | null; ttft_samples: number; generated_at: string
   telemetry_complete: boolean
   traffic_control?: GroupQualityTrafficControl
   fallback?: GroupQualityFallbackSummary
 }
 export interface GroupQualityContributor {
+  output_tps?: number | null; tps_samples?: number
   account_id: number; account_name: string; model: string; traffic_kind: 'normal' | 'validation' | 'fallback' | 'unattributed'
   success_samples: number; failure_samples: number; cache_samples: number; cache_unknown_samples: number
   cache_input_tokens: number; cache_read_tokens: number; uncached_tokens: number; ttft_samples: number; slow_requests: number; ttft_p90_ms: number | null
@@ -93,9 +105,6 @@ export interface PassiveRuntime { queue_depth: number; queue_capacity: number; p
 export const emptyPassiveSummary = (): PassiveStateSummary => ({ total: 0, paused_accounts: 0, limited_accounts: 0, trial_accounts: 0, observed_accounts: 0, by_policy: [] })
 export const passiveQualityAPI = {
   policies: async () => (await apiClient.get<PassivePolicy[]>('/admin/passive-quality-policies')).data,
-  save: async (policy: PassivePolicy) => (await (policy.id
-    ? apiClient.put<PassivePolicy>(`/admin/passive-quality-policies/${policy.id}`, policy)
-    : apiClient.post<PassivePolicy>('/admin/passive-quality-policies', policy))).data,
   remove: async (id: number) => { await apiClient.delete(`/admin/passive-quality-policies/${id}`) },
   states: async () => (await apiClient.get<PassiveState[]>('/admin/passive-quality-states')).data,
   statePage: async (params: PassiveQuery = {}) => (await apiClient.get<PassivePage<PassiveState>>('/admin/passive-quality-states', { params: { ...params, paginated: true } })).data,
@@ -110,22 +119,26 @@ export const passiveQualityAPI = {
   act: async (s: PassiveState, action: string, seconds = 0) => { await apiClient.post(`/admin/passive-quality-policies/${s.policy_id}/accounts/${s.account_id}/action`, { action, seconds, ...(s.model ? { model: s.model } : {}) }) },
 }
 
-// Keep the simple editor separate from generic V2 reuse-protection controls.
+function passiveTPSDraft(metric?: PassiveMetric): PassiveMetric {
+  return metric && (metric.enabled || metric.pause !== 0 || metric.recover !== 0)
+    ? { ...metric } : { enabled: false, pause: 10, recover: 15 }
+}
+
 // The server supplies and validates the sampling and recovery defaults.
 export function isGroupQualityTarget(policy: Pick<PassivePolicy, 'purpose'>): boolean {
   return policy.purpose === 'group_quality_target' || policy.purpose === 'cache_target'
 }
-export function groupQualityTargetDraft(policy?: PassivePolicy, groupName = ''): GroupQualityTargetDraft {
-  const normalizedName = groupName.trim().toLowerCase()
-  const plus = normalizedName === 'gpt-plus'
-  const percentage = plus ? 70 : 80
-  const ttft = plus ? 20000 : normalizedName === 'gpt-pro' ? 15000 : 10000
+export function groupQualityTargetDraft(policy?: PassivePolicy, _groupName = ''): GroupQualityTargetDraft {
+  const percentage = 80
+  const ttft = 15000
   const draft: GroupQualityTargetDraft = {
     id: policy?.id || 0, version: policy?.version || 0, purpose: 'group_quality_target', name: policy?.name || '',
-    enabled: policy?.enabled ?? true, mode: policy?.mode || 'enforce', model: policy?.model || '', group_ids: policy ? [...policy.group_ids] : [],
+    enabled: policy?.enabled ?? true, mode: policy?.mode || 'enforce', traffic_mode: policy?.traffic_mode || 'strict', model: policy?.model || '', group_ids: policy ? [...policy.group_ids] : [],
+    stability: { availability_pause_seconds: 60, performance_pause_seconds: 300, recovery_seconds: 120, new_session_percent: 20, ...policy?.stability },
     excluded_account_ids: [...(policy?.excluded_account_ids || [])],
     cache_rate: { enabled: policy?.cache_rate.enabled ?? true, pause: policy?.cache_rate.pause ?? percentage, recover: policy?.cache_rate.recover ?? percentage + 5 },
-    error_rate: { enabled: policy?.error_rate.enabled ?? true, pause: policy?.error_rate.pause ?? 100 - percentage, recover: policy?.error_rate.recover ?? 95 - percentage },
+    error_rate: { enabled: policy?.error_rate.enabled ?? true, pause: policy?.error_rate.pause ?? 10, recover: policy?.error_rate.recover ?? 5 },
+    tps: policy ? passiveTPSDraft(policy.tps) : { enabled: true, pause: 30, recover: 36 },
     ttft: { enabled: policy?.ttft.enabled ?? true, pause: policy?.ttft.pause ?? ttft, recover: policy?.ttft.recover ?? ttft * .8 },
   }
   if (policy) {
@@ -134,47 +147,4 @@ export function groupQualityTargetDraft(policy?: PassivePolicy, groupName = ''):
     }
   }
   return draft
-}
-export function defaultPassivePolicy(): PassivePolicy {
-  return { schema_version: 2, ttft_action: 'limit', ttft_concurrency_limit: 2, ttft_priority_penalty: 50, cache_protection: defaultPassiveCacheProtection(), id: 0, version: 0, name: '', enabled: true, mode: 'observe', group_ids: [], excluded_account_ids: [], model: '', scope: 'model', action: 'pause', concurrency_limit: 2, priority_penalty: 10,
-    window_seconds: 600, max_samples: 100, min_samples: 30, confirmations: 2, new_samples: 5,
-    error_rate: { enabled: true, pause: 20, recover: 5 }, ttft: { enabled: false, pause: 10000, recover: 5000 },
-    cache_rate: { enabled: false, pause: 10, recover: 20 }, consecutive_failures: 0,
-    cooldown_seconds: 120, max_cooldown_seconds: 3600, trial_seconds: 300, trial_requests: 50, trial_concurrency: 1, recovery_samples: 20 }
-}
-
-export function defaultPassiveCacheProtection(): PassiveCacheProtection {
-  return {
-    action: 'reduce',
-    quick: { window_seconds: 300, max_samples: 50, min_samples: 15, confirmations: 2, new_samples: 3, min_tokens: 32768, min_sessions: 3, max_session_share_percent: 60 },
-    action_window: { window_seconds: 900, max_samples: 200, min_samples: 30, confirmations: 3, new_samples: 5, min_tokens: 65536, min_sessions: 3, max_session_share_percent: 60 },
-    allocation_percent: 25, recovery_step_percent: 25, recovery_confirmations: 2, min_hold_seconds: 300, recovery_hold_seconds: 300,
-    max_reduced_percent: 50, min_serving_accounts: 1, reuse_window_seconds: 300, warmup_requests: 1,
-  }
-}
-// Editing a legacy policy never implicitly changes its evaluation semantics.
-export function passivePolicyDraft(policy?: PassivePolicy): PassivePolicy {
-  if (!policy) return defaultPassivePolicy()
-  const draft = { ...defaultPassivePolicy(), ...JSON.parse(JSON.stringify(policy)) } as PassivePolicy
-  if (policy.schema_version !== 2) {
-    draft.schema_version = policy.schema_version || 0
-    if (!policy.model || !policy.scope) draft.scope = 'account'
-    delete draft.ttft_action; delete draft.ttft_concurrency_limit; delete draft.ttft_priority_penalty; delete draft.cache_protection
-  }
-  return draft
-}
-export function upgradePassivePolicy(policy: PassivePolicy): PassivePolicy {
-  return { ...passivePolicyDraft(policy), schema_version: 2, mode: 'observe', scope: 'model', ttft_action: 'limit', ttft_concurrency_limit: 2, ttft_priority_penalty: 50, cache_protection: defaultPassiveCacheProtection() }
-}
-export function passiveCacheValidation(policy: PassivePolicy): string {
-  if (policy.schema_version !== 2) return ''
-  if (!['observe', 'limit'].includes(policy.ttft_action || '') || !Number.isInteger(policy.ttft_concurrency_limit) || policy.ttft_concurrency_limit! < 1 || policy.ttft_concurrency_limit! > 1000 || !Number.isInteger(policy.ttft_priority_penalty) || policy.ttft_priority_penalty! < 0 || policy.ttft_priority_penalty! > 1000) return 'invalidMetricActions'
-  const c = policy.cache_protection
-  if (!c || !['observe', 'reduce'].includes(c.action)) return 'invalidCacheConfig'
-  for (const w of [c.quick, c.action_window]) {
-    if (!w || !Number.isInteger(w.window_seconds) || w.window_seconds < 60 || w.window_seconds > 86400 || !Number.isInteger(w.max_samples) || w.max_samples < 5 || w.max_samples > 2000 || !Number.isInteger(w.min_samples) || w.min_samples < 5 || w.min_samples > w.max_samples || !Number.isInteger(w.confirmations) || w.confirmations < 1 || w.confirmations > 10 || !Number.isInteger(w.new_samples) || w.new_samples < 1 || w.new_samples > w.max_samples || !Number.isInteger(w.min_tokens) || w.min_tokens < 1 || w.min_tokens > 1000000000 || !Number.isInteger(w.min_sessions) || w.min_sessions < 2 || w.min_sessions > Math.floor(w.min_samples / 2) || !Number.isInteger(w.max_session_share_percent) || w.max_session_share_percent < 10 || w.max_session_share_percent > 90 || w.max_session_share_percent * w.min_sessions < 100) return 'invalidCacheWindow'
-  }
-  if ((['window_seconds', 'max_samples', 'min_samples', 'confirmations', 'new_samples', 'min_tokens', 'min_sessions'] as const).some(key => c.action_window[key] < c.quick[key])) return 'invalidCacheOrder'
-  const bounds: [keyof PassiveCacheProtection, number, number][] = [['allocation_percent', 1, 99], ['recovery_step_percent', 1, 99], ['recovery_confirmations', 1, 10], ['min_hold_seconds', 30, 86400], ['recovery_hold_seconds', 30, 86400], ['max_reduced_percent', 1, 90], ['min_serving_accounts', 1, 10000], ['reuse_window_seconds', 30, 3600], ['warmup_requests', 1, 20]]
-  return bounds.some(([key, min, max]) => !Number.isInteger(c[key]) || Number(c[key]) < min || Number(c[key]) > max) ? 'invalidCacheConfig' : ''
 }

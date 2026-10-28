@@ -1,6 +1,6 @@
 export default {
   "title": "Independent account score",
-  "intro": "Real customer requests provide error rate, cache rate, first-token latency and total duration. Active intelligence tests remain a separate gate.",
+  "intro": "Real customer requests provide error rate, cache rate, first-token latency, total duration and optional output TPS. Active intelligence tests remain a separate gate.",
   "enabled": "Enable scoring and use it to rank fallback accounts",
   "window": "Last {minutes} minutes · up to {max} requests · at least {min} valid samples per dimension",
   "advanced": "Scoring standards and sampling (advanced)",
@@ -23,8 +23,9 @@ export default {
   "confidence": "Evidence sufficiency {value}%",
   "dimensions": {
     "error_rate": "Error rate (%)",
-    "cache_rate": "Reusable-prefix cache rate (%)",
+    "cache_rate": "Actual cache rate (%)",
     "ttft": "First-token P90 (ms)",
+    "tps": "Output TPS (token/s)",
     "duration": "Total duration P90 (ms)"
   },
   "saved": "Scoring settings saved",
@@ -34,7 +35,7 @@ export default {
   "invalidWindow": "Use a 60–86400 second window and whole-number request/sample limits between 5 and 1000.",
   "invalidSamples": "Minimum samples cannot exceed the recent request limit.",
   "invalidWeights": "Each weight must be between 0 and 100, with at least one positive weight.",
-  "invalidStandard": "Check {dimension}: percentages must be 0–100 and durations 0–3600000 ms. The 100-point standard must be better than the 0-point standard.",
+  "invalidStandard": "Check {dimension}: percentages must be 0–100 and durations 0–3600000 ms, and TPS 0–1000000 token/s. The 100-point standard must be better than the 0-point standard.",
   "details": "Score details",
   "status": {
     "ready": "Ready",

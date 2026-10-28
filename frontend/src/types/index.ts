@@ -2,6 +2,8 @@
  * Core Type Definitions for Sub2API Frontend
  */
 
+import type { ChannelQualityScore } from '@/api/admin/channelQuality'
+
 // ==================== Common Types ====================
 
 export interface SelectOption {
@@ -2613,7 +2615,17 @@ export interface TestRequestAttempt extends TestTokenUsage {
   failure_kind?: string
   retry_after?: string | null
 }
+export interface TestAutoReview {
+  verdict: 'pass' | 'fail' | 'pending'
+  reason: string
+  judge_account_id: number
+  judge_model: string
+  attempts: number
+  reviewed_at: string
+  criteria?: { key: string; passed: boolean; reason: string }[]
+}
 export interface TestExecutionInfo extends TestTokenUsage {
+  auto_review?: TestAutoReview
   capability?: import('@/utils/qualityCapability').CapabilityResult
   attempts: TestRequestAttempt[]
   failure_kind?: string
@@ -2698,6 +2710,8 @@ export interface TestPlan {
   test_definition?: TestType | null
   test_definitions?: TestType[]
   model_id?: string
+  /** Models executed independently by this plan. Older plans expose model_id only. */
+  model_ids?: string[]
   /** Optional effort forwarded to the selected model (Codex-style). */
   reasoning_effort?: string | null
   cron_expression?: string
@@ -2711,7 +2725,7 @@ export interface TestPlan {
   updated_at?: string
 }
 
-export type TestProtectionMetric = 'success_rate' | 'cache_rate' | 'avg_first_token_ms' | 'latency_ms' | 'output_numeric'
+export type TestProtectionMetric = 'success_rate' | 'cache_rate' | 'avg_first_token_ms' | 'output_tps' | 'latency_ms' | 'output_numeric'
 export interface TestProtectionThreshold {
   metric: TestProtectionMetric
   operator: 'lt' | 'gt'
@@ -2765,6 +2779,7 @@ export interface TestPassRateSummary {
   model: string
 }
 export interface TestProtectionRule {
+  auto_review?: { enabled: boolean }
   test_definition_id: number
   priority: number
   required_pass: boolean
@@ -2832,6 +2847,8 @@ export interface TestOutputStatistics {
   success_rate: number | null
   cache_rate: number | null
   avg_first_token_ms: number | null
+  output_tps?: number | null
+  tps_samples?: number
   first_token_samples: number
   cache_read_tokens: number
   cache_input_tokens: number
@@ -2868,20 +2885,28 @@ export interface TestProtectionDecision {
 }
 
 export interface TestResult {
+  /** Current quality score for the authorized account and this result's requested model. */
+  quality_score?: ChannelQualityScore | null
   /** Current rolling evidence, not a historical snapshot at this result's time. */
   pass_rate?: TestPassRateSummary | null
   test_key?: string
   /** Saved quality verdict; transport success does not imply a pass. */
   quality_verdict?: 'pass' | 'fail' | 'pending' | ''
+  /** Execution was deferred/skipped; raw diagnostic text remains private. */
+  execution_skipped?: boolean
   execution_info?: TestExecutionInfo | null
   /** Current account status and scheduling switch; absent for account-free results. */
   account_schedulable?: boolean | null
+  /** Current scheduling availability for this result's model, independent of other models. */
+  model_schedulable?: boolean | null
   /** Returned only by administrator result endpoints. */
   account_name?: string
   plan_name?: string
   test_name?: string
   /** Configured check type order within the account's quality results. */
   test_order?: number
+  /** Configured model order within the originating test plan, starting at zero. */
+  model_order?: number
   /** Configured display order of the originating test rule/plan. */
   plan_order?: number
   /** Live display order of the account's current group; preferred over plan_order. */
@@ -2934,6 +2959,7 @@ export interface CreateTestPlanRequest {
   excluded_account_ids?: number[]
   test_definition_ids: number[]
   model_id: string
+  model_ids?: string[]
   reasoning_effort?: string | null
   cron_expression?: string
   schedule?: TestSchedule | null

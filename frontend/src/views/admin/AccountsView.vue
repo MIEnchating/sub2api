@@ -447,9 +447,9 @@
             />
           </template>
           <template #cell-quality_score="{ row }">
-            <a :href="`/admin/tests?tab=overview&account_id=${row.id}`" class="block rounded px-1 hover:bg-gray-50 dark:hover:bg-dark-800" :title="t('admin.tests.scoring.details')" :data-account-quality-score="row.id">
-              <ChannelQualityScoreEvidence :score="accountQualityScores[String(row.id)]" compact />
-            </a>
+            <div :data-account-quality-score="row.id">
+              <ChannelQualityScoreEvidence :score="accountQualityScores[String(row.id)]" interactive />
+            </div>
           </template>
           <template #header-scheduler_score="{ column }">
             <div class="flex items-center">
@@ -1324,9 +1324,9 @@ const refreshRecentRequests = async () => {
       kind: 'all',
       sort: 'created_at_desc',
       page: 1,
-      page_size: 10
+      page_size: 20
     })
-    return [String(row.id), response.items.slice(0, 10)] as const
+    return [String(row.id), response.items.slice(0, 20)] as const
   }))
 
   if (requestSeq !== recentRequestsReqSeq) return
