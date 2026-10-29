@@ -491,7 +491,7 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 		if IsUpstreamBillingError(resp.StatusCode, body) {
 			return newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, body, false)
 		}
-		return finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:      resp.StatusCode,
 			ResponseBody:    body,
 			ResponseHeaders: resp.Header.Clone(),
@@ -502,15 +502,16 @@ func (s *AntigravityGatewayService) handleAntigravityCompatHTTPError(
 
 func antigravityCredentialRejectedError(resp *http.Response, body []byte) *UpstreamFailoverError {
 	return &UpstreamFailoverError{
-		StatusCode:        resp.StatusCode,
-		ResponseBody:      body,
-		ResponseHeaders:   resp.Header.Clone(),
-		Stage:             GatewayFailureStageAccountAuth,
-		Scope:             GatewayFailureScopeAccount,
-		Reason:            AntigravityCredentialRejectedReason,
-		NextAccountAction: NextAccountRetry,
-		ClientStatusCode:  http.StatusBadGateway,
-		ClientMessage:     AntigravityCredentialRejectedClientMessage,
+		ObservedUpstreamStatus: resp.StatusCode,
+		StatusCode:             resp.StatusCode,
+		ResponseBody:           body,
+		ResponseHeaders:        resp.Header.Clone(),
+		Stage:                  GatewayFailureStageAccountAuth,
+		Scope:                  GatewayFailureScopeAccount,
+		Reason:                 AntigravityCredentialRejectedReason,
+		NextAccountAction:      NextAccountRetry,
+		ClientStatusCode:       http.StatusBadGateway,
+		ClientMessage:          AntigravityCredentialRejectedClientMessage,
 	}
 }
 

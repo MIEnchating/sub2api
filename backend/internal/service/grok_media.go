@@ -1373,7 +1373,7 @@ func (s *OpenAIGatewayService) handleGrokMediaErrorResponse(
 	})
 	if kind == "failover" {
 		retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, body)
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:               resp.StatusCode,
 			ResponseBody:             body,
 			ResponseHeaders:          resp.Header.Clone(),

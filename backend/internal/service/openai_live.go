@@ -262,6 +262,10 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 			if !s.shouldFailoverLiveCreateError(account, createErr) {
 				return nil, createErr
 			}
+			var failure *UpstreamFailoverError
+			if errors.As(createErr, &failure) {
+				RecordStrictFailoverFailure(ctx, account.ID, failure)
+			}
 			excluded[account.ID] = struct{}{}
 			lastErr = createErr
 			continue
@@ -330,17 +334,6 @@ func (s *OpenAIGatewayService) acquireLiveLease(
 	leaseID string,
 	replacingRegularSlots bool,
 ) (bool, error) {
-	if s.concurrencyService != nil {
-		if gate, ok := s.concurrencyService.passiveQualityGate.(PassiveQualityConcurrencyGate); ok {
-			limit, err := gate.PassiveQualityConcurrencyLimit(ctx, accountID, qualityRequestModel(ctx))
-			if err != nil {
-				return false, err
-			}
-			if limit > 0 && (accountMax <= 0 || limit < accountMax) {
-				accountMax = limit
-			}
-		}
-	}
 	groupID := liveGroupID(identity.GroupID)
 	if groupID > 0 && groupMax > 0 {
 		if grouped, ok := cache.(LiveUserGroupConcurrencyCache); ok {
@@ -435,7 +428,7 @@ func (s *OpenAIGatewayService) createUpstreamLiveCall(
 		// account-level 429 exhaustion marker survives this reconstruction.
 		resp.Body = preserveAccount429RetryMarker(resp, io.NopCloser(bytes.NewReader(responseBody)))
 		logLiveUpstreamFailure(ctx, account.ID, resp.StatusCode, resp.Header, responseBody)
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:      resp.StatusCode,
 			ResponseBody:    responseBody,
 			ResponseHeaders: resp.Header.Clone(),

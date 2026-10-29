@@ -40,7 +40,6 @@ func ProvideAdminHandlers(
 	openaiVMHandler *admin.OpenAIVMHandler,
 	apiKeyHandler *admin.AdminAPIKeyHandler,
 	scheduledTestHandler *admin.ScheduledTestHandler,
-	passiveQualityHandler *admin.PassiveQualityHandler,
 	channelQualityHandler *admin.ChannelQualityHandler,
 	channelHandler *admin.ChannelHandler,
 	channelMonitorHandler *admin.ChannelMonitorHandler,
@@ -66,7 +65,6 @@ func ProvideAdminHandlers(
 	accountHandler.SetClaudeResetCreditService(claudeResetCredits)
 	return &AdminHandlers{
 		ChannelQuality:         channelQualityHandler,
-		PassiveQuality:         passiveQualityHandler,
 		Dashboard:              dashboardHandler,
 		User:                   userHandler,
 		Group:                  groupHandler,
@@ -307,7 +305,6 @@ var ProviderSet = wire.NewSet(
 	admin.NewOpenAIVMHandler,
 	admin.NewAdminAPIKeyHandler,
 	admin.NewScheduledTestHandler,
-	admin.NewPassiveQualityHandler,
 	admin.NewChannelQualityHandler,
 	admin.NewChannelHandler,
 	admin.NewChannelMonitorHandler,

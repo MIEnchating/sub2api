@@ -142,3 +142,18 @@ func TestScopedAdminGroupModelsAreExplicitAndScoped(t *testing.T) {
 	require.False(t, RouteAllowed(p, "DELETE", "/api/v1/admin/groups/:id"))
 	require.Error(t, ValidatePolicy(Policy{GlobalPermissions: []string{"groups.models.write"}}))
 }
+
+func TestAccountRequestStatsRequiresGlobalOpsRead(t *testing.T) {
+	const path = "/api/v1/admin/ops/account-request-stats/batch"
+	allowed := Policy{GlobalPermissions: []string{"ops.read"}}
+	require.True(t, RouteAllowed(allowed, "POST", path))
+	for _, policy := range []Policy{
+		{},
+		{GlobalPermissions: []string{"ops.errors.read"}},
+		{Rules: []Rule{{Permissions: []string{"accounts.read"}, AllGroups: true, AccountTypes: []string{"oauth", "apikey"}}}},
+	} {
+		require.False(t, RouteAllowed(policy, "POST", path))
+	}
+	require.False(t, RouteAllowed(allowed, "DELETE", path))
+	require.False(t, RouteAllowed(allowed, "POST", "/api/v1/admin/ops/unknown"))
+}

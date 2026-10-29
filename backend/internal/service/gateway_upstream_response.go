@@ -435,7 +435,7 @@ func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Res
 		}
 	}
 	if shouldDisable {
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body})
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode, StatusCode: resp.StatusCode, ResponseBody: body})
 	}
 
 	MarkResponseCommitted(c)

@@ -1,4 +1,5 @@
 import argparse
+import base64
 import hashlib
 import importlib.util
 import io
@@ -21,6 +22,20 @@ spec.loader.exec_module(release)
 
 
 class WorkflowToolchainTest(unittest.TestCase):
+    def test_frontend_dependency_patches_are_in_frozen_build_inputs(self):
+        frontend = ROOT / 'frontend'
+        package = json.loads((frontend / 'package.json').read_text())
+        lock = yaml.safe_load((frontend / 'pnpm-lock.yaml').read_text())
+        for dependency, patch_path in package['pnpm']['patchedDependencies'].items():
+            patch_bytes = (frontend / patch_path).read_text().replace('\r\n', '\n').encode()
+            patch_hash = base64.b32encode(hashlib.md5(patch_bytes).digest()).decode().rstrip('=').lower()
+            self.assertEqual(lock['patchedDependencies'][dependency], {'path': patch_path, 'hash': patch_hash})
+            self.assertIn(f'{dependency}(patch_hash={patch_hash})', lock['snapshots'])
+        for dockerfile in ('Dockerfile', 'deploy/Dockerfile'):
+            source = (ROOT / dockerfile).read_text()
+            with self.subTest(dockerfile=dockerfile):
+                self.assertLess(source.index('COPY frontend/patches/ ./patches/'), source.index('pnpm install'))
+
     def test_ci_security_and_release_verify_selected_source_version(self):
         with tempfile.TemporaryDirectory() as tmp:
             root = Path(tmp)

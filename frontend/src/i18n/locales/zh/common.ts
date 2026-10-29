@@ -170,7 +170,7 @@ export default {
     usage: '使用记录',
     callErrors: '调用错误',
     testResults: '渠道质量检测',
-    tests: '渠道质量管理',
+    tests: '智力检测管理',
     redeem: '兑换',
     affiliate: '邀请返利',
     affiliateManagement: '邀请返利',
@@ -220,11 +220,12 @@ export default {
   },
 
   tests: {
-    currentResult: '本次结果', scoreScopeSource: '· 真实流量', executionFailed: '执行失败',
+    currentResult: '本次结果', executionFailed: '执行失败',
     verdicts: { pass: '通过', fail: '未通过', pending: '待判定' },
     currentScheduling: '账号调度', schedulingActive: '参与调度', schedulingPaused: '暂停调度', failed: '未通过', skipped: '检测跳过',
     currentModelScheduling: '所选模型', modelSchedulingActive: '模型可调用', modelSchedulingPaused: '模型已暂停',
     expandPreview: '放大查看',
+    previewResultAt: '放大查看 {time} 的历史结果',
     adminReview: {
       details: '评审说明',
       editDecision: '修改判定',

@@ -636,7 +636,7 @@ func (s *OpenAIGatewayService) forwardGrokChatCompletionsViaResponses(
 		s.handleGrokAccountUpstreamError(withGrokTeamRateLimitModel(ctx, upstreamModel), account, resp.StatusCode, resp.Header, respBody)
 		if s.shouldFailoverGrokUpstreamError(resp.StatusCode, respBody) {
 			retryable, retryDelay, retryDeadline, retryMax := grokSameAccountRetryMetadata(account, resp.StatusCode, respBody)
-			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 				StatusCode:               resp.StatusCode,
 				ResponseBody:             respBody,
 				ResponseHeaders:          resp.Header.Clone(),

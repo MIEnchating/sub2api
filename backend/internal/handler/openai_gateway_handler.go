@@ -263,7 +263,7 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 	if snapshot, ok := service.APIKeyUsageSnapshotFromContext(parent); ok {
 		base = service.WithAPIKeyUsageSnapshot(base, snapshot)
 	}
-	return service.PassiveQualityUsageContext(parent, base)
+	return base
 }
 
 // wrapUsageRecordTaskContext 包装计费任务：复制请求级 context 值，并接管请求的在途余额预留引用。
@@ -554,10 +554,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
 
 	setOpsRequestContext(c, reqModel, reqStream)
-	if apiKey.GroupID != nil {
-		service.SetGroupQualityTrafficGroup(c, *apiKey.GroupID)
-	}
-	service.PrepareGroupQualityTrafficBody(c.Request.Context(), body)
+
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -569,9 +566,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
-	if imageIntent {
-		service.ExcludeGroupQualityTraffic(c.Request.Context())
-	}
+
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
@@ -712,7 +707,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
-			if h.handleGroupQualityBudgetError(c, err, streamStarted) {
+			if h.handleAccountQualityHeldError(c, err, streamStarted) {
 				return
 			}
 			reqLog.Warn("openai.account_select_failed",
@@ -963,6 +958,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
+					service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
@@ -1254,10 +1250,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	setOpsRequestContext(c, reqModel, reqStream)
-	if apiKey.GroupID != nil {
-		service.SetGroupQualityTrafficGroup(c, *apiKey.GroupID)
-	}
-	service.PrepareGroupQualityTrafficBody(c.Request.Context(), body)
+
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -1358,7 +1351,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
-			if h.handleGroupQualityBudgetError(c, err, streamStarted) {
+			if h.handleAccountQualityHeldError(c, err, streamStarted) {
 				return
 			}
 			reqLog.Warn("openai_messages.account_select_failed",
@@ -1544,6 +1537,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 						}
 					}
 					h.gatewayService.RecordOpenAIAccountSwitch()
+					service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
 					lastFailoverErr = failoverErr
 					if switchCount >= maxAccountSwitches {
@@ -2347,7 +2341,6 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	if selection.Acquired {
 		latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(ctx, account)
 		if vetoed {
-			service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
 			}
@@ -2377,7 +2370,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		&account,
 	)
 	if err != nil {
-		if h.handleGroupQualityBudgetError(c, err, *streamStarted) {
+		if h.handleAccountQualityHeldError(c, err, *streamStarted) {
 			return nil, openAISlotAcquireFailed
 		}
 		reqLog.Warn("openai.account_slot_quick_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -2390,7 +2383,6 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		// 倍率可能刷新，越线则释放槽位交由调用方排除重选，不绑定粘连。
 		latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(ctx, account)
 		if vetoed {
-			service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 			if fastReleaseFunc != nil {
 				fastReleaseFunc()
 			}
@@ -2445,7 +2437,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		)
 	}()
 	if err != nil {
-		if h.handleGroupQualityBudgetError(c, err, *streamStarted) {
+		if h.handleAccountQualityHeldError(c, err, *streamStarted) {
 			return nil, openAISlotAcquireFailed
 		}
 		reqLog.Warn("openai.account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -2460,7 +2452,6 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	// 可能上调，越线则释放槽位交由调用方排除重选，不绑定粘连。
 	latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(ctx, account)
 	if vetoed {
-		service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
@@ -2653,10 +2644,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// replace the key of the reservation already acquired by this handler.
 	service.BeginOpsStreamTurn(c, 1)
 	setOpsRequestContext(c, reqModel, true)
-	if apiKey.GroupID != nil {
-		service.SetGroupQualityTrafficGroup(c, *apiKey.GroupID)
-	}
-	service.PrepareGroupQualityTrafficBody(c.Request.Context(), firstMessage)
+
 	ctx = c.Request.Context()
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
 
@@ -2667,9 +2655,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	}
 
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage)
-	if imageIntent {
-		service.ExcludeGroupQualityTraffic(c.Request.Context())
-	}
+
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
@@ -2875,6 +2861,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return false
 		}
 		h.gatewayService.RecordOpenAIAccountSwitch()
+		service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 		failedAccountIDs[account.ID] = struct{}{}
 		lastFailoverErr = failoverErr
 		if switchCount >= maxAccountSwitches {
@@ -2934,7 +2921,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
-			if handleGroupQualityBudgetWSError(c, wsConn, err) {
+			if handleAccountQualityHeldWSError(c, wsConn, err) {
 				return
 			}
 			reqLog.Warn("openai.websocket_account_select_failed",
@@ -2970,7 +2957,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			// 调度器已抢槽路径同样终检：选号与抢槽之间账号倍率可能刷新。
 			latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(admissionCtx, account)
 			if vetoed {
-				service.ReleaseUnusedGroupQualityTraffic(admissionCtx, account.ID)
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
@@ -2997,7 +2983,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				&account,
 			)
 			if err != nil {
-				if handleGroupQualityBudgetWSError(c, wsConn, err) {
+				if handleAccountQualityHeldWSError(c, wsConn, err) {
 					return
 				}
 				reqLog.Warn("openai.websocket_account_slot_acquire_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -3012,7 +2998,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			// 槽位、排除该账号重新选号，全池耗尽由下一轮选号关闭连接。
 			latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(admissionCtx, account)
 			if vetoed {
-				service.ReleaseUnusedGroupQualityTraffic(admissionCtx, account.ID)
 				if fastReleaseFunc != nil {
 					fastReleaseFunc()
 				}
@@ -3042,7 +3027,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 
 		token, _, err := h.gatewayService.GetRequestCredential(ctx, c, account)
 		if err != nil {
-			service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 			reqLog.Warn("openai.websocket_get_access_token_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			if ctx.Err() != nil {
 				return
@@ -3099,11 +3083,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		var turnBillingAPIKeys openAIWSTurnBillingAPIKeys
 		// Passthrough ingress does not invoke BeforeTurn for the first frame.
 		if err := checkSimpleModeTurnBilling(); err != nil {
-			service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
 			return
 		}
-		service.CapturePassiveQualityCacheRequest(c.Request.Context(), c, account, wsAttemptMessage, sessionHash, reqModel)
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         reqModel,
@@ -3127,14 +3109,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = reqModel
 				}
 				setOpsRequestContext(c, model, true)
-				// Keep the effective routing group selected for this connection.
-				// begin retains it across turns, including fallback-group routing.
-				service.PrepareGroupQualityTrafficBody(c.Request.Context(), payload)
-				service.SetGroupQualityTrafficModel(c.Request.Context(), model)
-				if service.IsExplicitImageGenerationIntent("/v1/responses", model, payload) {
-					service.ExcludeGroupQualityTraffic(c.Request.Context())
-				}
-				service.CapturePassiveQualityCacheRequest(c.Request.Context(), c, account, payload, sessionHash, originalModel)
+
 				setCyberTurnBody(turn, payload)
 				// 连接级 cyber session gate 也在 BeforeRequest 先执行，使 native 与
 				// passthrough ingress 都能在 BeforeTurn 及上游写入前无副作用地拒绝。
@@ -3159,6 +3134,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked), nil)
 				}
+				strictModel := model
+				if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+					strictModel = wsRouteModel
+				}
+				if err := h.gatewayService.ValidateStrictFailoverBoundAccount(ctx, apiKey.GroupID, account, strictModel, requiredCapability, requiredTransport); err != nil {
+					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "strict priority tier changed or unavailable; reconnect with full conversation context", err)
+				}
 				if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
 					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
@@ -3176,7 +3158,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					// The account, target platform and route context are connection-scoped.
 					// A different public model needs a new connection and fresh resolution.
 					if model != reqModel {
-						service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 						return "", newOpenAIWSUnsupportedModelSwitchError(model)
 					}
 					routeModel = wsRouteModel
@@ -3194,7 +3175,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
 				}
 				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
-					service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 					return "", newOpenAIWSUnsupportedModelSwitchError(mapping.MappedModel)
 				}
 				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
@@ -3210,13 +3190,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				// 无法中途换号）。本 turn 的准入与计费共用同一 pricingAt。
 				turnBillingCtx := turnBillingAPIKeys.begin(ctx, h.apiKeyService, turn, apiKey)
 				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnBillingCtx, apiKey.GroupID)
-				profitCtx := turnCtx
-				if !service.GroupQualityFallbackActive(turnCtx) {
-					// Keep the connection marker for a possible new fallback, but
-					// ordinary admission retains its original profit-check semantics.
-					profitCtx = service.WithoutGroupQualityFallback(turnCtx)
-				}
-				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(profitCtx, account); vetoed {
+				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
 					reqLog.Info("openai.websocket_turn_profit_vetoed",
 						zap.Int("turn", turn),
 						zap.Int64("account_id", account.ID),
@@ -3249,14 +3223,13 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					snapshot = &openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping}
 					pendingTurnChannelMapping.Store(snapshot)
 				}
-				admissionCtx = service.WithGroupQualityFallbackAdmissionModel(admissionCtx, snapshot.mapping.MappedModel)
-				accountReleaseFunc, accountAcquired, err := h.tryAcquireOpenAIWSTurnAccountSlot(admissionCtx, account.ID, accountMaxConcurrency, &account)
+				accountReleaseFunc, accountAcquired, err := h.concurrencyHelper.TryAcquireAccountSlot(admissionCtx, account.ID, accountMaxConcurrency, &account)
 				if err != nil {
 					if userReleaseFunc != nil {
 						userReleaseFunc()
 					}
-					if handleGroupQualityBudgetWSError(c, wsConn, err) {
-						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, groupQualityBudgetErrorCode, err)
+					if handleAccountQualityHeldWSError(c, wsConn, err) {
+						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, accountQualityHeldErrorCode, err)
 					}
 					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", err)
 				}
@@ -3269,7 +3242,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
 				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
 				if err := checkSimpleModeTurnBilling(); err != nil {
-					service.ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 					return err
 				}
 				return nil
@@ -3318,15 +3290,6 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				)
 				if turnErr != nil {
 					if result == nil || result.ImageCount <= 0 {
-						// Failed text turns can carry real upstream usage even when the
-						// existing billing path skips them. Settle only observed input;
-						// nil/unknown usage keeps its conservative reservation.
-						if result != nil && result.Usage.InputTokens > 0 {
-							failedUsageCtx := service.PassiveQualityUsageContext(c.Request.Context(), ctx)
-							h.submitUsageRecordTask(failedUsageCtx, func(taskCtx context.Context) {
-								service.RecordOpenAIGroupQualityTrafficUsage(taskCtx, account.ID, result)
-							})
-						}
 						return
 					}
 					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)
@@ -3366,7 +3329,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				turnRecordPricingAt := turnPricing.currentOr(turnStart)
 				turnBillingAPIKey := turnBillingAPIKeys.forTurn(turn, apiKey)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
-				turnUsageCtx := service.PassiveQualityUsageContext(c.Request.Context(), ctx)
+				turnUsageCtx := ctx
 				h.submitOpenAIUsageRecordTask(turnUsageCtx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
 						Result:             result,
@@ -3458,7 +3421,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					if currentAccountRelease == nil {
 						accountRelease, acquired, acquireErr := h.concurrencyHelper.TryAcquireAccountSlot(context.WithValue(ctx, ctxkey.Model, c.GetString(opsModelKey)), account.ID, accountMaxConcurrency, &account)
 						if acquireErr != nil || !acquired {
-							if handleGroupQualityBudgetWSError(c, wsConn, acquireErr) {
+							if handleAccountQualityHeldWSError(c, wsConn, acquireErr) {
 								return
 							}
 							reqLog.Warn("openai.websocket_same_account_retry_slot_unavailable",

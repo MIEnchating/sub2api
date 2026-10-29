@@ -78,6 +78,7 @@ INSERT INTO account_groups VALUES(62,8),(63,8);`)
 		"262_scheduled_test_execution_snapshot.sql", "281_scheduled_test_membership_revocation.sql", "264_scheduled_test_cache_recovery.sql",
 		"265_scheduled_test_generic_policy.sql", "268_scheduled_test_combination_states.sql", "270_scheduled_test_time_periods.sql",
 		"282_scheduled_test_excluded_accounts.sql", "276_scheduled_test_cost_control.sql", "284_scheduled_test_output_tokens.sql",
+		"291_passive_quality.sql", "303_passive_quality_model_states.sql",
 		"309_quality_recovery_budget_evidence.sql", "312_scheduled_test_pass_rate.sql", "315_scheduled_test_multi_model.sql",
 	} {
 		raw, err := migrations.FS.ReadFile(name)
@@ -243,8 +244,12 @@ func TestScheduledTestPassRateIntegration(t *testing.T) {
 			want  bool
 		}{{"model-a", false}, {"model-b", true}, {"", false}} {
 			ctx := context.WithValue(f.ctx, ctxkey.Model, test.model)
-			allowed, err := repo.AcquireCacheRecoveryRequest(ctx, 62)
-			require.NoError(t, err)
+			allowed, err := repo.CheckAccountAdmission(ctx, 62)
+			if test.want {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, service.ErrAccountQualityHeld)
+			}
 			require.Equal(t, test.want, allowed, test.model)
 		}
 	})
@@ -300,7 +305,7 @@ func TestScheduledTestPassRateIntegration(t *testing.T) {
 				require.Zero(t, holds)
 				require.NoError(t, f.db.QueryRowContext(f.ctx, `SELECT extra ? 'active_pass_rate_holds' FROM accounts WHERE id=62`).Scan(&projection))
 				require.False(t, projection)
-				allowed, err := (&accountRepository{sql: f.db}).AcquireCacheRecoveryRequest(context.WithValue(f.ctx, ctxkey.Model, "model-a"), 62)
+				allowed, err := (&accountRepository{sql: f.db}).CheckAccountAdmission(context.WithValue(f.ctx, ctxkey.Model, "model-a"), 62)
 				require.NoError(t, err)
 				require.True(t, allowed)
 			})
@@ -317,8 +322,8 @@ func TestScheduledTestPassRateIntegration(t *testing.T) {
 		f.plan, err = f.plans.Update(f.ctx, f.plan)
 		require.NoError(t, err)
 		require.True(t, f.summary("model-a").Blocked)
-		allowed, err := (&accountRepository{sql: f.db}).AcquireCacheRecoveryRequest(context.WithValue(f.ctx, ctxkey.Model, "model-a"), 62)
-		require.NoError(t, err)
+		allowed, err := (&accountRepository{sql: f.db}).CheckAccountAdmission(context.WithValue(f.ctx, ctxkey.Model, "model-a"), 62)
+		require.ErrorIs(t, err, service.ErrAccountQualityHeld)
 		require.False(t, allowed)
 	})
 	t.Run("an in-flight result cannot be assigned to a revised test definition", func(t *testing.T) {
@@ -347,11 +352,11 @@ func TestScheduledTestPassRateIntegration(t *testing.T) {
 		require.NoError(t, f.plans.Delete(f.ctx, f.plan.ID))
 		ctx := context.WithValue(f.ctx, ctxkey.Model, "model-a")
 		repo := &accountRepository{sql: f.db}
-		allowed, err := repo.AcquireCacheRecoveryRequest(ctx, 62)
-		require.NoError(t, err)
+		allowed, err := repo.CheckAccountAdmission(ctx, 62)
+		require.ErrorIs(t, err, service.ErrAccountQualityHeld)
 		require.False(t, allowed, "the remaining plan still owns its model hold")
 		require.NoError(t, f.plans.Delete(f.ctx, first.ID))
-		allowed, err = repo.AcquireCacheRecoveryRequest(ctx, 62)
+		allowed, err = repo.CheckAccountAdmission(ctx, 62)
 		require.NoError(t, err)
 		require.True(t, allowed)
 	})

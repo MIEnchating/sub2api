@@ -315,6 +315,7 @@ func registerOpsRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 		// Request drilldown (success + error)
 		ops.GET("/requests", h.Admin.Ops.ListRequestDetails)
+		ops.POST("/account-request-stats/batch", h.Admin.Ops.GetAccountRequestStatsBatch)
 
 		// Indexed system logs
 		ops.GET("/system-logs", h.Admin.Ops.ListSystemLogs)
@@ -794,29 +795,9 @@ func registerUserAttributeRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 
 func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	if h.Admin.ChannelQuality != nil {
-		admin.GET("/channel-quality", h.Admin.ChannelQuality.Overview)
 		q := h.Admin.ChannelQuality
-		admin.GET("/channel-quality/score-config", q.ScoreConfig)
-		admin.PUT("/channel-quality/score-config", q.SaveScoreConfig)
-		admin.GET("/channel-quality/scores", q.Scores)
 		admin.GET("/channel-quality/operations", q.Operations)
 		admin.PUT("/channel-quality/operations", q.SaveOperations)
-		admin.POST("/channel-quality/suppliers", q.SaveSupplier)
-		admin.PUT("/channel-quality/suppliers/:id", q.SaveSupplier)
-		admin.DELETE("/channel-quality/suppliers/:id", q.DeleteSupplier)
-	}
-	if h.Admin.PassiveQuality != nil {
-		q := h.Admin.PassiveQuality
-		admin.GET("/passive-quality-policies", q.Policies)
-		admin.GET("/passive-quality/group-targets", q.GroupTargets)
-		admin.POST("/passive-quality-policies", q.Save)
-		admin.PUT("/passive-quality-policies/:id", q.Save)
-		admin.DELETE("/passive-quality-policies/:id", q.Delete)
-		admin.GET("/passive-quality-states", q.States)
-		admin.GET("/passive-quality-states/summary", q.StateSummary)
-		admin.GET("/passive-quality/runtime", q.Runtime)
-		admin.GET("/passive-quality-events", q.Events)
-		admin.POST("/passive-quality-policies/:id/accounts/:account/action", q.Act)
 	}
 
 	defs := admin.Group("/scheduled-test-definitions")

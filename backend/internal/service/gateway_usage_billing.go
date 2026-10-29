@@ -583,7 +583,7 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 	if ctx == nil {
 		return context.Background(), func() {}
 	}
-	if !stream || GroupQualityFallbackActive(ctx) {
+	if !stream {
 		return ctx, func() {}
 	}
 	return context.WithoutCancel(ctx), func() {}
@@ -592,11 +592,6 @@ func detachStreamUpstreamContext(ctx context.Context, stream bool) (context.Cont
 func detachUpstreamContext(ctx context.Context) (context.Context, context.CancelFunc) {
 	if ctx == nil {
 		return context.Background(), func() {}
-	}
-	// Emergency traffic must stop when its distributed lease or client context
-	// ends; otherwise a detached upstream can overlap the next admitted lease.
-	if GroupQualityFallbackActive(ctx) {
-		return ctx, func() {}
 	}
 	return context.WithoutCancel(ctx), func() {}
 }
@@ -1469,7 +1464,6 @@ func (s *GatewayService) buildRecordUsageLog(
 			"selected_response_model", strings.TrimSpace(result.UpstreamResponseModel),
 		)
 	}
-	recordPassiveQualityCache(ctx, account.ID, requestID, result.Usage.CacheUsageReported || result.Usage.CacheReadInputTokens > 0)
 	usageLog := &UsageLog{
 		UserID:                   user.ID,
 		APIKeyID:                 apiKey.ID,

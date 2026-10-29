@@ -215,7 +215,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 			if billingError {
 				return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
 			}
-			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
 				ResponseHeaders:        resp.Header.Clone(),
@@ -255,7 +255,7 @@ func (s *GatewayService) forwardAnthropicAPIKeyPassthroughWithInput(
 		if IsUpstreamBillingError(resp.StatusCode, respBody) {
 			return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
 		}
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
 			ResponseHeaders:        resp.Header.Clone(),
@@ -384,7 +384,6 @@ func (s *GatewayService) buildUpstreamRequestAnthropicAPIKeyPassthrough(
 	account.ApplyHeaderOverrides(req.Header)
 	filterSonnet55ToolsetBetaHeader(req.Header, body, gjson.GetBytes(body, "model").String())
 
-	capturePassiveQualityCacheHTTPRequest(c, account, req)
 	return req, body, nil
 }
 

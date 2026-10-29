@@ -402,6 +402,7 @@ func newOpenAIUpstreamFailoverError(
 	responseBody []byte,
 	upstreamMsg string,
 	retryableOnSameAccount bool,
+	observedHTTPStatus ...int,
 ) *UpstreamFailoverError {
 	requestScopedCapacity := isOpenAIRequestScopedCapacityShed(upstreamMsg, responseBody)
 	failoverErr := &UpstreamFailoverError{
@@ -410,6 +411,9 @@ func newOpenAIUpstreamFailoverError(
 		ResponseHeaders:        responseHeaders.Clone(),
 		RetryableOnSameAccount: retryableOnSameAccount || requestScopedCapacity,
 		RequestScopedTransient: requestScopedCapacity,
+	}
+	if len(observedHTTPStatus) > 0 {
+		failoverErr.ObservedUpstreamStatus = observedHTTPStatus[0]
 	}
 	if IsUpstreamBillingError(statusCode, responseBody) {
 		failoverErr.Scope = GatewayFailureScopeAccount
@@ -458,8 +462,9 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverError(
 	upstreamMsg string,
 	shouldDisable bool,
 	retryableOnSameAccount bool,
+	observedHTTPStatus ...int,
 ) *UpstreamFailoverError {
-	return s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, responseHeaders, responseHeaders, responseBody, upstreamMsg, shouldDisable, retryableOnSameAccount)
+	return s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, responseHeaders, responseHeaders, responseBody, upstreamMsg, shouldDisable, retryableOnSameAccount, observedHTTPStatus...)
 }
 
 func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHeaders(
@@ -471,6 +476,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 	upstreamMsg string,
 	shouldDisable bool,
 	retryableOnSameAccount bool,
+	observedHTTPStatus ...int,
 ) *UpstreamFailoverError {
 	oauth429Retry := s.shouldRetryOpenAIOAuth429OnSameAccountWithResponse(account, statusCode, shouldDisable, classificationHeaders, responseBody)
 	failoverErr := newOpenAIUpstreamFailoverError(
@@ -479,6 +485,7 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		responseBody,
 		upstreamMsg,
 		retryableOnSameAccount || oauth429Retry,
+		observedHTTPStatus...,
 	)
 	if oauth429Retry && failoverErr.RetryableOnSameAccount {
 		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account)
@@ -622,20 +629,6 @@ func (s *OpenAIGatewayService) handleErrorResponse(
 	requestBody []byte,
 	requestedModel ...string,
 ) (*OpenAIForwardResult, error) {
-	return s.handleErrorResponseWithHTTPObservation(ctx, resp, c, account, requestBody, true, requestedModel...)
-}
-
-// Compact SSE failures can be represented as synthetic HTTP responses. Keep
-// that provenance explicit when they share normal HTTP error handling.
-func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
-	ctx context.Context,
-	resp *http.Response,
-	c *gin.Context,
-	account *Account,
-	requestBody []byte,
-	httpResponseObserved bool,
-	requestedModel ...string,
-) (*OpenAIForwardResult, error) {
 	body := s.readUpstreamErrorBody(resp)
 	body = s.redactAgentIdentitySensitiveBody(ctx, account, body)
 
@@ -690,7 +683,6 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 		}
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, billingDetail)
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			upstreamHTTPResponseObserved: httpResponseObserved,
 
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -730,7 +722,6 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 
 	if isOpenAIRequestBodyTooLargeError(resp.StatusCode, upstreamMsg, body) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			upstreamHTTPResponseObserved: httpResponseObserved,
 
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -750,6 +741,7 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 			body,
 			upstreamMsg,
 			false,
+			resp.StatusCode,
 		)
 	}
 
@@ -781,7 +773,6 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 	// Check custom error codes
 	if !account.ShouldHandleErrorCode(resp.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			upstreamHTTPResponseObserved: httpResponseObserved,
 
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -822,7 +813,6 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 		kind = "failover"
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		upstreamHTTPResponseObserved: httpResponseObserved,
 
 		ProxyID:            opsUpstreamProxyID(account),
 		ProxyName:          opsUpstreamProxyName(account),
@@ -836,7 +826,7 @@ func (s *OpenAIGatewayService) handleErrorResponseWithHTTPObservation(
 		Detail:             upstreamDetail,
 	})
 	if shouldDisable {
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           body,
 			RetryableOnSameAccount: false,
@@ -963,7 +953,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	if IsUpstreamBillingError(resp.StatusCode, body) {
 		setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			upstreamHTTPResponseObserved: true,
 
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -1009,7 +998,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 	// return a generic error without exposing upstream details.
 	if !account.ShouldHandleErrorCode(resp.StatusCode) {
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			upstreamHTTPResponseObserved: true,
 
 			ProxyID:            opsUpstreamProxyID(account),
 			ProxyName:          opsUpstreamProxyName(account),
@@ -1043,7 +1031,6 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 		kind = "failover"
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		upstreamHTTPResponseObserved: true,
 
 		ProxyID:            opsUpstreamProxyID(account),
 		ProxyName:          opsUpstreamProxyName(account),
@@ -1057,7 +1044,7 @@ func (s *OpenAIGatewayService) handleCompatErrorResponse(
 		Detail:             upstreamDetail,
 	})
 	if shouldDisable {
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           body,
 			RetryableOnSameAccount: false,

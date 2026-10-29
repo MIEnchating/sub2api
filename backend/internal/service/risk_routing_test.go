@@ -131,15 +131,13 @@ func TestOpenAIRiskRoutingSchedulerPreservesTargetAndBilling(t *testing.T) {
 				resetOpenAIAdvancedSchedulerSettingCacheForTest()
 				defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
 				primary, target := int64(43), int64(44)
-				gate := &groupQualityFallbackTestGate{normal: map[int64]bool{1: true, 2: true}}
-				svc := groupQualityFallbackService(mode, []Account{
-					groupQualityRoutingTestAccount(1, primary, -100, "insufficient"),
-					groupQualityRoutingTestAccount(2, target, 100, "insufficient"),
+				gate := &activeHoldTestGate{normal: map[int64]bool{1: true, 2: true}}
+				svc := activeHoldService(mode, []Account{
+					activeRoutingTestAccount(1, primary, -100),
+					activeRoutingTestAccount(2, target, 100),
 				}, gate)
 				key := &APIKey{GroupID: &primary, Group: &Group{ID: primary, Platform: PlatformOpenAI, Status: StatusActive, Hydrated: true}}
-				ctx := WithAPIKeyForUsageContext(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
-					Key: "risk-request", GroupID: primary, Model: "public-model",
-				}), key)
+				ctx := WithAPIKeyForUsageContext(context.Background(), key)
 				ctx = WithRiskRoutingTarget(ctx, RiskRoutingTarget{Action: action, AccountID: 2, GroupID: target, Platform: PlatformOpenAI})
 				selection, decision, err := svc.SelectAccountWithScheduler(ctx, key.GroupID, "", "", "public-model", nil, OpenAIUpstreamTransportHTTPSSE, false)
 				require.NoError(t, err)
@@ -160,18 +158,16 @@ func TestOpenAIRiskRoutingSchedulerCannotRecoverThroughAnotherAccount(t *testing
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			defer resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			groupID := int64(43)
-			gate := &groupQualityFallbackTestGate{recovery: true}
-			svc := groupQualityFallbackService(mode, []Account{
-				groupQualityRoutingTestAccount(1, groupID, 0, "insufficient"),
-				groupQualityFallbackTestAccount(2, groupID, -100, true),
+			gate := &activeHoldTestGate{normal: map[int64]bool{2: true}}
+			svc := activeHoldService(mode, []Account{
+				activeRoutingTestAccount(1, groupID, 0),
+				activeRoutingTestAccount(2, groupID, -100),
 			}, gate)
-			ctx := WithRiskRoutingTarget(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
-				Key: "risk-request", GroupID: groupID, Model: "public-model",
-			}), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 1})
+			ctx := WithRiskRoutingTarget(context.Background(), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 1})
 			selection, _, err := svc.SelectAccountWithScheduler(ctx, &groupID, "", "", "public-model", nil, OpenAIUpstreamTransportHTTPSSE, false)
-			require.ErrorIs(t, err, ErrGroupQualityTrafficBudget)
+			require.ErrorIs(t, err, ErrAccountQualityHeld)
 			require.Nil(t, selection)
-			require.Empty(t, gate.calls, "the generic recovery pass must not replace a risk-pinned account")
+			require.NotContains(t, gate.groups, int64(44), "admission must not switch the authorized group")
 		})
 	}
 }
@@ -180,15 +176,13 @@ func TestOpenAIRiskRoutingSchedulerPreservesResponseOwnership(t *testing.T) {
 	for _, owner := range []int64{0, 1, 2} {
 		t.Run(map[int64]string{0: "unknown", 1: "different account", 2: "same account"}[owner], func(t *testing.T) {
 			groupID := int64(43)
-			gate := &groupQualityFallbackTestGate{normal: map[int64]bool{1: true, 2: true}}
-			svc := groupQualityFallbackService("legacy", []Account{
-				groupQualityRoutingTestAccount(1, groupID, 0, "insufficient"),
-				groupQualityRoutingTestAccount(2, groupID, 0, "insufficient"),
+			gate := &activeHoldTestGate{normal: map[int64]bool{1: true, 2: true}}
+			svc := activeHoldService("legacy", []Account{
+				activeRoutingTestAccount(1, groupID, 0),
+				activeRoutingTestAccount(2, groupID, 0),
 			}, gate)
 			svc.openaiWSStateStore = NewOpenAIWSStateStore(nil)
-			ctx := WithRiskRoutingTarget(GroupQualityTrafficContext(context.Background(), GroupQualityTrafficRequest{
-				Key: "risk-request", GroupID: groupID, Model: "public-model",
-			}), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 2})
+			ctx := WithRiskRoutingTarget(context.Background(), RiskRoutingTarget{Action: RiskHitActionRouteAccount, AccountID: 2})
 			if owner != 0 {
 				require.NoError(t, svc.openaiWSStateStore.BindResponseAccount(ctx, groupID, "resp_owner", owner, time.Hour))
 			}

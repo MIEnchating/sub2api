@@ -24,26 +24,7 @@ func (s *ConcurrencyService) acquireAccountProxyPoolSlot(ctx context.Context, ac
 		seen[id] = true
 	}
 	requestID := generateRequestID()
-	var proxyID int64
-	var err error
-	qualityLimit := 0
-	if gate, ok := s.passiveQualityGate.(PassiveQualityConcurrencyGate); ok {
-		qualityLimit, err = gate.PassiveQualityConcurrencyLimit(ctx, accountID, qualityRequestModel(ctx))
-		if err != nil {
-			return nil, err
-		}
-	}
-	if qualityLimit > 0 {
-		limited, ok := cache.(interface {
-			AcquireAccountProxyPoolSlotLimited(context.Context, int64, []int64, int, string, int, ...int64) (int64, error)
-		})
-		if !ok {
-			return nil, fmt.Errorf("quality-aware proxy concurrency unavailable")
-		}
-		proxyID, err = limited.AcquireAccountProxyPoolSlotLimited(ctx, accountID, ids, limit, requestID, qualityLimit, pinnedProxyIDs...)
-	} else {
-		proxyID, err = cache.AcquireAccountProxyPoolSlot(ctx, accountID, ids, limit, requestID, pinnedProxyIDs...)
-	}
+	proxyID, err := cache.AcquireAccountProxyPoolSlot(ctx, accountID, ids, limit, requestID, pinnedProxyIDs...)
 	if err != nil {
 		return nil, err
 	}
@@ -51,7 +32,7 @@ func (s *ConcurrencyService) acquireAccountProxyPoolSlot(ctx context.Context, ac
 		return &AcquireResult{}, nil
 	}
 	var once sync.Once
-	return s.admitCacheRecoveryRequest(ctx, accountID, &AcquireResult{Acquired: true, ProxyID: proxyID, ReleaseFunc: func() {
+	return s.admitAccountRequest(ctx, accountID, &AcquireResult{Acquired: true, ProxyID: proxyID, ReleaseFunc: func() {
 		once.Do(func() {
 			ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 			defer cancel()
@@ -86,9 +67,6 @@ func (r *AcquireResult) RouteAccount(a *Account) (*Account, error) {
 		return a, nil
 	}
 	account, err := a.WithProxyRoute(r.ProxyID)
-	if err != nil && r.refundUnusedTraffic != nil {
-		r.refundUnusedTraffic()
-	}
 	if err != nil && r.ReleaseFunc != nil {
 		r.ReleaseFunc()
 	}
@@ -145,9 +123,6 @@ func (a *Account) TotalConcurrency() int {
 	}
 	if len(a.ProxyIDs) > 1 && a.Concurrency > 0 {
 		total := a.Concurrency * len(a.ProxyIDs)
-		if a.qualityConcurrencyLimit > 0 {
-			total = min(total, a.qualityConcurrencyLimit)
-		}
 		return total
 	}
 	return a.Concurrency
@@ -162,9 +137,6 @@ func (a *Account) TotalLoadFactor() int {
 		n = 1
 	}
 	total := a.EffectiveLoadFactor() * n
-	if a.qualityConcurrencyLimit > 0 {
-		total = min(total, a.qualityConcurrencyLimit)
-	}
 	return total
 }
 

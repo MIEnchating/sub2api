@@ -33,11 +33,6 @@ func (s *GatewayService) ForwardAsChatCompletions(
 	body []byte,
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
-	model := ""
-	if parsed != nil {
-		model = parsed.Model
-	}
-	ctx = CapturePassiveQualityCacheRequest(ctx, c, account, body, passiveQualityRequestSession(c, body), model)
 	startTime := time.Now()
 
 	// 1. Parse Chat Completions request
@@ -182,7 +177,7 @@ func (s *GatewayService) ForwardAsChatCompletions(
 			if IsUpstreamBillingError(resp.StatusCode, respBody) {
 				return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
 			}
-			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
 				ResponseHeaders:        resp.Header.Clone(),

@@ -566,7 +566,6 @@ type AccountSelectionResult struct {
 	// replacing the conversation owner when a handler later acquires a slot.
 	PreserveStickyBinding bool
 	userAffinity          *openAIUserAffinity
-	groupQualityFallback  *GroupQualityFallbackRequest
 	// RoutedGroupID is set when API-key fallback routing selected an account from
 	// a group other than the API key's original group. That routed group becomes
 	// the effective billing and usage-attribution group for this request.
@@ -686,6 +685,8 @@ type GatewayFailureReason string
 // trigger account failover. Additive metadata keeps existing composite literals
 // source-compatible and preserves their legacy retry-next-account behavior.
 type UpstreamFailoverError struct {
+	strictFailoverReason     string // Explicit typed upstream event; never inferred from a synthetic status.
+	ObservedUpstreamStatus   int    // Actual upstream HTTP status; zero for locally synthesized failures.
 	StatusCode               int
 	ResponseBody             []byte        // 上游响应体，用于错误透传规则匹配
 	ResponseHeaders          http.Header   // 上游响应头，用于透传 cf-ray/cf-mitigated/content-type 等诊断信息
@@ -1374,7 +1375,8 @@ func (s *GatewayService) DoGrokNativeResponsesJSON(ctx context.Context, account 
 			msg = msg[:200]
 		}
 		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusPaymentRequired || resp.StatusCode == http.StatusForbidden || resp.StatusCode == http.StatusTooManyRequests || resp.StatusCode >= 500 {
-			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBytes}
+			return nil, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
+				StatusCode: resp.StatusCode, ResponseBody: respBytes}
 		}
 		return nil, fmt.Errorf("grok upstream %d: %s", resp.StatusCode, msg)
 	}

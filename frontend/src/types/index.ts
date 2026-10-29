@@ -2,7 +2,6 @@
  * Core Type Definitions for Sub2API Frontend
  */
 
-import type { ChannelQualityScore } from '@/api/admin/channelQuality'
 
 // ==================== Common Types ====================
 
@@ -675,6 +674,7 @@ export interface AdminGroup extends Group {
   messages_dispatch_model_config?: OpenAIMessagesDispatchModelConfig
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
+  strict_failover?: StrictFailoverConfig
 
   // 分组排序
   sort_order: number
@@ -686,6 +686,11 @@ export interface ModelAllowlist {
 }
 
 // 固定账号获取 Codex Model Manifest 配置（仅 openai 分组）
+export interface StrictFailoverConfig {
+  enabled: boolean
+  tiers: number[][]
+}
+
 export interface CodexModelsManifestConfig {
   enabled: boolean
   account_ids: number[]
@@ -862,6 +867,7 @@ export interface CreateGroupRequest {
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
+  strict_failover?: StrictFailoverConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -928,6 +934,7 @@ export interface UpdateGroupRequest {
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
   codex_models_manifest_config?: CodexModelsManifestConfig
+  strict_failover?: StrictFailoverConfig
   allow_messages_dispatch?: boolean
   allow_live?: boolean
   default_mapped_model?: string
@@ -2670,7 +2677,7 @@ export interface TestType {
   name: string
   key: string
   description?: string | null
-  output_kind: 'html' | 'number' | 'text' | 'statistics' | 'model_check' | string
+  output_kind: 'html' | 'number' | 'text' | 'model_check' | string
   /** 0 keeps the default budget for this protocol. */
   max_output_tokens?: number
   prompt: string
@@ -2725,7 +2732,7 @@ export interface TestPlan {
   updated_at?: string
 }
 
-export type TestProtectionMetric = 'success_rate' | 'cache_rate' | 'avg_first_token_ms' | 'output_tps' | 'latency_ms' | 'output_numeric'
+export type TestProtectionMetric = 'latency_ms' | 'output_numeric'
 export interface TestProtectionThreshold {
   metric: TestProtectionMetric
   operator: 'lt' | 'gt'
@@ -2735,14 +2742,6 @@ export interface TestOutcomeAction {
   scheduling: 'keep' | 'pause' | 'resume'
   group_mode: 'keep' | 'assign'
   group_ids?: number[]
-}
-export interface TestProtectionRecovery {
-  enabled: boolean
-  cooldown_seconds: number
-  trial_seconds: number
-  max_requests: number
-  min_samples: number
-  recover_rate: number
 }
 export interface TestProtectionVote {
   enabled: boolean
@@ -2792,7 +2791,6 @@ export interface TestProtectionRule {
   vote?: TestProtectionVote
   on_pass?: TestOutcomeAction
   on_fail?: TestOutcomeAction
-  recovery?: TestProtectionRecovery
   pass_rate?: TestPassRateConfig
 }
 export interface TestProtectionConfig {
@@ -2833,38 +2831,6 @@ export interface TestVoteResult {
   }
 }
 
-export interface TestStatisticsRecentRequest {
-  success: boolean
-  created_at: string
-}
-
-export interface TestOutputStatistics {
-  window_start: string
-  window_end: string
-  total_requests: number
-  success_requests: number
-  failed_requests: number
-  success_rate: number | null
-  cache_rate: number | null
-  avg_first_token_ms: number | null
-  output_tps?: number | null
-  tps_samples?: number
-  first_token_samples: number
-  cache_read_tokens: number
-  cache_input_tokens: number
-  /** Eligible streaming and WebSocket cache observations; older snapshots may omit this field. */
-  cache_samples?: number
-  /** Latest ten outcomes, newest first; older snapshots may omit this field. */
-  recent_requests?: TestStatisticsRecentRequest[] | null
-  /** Connectivity evidence kept separate from real usage statistics. */
-  recovery_probe?: {
-    status: 'success' | 'failed' | 'deferred'
-    started_at: string
-    finished_at: string
-    latency_ms: number
-  } | null
-}
-
 export interface TestOutputModelCheck {
   requested_model: string
   upstream_model: string
@@ -2885,8 +2851,6 @@ export interface TestProtectionDecision {
 }
 
 export interface TestResult {
-  /** Current quality score for the authorized account and this result's requested model. */
-  quality_score?: ChannelQualityScore | null
   /** Current rolling evidence, not a historical snapshot at this result's time. */
   pass_rate?: TestPassRateSummary | null
   test_key?: string
@@ -2924,10 +2888,9 @@ export interface TestResult {
   /** Reasoning level used for this test execution, when explicitly selected. */
   reasoning_effort?: string | null
   status: string
-  output_kind: 'html' | 'number' | 'text' | 'statistics' | 'model_check' | string
+  output_kind: 'html' | 'number' | 'text' | 'model_check' | string
   output_html?: string | null
   output_numeric?: number | null
-  output_statistics?: TestOutputStatistics | null
   output_model_check?: TestOutputModelCheck | null
   protection_decision?: TestProtectionDecision | null
   response_text?: string | null

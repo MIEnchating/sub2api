@@ -170,7 +170,7 @@ export default {
     usage: 'Usage',
     callErrors: 'Call Errors',
     testResults: 'Channel Quality Checks',
-    tests: 'Channel Quality Management',
+    tests: 'Intelligence Test Management',
     redeem: 'Redeem',
     affiliate: 'Affiliate Rebates',
     affiliateManagement: 'Affiliate Rebates',
@@ -220,11 +220,12 @@ export default {
   },
 
   tests: {
-    currentResult: 'Current result', scoreScopeSource: '· Real traffic', executionFailed: 'Execution failed',
+    currentResult: 'Current result', executionFailed: 'Execution failed',
     verdicts: { pass: 'Passed', fail: 'Failed', pending: 'Awaiting verdict' },
     currentScheduling: 'Account scheduling', schedulingActive: 'Active', schedulingPaused: 'Paused', failed: 'Failed', skipped: 'Skipped',
     currentModelScheduling: 'Selected model', modelSchedulingActive: 'Model available', modelSchedulingPaused: 'Model paused',
     expandPreview: 'Expand preview',
+    previewResultAt: 'Expand historical result from {time}',
     adminReview: {
       details: 'Review details',
       editDecision: 'Change decision',

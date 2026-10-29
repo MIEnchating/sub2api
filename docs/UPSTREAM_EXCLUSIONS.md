@@ -2102,3 +2102,248 @@ QQ 新增工具严格限制每轮一个图片操作，图片编辑只能选择�
 - `backend/internal/service/image_storage.go` 通过环境代理下载时，只能预检本地 DNS 解析；若代理实际解析到私网目标，代理侧仍可能访问非公网地址。
 - `backend/internal/sourceupdater/updater.go` 自动回滚只恢复应用镜像，不回滚已执行的数据库迁移；升级前仍需备份并确认数据库模式兼容。
 - `python3 .github/check-upstream-exclusions.py .`、决策 schema、累计 `git diff --check`、历史迁移字节比对和源码冲突标记检查通过。定向 Go 测试未运行：本地工具链需要下载 Go 1.27.3，沙箱网络禁止该下载；此项是验证限制，不是产品风险。
+
+
+## 2026-10-29 第二上游文本与语义冲突审查
+
+本轮工作树基准为 `origin/main=HEAD=b8816ae2c`，主上游 `upstream/main=a3298b46e` 已在基准内；第二上游推进到 `overdraft/sub2api-custom=3604ba2fc`。按要求只读本地上游引用，不 fetch、暂存、提交、推送、打标签、发布或重启。原索引的 53 个冲突路径及双方 stage 原样保留，工作树中的 70 个文本冲突块逐段融合；七个修改/删除冲突按新的主动保护架构处理，不以整文件 ours/theirs 代替语义审查。
+
+发布累计基准为 `v2026.10.23`（`23fd587350eb02645d5cac41796f837b2fb957a5`）。累计审阅 82 个不同的上游非合并提交（主上游 58 个、第二上游独有 24 个），包括本轮六个第二上游增量及此前已合并但尚未发布的更新。
+
+### 冲突融合与不变量
+
+- 服务版本仍为 `2026.10.23`，第二上游 `FORK_VERSION` 更新保留。依赖注入与清理移除已退役被动质量服务，保留本项目账号健康管理和 Codex ticket harvester 清理。
+- 严格账号分层、实际上游故障证据、响应归属锁定与风险账号/分组路由共同生效：风险指定账号不得被通用回退替换，也不得绕过当前层级；本项目利润、隐私、模型能力、compact 冷却、代理和计费授权限制继续保留。最终准入错误直接返回，不转成等待计划。
+- HTTP/WS 的真实上游状态与本项目透明 429 重试耗尽标记同时保留；保留主上游 Gemini 配置重试预算、签名降级独立计数、绑定显式缓存同账号重试及不污染账号健康的语义。
+- 保留 OpenAI 工具诊断、请求完整性暂存、WS 首输出缓冲与取消/用量排空；只移除已不存在的被动质量租约引用。原普通 WS 排空测试迁移到独立测试文件。
+- 账号全量写入继续在行锁下保留当前 `active_pass_rate_holds`，同时剔除退役 `passive_quality`、`group_quality_targets` 和 trial 元数据。旧管理表单和慢刷新不能解除新保护或恢复旧保护。统计规则仓储的扫描列与新查询一致，并保留关闭错误处理。
+- 双方都使用缓存版本 28、内容却不同，融合后提升 API 密钥缓存版本至 29，包含按图片数量计费、密钥摘要与严格分层配置。Ent 保留新 `strict_failover` 字段，重新核对排除批量字段后的默认值下标、排序列下标与 mutation 字段容量。
+- 新增小时统计 API 精确登记到全站 `ops.read` 权限；账号范围读取权限不能获取全站统计，未登记接口仍默认拒绝。管理员账号页同时保留工具诊断和新的完整滚动小时统计；渠道监控测试保留 RouterLink 的目标校验，并对齐到新的测试计划页。
+
+### 上游变化及累计行为
+
+本轮第二上游的全部非排除更新保留：主动定时测试与恢复、完整小时保护、模型级通过率、测试时间/TPS 和 HTML 展示、独立账号小时统计、渠道监控历史聚合边界修复、严格故障转移、QQ 名称唤醒与嵌套消息识别。知识截止检查随后由迁移 320 退役；评分、被动规则、统计型测试和客户流量恢复已由最新上游明确退役，迁移 322–324 归档配置并移除旧状态，与主动测试新架构一致，这些不是产品排除项。
+
+累计保留主上游 Terra、Grok 目录 CAS/诊断/响应模型审计、DeepSeek 价格与缓存/角色兼容、管理员范围密钥、UTF-16 指纹、分页与上传边界、真实图片数量计费、OAuth 非流式 SSE 聚合、Gemini 模型声明/目录/重试、模型列表 singleflight 二次缓存和跨平台搜索设置。此前第二上游的密钥摘要/轮换、多模型测试与自动复核、账号亲和、QQ 配置版本/群管理/事务连抽、VM HTTP/WS 独占槽位和独立设置均保留；质量治理遵循本轮主动架构，不恢复已被后续上游替代的评分与被动流量逻辑。本项目权限、二次验证、健康管理、利润控制、票据/指纹隔离及普通代理池继续保留。
+
+### 本轮明确排除的路径
+
+完整路径对照：候选缺少主上游 65 个路径，均为批量生图专属；缺少第二上游 72 个路径，仅为以下 70 个批量生图路径和两个共享账号池路径。`panel_api_key_auth.go` 只服务面板批量图片接口，普通 API 密钥鉴权保留。混合文件仅排除批量依赖或字段，新增严格分层代码保留。
+
+共享账号池：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+批量生图专属路径：
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/internal/handler/batch_image_error_message_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/server/middleware/panel_api_key_auth.go`
+- `backend/internal/server/middleware/panel_api_key_auth_test.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_error_message_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/__tests__/batchImage.panel.spec.ts`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+
+混合路径：`backend/cmd/server/wire.go`、`backend/cmd/server/wire_gen.go`、`backend/ent/migrate/schema.go`、`backend/ent/mutation.go`、`backend/ent/runtime/runtime.go`，仅排除批量任务依赖和 ORM 字段。
+
+发布基准全部历史 SQL 迁移及 `backend/internal/repository/migrations_runner.go` 逐字节不变；本轮新增迁移 319–325 保留。批量生图历史表、记录、冻结余额及 checksum 兼容记录不动，普通生图与异步单图支持继续保留。
+
+### 累计剩余风险
+
+- 迁移 300 的密钥摘要、303/315 的模型级状态键，以及 318/322–324 的质量配置归档和状态表退役不兼容旧进程；需协调全部实例升级并保留数据库备份。自动更新器只回滚镜像，不回滚这些数据库迁移。
+- VM 账号的 compact 需要桥接版本支持，图片 CDN 仍受 CONNECT 白名单约束；停用桥接或回退前需解绑并恢复原代理，否则相关请求失败。
+- 国产频率型 429 分类依赖额度快照，真实额度耗尽到刷新期间可能短冷却重试。
+- EasyPay 仍拒绝非标准回调字段，使用附加字段的渠道须走标准回调或主动查询/对账。
+- 图片下载经环境代理时，本机 DNS 预检不能约束代理端的实际解析，代理可能访问本机预检未发现的私网地址。
+
+
+### 本阶段验证结果
+
+- 前端全量 444 个文件、3,784 项测试通过；类型检查、完整 ESLint 和生产构建通过。首轮发现的旧导航目标断言已修复并全量重跑；依赖链接仅临时用于验证，构建产物位于 `/tmp`。
+- 后端三组干净回归去重后 302 个顶层测试、1,029 项测试及子用例通过，覆盖严格分层与风险路由、准入失败、响应所有权、计费组、行锁保护投影、HTTP/WS 429 预算、Gemini 配置重试/签名降级/绑定缓存、主动测试和小时统计，以及权限目录。
+- 服务生产构建、全仓 integration 标签编译、受影响服务/仓储/处理器/路由/中间件/启动包的 `go vet -tags=unit` 通过。integration 使用 `-run='^$' -exec=/bin/true`，只证明编译通过，不替代实际数据库测试。
+- 两次较宽测试筛选受 httptest/miniredis 本地监听限制而失败，随后对相关无需监听的回归按测试文件或精确名称重跑通过；没有把完整后端 unit 或数据库集成标为通过。
+- 验证使用 Go 1.27.3 与隔离临时 modfile，将六个本地未缓存的依赖映射到已有缓存版本；仓库 `go.mod`、`go.sum` 和安全升级未修改。因此后端结果用于融合兼容验证，正式依赖的完整验证与在线漏洞检查仍由外层执行。
+- 历史 SQL 和 checksum 兼容记录字节核对、功能排除、真实冲突标记、累计空白和改动 Go 格式检查通过。真实索引的全部 stage 与开始时逐字节一致；只解决工作树，不清除外层要求保留的冲突索引。
+
+
+## 2026-10-29 最终双上游兼容复核
+
+本阶段开始时，外层已生成候选合并提交 `98ddfc242`，父提交为 `origin/main=b8816ae2c` 与 `overdraft/sub2api-custom=3604ba2fc`；主上游 `upstream/main=a3298b46e` 已包含。工作树和真实索引没有未合并条目，前阶段 53 个冲突路径通过合并父树继续核对。本阶段没有 fetch、git add、commit、push、打标签、发布或重启，真实索引保持原样。
+
+累计复核仍覆盖 `v2026.10.23`（`23fd587350eb02645d5cac41796f837b2fb957a5`）以来 82 个不同的上游非合并提交（主上游 58 个、第二上游独有 24 个），包括此前已经合并但尚未发布的更新。按第二上游最终树保留严格账号分层、主动定时测试、模型级通过率、完整小时统计、监控历史聚合、QQ 交互、VM 桥接、密钥摘要/轮换和账号亲和；评分、被动保护和统计型测试按第二上游后续提交退役，不将这些架构替换误判为产品排除。
+
+### 本阶段补齐的语义兼容
+
+- `backend/internal/service/gateway_scheduling.go`：通用网关的非批量调度入口及风险指定账号入口，实时准入或代理槽位获取错误直接返回；不再把主动保护拒绝或数据库错误转换成成功的并发等待计划。普通槽位繁忙仍可等待；风险账号不得被通用回退替换，严格层级和原计费分组约束保持。新增回归先复现了返回 nil 错误的失败，修复后两种调度配置均通过。
+- `backend/internal/repository/account_repo.go`、`account_protection.go`：全量写入在既有行锁下保留当前 `active_test_model_holds` 与 `active_test_all_models_paused`，与 `active_pass_rate_holds` 一致；创建/复制、单条及批量 JSONB 补丁不得复制、注入或清除这些受管投影。旧表单和慢刷新不能恢复过期模型保护或清掉新保护，专属主动测试写入与恢复保持。全量覆盖和补丁回归均先复现失败，再验证修复；数据库集成用例也补齐了这些字段。
+- 复核 API 密钥缓存版本 29 同时携带图片数量计费、严格分层及摘要凭据，Ent 分组默认字段下标全部对应；小时统计仍精确要求全站 `ops.read`，普通账号读取权限不能读取全站统计。
+
+### 排除与迁移兼容
+
+候选缺少主上游 65 个路径，均为批量生图专属；缺少第二上游 72 个路径，仅为上一节逐项列出的 70 个批量生图专属路径及两个共享账号池路径。共享账号池继续明确排除 `backend/migrations/255_retire_shared_account_pool.sql`、`backend/migrations/retire_shared_account_pool_integration_test.go`。面板 API 密钥中间件只服务批量图片接口，普通 API 密钥鉴权保留。
+
+除上一节 70 个专属路径外，本阶段还逐项扫描并确认以下混合文件中的批量生图依赖、字段、入口、计费、配置或专属测试片段已排除，文件的其他功能保留：
+
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/cmd/server/wire_gen_test.go`
+- `backend/ent/client.go`
+- `backend/ent/ent.go`
+- `backend/ent/group.go`
+- `backend/ent/group/group.go`
+- `backend/ent/group/where.go`
+- `backend/ent/group_create.go`
+- `backend/ent/group_update.go`
+- `backend/ent/hook/hook.go`
+- `backend/ent/intercept/intercept.go`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/predicate/predicate.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/group.go`
+- `backend/ent/tx.go`
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/admin/group_handler.go`
+- `backend/internal/handler/admin/group_handler_simple_mode_test.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/handler/gateway_model_allowlist_listing_test.go`
+- `backend/internal/handler/handler.go`
+- `backend/internal/handler/security_audit_media_submit_test.go`
+- `backend/internal/handler/security_audit_order_test.go`
+- `backend/internal/handler/wire.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/group_repo.go`
+- `backend/internal/repository/usage_billing_repo.go`
+- `backend/internal/repository/usage_billing_repo_unit_test.go`
+- `backend/internal/repository/wire.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/middleware/api_key_auth.go`
+- `backend/internal/server/middleware/group_model_allowlist_test.go`
+- `backend/internal/server/router.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/server/routes/prompt_audit_route_coverage_test.go`
+- `backend/internal/server/routes/user.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/admin_group_duplicate.go`
+- `backend/internal/service/admin_group_duplicate_test.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/service/admin_service_group_test.go`
+- `backend/internal/service/api_key_auth_cache.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/group.go`
+- `backend/internal/service/usage_billing.go`
+- `backend/internal/service/wire.go`
+- `deploy/docker-compose.dev.yml`
+- `frontend/src/api/index.ts`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/user/dashboard/UserDashboardQuickActions.vue`
+- `frontend/src/i18n/locales/en/admin/overview.ts`
+- `frontend/src/i18n/locales/en/common.ts`
+- `frontend/src/i18n/locales/en/dashboard.ts`
+- `frontend/src/i18n/locales/en/index.ts`
+- `frontend/src/i18n/locales/en/landing.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/i18n/locales/zh/common.ts`
+- `frontend/src/i18n/locales/zh/dashboard.ts`
+- `frontend/src/i18n/locales/zh/index.ts`
+- `frontend/src/i18n/locales/zh/landing.ts`
+- `frontend/src/router/index.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/DashboardView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/__tests__/GroupsView.codexManifest.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.duplicate.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.strictFailover.spec.ts`
+
+发布基准的 354 份 SQL 与 `backend/internal/repository/migrations_runner.go` 共 355 个兼容文件逐字节不变。累计新增 33 份 SQL 均保留；两份 308 迁移以完整文件名独立记账。历史批量生图迁移及 checksum 兼容记录保持，不删除历史表、记录或冻结余额；普通生图、异步单图任务和普通账号/代理池继续保留。
+
+累计剩余风险仍为上一节列出的数据库模式回退边界、VM 桥接版本和 CONNECT 白名单、国产 429 额度快照延迟、EasyPay 非标准回调限制及代理端 DNS 的图片下载边界；本阶段修复的准入与模型保护问题不再列为剩余风险。
+
+
+### 最终复核验证
+
+- 新增失败回归先复现网关吞掉准入拒绝、旧快照恢复模型保护和补丁注入受管字段；修复后，网关/严格分层/风险路由/429/WS、仓储保护投影、权限与通用调度回归共 121 个顶层测试、358 项测试及子用例全部通过。
+- 后端生产构建、全仓 integration 标签编译、受影响 service/repository 包的 `go vet -tags=unit` 通过。integration 使用 `-run=^$ -exec=/bin/true`，仅确认编译，不代表实际数据库集成执行。
+- 同步自动化 113 项检查中 111 通过、2 跳过。前阶段前端 444 个文件、3784 项测试及类型检查、lint、构建通过；本阶段未修改前端，未重复执行这些检查。
+- 本阶段使用 Go 1.27.3 与前阶段隔离临时 modfile，六个未缓存依赖仍映射到已有缓存版本；仓库依赖与安全升级未修改。正式依赖的完整验证、实际数据库集成及在线漏洞检查仍由外层执行，不将其记为已通过。
+- 全仓真实冲突标记、累计空白、改动 Go 格式、功能排除、355 个历史兼容文件字节比对及指定决策 schema 检查通过。真实索引 SHA256 保持 `848694b1ce3e0d6b11e5f084fb855b97cb999a8c242cde38a64a1f016619788c`，不存在未合并索引条目；留下 8 个未暂存文件供外层审查。
+
+
+## 2026-10-29 集中修复（第 3/3 轮）
+
+本轮完整失败清单只有前端依赖安全审计，独立日志列出 GHSA-83rm-6c8r-g728 的三个 Vue I18n 依赖报告及 GHSA-qr28-fpjm-wq7f 的 URI 解码报告。Release 工作流、打包和发布元数据在外层上一轮已通过，本轮补充补丁输入回归后 14 项测试通过。
+
+- 删除未使用的 `@lobehub/icons` 依赖及其 533 个不可达锁文件快照，消除唯一引入 `decode-uri-component` 的链路。ModelIcon/ProviderIcon 使用仓库内 SVG 路径，图标功能保留；所有保留包的版本、integrity 和依赖边保持原样，仅 shared 引用增加补丁标识。
+- npm registry 在本轮沙箱内返回 DNS `EAI_AGAIN`，修复版本未缓存。对 `@intlify/shared@9.14.5` 的全部五种 JS 实现回补 srcdoc 属性名中和，使用 pnpm 哈希锁定补丁；项目既有 ESM runtime 入口使用此实现。三个精确公告例外到期日为 2026-11-28，不使用 `origin: upstream` 的免到期策略。后续迁移到 >=11.4.14 时应一起删除补丁和例外；独立 global/browser 内嵌包不在补丁范围，不能切换到这些入口。
+- 两个 Dockerfile 在锁定安装前复制补丁；Release 所执行的 `pnpm build` 包含攻击样例回归。六个攻击样例先全部失败，补丁后通过；普通富文本/插值、56 项 i18n 测试、类型检查、审计校验器 9 项测试、干净临时目录的离线锁定安装及五种 shared 入口攻击复查通过。
+- 原始审计报告与当前锁文件的离线核对通过；实际 `pnpm audit --prod --json` 因 `getaddrinfo EAI_AGAIN registry.npmjs.org` 无法完成，不能视为在线审计成功。完整前后端及在线安全验证由外层重跑。
+
+本轮没有新增功能排除或未解决冲突。功能排除检查通过，后端、全部历史 SQL 和校验和兼容记录未修改。没有 fetch、提交、推送、打标签、发布、服务重启或密钥访问。补丁范围与退出计划见 `frontend/patches/README.md`。
+
+本轮最终补充验证：完整 ESLint 和 `pnpm build`（i18n 安全回归、类型构建及 Vite 生产构建）通过；实际生成的 vendor-i18n chunk 包含 srcdoc 中和补丁。最终 diff 空白检查通过，未改动后端及历史数据库兼容文件。

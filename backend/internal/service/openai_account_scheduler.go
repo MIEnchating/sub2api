@@ -91,9 +91,8 @@ type OpenAIAccountScheduleRequest struct {
 	RequiredImageCapability OpenAIImagesCapability
 	// RequireCompact is only for legacy /responses/compact capability filtering
 	// and compact_model_mapping; native remote compaction v2 leaves it false.
-	RequireCompact      bool
-	ExcludedIDs         map[int64]struct{}
-	groupQualityManaged bool
+	RequireCompact bool
+	ExcludedIDs    map[int64]struct{}
 }
 
 type OpenAIAccountScheduleDecision struct {
@@ -305,12 +304,12 @@ type defaultOpenAIAccountScheduler struct {
 }
 
 type openAISelectionProbeBudget struct {
-	acquires      int
-	rechecks      int
-	attempted     map[int64]struct{}
-	denied        map[int64]struct{}
-	trafficDenied map[int64]struct{}
-	limited       bool
+	acquires    int
+	rechecks    int
+	attempted   map[int64]struct{}
+	denied      map[int64]struct{}
+	qualityHeld map[int64]struct{}
+	limited     bool
 }
 
 func (b *openAISelectionProbeBudget) admissionDenied(accountID int64) bool {
@@ -318,8 +317,8 @@ func (b *openAISelectionProbeBudget) admissionDenied(accountID int64) bool {
 		return false
 	}
 	_, denied := b.denied[accountID]
-	_, trafficDenied := b.trafficDenied[accountID]
-	return denied || trafficDenied
+	_, qualityHeld := b.qualityHeld[accountID]
+	return denied || qualityHeld
 }
 
 func (b *openAISelectionProbeBudget) rejectAdmission(accountID int64) {
@@ -332,14 +331,14 @@ func (b *openAISelectionProbeBudget) rejectAdmission(accountID int64) {
 	b.denied[accountID] = struct{}{}
 }
 
-func (b *openAISelectionProbeBudget) rejectTrafficBudget(accountID int64) {
+func (b *openAISelectionProbeBudget) rejectQualityHold(accountID int64) {
 	if b == nil {
 		return
 	}
-	if b.trafficDenied == nil {
-		b.trafficDenied = make(map[int64]struct{})
+	if b.qualityHeld == nil {
+		b.qualityHeld = make(map[int64]struct{})
 	}
-	b.trafficDenied[accountID] = struct{}{}
+	b.qualityHeld[accountID] = struct{}{}
 }
 
 func newOpenAISelectionProbeBudget() *openAISelectionProbeBudget {
@@ -416,8 +415,7 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
-	SetGroupQualityTrafficGroupContext(ctx, derefGroupID(req.GroupID))
-	ctx = withPassiveQualityRoutingModel(ctx, req.RequestedModel)
+	ctx = withRequestedRoutingModel(ctx, req.RequestedModel)
 	if s != nil && s.service != nil && s.service.openAIGroupRequiresPrivacySet(ctx, req.GroupID) {
 		req.RequirePrivacySet = true
 	}
@@ -426,23 +424,6 @@ func (s *defaultOpenAIAccountScheduler) Select(
 	// first-class sticky candidate even when weighted scheduling is enabled.
 	if req.StickyAccountID > 0 && openAIUserAffinityFromContext(ctx) != nil {
 		req.StickyWeighted = false
-	}
-	// Cache allocation governs only new placement. Weighted sticky scoring must
-	// not migrate a healthy owner merely because its new-session share decreased.
-	if req.StickyWeighted && s != nil && s.service != nil {
-		model := passiveQualityRoutingModel(ctx, req.RequestedModel)
-		for _, id := range []int64{req.StickyPreviousAccountID, req.StickyAccountID} {
-			if id <= 0 {
-				continue
-			}
-			if owner, e := s.service.getSchedulableAccount(ctx, id); e == nil && owner != nil {
-				_, managed := groupQualityRoutingState(owner, req.GroupID, model)
-				if managed || owner.PassiveQualityNewSessionPercent(model) < 100 {
-					req.StickyWeighted = false
-					break
-				}
-			}
-		}
 	}
 	// 命名返回值保证 defer 写入的耗时同时返回给调用方。
 	defer func() {
@@ -469,6 +450,12 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			return nil, decision, err
 		}
 		if selection != nil && selection.Account != nil {
+			if !req.PreviousResponseCanMove && !strictFailoverAllows(ctx, selection.Account.ID) {
+				if selection.ReleaseFunc != nil {
+					selection.ReleaseFunc()
+				}
+				return nil, decision, ErrStrictFailoverOwnerBound
+			}
 			compatible, _ := s.isAccountRequestCompatibleReason(ctx, selection.Account, req)
 			hasGroupMetadata := len(selection.Account.GroupIDs) > 0 || len(selection.Account.AccountGroups) > 0
 			groupCompatible := !hasGroupMetadata || openAIStickyAccountMatchesGroup(selection.Account, req.GroupID)
@@ -478,7 +465,6 @@ func (s *defaultOpenAIAccountScheduler) Select(
 			if !groupCompatible ||
 				!compatible || !s.isAccountTransportCompatible(selection.Account, req.RequiredTransport) {
 				if selection.ReleaseFunc != nil {
-					ReleaseUnusedGroupQualityTraffic(ctx, selection.Account.ID)
 					selection.ReleaseFunc()
 				}
 				selection = nil
@@ -589,7 +575,7 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		clearBinding()
 		return nil, false, nil
 	}
-	if groupQualityAutomaticHold(ctx, account, req.GroupID, req.RequestedModel) {
+	if activeIntelligenceHold(ctx, account, req.GroupID, req.RequestedModel) {
 		if openAIUserAffinityFromContext(ctx) != nil {
 			markOpenAIUserAffinityMigration(ctx, accountID)
 			return nil, false, nil
@@ -638,11 +624,6 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, false, nil
 	}
 	escapeCfg := s.service.openAIStickyEscapeConfig()
-	if _, managed := groupQualityRoutingState(account, req.GroupID, passiveQualityRoutingModel(ctx, req.RequestedModel)); managed {
-		// Persistent quality confirmation owns slow-response decisions. A single
-		// runtime TTFT spike must not bypass it and abandon a warm account.
-		escapeCfg.ttftMs = math.Inf(1)
-	}
 	if reason, errorRate, ttft, shouldEscape := s.shouldEscapeStickyAccount(accountID, escapeCfg); shouldEscape && !req.DisableStickyEscape {
 		slog.Info("sticky_escape_triggered",
 			"account_id", accountID,
@@ -657,8 +638,8 @@ func (s *defaultOpenAIAccountScheduler) selectBySessionHash(
 		return nil, true, nil
 	}
 	result, acquireErr := s.service.tryAcquireAccountSlot(ctx, accountID, account.Concurrency, &account)
-	if errors.Is(acquireErr, ErrGroupQualityTrafficBudget) && !req.DisableStickyEscape {
-		// Temporary allocation denial keeps ownership for a later warm retry.
+	if errors.Is(acquireErr, ErrAccountQualityHeld) && !req.DisableStickyEscape {
+		// Temporary protection keeps ownership until active recovery completes.
 		return nil, true, nil
 	}
 	if acquireErr != nil && req.DisableStickyEscape {
@@ -992,19 +973,10 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 	}
 
 	plan := openAIAccountLoadPlan{
-		includeOverflowFallback:   req.groupQualityManaged,
 		allCandidates:             allCandidates,
 		candidates:                candidates,
 		staleSnapshotCompactRetry: staleSnapshotCompactRetry,
 		candidateCount:            len(candidates),
-	}
-	// A managed pool must retain candidates beyond its weighted TopK. Live
-	// acquisition and admission may reject the first verified or trial account.
-	for _, account := range filtered {
-		if _, managed := groupQualityRoutingState(account, req.GroupID, passiveQualityRoutingModel(ctx, req.RequestedModel)); managed {
-			plan.includeOverflowFallback = true
-			break
-		}
 	}
 	if len(candidates) == 0 {
 		plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
@@ -1151,6 +1123,9 @@ func (s *defaultOpenAIAccountScheduler) buildOpenAIAccountLoadPlan(
 		plan.topK = 1
 	}
 
+	if strictFailoverStateFrom(ctx) != nil {
+		plan.includeOverflowFallback = true
+	}
 	plan.selectionOrder = s.buildOpenAISelectionOrder(req, plan)
 	return plan
 }
@@ -1281,7 +1256,6 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 	compactBlocked := false
 	release := func(result *AcquireResult, accountID int64) {
 		if result != nil && result.ReleaseFunc != nil {
-			ReleaseUnusedGroupQualityTraffic(ctx, accountID)
 			result.ReleaseFunc()
 		}
 	}
@@ -1300,8 +1274,8 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			break
 		}
 		if acquireErr != nil {
-			if errors.Is(acquireErr, ErrGroupQualityTrafficBudget) {
-				budget.rejectTrafficBudget(candidate.account.ID)
+			if errors.Is(acquireErr, ErrAccountQualityHeld) {
+				budget.rejectQualityHold(candidate.account.ID)
 				continue
 			}
 			if errors.Is(acquireErr, ErrAccountAdmissionDenied) {
@@ -1341,8 +1315,8 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 				continue
 			}
 			if acquireErr != nil {
-				if errors.Is(acquireErr, ErrGroupQualityTrafficBudget) {
-					budget.rejectTrafficBudget(fresh.ID)
+				if errors.Is(acquireErr, ErrAccountQualityHeld) {
+					budget.rejectQualityHold(fresh.ID)
 					continue
 				}
 				if errors.Is(acquireErr, ErrAccountAdmissionDenied) {
@@ -1461,8 +1435,8 @@ func (s *defaultOpenAIAccountScheduler) tryFallbackToWeightedSticky(
 		}
 		result, acquireErr := s.service.tryAcquireAccountSlot(ctx, account.ID, account.Concurrency, &account)
 		if acquireErr != nil {
-			if errors.Is(acquireErr, ErrGroupQualityTrafficBudget) {
-				budget.rejectTrafficBudget(account.ID)
+			if errors.Is(acquireErr, ErrAccountQualityHeld) {
+				budget.rejectQualityHold(account.ID)
 				continue
 			}
 			if errors.Is(acquireErr, ErrAccountAdmissionDenied) {
@@ -1550,8 +1524,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	ctx context.Context,
 	req OpenAIAccountScheduleRequest,
 ) (*AccountSelectionResult, int, int, float64, error) {
-	ctx = withPassiveQualityRoutingModel(ctx, req.RequestedModel)
-	ctx = withPassiveQualityAllocationSeed(ctx, req.SessionHash)
+	ctx = withRequestedRoutingModel(ctx, req.RequestedModel)
 	budget := newOpenAISelectionProbeBudget()
 	accounts, err := s.service.listSchedulableAccounts(ctx, req.GroupID, req.Platform)
 	if err != nil {
@@ -1593,9 +1566,7 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 	filtered := make([]*Account, 0, len(accounts))
 	loadReq := make([]AccountWithConcurrency, 0, len(accounts))
 	for i := range accounts {
-		model := passiveQualityRoutingModel(ctx, req.RequestedModel)
-		adjusted := qualitySchedulingAccount(accounts[i], model)
-		account := &adjusted
+		account := &accounts[i]
 		if req.ExcludedIDs != nil {
 			if _, excluded := req.ExcludedIDs[account.ID]; excluded {
 				filterStats.exclude("excluded")
@@ -1646,45 +1617,10 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalance(
 		}
 	}
 
-	for _, account := range filtered {
-		if _, managed := groupQualityRoutingState(account, req.GroupID, passiveQualityRoutingModel(ctx, req.RequestedModel)); managed {
-			req.groupQualityManaged = true
-			break
-		}
-	}
-
-	// Group target verification does not add a priority tier: insufficient-sample
-	// accounts need normal scheduling opportunities to collect real evidence.
-	// Retain explicit cache-allocation tiers and live admission checks.
-	var waiting *AccountSelectionResult
-	var waitCount, waitTopK int
-	var waitSkew float64
-	var lastErr error
-	preferred, cacheFallback := passiveQualityNewSessionTiers(ctx, filtered, req.RequestedModel, req.StickyAccountID, req.StickyPreviousAccountID, req.GuardianParentAccountID)
-	for _, pool := range [][]*Account{preferred, cacheFallback} {
-		if len(pool) == 0 {
-			continue
-		}
-		result, count, topK, skew, selectErr := s.selectByLoadBalanceCandidates(ctx, req, pool, loadMap, budget, filterStats)
-		if result != nil && (result.Acquired || result.stickySessionHit || (result.Account != nil && (result.Account.ID == req.StickyAccountID || result.Account.ID == req.StickyPreviousAccountID || result.Account.ID == req.GuardianParentAccountID))) {
-			return result, count, topK, skew, selectErr
-		}
-		if selectErr != nil && !errors.Is(selectErr, ErrNoAvailableAccounts) && !errors.Is(selectErr, ErrNoAvailableCompactAccounts) && !errors.Is(selectErr, ErrAccountAdmissionDenied) && !errors.Is(selectErr, ErrGroupQualityTrafficBudget) {
-			return result, count, topK, skew, selectErr
-		}
-		lastErr = selectErr
-		if waiting == nil && result != nil {
-			waiting, waitCount, waitTopK, waitSkew = result, count, topK, skew
-		}
-	}
-	if waiting != nil {
-		return waiting, waitCount, waitTopK, waitSkew, nil
-	}
-	return nil, len(filtered), 0, 0, lastErr
+	return s.selectByLoadBalanceCandidates(ctx, req, filtered, loadMap, budget, filterStats)
 }
 
-// Try admitted assignments first, then a fully rechecked cache fallback before
-// returning a wait plan. Cache controls alone must never erase live capacity.
+// Attempt live admission and current account checks before returning a wait plan.
 func (s *defaultOpenAIAccountScheduler) selectByLoadBalanceCandidates(ctx context.Context, req OpenAIAccountScheduleRequest, filtered []*Account, loadMap map[int64]*AccountLoadInfo, budget *openAISelectionProbeBudget, filterStats openAISelectionFilterStats) (*AccountSelectionResult, int, int, float64, error) {
 	if req.SubscriptionPriority {
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
@@ -1927,8 +1863,8 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 		}
 	}
 
-	if budget != nil && len(budget.trafficDenied) > 0 {
-		return nil, candidateCount, topK, loadSkew, ErrGroupQualityTrafficBudget
+	if budget != nil && len(budget.qualityHeld) > 0 {
+		return nil, candidateCount, topK, loadSkew, ErrAccountQualityHeld
 	}
 	if budget != nil && len(budget.denied) > 0 {
 		return nil, candidateCount, topK, loadSkew, ErrAccountAdmissionDenied
@@ -1975,10 +1911,8 @@ func (s *defaultOpenAIAccountScheduler) isAccountRequestCompatibleReason(ctx con
 	if account == nil {
 		return false, "account_nil"
 	}
-	account = groupQualityFallbackAccount(ctx, account, req.RequestedModel)
-	passiveModel := passiveQualityRoutingModel(ctx, req.RequestedModel)
-	if account.PassiveQualityBlocked(passiveModel) {
-		return false, "passive_quality"
+	if !strictFailoverAllows(ctx, account.ID) {
+		return false, "strict_failover_tier"
 	}
 	if source, ok := CompositeRouteSourceFromContext(ctx); ok && source == CompositeRouteSourceAccount {
 		if publicModel, modelOK := RequestedPublicModelFromContext(ctx); modelOK && !explicitModelMappingClaims(*account, publicModel) {
@@ -2395,10 +2329,10 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerAndAPIKeyFallback(
 	useUpstreamTokenCost bool,
 ) (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 	selection, decision, err := s.selectAccountWithScheduler(ctx, groupID, previousResponseID, sessionHash, requestedModel, excludedIDs, requiredTransport, requiredCapability, requiredImageCapability, requireCompact, platform, previousResponseCanMove, useUpstreamTokenCost)
-	// A quality-budget rejection can deliberately preserve the credential that
+	// A quality-protection rejection preserves the credential that
 	// owns incremental response state. Only complete, replayable requests may
 	// move to another group; keep the original denial for owner-bound requests.
-	if errors.Is(err, ErrGroupQualityTrafficBudget) && strings.TrimSpace(previousResponseID) != "" && !previousResponseCanMove {
+	if errors.Is(err, ErrAccountQualityHeld) && strings.TrimSpace(previousResponseID) != "" && !previousResponseCanMove {
 		return selection, decision, err
 	}
 	fallbackGroup, fallbackCtx, ok := apiKeyFallbackGroupForSelection(ctx, groupID, err)
@@ -2548,6 +2482,12 @@ func (s *OpenAIGatewayService) selectLegacyAccountByPreviousResponse(
 		return nil, false, nil
 	}
 	account := selection.Account
+	if !strictFailoverAllows(ctx, account.ID) {
+		if selection.ReleaseFunc != nil {
+			selection.ReleaseFunc()
+		}
+		return nil, false, ErrStrictFailoverOwnerBound
+	}
 	scheduler := &defaultOpenAIAccountScheduler{service: s, stats: newOpenAIAccountRuntimeStats()}
 	compatible, _ := scheduler.isAccountRequestCompatibleReason(ctx, account, OpenAIAccountScheduleRequest{
 		GroupID:                 groupID,
@@ -2562,7 +2502,6 @@ func (s *OpenAIGatewayService) selectLegacyAccountByPreviousResponse(
 	})
 	if !s.openAIAccountMatchesSchedulingGroup(account, groupID) || !compatible || !scheduler.isAccountTransportCompatible(account, requiredTransport) {
 		if selection.ReleaseFunc != nil {
-			ReleaseUnusedGroupQualityTraffic(ctx, account.ID)
 			selection.ReleaseFunc()
 		}
 		return nil, false, nil
@@ -2590,11 +2529,28 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 ) (selection *AccountSelectionResult, decision OpenAIAccountScheduleDecision, err error) {
 	groupID = riskRoutingGroupID(ctx, groupID)
 	platform = riskRoutingPlatform(ctx, platform)
-	ctx = withoutGroupQualityFallback(ctx)
+	ctx, err = s.prepareOpenAIStrictFailover(ctx, groupID, excludedIDs, requestedModel, platform, requiredCapability, requiredImageCapability, requireCompact, requiredTransport)
+	if err != nil {
+		if strings.TrimSpace(previousResponseID) != "" && !previousResponseCanMove && errors.Is(err, errStrictFailoverAllUnavailable) {
+			return nil, decision, ErrStrictFailoverOwnerBound
+		}
+		return nil, decision, err
+	}
+	defer func() { err = strictFailoverSelectionError(ctx, err) }()
+	if strictFailoverStateFrom(ctx) != nil && strings.TrimSpace(previousResponseID) != "" && !previousResponseCanMove {
+		owner, ownerErr := s.getOpenAIWSStateStore().GetResponseAccount(ctx, derefGroupID(groupID), strings.TrimSpace(previousResponseID))
+		if ownerErr != nil {
+			return nil, decision, fmt.Errorf("%w: response owner lookup: %v", ErrStrictFailoverUnconfirmed, ownerErr)
+		}
+		ctx, err = pinStrictFailoverOwner(ctx, owner)
+		if err != nil {
+			return nil, decision, err
+		}
+	}
+
 	if openAIUserAffinityFromContext(ctx) != nil {
 		ctx = context.WithValue(ctx, openAIUserAffinityContextKey{}, (*openAIUserAffinity)(nil))
 	}
-	SetGroupQualityTrafficGroupContext(ctx, derefGroupID(groupID))
 	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
 	ctx = s.withOpenAIGroupPrivacyRequirement(ctx, groupID)
 	if NormalizeOpenAICompatiblePlatform(platform) == PlatformOpenAI && requiredImageCapability == "" && !requireCompact && (strings.TrimSpace(previousResponseID) == "" || previousResponseCanMove) && !preserveOpenAIGuardianParentBinding(ctx, sessionHash) {
@@ -2638,34 +2594,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 		return selection, decision, err
 	}
 	guardianParentAccountID := int64(0)
-	defer func() {
-		waiting := selection != nil && !selection.Acquired && selection.WaitPlan != nil
-		if selection != nil && (!waiting || guardianParentAccountID > 0 || decision.Layer == openAIAccountScheduleLayerGuardianParent) {
-			return
-		}
-		fallbackCause := err
-		if waiting {
-			// Try immediately available recovery capacity before committing to a
-			// normal concurrency queue. A failed attempt retains that queue plan.
-			fallbackCause = ErrNoAvailableAccounts
-		} else if !groupQualityFallbackRetryable(err) {
-			return
-		}
-		fallbackSelection, fallbackErr := s.selectGroupQualityFallback(ctx, OpenAIAccountScheduleRequest{
-			GroupID: groupID, Platform: platform, PreviousResponseID: previousResponseID, PreviousResponseCanMove: previousResponseCanMove,
-			SessionHash: sessionHash, RequestedModel: requestedModel, ExcludedIDs: excludedIDs, RequiredTransport: requiredTransport,
-			RequiredCapability: requiredCapability, RequiredImageCapability: requiredImageCapability, RequireCompact: requireCompact, UseUpstreamTokenCost: useUpstreamTokenCost,
-		}, fallbackCause)
-		if waiting && (fallbackErr != nil || fallbackSelection == nil || !fallbackSelection.Acquired) {
-			return
-		}
-		selection, err = fallbackSelection, fallbackErr
-		if selection != nil && selection.Account != nil {
-			decision.Layer = "group_quality_fallback"
-			decision.SelectedAccountID = selection.Account.ID
-			decision.SelectedAccountType = selection.Account.Type
-		}
-	}()
 	preserveGuardianParentBinding := preserveOpenAIGuardianParentBinding(ctx, sessionHash)
 	if strings.TrimSpace(previousResponseID) == "" {
 		guardianParentAccountID = s.resolveOpenAIGuardianParentAccountID(ctx, groupID)
@@ -2734,7 +2662,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 					return selection, decision, nil
 				}
 				if selection.ReleaseFunc != nil {
-					ReleaseUnusedGroupQualityTraffic(ctx, selection.Account.ID)
 					selection.ReleaseFunc()
 				}
 				if effectiveExcludedIDs == nil {
@@ -2765,7 +2692,6 @@ func (s *OpenAIGatewayService) selectAccountWithSchedulerOnce(
 				return selection, decision, nil
 			}
 			if selection.ReleaseFunc != nil {
-				ReleaseUnusedGroupQualityTraffic(ctx, selection.Account.ID)
 				selection.ReleaseFunc()
 			}
 			if effectiveExcludedIDs == nil {

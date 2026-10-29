@@ -469,9 +469,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					_ = resp.Body.Close()
 					compactResp, compactBody := openAICompactFallbackErrorResponse(resp, signal)
 					if shouldFailoverOpenAIPassthroughResponse(account, compactResp.StatusCode, compactBody) {
-						return nil, s.handleFailoverErrorResponsePassthroughWithHTTPObservation(ctx, compactResp, c, account, body, compactBody, false)
+						return nil, s.handleFailoverErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 					}
-					return nil, s.handleErrorResponsePassthroughWithHTTPObservation(ctx, compactResp, c, account, body, compactBody, false)
+					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 				}
 				_ = resp.Body.Close()
 				return nil, handleErr
@@ -496,9 +496,9 @@ func (s *OpenAIGatewayService) forwardOpenAIPassthrough(
 					_ = resp.Body.Close()
 					compactResp, compactBody := openAICompactFallbackErrorResponse(resp, signal)
 					if shouldFailoverOpenAIPassthroughResponse(account, compactResp.StatusCode, compactBody) {
-						return nil, s.handleFailoverErrorResponsePassthroughWithHTTPObservation(ctx, compactResp, c, account, body, compactBody, false)
+						return nil, s.handleFailoverErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 					}
-					return nil, s.handleErrorResponsePassthroughWithHTTPObservation(ctx, compactResp, c, account, body, compactBody, false)
+					return nil, s.handleErrorResponsePassthrough(ctx, compactResp, c, account, body, compactBody)
 				}
 				_ = resp.Body.Close()
 				return nil, handleErr
@@ -752,7 +752,6 @@ func (s *OpenAIGatewayService) buildUpstreamRequestOpenAIPassthrough(
 	if err := applyMappedGPT55LiteCompatibility(req, account, body); err != nil {
 		return nil, err
 	}
-	capturePassiveQualityCacheHTTPRequest(c, account, req)
 	return req, nil
 }
 
@@ -906,18 +905,6 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthrough(
 	requestBody []byte,
 	responseBody []byte,
 ) error {
-	return s.handleFailoverErrorResponsePassthroughWithHTTPObservation(ctx, resp, c, account, requestBody, responseBody, true)
-}
-
-func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthroughWithHTTPObservation(
-	ctx context.Context,
-	resp *http.Response,
-	c *gin.Context,
-	account *Account,
-	requestBody []byte,
-	responseBody []byte,
-	httpResponseObserved bool,
-) error {
 	body := s.redactAgentIdentitySensitiveBody(ctx, account, responseBody)
 
 	upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(body))
@@ -936,7 +923,6 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthroughWithHTTPObs
 	canonicalModel := canonicalOpenAIAccountSchedulingModel(account, reqModel)
 	shouldDisable := s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		upstreamHTTPResponseObserved: httpResponseObserved,
 
 		ProxyID:              opsUpstreamProxyID(account),
 		ProxyName:            opsUpstreamProxyName(account),
@@ -959,6 +945,7 @@ func (s *OpenAIGatewayService) handleFailoverErrorResponsePassthroughWithHTTPObs
 		upstreamMsg,
 		shouldDisable,
 		!shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
+		resp.StatusCode,
 	))
 }
 
@@ -969,18 +956,6 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 	account *Account,
 	requestBody []byte,
 	responseBody []byte,
-) error {
-	return s.handleErrorResponsePassthroughWithHTTPObservation(ctx, resp, c, account, requestBody, responseBody, true)
-}
-
-func (s *OpenAIGatewayService) handleErrorResponsePassthroughWithHTTPObservation(
-	ctx context.Context,
-	resp *http.Response,
-	c *gin.Context,
-	account *Account,
-	requestBody []byte,
-	responseBody []byte,
-	httpResponseObserved bool,
 ) error {
 	MarkResponseCommitted(c)
 	body := s.redactAgentIdentitySensitiveBody(ctx, account, responseBody)
@@ -1018,7 +993,6 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthroughWithHTTPObservation
 		_ = s.handleOpenAIAccountUpstreamError(ctx, account, resp.StatusCode, resp.Header, body, canonicalModel)
 	}
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		upstreamHTTPResponseObserved: httpResponseObserved,
 
 		ProxyID:              opsUpstreamProxyID(account),
 		ProxyName:            opsUpstreamProxyName(account),
@@ -1861,6 +1835,11 @@ func (s *OpenAIGatewayService) newOpenAIStreamFailoverErrorWithModel(
 		classificationHeaders = nil
 	}
 	failoverErr := s.newOpenAIAccountFailoverErrorWithClassificationHeaders(account, statusCode, headers, classificationHeaders, payload, message, shouldDisable, retryableOnSameAccount)
+	if statusCode == http.StatusTooManyRequests && !failoverErr.RequestScopedTransient {
+		failoverErr.strictFailoverReason = "upstream_rate_limit_event"
+	} else if statusCode == 529 && !failoverErr.RequestScopedTransient {
+		failoverErr.strictFailoverReason = "upstream_overload_event"
+	}
 	failoverErr.ConfiguredRetryUnsafe = upstreamErrorRetryHasUsage(payload)
 	if failoverErr.IsCredentialFailure() || failoverErr.RequestScopedTransient {
 		return failoverErr

@@ -86,7 +86,7 @@ func TestLockAndMergeAccountPreservesQualityAndManualSchedulingState(t *testing.
 	}
 }
 
-func TestPreserveQualityTrialAcrossStaleAccountWrites(t *testing.T) {
+func TestRetiredQualityTrialCannotReturnThroughStaleAccountWrites(t *testing.T) {
 	for _, tt := range []struct {
 		name           string
 		currentStatus  string
@@ -112,8 +112,56 @@ func TestPreserveQualityTrialAcrossStaleAccountWrites(t *testing.T) {
 			preserveLockedAccountSchedulingState(account, accountSchedulingState{status: tt.currentStatus, schedulable: true}, currentExtra, incomingExtra)
 			require.Equal(t, tt.currentStatus, account.Status)
 			_, hasTrial := incomingExtra["quality_protection_trial"]
-			require.Equal(t, tt.currentTrial, hasTrial)
+			require.False(t, hasTrial)
 			require.Equal(t, "kept", incomingExtra["unrelated"])
 		})
+	}
+}
+
+func TestAccountWriteDropsRetiredPassiveMetadata(t *testing.T) {
+	extra := map[string]any{"passive_quality": []any{"old hold"}, "group_quality_targets": []any{"old target"}, "unrelated": "kept"}
+	account := &service.Account{Status: service.StatusActive, Schedulable: true, Extra: extra}
+	preserveLockedAccountSchedulingState(account, accountSchedulingState{status: service.StatusActive, schedulable: true}, extra, extra)
+	require.NotContains(t, extra, "passive_quality")
+	require.NotContains(t, extra, "group_quality_targets")
+	require.Equal(t, "kept", extra["unrelated"])
+}
+
+func TestAccountWritePreservesOnlyCurrentActivePassRateHolds(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		for _, present := range []bool{false, true} {
+			current := map[string]any{}
+			if present {
+				current["active_pass_rate_holds"] = "current"
+			}
+			incoming := map[string]any{"active_pass_rate_holds": "stale", "passive_quality": "retired"}
+			account := &service.Account{Status: service.StatusActive, Schedulable: true, StatusChanged: explicit, Extra: incoming}
+			preserveLockedAccountSchedulingState(account, accountSchedulingState{status: service.StatusActive, schedulable: true}, current, incoming)
+			require.NotContains(t, incoming, "passive_quality")
+			if present {
+				require.Equal(t, "current", incoming["active_pass_rate_holds"])
+			} else {
+				require.NotContains(t, incoming, "active_pass_rate_holds")
+			}
+		}
+	}
+}
+
+func TestAccountWritePreservesCurrentActiveModelProtection(t *testing.T) {
+	for _, explicit := range []bool{false, true} {
+		for _, current := range []map[string]any{
+			{},
+			{"active_test_model_holds": map[string]any{"model-a": "failed"}},
+			{"active_test_model_holds": map[string]any{"model-a": "failed"}, "active_test_all_models_paused": true},
+		} {
+			for _, incoming := range []map[string]any{
+				{},
+				{"active_test_model_holds": map[string]any{"model-b": "stale"}, "active_test_all_models_paused": true},
+			} {
+				account := &service.Account{Status: service.StatusActive, Schedulable: true, StatusChanged: explicit, Extra: incoming}
+				preserveLockedAccountSchedulingState(account, accountSchedulingState{status: service.StatusActive, schedulable: true}, current, incoming)
+				require.Equal(t, current, incoming, "stale account writes must neither clear nor resurrect active model protection")
+			}
+		}
 	}
 }

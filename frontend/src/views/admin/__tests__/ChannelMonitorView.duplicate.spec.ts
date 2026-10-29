@@ -148,7 +148,7 @@ describe('ChannelMonitorView duplicate action', () => {
     wrapper.findComponent(MonitorActionsCell).vm.$emit('duplicate', monitor)
     await flushPromises()
 
-    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/admin/tests?tab=overview')
+    expect(wrapper.findComponent(RouterLinkStub).props('to')).toBe('/admin/tests?tab=plans')
     expect(duplicateMonitor).toHaveBeenCalledTimes(1)
     expect(duplicateMonitor).toHaveBeenCalledWith(42)
     expect(showSuccess).toHaveBeenCalledWith('admin.channelMonitor.duplicateSuccess')

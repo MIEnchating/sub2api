@@ -310,7 +310,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 			if billingError {
 				return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
 			}
-			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 				StatusCode:             resp.StatusCode,
 				ResponseBody:           respBody,
 				RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),
@@ -339,7 +339,7 @@ func (s *GatewayService) handleBedrockUpstreamErrors(
 		if IsUpstreamBillingError(resp.StatusCode, respBody) {
 			return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
 		}
-		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{
+		return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode,
 			StatusCode:             resp.StatusCode,
 			ResponseBody:           respBody,
 			RetryableOnSameAccount: account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode),

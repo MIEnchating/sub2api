@@ -81,7 +81,8 @@ func TestAccountQualityProjectionCannotBePatchedThroughGenericWrites(t *testing.
 				client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 				t.Cleanup(func() { _ = client.Close() })
 				repo := newAccountRepositoryWithSQL(client, db, nil)
-				input := map[string]any{"setting": "edited", "active_pass_rate_holds": injected, "passive_quality": injected}
+				input := map[string]any{"setting": "edited", "active_pass_rate_holds": injected, "passive_quality": injected,
+					"active_test_model_holds": injected, "active_test_all_models_paused": injected}
 				mock.ExpectBegin()
 				update := mock.ExpectExec(`UPDATE accounts SET extra = .*updated_at = NOW\(\)`)
 				// Only ordinary settings enter the atomic JSONB patch. The live row's
@@ -102,6 +103,8 @@ func TestAccountQualityProjectionCannotBePatchedThroughGenericWrites(t *testing.
 				require.NoError(t, err)
 				require.Contains(t, input, "active_pass_rate_holds", "do not mutate the caller's snapshot")
 				require.Contains(t, input, "passive_quality")
+				require.Contains(t, input, "active_test_model_holds")
+				require.Contains(t, input, "active_test_all_models_paused")
 				require.NoError(t, mock.ExpectationsWereMet())
 			})
 		}

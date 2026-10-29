@@ -981,9 +981,11 @@ func preserveLockedAccountSchedulingState(account *service.Account, current acco
 	// Enabling scheduling is an explicit SetSchedulable operation, never a side
 	// effect of saving an account snapshot loaded before a manual pause.
 	account.Schedulable = account.Schedulable && current.schedulable
-	// Independent quality owners publish these projections under the account
-	// lock. Neither stale refreshes nor explicit status edits may replace them.
-	for _, key := range []string{"passive_quality", "active_pass_rate_holds"} {
+	// Stale admin forms cannot restore retired passive protection metadata.
+	delete(extra, "passive_quality")
+	delete(extra, "group_quality_targets")
+	// Active protection projections belong to their dedicated writers under the account lock.
+	for _, key := range []string{"active_pass_rate_holds", "active_test_model_holds", "active_test_all_models_paused"} {
 		delete(extra, key)
 		if value, ok := currentExtra[key]; ok {
 			extra[key] = value
@@ -993,12 +995,9 @@ func preserveLockedAccountSchedulingState(account *service.Account, current acco
 	if (!account.StatusChanged || account.Status == service.StatusQualityPaused) && currentHasQualityReason {
 		extra[qualityReasonKey] = currentExtra[qualityReasonKey]
 	}
-	// Trial metadata belongs to durable protection state, never a stale account
-	// snapshot. Explicit status changes cannot create or extend a trial either.
+	// Legacy trial snapshots may preserve a newer status, but the retired trial
+	// flag itself must never be written back.
 	delete(extra, qualityTrialKey)
-	if !account.StatusChanged && currentHasQualityTrial {
-		extra[qualityTrialKey] = currentExtra[qualityTrialKey]
-	}
 }
 
 func decodeAccountExtraJSON(raw []byte) (any, bool, error) {
@@ -1472,13 +1471,6 @@ func (r *accountRepository) ListByGroup(ctx context.Context, groupID int64) ([]s
 		return nil, err
 	}
 	return accounts, nil
-}
-
-// ListGroupQualityFallbackCandidates includes automatic quality pauses so the
-// recovery pass can evaluate them. It grants no admission: service filters and
-// live gates still enforce manual stops, credentials, membership and capacity.
-func (r *accountRepository) ListGroupQualityFallbackCandidates(ctx context.Context, groupID int64) ([]service.Account, error) {
-	return r.queryAccountsByGroup(ctx, groupID, accountGroupQueryOptions{})
 }
 
 func (r *accountRepository) ListActive(ctx context.Context) ([]service.Account, error) {

@@ -58,7 +58,10 @@ func ValidateScheduledTestDefinitionInput(d *ScheduledTestDefinition) error {
 	if d.Name == "" || len([]rune(d.Name)) > 200 {
 		return fmt.Errorf("name is required and must be at most 200 characters")
 	}
-	if d.Prompt == "" && d.OutputKind != "statistics" {
+	if d.OutputKind == "statistics" {
+		return fmt.Errorf("statistics tests have been retired; select an active capability test")
+	}
+	if d.Prompt == "" {
 		return fmt.Errorf("prompt is required")
 	}
 	if d.OutputKind == "" {
@@ -307,7 +310,17 @@ func (s *ScheduledTestService) ListDefinitions(ctx context.Context, enabledOnly 
 	if s.definitionRepo == nil {
 		return nil, fmt.Errorf("test definitions unavailable")
 	}
-	return s.definitionRepo.List(ctx, enabledOnly)
+	definitions, err := s.definitionRepo.List(ctx, enabledOnly)
+	if err != nil {
+		return nil, err
+	}
+	active := make([]*ScheduledTestDefinition, 0, len(definitions))
+	for _, definition := range definitions {
+		if definition != nil && strings.TrimSpace(strings.ToLower(definition.OutputKind)) != "statistics" {
+			active = append(active, definition)
+		}
+	}
+	return active, nil
 }
 func (s *ScheduledTestService) GetDefinition(ctx context.Context, id int64) (*ScheduledTestDefinition, error) {
 	if s.definitionRepo == nil {
@@ -404,6 +417,9 @@ func (s *ScheduledTestService) validateDefinitionForPlan(ctx context.Context, pl
 		if err != nil || d == nil {
 			return fmt.Errorf("test definition %d not found", id)
 		}
+		if strings.ToLower(strings.TrimSpace(d.OutputKind)) == "statistics" {
+			return fmt.Errorf("statistics tests have been retired")
+		}
 		hasEnabled = hasEnabled || d.Enabled
 		if plan.Protection.Enabled {
 			for i := range plan.Protection.Rules {
@@ -444,6 +460,40 @@ func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, li
 }
 func (s *ScheduledTestService) ListVisibleResults(ctx context.Context, userID int64, limit int) ([]*ScheduledTestResult, error) {
 	results, err := s.resultRepo.ListVisible(ctx, userID, limit)
+	if err != nil {
+		return nil, err
+	}
+	normalizePublicTestResults(results)
+	return results, nil
+}
+
+// ListVisibleResultsWithRecentHTML includes a bounded artwork history while
+// retaining the ordinary list's current-execution anchors and public fields.
+func (s *ScheduledTestService) ListVisibleResultsWithRecentHTML(ctx context.Context, userID int64, total int) ([]*ScheduledTestResult, error) {
+	repo, ok := s.resultRepo.(interface {
+		ListVisibleWithRecentHTML(context.Context, int64, int) ([]*ScheduledTestResult, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("recent test artwork unavailable")
+	}
+	results, err := repo.ListVisibleWithRecentHTML(ctx, userID, total)
+	if err != nil {
+		return nil, err
+	}
+	normalizePublicTestResults(results)
+	return results, nil
+}
+
+// ListVisibleResultsWithRecentResults includes bounded numeric and artwork
+// history with the same current-execution anchors and public fields.
+func (s *ScheduledTestService) ListVisibleResultsWithRecentResults(ctx context.Context, userID int64, total int) ([]*ScheduledTestResult, error) {
+	repo, ok := s.resultRepo.(interface {
+		ListVisibleWithRecentResults(context.Context, int64, int) ([]*ScheduledTestResult, error)
+	})
+	if !ok {
+		return nil, fmt.Errorf("recent test results unavailable")
+	}
+	results, err := repo.ListVisibleWithRecentResults(ctx, userID, total)
 	if err != nil {
 		return nil, err
 	}

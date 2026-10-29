@@ -27,11 +27,10 @@ func executeQualityTestHTTP(req *http.Request, account int64, send func(*http.Re
 			return nil, collector.deferred
 		}
 		automatic, _ := ctx.Value(scheduledTestAutomaticRunKey{}).(bool)
-		recovery := QualityProbePurpose(ctx) == "recovery"
 		session, _ := ctx.Value(qualityRunKey{}).(string)
 		estimate := qualityProbeTokenEstimate(req)
 		reserveCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		res, err := repo.ReserveQualityProbe(reserveCtx, account, estimate, automatic || recovery, session)
+		res, err := repo.ReserveQualityProbe(reserveCtx, account, estimate, automatic, session)
 		cancel()
 		if err != nil {
 			var deferred *QualityDeferredError

@@ -418,6 +418,13 @@ func createTestPayload(modelID string, customPrompt ...string) (map[string]any, 
 	}, nil
 }
 
+func (s *AccountTestService) setAccountTestError(ctx context.Context, accountID int64, message string) error {
+	if s.accountRepo == nil {
+		return nil
+	}
+	return s.accountRepo.SetError(ctx, accountID, message)
+}
+
 // TestAccountConnection tests an account's connection by sending a test request
 // All account types use full Claude Code client characteristics, only auth header differs
 // modelID is optional - if empty, defaults to claude.DefaultTestModel
@@ -441,11 +448,6 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		return s.sendErrorAndEnd(c, "Account not found")
 	}
 	bindAccountTestPlatform(c, account)
-	if ctx.Value(qualityOperationsKey{}) != nil && (account.Status == "quality_paused" || account.ActiveTestModelBlocked(modelID)) {
-		ctx = WithQualityRecoveryProbe(c.Request.Context())
-		c.Request = c.Request.WithContext(ctx)
-	}
-
 	// Synthetic UI load-test accounts exercise the real SSE parsing and modal
 	// interactions, but intentionally do not send their placeholder credentials
 	// to an upstream provider.
@@ -698,7 +700,7 @@ func (s *AccountTestService) testClaudeAccountConnection(c *gin.Context, account
 
 		// 403 表示账号被上游封禁，标记为 error 状态
 		if resp.StatusCode == http.StatusForbidden {
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			_ = s.setAccountTestError(ctx, account.ID, errMsg)
 		}
 
 		return s.sendErrorAndEnd(c, errMsg)
@@ -771,7 +773,7 @@ func (s *AccountTestService) testClaudeVertexServiceAccountConnection(c *gin.Con
 		body, _ := io.ReadAll(resp.Body)
 		errMsg := fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body))
 		if resp.StatusCode == http.StatusForbidden {
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			_ = s.setAccountTestError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, errMsg)
 	}
@@ -875,11 +877,14 @@ func (s *AccountTestService) testBedrockAccountConnection(c *gin.Context, ctx co
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Failed to parse response: %s", err.Error()))
 	}
 
-	text := ""
-	if len(result.Content) > 0 {
-		text = result.Content[0].Text
+	var textContent strings.Builder
+	for _, block := range result.Content {
+		_, _ = textContent.WriteString(block.Text)
 	}
-	if text == "" {
+	text := textContent.String()
+	if text == "" && !c.GetBool(accountTestBackgroundKey) {
+		// The interactive probe may show a placeholder, but scheduled checks
+		// must evaluate only text actually returned by the model.
 		text = "(empty response)"
 	}
 
@@ -1127,7 +1132,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 		// 401 Unauthorized: 标记账号为永久错误
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			_ = s.setAccountTestError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
@@ -1400,7 +1405,7 @@ func (s *AccountTestService) testGrokResponsesConnection(c *gin.Context, ctx con
 	s.prepareGrokTestSSE(c)
 
 	var payloadBytes []byte
-	if scheduledTestContentInstructions(ctx) != "" {
+	if strings.TrimSpace(prompt) != "" || scheduledTestContentInstructions(ctx) != "" {
 		payload := createOpenAITestPayload(testModelID, false, prompt)
 		applyScheduledTestContentInstructions(ctx, payload, APIProtocolResponses)
 		applyAccountTestOutputTokenLimit(ctx, payload, "max_output_tokens")
@@ -2373,7 +2378,7 @@ func (s *AccountTestService) testOpenAIChatCompletionsConnection(
 		}
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Chat Completions authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			_ = s.setAccountTestError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("Chat Completions API (/v1/chat/completions) returned %d: %s", resp.StatusCode, string(body)))
 	}
@@ -2542,7 +2547,7 @@ func (s *AccountTestService) testOpenAICompactConnection(c *gin.Context, account
 	if resp.StatusCode != http.StatusOK {
 		if resp.StatusCode == http.StatusUnauthorized && s.accountRepo != nil {
 			errMsg := fmt.Sprintf("Authentication failed (401): %s", string(body))
-			_ = s.accountRepo.SetError(ctx, account.ID, errMsg)
+			_ = s.setAccountTestError(ctx, account.ID, errMsg)
 		}
 		return s.sendErrorAndEnd(c, fmt.Sprintf("API returned %d: %s", resp.StatusCode, string(body)))
 	}
@@ -2582,7 +2587,7 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	account.RateLimitedAt = &now
 	account.RateLimitResetAt = resetAt
 
-	if account.Status == StatusError && ctx.Value(passiveQualityProbeKey{}) != true {
+	if account.Status == StatusError {
 		if err := s.accountRepo.ClearError(ctx, account.ID); err != nil {
 			return
 		}

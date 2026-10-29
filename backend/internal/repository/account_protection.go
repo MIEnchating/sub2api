@@ -19,12 +19,16 @@ const accountProtectionEnabledSQL = "(CASE WHEN jsonb_typeof(extra -> 'anti_degr
 func stripAccountQualityProjections(extra map[string]any) map[string]any {
 	_, passive := extra["passive_quality"]
 	_, active := extra["active_pass_rate_holds"]
-	if !passive && !active {
+	_, models := extra["active_test_model_holds"]
+	_, allModels := extra["active_test_all_models_paused"]
+	if !passive && !active && !models && !allModels {
 		return extra
 	}
 	extra = copyJSONMap(extra)
 	delete(extra, "passive_quality")
 	delete(extra, "active_pass_rate_holds")
+	delete(extra, "active_test_model_holds")
+	delete(extra, "active_test_all_models_paused")
 	return extra
 }
 
