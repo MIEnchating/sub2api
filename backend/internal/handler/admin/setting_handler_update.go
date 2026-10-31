@@ -31,11 +31,12 @@ type UpdateSettingsRequest struct {
 	PasswordResetEnabled                bool                         `json:"password_reset_enabled"`
 	FrontendURL                         string                       `json:"frontend_url"`
 	InvitationCodeEnabled               bool                         `json:"invitation_code_enabled"`
-	TotpEnabled                         bool                         `json:"totp_enabled"`             // TOTP 双因素认证
-	PasskeyEnabled                      *bool                        `json:"passkey_enabled"`          // Passkey 登录（省略=保持现值）
-	SessionBindingEnabled               *bool                        `json:"session_binding_enabled"`  // 会话 IP/UA 绑定（省略=保持现值）
-	StepUpEnabled                       *bool                        `json:"step_up_enabled"`          // 敏感操作 step-up 2FA（省略=保持现值）
-	AuditLogRetentionDays               int                          `json:"audit_log_retention_days"` // 审计日志保留天数
+	TotpEnabled                         bool                         `json:"totp_enabled"`               // TOTP 双因素认证
+	PasskeyEnabled                      *bool                        `json:"passkey_enabled"`            // Passkey 登录（省略=保持现值）
+	MainlandWebBlockEnabled             *bool                        `json:"mainland_web_block_enabled"` // 省略=保持现值
+	SessionBindingEnabled               *bool                        `json:"session_binding_enabled"`    // 会话 IP/UA 绑定（省略=保持现值）
+	StepUpEnabled                       *bool                        `json:"step_up_enabled"`            // 敏感操作 step-up 2FA（省略=保持现值）
+	AuditLogRetentionDays               int                          `json:"audit_log_retention_days"`   // 审计日志保留天数
 	LoginAgreementEnabled               bool                         `json:"login_agreement_enabled"`
 	LoginAgreementMode                  string                       `json:"login_agreement_mode"`
 	LoginAgreementUpdatedAt             string                       `json:"login_agreement_updated_at"`
@@ -415,13 +416,13 @@ type UpdateSettingsRequest struct {
 // UpdateSettings 更新系统设置
 // PUT /api/v1/admin/settings
 // ensureActorTotpForStepUp 校验当前操作者具备开启 step-up 门控的条件：
-// 必须是真人管理员会话（admin API key 无法完成 TOTP step-up，拒绝）且本人已启用 TOTP。
+// 必须是真人管理员会话（admin API key、MCP OAuth 等机器凭证无法完成 TOTP step-up，拒绝）且本人已启用 TOTP。
 // 校验失败时写入错误响应并返回 false。
 func (h *SettingHandler) ensureActorTotpForStepUp(c *gin.Context) bool {
-	if c.GetString("auth_method") == service.AuditAuthMethodAdminAPIKey {
+	if reason, machine := middleware.MachineCredentialReason(c); machine {
 		response.ErrorWithDetails(c, http.StatusForbidden,
-			"Admin API key cannot enable step-up verification; use an admin session with TOTP enabled",
-			"STEP_UP_ADMIN_API_KEY_FORBIDDEN", nil)
+			"Machine credentials cannot enable step-up verification; use an admin session with TOTP enabled",
+			reason, nil)
 		return false
 	}
 	subject, ok := middleware.GetAuthSubjectFromContext(c)
@@ -522,6 +523,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	}
 	auditReq := settingsAuditRequest(req)
 	omitted := omittedSettingKeys(sentFields)
+	// Commit this switch last: later payment/refresh failures must not activate
+	// a restriction after the UI reports the settings save as failed.
+	omitted[service.SettingKeyMainlandWebBlockEnabled] = struct{}{}
+	if req.MainlandWebBlockEnabled != nil {
+		if err := h.settingService.ValidateMainlandWebBlockEnabled(*req.MainlandWebBlockEnabled); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+	}
 
 	previousSettings, err := h.settingService.GetAllSettings(c.Request.Context())
 	if err != nil {
@@ -536,6 +546,10 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
 	// 用不含新字段的全量 payload 保存设置时把安全开关静默重置。
+	mainlandWebBlockEnabled := previousSettings.MainlandWebBlockEnabled
+	if req.MainlandWebBlockEnabled != nil {
+		mainlandWebBlockEnabled = *req.MainlandWebBlockEnabled
+	}
 	sessionBindingEnabled := previousSettings.SessionBindingEnabled
 	if req.SessionBindingEnabled != nil {
 		sessionBindingEnabled = *req.SessionBindingEnabled
@@ -1555,6 +1569,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		InvitationCodeEnabled:               req.InvitationCodeEnabled,
 		TotpEnabled:                         req.TotpEnabled,
 		PasskeyEnabled:                      passkeyEnabled,
+		MainlandWebBlockEnabled:             mainlandWebBlockEnabled,
 		SessionBindingEnabled:               sessionBindingEnabled,
 		StepUpEnabled:                       stepUpEnabled,
 		AuditLogRetentionDays:               req.AuditLogRetentionDays,
@@ -2218,8 +2233,6 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		}
 	}
 
-	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
-
 	// 重新获取设置返回
 	updatedSettings, err := h.settingService.GetAllSettings(c.Request.Context())
 	if err != nil {
@@ -2432,6 +2445,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 
 		OpenAICodexTicketHarvestProxyURL:                       service.MaskProxyURL(updatedSettings.OpenAICodexTicketHarvestProxyURL),
 		OpenAICodexTicketHarvestProxyConfigured:                strings.TrimSpace(updatedSettings.OpenAICodexTicketHarvestProxyURL) != "",
+		MainlandWebBlockEnabled:                                updatedSettings.MainlandWebBlockEnabled,
 		ClaudeCodeClientVersion:                                updatedSettings.ClaudeCodeClientVersion,
 		ClaudeCodeClientVersionSynced:                          updatedSettings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       updatedSettings.ClaudeCodeVersionAutoSyncEnabled,
@@ -2545,6 +2559,15 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	} else {
 		payload.DefaultPlatformQuotas = platformQuotas
 	}
+	if req.MainlandWebBlockEnabled != nil {
+		if err := h.settingService.SetMainlandWebBlockEnabled(c.Request.Context(), *req.MainlandWebBlockEnabled); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		updatedSettings.MainlandWebBlockEnabled = *req.MainlandWebBlockEnabled
+		payload.MainlandWebBlockEnabled = *req.MainlandWebBlockEnabled
+	}
+	h.auditSettingsUpdate(c, previousSettings, settings, previousAuthSourceDefaults, authSourceDefaults, auditReq)
 	response.Success(c, systemSettingsResponseData(payload, updatedAuthSourceDefaults))
 }
 

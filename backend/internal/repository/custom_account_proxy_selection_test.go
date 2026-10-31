@@ -146,3 +146,69 @@ func TestAccountProxySelectionLargePoolAndTransactionalLeastUsed(t *testing.T) {
 	require.NoError(t, tx.Rollback())
 	require.NoError(t, db.Ping(), "测试结束连接可用")
 }
+
+// Creation allocates a proxy before BindGroups; updates enter with the
+// membership lock held. Neither path may hold the proxy lock while waiting
+// for membership, or the update and creation would wait on each other.
+func TestAccountProxyLeastUsedSharesMembershipLockOrder(t *testing.T) {
+	db := scopedAdminKeyTestDB(t)
+	_, err := db.Exec(`CREATE TABLE proxies(id BIGINT PRIMARY KEY,status TEXT,expires_at TIMESTAMPTZ,deleted_at TIMESTAMPTZ);
+CREATE TABLE accounts(id BIGINT PRIMARY KEY,proxy_id BIGINT,deleted_at TIMESTAMPTZ);
+INSERT INTO proxies(id,status) VALUES(1,'active'),(2,'active');`)
+	require.NoError(t, err)
+	client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+	repo := newProxyRepositoryWithSQL(client, db)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	update, err := client.Tx(ctx)
+	require.NoError(t, err)
+	defer update.Rollback()
+	updateCtx := dbent.NewTxContext(ctx, update)
+	_, err = update.Client().ExecContext(updateCtx, `SELECT pg_advisory_xact_lock(1937006960,1735553655)`)
+	require.NoError(t, err)
+	creatorPID := make(chan int, 1)
+	created := make(chan error, 1)
+	go func() {
+		create, err := client.Tx(ctx)
+		if err != nil {
+			created <- err
+			return
+		}
+		defer create.Rollback()
+		createCtx := dbent.NewTxContext(ctx, create)
+		var pid int
+		if err := scanSingleRow(createCtx, create.Client(), `SELECT pg_backend_pid()`, nil, &pid); err != nil {
+			created <- err
+			return
+		}
+		creatorPID <- pid
+		_, err = repo.SelectAccountProxy(createCtx, "least_used")
+		if err == nil {
+			_, err = create.Client().ExecContext(createCtx, `SELECT pg_advisory_xact_lock(1937006960,1735553655)`)
+		}
+		created <- err
+	}()
+	var pid int
+	select {
+	case pid = <-creatorPID:
+	case err := <-created:
+		t.Fatalf("creation failed before choosing proxy: %v", err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+	require.Eventually(t, func() bool {
+		var waiting bool
+		err := db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM pg_locks WHERE pid=$1 AND NOT granted)`, pid).Scan(&waiting)
+		return err == nil && waiting
+	}, 2*time.Second, 10*time.Millisecond, "creation must wait on the update's membership lock")
+	selected, err := repo.SelectAccountProxy(updateCtx, "least_used")
+	require.NoError(t, err, "update can still allocate a proxy while creation waits on membership")
+	require.EqualValues(t, 1, selected)
+	require.NoError(t, update.Commit())
+	select {
+	case err := <-created:
+		require.NoError(t, err)
+	case <-ctx.Done():
+		t.Fatal(ctx.Err())
+	}
+}

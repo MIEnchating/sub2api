@@ -2159,12 +2159,34 @@ func (r *accountRepository) GetGroups(ctx context.Context, accountID int64) ([]s
 	return outGroups, nil
 }
 
+// ScopedAdminLockAccountMembership takes the same plan-before-account locks as
+// manual membership edits before the scoped service locks the account row.
+// The service invokes this within its outer transaction; BindGroups reuses it.
+func (r *accountRepository) ScopedAdminLockAccountMembership(ctx context.Context, accountID int64) error {
+	tx := dbent.TxFromContext(ctx)
+	if tx == nil {
+		return errors.New("scoped membership locking requires a transaction")
+	}
+	_, err := lockAccountMembershipProtection(ctx, tx.Client(), accountID)
+	return translatePersistenceError(err, service.ErrAccountNotFound, nil)
+}
+
 func (r *accountRepository) BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error {
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.BindGroups(ctx, accountID, groupIDs)
 	}
 	if adminaccess.FromContext(ctx) != nil {
-		return r.scopedAdminBindGroups(ctx, accountID, groupIDs)
+		if dbent.TxFromContext(ctx) == nil {
+			return errors.New("scoped membership writing requires a transaction")
+		}
+		plans, err := lockAccountMembershipProtection(ctx, r.client, accountID)
+		if err != nil {
+			return err
+		}
+		if err := r.scopedAdminBindGroups(ctx, accountID, groupIDs); err != nil {
+			return err
+		}
+		return releaseDetachedAccountProtection(ctx, r.client, accountID, plans)
 	}
 	// 使用事务保证删除旧绑定与创建新绑定的原子性
 	tx, err := r.client.Tx(ctx)

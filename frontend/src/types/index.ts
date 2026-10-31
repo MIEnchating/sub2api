@@ -294,6 +294,8 @@ export interface PublicSettings {
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
+  /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
+  mcp_enabled?: boolean
 }
 
 export interface AuthResponse {
@@ -643,6 +645,7 @@ export interface Group {
 }
 
 export interface AdminGroup extends Group {
+  fallback_group_id_on_unavailable?: number | null
   // 管理端的 name / description 始终是原字段，各语言译文另放在 i18n 里
   i18n?: GroupI18n
   force_openai_fast: boolean
@@ -863,6 +866,7 @@ export interface CreateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  fallback_group_id_on_unavailable?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
@@ -930,6 +934,7 @@ export interface UpdateGroupRequest {
   claude_code_only?: boolean
   fallback_group_id?: number | null
   fallback_group_id_on_invalid_request?: number | null
+  fallback_group_id_on_unavailable?: number | null
   mcp_xml_inject?: boolean
   supported_model_scopes?: string[]
   model_allowlist?: ModelAllowlist
@@ -2629,6 +2634,11 @@ export interface TestAutoReview {
   judge_model: string
   attempts: number
   reviewed_at: string
+  failure_stage?: 'configuration' | 'queue' | 'render' | 'judge' | 'budget' | 'independence'
+  error_code?: string
+  render_attempts?: number
+  render_duration_ms?: number
+  render_retryable?: boolean
   criteria?: { key: string; passed: boolean; reason: string }[]
 }
 export interface TestExecutionInfo extends TestTokenUsage {
@@ -2793,9 +2803,18 @@ export interface TestProtectionRule {
   on_fail?: TestOutcomeAction
   pass_rate?: TestPassRateConfig
 }
+export interface TestAllPassProgress {
+  required: number
+  consecutive_passes: number
+  round_verdict: 'pass' | 'fail' | 'pending'
+  blocked: boolean
+}
+
 export interface TestProtectionConfig {
   enabled: boolean
   mode?: 'per_test' | 'combined' | 'all_pass'
+  /** Complete successful rounds required before the all-pass action runs; defaults to 1. */
+  required_consecutive_passes?: number
   pass_group_ids?: number[]
   on_pass?: TestOutcomeAction
   on_fail?: TestOutcomeAction
@@ -2851,6 +2870,8 @@ export interface TestProtectionDecision {
 }
 
 export interface TestResult {
+  /** Current plan/account/model round streak, independent of individual check pass rates. */
+  all_pass_progress?: TestAllPassProgress | null
   /** Current rolling evidence, not a historical snapshot at this result's time. */
   pass_rate?: TestPassRateSummary | null
   test_key?: string

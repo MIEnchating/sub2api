@@ -1162,16 +1162,25 @@ export default {
           duplicate: 'This entry already exists'
         }
       },
+      unavailableFallback: {
+        title: 'Fallback group when accounts are unavailable',
+        hint: 'When this group has no available accounts, use accounts from the fallback group while keeping this group’s prices, multipliers, quotas, and subscription billing. Order: this group → group fallback → API key fallback. API key fallback uses its own group for billing. Only one group fallback hop is attempted.',
+        none: 'No group fallback',
+        loadFailed: 'Failed to load groups. Please retry.',
+      },
       strictFailover: {
         title: "Strict primary / backup",
-        hint: "Use account tiers in order. Advance only when every account in the current tier is explicitly unavailable. Busy slots, queues, low scores and unknown state never trigger fallback. Unlisted accounts receive no traffic.",
+        hint: "Try account tiers in order within the same request. Every tier follows the group's existing profit controls. Advance when every account in a tier explicitly cannot serve this request or fails its profit requirement. Busy slots, queues, low scores and unknown state never trigger fallback.",
         enable: "Enable strict failover",
         tier: "Priority tier {tier}",
         add: "Add backup tier",
         remove: "Remove tier",
         account: "Search accounts in this group",
         removeAccount: "Remove account",
-        empty: "Every tier needs at least one unique account. Maximum 10 tiers and 1000 accounts.",
+        empty: "Every manual tier needs at least one unique account. Configure at most 10 tiers and 1000 accounts.",
+        automaticTier: "Final tier (automatic)",
+        automaticCount: "{count} accounts in this group have no assigned tier",
+        automaticHint: "Unassigned accounts in this group follow all manual tiers and obey the group's existing profit controls. Removing an account from a manual tier returns it here.",
         loading: "Loading accounts…",
         loadError: "Could not load accounts. Please retry.",
         retry: "Retry",

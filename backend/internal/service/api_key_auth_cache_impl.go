@@ -12,7 +12,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 29 // v29: strict failover, image-count billing, and digest-only credentials.
+const apiKeyAuthSnapshotVersion = 30 // v30: group account fallback, billed to the original group.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -346,6 +346,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		MonthlyLimitUSD:                 group.MonthlyLimitUSD,
 		DefaultValidityDays:             group.DefaultValidityDays,
 		AllowImageGeneration:            group.AllowImageGeneration,
+		ImageCountBilling:               group.ImageCountBilling,
 		ImageRateIndependent:            group.ImageRateIndependent,
 		ImageRateMultiplier:             group.ImageRateMultiplier,
 		ImagePrice1K:                    group.ImagePrice1K,
@@ -367,6 +368,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		ClaudeCodeOnly:                  group.ClaudeCodeOnly,
 		FallbackGroupID:                 group.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
+		FallbackGroupIDOnUnavailable:    group.FallbackGroupIDOnUnavailable,
 		ModelRouting:                    group.ModelRouting,
 		ModelRoutingEnabled:             group.ModelRoutingEnabled,
 		MCPXMLInject:                    group.MCPXMLInject,
@@ -416,6 +418,7 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		MonthlyLimitUSD:                 snapshot.MonthlyLimitUSD,
 		DefaultValidityDays:             snapshot.DefaultValidityDays,
 		AllowImageGeneration:            snapshot.AllowImageGeneration,
+		ImageCountBilling:               snapshot.ImageCountBilling,
 		ImageRateIndependent:            snapshot.ImageRateIndependent,
 		ImageRateMultiplier:             snapshot.ImageRateMultiplier,
 		ImagePrice1K:                    snapshot.ImagePrice1K,
@@ -437,6 +440,7 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		ClaudeCodeOnly:                  snapshot.ClaudeCodeOnly,
 		FallbackGroupID:                 snapshot.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,
+		FallbackGroupIDOnUnavailable:    snapshot.FallbackGroupIDOnUnavailable,
 		ModelRouting:                    snapshot.ModelRouting,
 		ModelRoutingEnabled:             snapshot.ModelRoutingEnabled,
 		MCPXMLInject:                    snapshot.MCPXMLInject,
@@ -551,6 +555,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
+			FallbackGroupIDOnUnavailable:    apiKey.Group.FallbackGroupIDOnUnavailable,
 			ModelRouting:                    apiKey.Group.ModelRouting,
 			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
@@ -668,6 +673,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
 			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
 			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
+			FallbackGroupIDOnUnavailable:    snapshot.Group.FallbackGroupIDOnUnavailable,
 			ModelRouting:                    snapshot.Group.ModelRouting,
 			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
 			MCPXMLInject:                    snapshot.Group.MCPXMLInject,

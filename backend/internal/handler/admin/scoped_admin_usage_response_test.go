@@ -68,7 +68,12 @@ func TestScopedAdminUsageListDoesNotGrantNestedResourceRead(t *testing.T) {
 					require.NotContains(t, item, field)
 				}
 			} else {
-				require.Contains(t, w.Body.String(), service.MaskAPIKey(privateKey.Key))
+				require.NotContains(t, w.Body.String(), "private-api-key-secret")
+				var key struct {
+					Key string `json:"key"`
+				}
+				require.NoError(t, json.Unmarshal(item["api_key"], &key))
+				require.Equal(t, service.MaskAPIKey(privateKey.Key), key.Key, "完整管理员仍保留 API Key 的定制脱敏输出")
 				require.Contains(t, w.Body.String(), "private-email@example.invalid")
 				require.Contains(t, item, "user")
 				require.Contains(t, item, "api_key")

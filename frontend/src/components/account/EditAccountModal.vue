@@ -5960,9 +5960,14 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 }
 
 const handleSubmit = async () => {
-
   if (!props.account || legacyProtectionBusy.value) return
+  if (props.account.type === 'apikey' && upstreamBillingRateLimit.value != null &&
+    (!Number.isFinite(upstreamBillingRateLimit.value) || upstreamBillingRateLimit.value < 0)) {
+    appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
+    return
+  }
   const accountID = props.account.id
+
   const currentAccountExtra = (
     legacyProtectionAccountOverride.value?.id === accountID
       ? legacyProtectionAccountOverride.value.extra

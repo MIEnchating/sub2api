@@ -38,6 +38,7 @@ type ScheduledTestPlan struct {
 
 // ScheduledTestResult represents a single test execution result.
 type ScheduledTestResult struct {
+	AllPassProgress  *ScheduledTestAllPassProgress `json:"all_pass_progress,omitempty"`
 	PassRate         *ScheduledTestPassRateSummary `json:"pass_rate,omitempty"`
 	ExecutionInfo    *ScheduledTestExecutionInfo   `json:"execution_info,omitempty"`
 	RunID            string                        `json:"-"`
@@ -74,7 +75,7 @@ type ScheduledTestResult struct {
 	AccountID            *int64                           `json:"account_id,omitempty"`
 	ModelSchedulable     *bool                            `json:"model_schedulable,omitempty"`
 	AccountSchedulable   *bool                            `json:"account_schedulable,omitempty"` // current account status and scheduling switch; nil for account-free results
-	AccountName          string                           `json:"account_name,omitempty"`        // populated by admin queries only
+	AccountName          string                           `json:"account_name,omitempty"`        // populated only for authenticated administrator responses
 	ModelID              string                           `json:"model_id"`
 	ReasoningEffort      string                           `json:"reasoning_effort,omitempty"`
 	GroupID              *int64                           `json:"group_id,omitempty"`

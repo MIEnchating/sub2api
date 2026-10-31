@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { createI18n } from 'vue-i18n'
 
-// Exercise the same runtime bundle as Vite, including its patched shared dependency.
+// Exercise the same runtime bundle as Vite, including the upstream srcdoc security fix.
 function translate(message: string, values: Record<string, string> = {}) {
   const i18n = createI18n({
     legacy: false,

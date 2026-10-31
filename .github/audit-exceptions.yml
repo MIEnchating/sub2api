@@ -1,26 +1,5 @@
 version: 1
 exceptions:
-  - package: '@intlify/shared'
-    advisory: "GHSA-83rm-6c8r-g728"
-    severity: high
-    reason: "9.14.5 is locally patched to neutralize srcdoc attribute names in all shared JS entry points; registry audit cannot recognize pnpm patches"
-    mitigation: "Frozen installs enforce frontend/patches/intlify-shared-9.14.5-srcdoc.patch; translationHtmlSecurity.spec.ts exercises the production runtime bundle. Migrate vue-i18n and message-compiler together to >=11.4.14 before expiry"
-    expires_on: "2026-11-28"
-    owner: "security@your-domain"
-  - package: '@intlify/core-base'
-    advisory: "GHSA-83rm-6c8r-g728"
-    severity: high
-    reason: "The application's ESM runtime delegates HTML sanitization to the patched @intlify/shared@9.14.5; standalone browser/global bundles are not used"
-    mitigation: "Keep Vite and Vitest on vue-i18n.runtime.esm-bundler.js and require translationHtmlSecurity.spec.ts; upgrade the whole intlify dependency family to >=11.4.14 before expiry"
-    expires_on: "2026-11-28"
-    owner: "security@your-domain"
-  - package: vue-i18n
-    advisory: "GHSA-83rm-6c8r-g728"
-    severity: high
-    reason: "The application's ESM runtime delegates HTML sanitization to the patched @intlify/shared@9.14.5; standalone browser/global bundles are not used"
-    mitigation: "Keep Vite and Vitest on vue-i18n.runtime.esm-bundler.js and require translationHtmlSecurity.spec.ts; upgrade the whole intlify dependency family to >=11.4.14 before expiry"
-    expires_on: "2026-11-28"
-    owner: "security@your-domain"
   - package: xlsx
     advisory: "GHSA-4r6h-8v6p-xvw6"
     origin: upstream

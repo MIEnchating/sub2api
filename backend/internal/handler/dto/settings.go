@@ -42,6 +42,7 @@ type SystemSettings struct {
 	PasskeyConfigured                   bool                     `json:"passkey_configured"`
 	PasskeyRPID                         string                   `json:"passkey_rp_id"`
 	PasskeyRPOrigins                    []string                 `json:"passkey_rp_origins"`
+	MainlandWebBlockEnabled             bool                     `json:"mainland_web_block_enabled"`
 	SessionBindingEnabled               bool                     `json:"session_binding_enabled"`  // 会话 IP/UA 绑定
 	StepUpEnabled                       bool                     `json:"step_up_enabled"`          // 敏感操作 step-up 2FA
 	AuditLogRetentionDays               int                      `json:"audit_log_retention_days"` // 审计日志保留天数
@@ -432,6 +433,7 @@ type PublicSettings struct {
 	GitHubOAuthEnabled                  bool                     `json:"github_oauth_enabled"`
 	GoogleOAuthEnabled                  bool                     `json:"google_oauth_enabled"`
 	BackendModeEnabled                  bool                     `json:"backend_mode_enabled"`
+	MCPEnabled                          bool                     `json:"mcp_enabled"`
 	PaymentEnabled                      bool                     `json:"payment_enabled"`
 	// PaymentBalanceDisabled mirrors the payment-config BALANCE_PAYMENT_DISABLED switch so the
 	// user shell can derive the site billing mode (recharge & subscription / recharge only /

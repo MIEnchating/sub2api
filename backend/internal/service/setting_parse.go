@@ -60,6 +60,7 @@ func (s *SettingService) InitializeDefaultSettings(ctx context.Context) error {
 
 	// 初始化默认设置
 	defaults := map[string]string{
+		SettingKeyMainlandWebBlockEnabled:                   strconv.FormatBool(s.mainlandWebBlockConfigDefault()),
 		SettingKeyRegistrationEnabled:                       "true",
 		SettingKeyEmailVerifyEnabled:                        "false",
 		SettingKeyRegistrationEmailSuffixWhitelist:          "[]",
@@ -403,6 +404,7 @@ func (s *SettingService) parseSettings(settings map[string]string) *SystemSettin
 		CustomMenuItems:                           settings[SettingKeyCustomMenuItems],
 		CustomEndpoints:                           settings[SettingKeyCustomEndpoints],
 		BackendModeEnabled:                        settings[SettingKeyBackendModeEnabled] == "true",
+		MainlandWebBlockEnabled:                   s.parseMainlandWebBlockEnabled(settings),
 	}
 	result.TableDefaultPageSize, result.TablePageSizeOptions = parseTablePreferences(
 		settings[SettingKeyTableDefaultPageSize],

@@ -290,10 +290,19 @@ func (s *adminServiceImpl) scopedAdminTransaction(ctx context.Context, id int64,
 	if err = lockScopedAdminAccount(txctx, tx, id); err != nil {
 		return nil, err
 	}
-	if locker, ok := s.accountRepo.(interface {
+	// Prefer the upstream membership contract while retaining adapters that
+	// implement the fork's original protection lock contract. Both must run
+	// before account and membership row locks.
+	if repo, ok := s.accountRepo.(interface {
+		ScopedAdminLockAccountMembership(context.Context, int64) error
+	}); ok {
+		if err = repo.ScopedAdminLockAccountMembership(txctx, id); err != nil {
+			return nil, err
+		}
+	} else if repo, ok := s.accountRepo.(interface {
 		ScopedAdminLockAccount(context.Context, int64) error
 	}); ok {
-		if err = locker.ScopedAdminLockAccount(txctx, id); err != nil {
+		if err = repo.ScopedAdminLockAccount(txctx, id); err != nil {
 			return nil, err
 		}
 	}

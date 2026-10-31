@@ -19,6 +19,12 @@ func (r *proxyRepository) SelectAccountProxy(ctx context.Context, mode string) (
 	switch mode {
 	case "random":
 	case "least_used":
+		// Account creation chooses a proxy before binding groups, while scoped
+		// updates already hold membership locks. Keep both paths in the same
+		// global-membership -> proxy-allocation order until transaction commit.
+		if _, err := client.ExecContext(ctx, `SELECT pg_advisory_xact_lock(1937006960,1735553655)`); err != nil {
+			return 0, err
+		}
 		if _, err := client.ExecContext(ctx, `SELECT pg_advisory_xact_lock(742319830125)`); err != nil {
 			return 0, err
 		}

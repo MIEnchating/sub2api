@@ -14,6 +14,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requestmodel"
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
@@ -708,6 +709,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	if account == nil {
 		return errors.New("account is nil")
 	}
+	if err := requestmodel.ValidateWebSocketModelFields(firstClientMessage); err != nil {
+		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
@@ -1111,6 +1115,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 		filter: func(msgType coderws.MessageType, payload []byte) (out []byte, blocked *OpenAIFastBlockedError, filterErr error) {
 			if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 				return payload, nil, nil
+			}
+			if err := requestmodel.ValidateWebSocketModelFields(payload); err != nil {
+				return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 			}
 			// Keep a per-frame semantic snapshot. The first frame has a snapshot
 			// above, but follow-up response.create frames can carry independent

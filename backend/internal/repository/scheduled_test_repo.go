@@ -451,7 +451,8 @@ func (r *scheduledTestResultRepository) RestartFailed(ctx context.Context, resul
 // its original ID/created_at while refreshing started_at. Apply the history
 // limit to each account/type series, not the entire plan: otherwise a later
 // test type can hide every result of earlier types. Latest view is restricted
-// to the last full execution snapshot when one has been recorded.
+// to the last full execution snapshot when one has been recorded, excluding
+// deleted accounts. History retains their results and display names for audit.
 func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID int64, limit int) ([]*service.ScheduledTestResult, error) {
 	rows, err := r.db.QueryContext(ctx, `
 		WITH ranked_results AS (
@@ -474,6 +475,7 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 		LEFT JOIN groups g ON g.id = r.group_id
 		LEFT JOIN accounts a ON a.id = r.account_id
 		WHERE ranked.history_rank <= $2
+		  AND ($2 > 1 OR r.account_id IS NULL OR (a.id IS NOT NULL AND a.deleted_at IS NULL))
 		ORDER BY r.started_at DESC, r.id DESC
 	`, planID, limit)
 	if err != nil {
@@ -691,6 +693,29 @@ const scheduledTestVisibleAccessCTE = `    ) projected_group ON TRUE
 const scheduledTestVisibleResultsCTE = scheduledTestVisibleProjectionCTE + "        LIMIT 1\n" + scheduledTestVisibleAccessCTE
 
 const scheduledTestVisibleResultColumns = `vr.id,vr.plan_id,vr.plan_name,vr.test_name,vr.test_order,vr.group_name,vr.plan_order,vr.target_mode,vr.status,vr.response_text,vr.output_kind,vr.output_html,vr.output_numeric,vr.visible_account_id,vr.model_id,vr.reasoning_effort,vr.group_id,vr.error_message,vr.latency_ms,vr.started_at,vr.finished_at,vr.created_at,vr.test_definition_id,vr.group_order,vr.account_schedulable,vr.test_key,vr.quality_verdict,vr.model_schedulable,vr.model_order,vr.execution_skipped`
+
+// GetAdminResultAccountNames loads current names in one batch, independently of
+// review eligibility. Only administrator handlers may request this enrichment.
+func (r *scheduledTestResultRepository) GetAdminResultAccountNames(ctx context.Context, accountIDs []int64) (map[int64]string, error) {
+	names := make(map[int64]string, len(accountIDs))
+	if len(accountIDs) == 0 {
+		return names, nil
+	}
+	rows, err := r.db.QueryContext(ctx, `SELECT id, COALESCE(name, '') FROM accounts WHERE id = ANY($1) AND deleted_at IS NULL`, pq.Array(accountIDs))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id int64
+		var name string
+		if err := rows.Scan(&id, &name); err != nil {
+			return nil, err
+		}
+		names[id] = name
+	}
+	return names, rows.Err()
+}
 
 // The user list shows completed results, including failures, from each plan's
 // current execution. Rank first so a failed or running check cannot fall back

@@ -26,7 +26,9 @@ class WorkflowToolchainTest(unittest.TestCase):
         frontend = ROOT / 'frontend'
         package = json.loads((frontend / 'package.json').read_text())
         lock = yaml.safe_load((frontend / 'pnpm-lock.yaml').read_text())
-        for dependency, patch_path in package['pnpm']['patchedDependencies'].items():
+        patches = package.get('pnpm', {}).get('patchedDependencies', {})
+        self.assertEqual(set(patches), set(lock.get('patchedDependencies', {})))
+        for dependency, patch_path in patches.items():
             patch_bytes = (frontend / patch_path).read_text().replace('\r\n', '\n').encode()
             patch_hash = base64.b32encode(hashlib.md5(patch_bytes).digest()).decode().rstrip('=').lower()
             self.assertEqual(lock['patchedDependencies'][dependency], {'path': patch_path, 'hash': patch_hash})
@@ -34,7 +36,11 @@ class WorkflowToolchainTest(unittest.TestCase):
         for dockerfile in ('Dockerfile', 'deploy/Dockerfile'):
             source = (ROOT / dockerfile).read_text()
             with self.subTest(dockerfile=dockerfile):
-                self.assertLess(source.index('COPY frontend/patches/ ./patches/'), source.index('pnpm install'))
+                patch_copy = 'COPY frontend/patches/ ./patches/'
+                if patches:
+                    self.assertLess(source.index(patch_copy), source.index('pnpm install'))
+                else:
+                    self.assertNotIn(patch_copy, source)
 
     def test_ci_security_and_release_verify_selected_source_version(self):
         with tempfile.TemporaryDirectory() as tmp:

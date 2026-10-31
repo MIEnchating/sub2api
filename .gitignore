@@ -138,6 +138,7 @@ vite.config.js
 docs/*
 !docs/upstream-error-message.md
 !docs/strict-failover.md
+!docs/group-unavailable-fallback.md
 !docs/channel-quality-experience.md
 !docs/passive-quality.md
 !docs/codex-fingerprint.md
@@ -148,6 +149,8 @@ docs/*
 !docs/channel-quality-protection.md
 !docs/channel-test-strategies.md
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/admin-api-keys.md
+!docs/mcp.md
 !docs/PAYMENT.md
 !docs/PAYMENT_CN.md
 !docs/GPT_DIRECT_CN.md

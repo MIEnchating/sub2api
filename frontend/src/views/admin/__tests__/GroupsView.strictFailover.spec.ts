@@ -4,6 +4,7 @@ import { createPinia } from "pinia";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { AdminGroup, StrictFailoverConfig } from "@/types";
+import GroupUnavailableFallbackField from "@/components/admin/group/GroupUnavailableFallbackField.vue";
 import GroupsView from "@/views/admin/GroupsView.vue";
 
 const {
@@ -87,11 +88,8 @@ const sourceGroup = {
   profit_min_margin: 0,
   profit_safety_buffer: 0,
   allow_image_generation: false,
-  allow_batch_image_generation: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
-  batch_image_discount_multiplier: 0.5,
-  batch_image_hold_multiplier: 0.6,
   image_price_1k: null,
   image_price_2k: null,
   image_price_4k: null,
@@ -190,6 +188,7 @@ const mountView = () =>
         GroupRPMOverridesModal: true,
         ReasoningEffortPolicyFields: defineComponent({ setup(_, { expose }) { expose({ validate: () => true, resetValidation: () => undefined }); return () => h("div"); } }),
         CodexManifestAccountsField: true,
+        GroupUnavailableFallbackField: true,
         StrictFailoverFields: StrictFailoverFieldsStub,
         PricingEntryCard: true,
         VueDraggable: true,
@@ -232,4 +231,25 @@ describe("GroupsView strict failover persistence", () => {
     expect(updateGroup).toHaveBeenLastCalledWith(42, expect.objectContaining({ strict_failover: { ...configured, enabled: false } }));
     wrapper.unmount();
   });
+  it("saves the group fallback separately and sends zero to clear it", async () => {
+    listGroups.mockResolvedValue({ items: [{ ...sourceGroup, fallback_group_id_on_unavailable: 88 }], total: 1, page: 1, page_size: 20, pages: 1 });
+    const wrapper = mountView();
+    await flushPromises();
+    await wrapper.findAll("button").find(button => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    const field = wrapper.findComponent(GroupUnavailableFallbackField);
+    expect(field.props("modelValue")).toBe(88);
+    field.vm.$emit("update:modelValue", 89);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenLastCalledWith(42, expect.objectContaining({ fallback_group_id_on_unavailable: 89 }));
+    await wrapper.findAll("button").find(button => button.text().includes("common.edit"))!.trigger("click");
+    await flushPromises();
+    wrapper.findComponent(GroupUnavailableFallbackField).vm.$emit("update:modelValue", null);
+    await wrapper.get("form").trigger("submit");
+    await flushPromises();
+    expect(updateGroup).toHaveBeenLastCalledWith(42, expect.objectContaining({ fallback_group_id_on_unavailable: 0 }));
+    wrapper.unmount();
+  });
+
 });

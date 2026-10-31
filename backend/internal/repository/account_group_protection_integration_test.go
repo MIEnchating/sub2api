@@ -52,7 +52,10 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 		}
 		defer tx.Rollback()
 		txctx := adminaccess.WithPrincipal(dbent.NewTxContext(ctx, tx), &adminaccess.Principal{})
-		if err = accounts.ScopedAdminLockAccount(txctx, id); err != nil {
+		if err = accounts.ScopedAdminLockAccountMembership(txctx, id); err != nil {
+			return err
+		}
+		if _, err = tx.Client().ExecContext(txctx, "SELECT id FROM accounts WHERE id=$1 FOR UPDATE", id); err != nil {
 			return err
 		}
 		if err = accounts.BindGroups(txctx, id, groupIDs); err != nil {
@@ -86,7 +89,7 @@ func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.D
 		defer exec(`ALTER TABLE scheduler_outbox DROP CONSTRAINT reject_membership_event`)
 	}
 	switch scenario {
-	case "concurrent completion":
+	case "concurrent completion", "scoped concurrent completion":
 		// A result writer already owns the plan. The membership edit must wait,
 		// then remove its just-committed hold under the same lock ordering.
 		tx, txErr := db.BeginTx(ctx, nil)

@@ -25,6 +25,9 @@ const mountResults = () => mount(TestResultsView, { global: {
     recentWindowDays: '{count} days', recentWindowHours: '{count} hours', recentWindowMinutes: '{count} minutes', recentWindowSeconds: '{count} seconds',
     recentProgress: 'Collecting {samples}/{count}',
     recentUnavailable: 'Recent pass-rate statistics unavailable',
+  }, allPass: {
+    consecutiveProgress: 'Consecutive successful rounds: {current}/{required}',
+    progressStates: { pending: 'Current round pending', failed: 'Current round failed', collecting: 'More successful rounds required', ready: 'Consecutive pass requirement met' },
   } } } }, tests: {} } } })],
   stubs: {
     AppLayout: { template: '<main><slot /></main>' }, Icon: true,
@@ -61,6 +64,21 @@ describe('public recent check counts', () => {
     expect(api.adminResults).not.toHaveBeenCalled()
     expect(wrapper.find('[data-admin-decision]').exists()).toBe(false)
     expect(wrapper.find('[data-quality-score]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('shows current whole-round streaks for each selected model even without individual rate evidence', async () => {
+    api.list.mockResolvedValue([
+      { ...baseResult, id: 11, model_id: 'model-a', model_order: 0, all_pass_progress: { required: 3, consecutive_passes: 1, round_verdict: 'pass', blocked: true } },
+      { ...baseResult, id: 12, model_id: 'model-b', model_order: 1, all_pass_progress: { required: 3, consecutive_passes: 0, round_verdict: 'fail', blocked: true } },
+    ])
+    const wrapper = mountResults(); await flushPromises()
+    expect(wrapper.get('[data-all-pass-progress]').text()).toContain('1/3')
+    expect(wrapper.get('[data-all-pass-progress]').text()).toContain('More successful rounds required')
+    expect(wrapper.find('[data-recent-pass-rate-unavailable]').exists()).toBe(false)
+    await wrapper.get('[data-model-selector]').setValue('model-b')
+    expect(wrapper.get('[data-all-pass-progress]').text()).toContain('0/3')
+    expect(wrapper.get('[data-all-pass-progress]').text()).toContain('Current round failed')
     wrapper.unmount()
   })
 
@@ -302,10 +320,13 @@ describe('channel quality result groups', () => {
       blocked: true, ready: true, stale: false, reason: 'recovery_pending',
       latest_verdict: 'pass', rule_version: 'v1', model: 'gpt-6-astra',
     }
-    const result = { ...baseResult, id: 91, pass_rate }
+    const all_pass_progress = { required: 3, consecutive_passes: 1, round_verdict: 'pending', blocked: true }
+    const result = { ...baseResult, id: 91, pass_rate, all_pass_progress }
     api.reviews.mockResolvedValue([{ result, generation: 7, verdict: 'pending', admin_verdict: '', account_paused: true }])
     const wrapper = mountResults(); await flushPromises()
     expect(wrapper.getComponent(TestRecentPassRate).props('evidence')).toEqual(pass_rate)
+    expect(wrapper.getComponent(TestRecentPassRate).props('allPassProgress')).toEqual(all_pass_progress)
+    expect(wrapper.get('[data-all-pass-progress]').text()).toContain('Current round pending')
     expect(wrapper.get('[data-recent-pass-rate] [data-recent-pass-rate-state]').text()).toContain('states.blocked')
     expect(wrapper.find('[data-admin-decision] [data-pass-rate-evidence]').exists()).toBe(false)
     expect(wrapper.get('[data-admin-pass]').attributes('disabled')).toBeUndefined()
@@ -442,6 +463,57 @@ describe('channel quality result groups', () => {
     expect(wrapper.get('[data-account-info]').text()).toContain('Review Account')
     await wrapper.get('[data-test-section] [data-view-history]').trigger('click'); await flushPromises()
     expect(wrapper.get('[data-dialog]').findAll('[data-output]').map(output => output.attributes('data-result-id'))).toEqual(['91'])
+    wrapper.unmount()
+  })
+
+  it.each([
+    ['number', 'passed'],
+    ['html', 'success'],
+    ['model_check', 'failed'],
+    ['text', 'error'],
+  ])('shows administrator account names for %s results without review records', async (output_kind, status) => {
+    api.isAdmin = true
+    api.list.mockResolvedValue([{ ...baseResult, id: 91, output_kind, status, account_name: 'GPT-SN-1' }])
+    const wrapper = mountResults(); await flushPromises()
+    expect(api.reviews).toHaveBeenCalledOnce()
+    expect(wrapper.get('[data-account-info]').text()).toContain('#3 · GPT-SN-1')
+    expect(wrapper.find('[data-admin-decision]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it.each(['', 'Previous account name'])('prefers the current administrator account name over a review name of %s', async account_name => {
+    api.isAdmin = true
+    const current = { ...baseResult, id: 91, account_name: 'Current account name' }
+    api.list.mockResolvedValue([current])
+    api.reviews.mockResolvedValue([{ result: { ...current, account_name }, generation: 7, verdict: 'pass', admin_verdict: 'pass', account_paused: false }])
+    const wrapper = mountResults(); await flushPromises()
+    expect(wrapper.get('[data-account-info]').text()).toContain('Current account name')
+    expect(wrapper.get('[data-account-info]').text()).not.toContain('Previous account name')
+    wrapper.unmount()
+  })
+
+  it('keeps administrator account names after review records disappear on refresh', async () => {
+    vi.useFakeTimers({ toFake: ['setInterval', 'clearInterval'] })
+    api.isAdmin = true
+    const result = { ...baseResult, id: 91, account_name: 'GPT-SN-1' }
+    api.list.mockResolvedValue([result])
+    api.reviews.mockResolvedValueOnce([{ result, generation: 7, verdict: 'pass', admin_verdict: 'pass', account_paused: false }]).mockResolvedValue([])
+    const wrapper = mountResults(); await flushPromises()
+    expect(wrapper.get('[data-account-info]').text()).toContain('GPT-SN-1')
+    await vi.advanceTimersByTimeAsync(5000); await flushPromises()
+    expect(api.list).toHaveBeenCalledTimes(2)
+    expect(api.reviews).toHaveBeenCalledTimes(2)
+    expect(wrapper.get('[data-account-info]').text()).toContain('GPT-SN-1')
+    wrapper.unmount()
+  })
+
+  it('shows administrator account names when the review request fails', async () => {
+    api.isAdmin = true
+    api.list.mockResolvedValue([{ ...baseResult, id: 91, account_name: 'GPT-SN-1' }])
+    api.reviews.mockRejectedValue(new Error('Review service unavailable'))
+    const wrapper = mountResults(); await flushPromises()
+    expect(wrapper.get('[data-account-info]').text()).toContain('GPT-SN-1')
+    expect(wrapper.get('[role="alert"]').text()).toBeTruthy()
     wrapper.unmount()
   })
 

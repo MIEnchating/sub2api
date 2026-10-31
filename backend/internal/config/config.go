@@ -7,9 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"net/netip"
 	"net/textproto"
 	"net/url"
 	"os"
+	"strconv"
 	"strings"
 	"sync/atomic"
 	"time"
@@ -69,6 +71,7 @@ type Config struct {
 	Server                  ServerConfig                  `mapstructure:"server"`
 	Log                     LogConfig                     `mapstructure:"log"`
 	CORS                    CORSConfig                    `mapstructure:"cors"`
+	MCP                     MCPConfig                     `mapstructure:"mcp"`
 	Security                SecurityConfig                `mapstructure:"security"`
 	Billing                 BillingConfig                 `mapstructure:"billing"`
 	Turnstile               TurnstileConfig               `mapstructure:"turnstile"`
@@ -113,6 +116,54 @@ type Config struct {
 // SimpleModeConfig controls startup behavior in simple mode.
 type SimpleModeConfig struct {
 	AutoCreateDefaultGroups bool `mapstructure:"auto_create_default_groups" yaml:"auto_create_default_groups"`
+}
+
+// MCPConfig fixes the public resource URL used by OAuth discovery and tokens.
+// Setting it is also the explicit opt-in that enables MCP.
+type MCPConfig struct {
+	PublicURL string `mapstructure:"public_url"`
+}
+
+// Enabled reports whether the operator opted in to the management MCP endpoint.
+func (c MCPConfig) Enabled() bool { return strings.TrimSpace(c.PublicURL) != "" }
+
+// Validate normalizes the configured resource URL without trusting request headers.
+// An empty URL keeps MCP and its OAuth endpoints disabled.
+func (c *MCPConfig) Validate() error {
+	raw := strings.TrimSpace(c.PublicURL)
+	if raw == "" {
+		c.PublicURL = ""
+		return nil
+	}
+	u, err := url.Parse(raw)
+	if err != nil {
+		return fmt.Errorf("mcp.public_url invalid: %w", err)
+	}
+	if !u.IsAbs() || u.Hostname() == "" || !httpguts.ValidHostHeader(u.Host) || strings.ContainsAny(u.Host, "*%") {
+		return fmt.Errorf("mcp.public_url must be an absolute URL with a valid host")
+	}
+	if u.User != nil || u.RawQuery != "" || u.ForceQuery || strings.Contains(raw, "#") {
+		return fmt.Errorf("mcp.public_url must not include userinfo, query, or fragment")
+	}
+	if u.Path != "/api/v1/mcp" || u.EscapedPath() != "/api/v1/mcp" {
+		return fmt.Errorf("mcp.public_url must have the exact path /api/v1/mcp without a trailing slash")
+	}
+	if port := u.Port(); port != "" {
+		n, err := strconv.Atoi(port)
+		if err != nil || n < 1 || n > 65535 {
+			return fmt.Errorf("mcp.public_url must have a valid port")
+		}
+	}
+	u.Scheme = strings.ToLower(u.Scheme)
+	u.Host = strings.ToLower(u.Host)
+	host := u.Hostname()
+	addr, _ := netip.ParseAddr(host)
+	localDevelopment := host == "localhost" || addr.IsLoopback()
+	if u.Scheme != "https" && (u.Scheme != "http" || !localDevelopment) {
+		return fmt.Errorf("mcp.public_url must use HTTPS (HTTP is allowed only for localhost or loopback IPs)")
+	}
+	c.PublicURL = u.String()
+	return nil
 }
 
 // PluginConfig 控制管理员手动上传的本地进程插件。
@@ -682,16 +733,23 @@ type ForwardedClientIPSettings struct {
 }
 
 type SecurityConfig struct {
-	URLAllowlist    URLAllowlistConfig   `mapstructure:"url_allowlist"`
-	ResponseHeaders ResponseHeaderConfig `mapstructure:"response_headers"`
-	CSP             CSPConfig            `mapstructure:"csp"`
-	ProxyFallback   ProxyFallbackConfig  `mapstructure:"proxy_fallback"`
-	ProxyProbe      ProxyProbeConfig     `mapstructure:"proxy_probe"`
+	MainlandWebBlock MainlandWebBlockConfig `mapstructure:"mainland_web_block"`
+	URLAllowlist     URLAllowlistConfig     `mapstructure:"url_allowlist"`
+	ResponseHeaders  ResponseHeaderConfig   `mapstructure:"response_headers"`
+	CSP              CSPConfig              `mapstructure:"csp"`
+	ProxyFallback    ProxyFallbackConfig    `mapstructure:"proxy_fallback"`
+	ProxyProbe       ProxyProbeConfig       `mapstructure:"proxy_probe"`
 	// TrustForwardedIPForAPIKeyACL enables legacy raw forwarded-header takeover.
 	// When disabled, server.trusted_proxies is authoritative for all client-IP consumers.
 	TrustForwardedIPForAPIKeyACL  bool                                       `mapstructure:"trust_forwarded_ip_for_api_key_acl"`
 	ForwardedClientIPHeaders      []string                                   `mapstructure:"forwarded_client_ip_headers" json:"forwarded_client_ip_headers" yaml:"forwarded_client_ip_headers"`
 	forwardedClientIPSettingsLive *atomic.Pointer[ForwardedClientIPSettings] `mapstructure:"-" json:"-" yaml:"-"`
+}
+
+// MainlandWebBlockConfig controls mainland-IP restrictions on /, /login and /home only.
+type MainlandWebBlockConfig struct {
+	Enabled  bool   `mapstructure:"enabled"`
+	CIDRFile string `mapstructure:"cidr_file"` // empty uses bundled IPv4 + IPv6 data
 }
 
 func NormalizeForwardedClientIPHeaders(headers []string) ([]string, error) {
@@ -2078,6 +2136,7 @@ func setDefaults() {
 	// CORS
 	viper.SetDefault("cors.allowed_origins", []string{})
 	viper.SetDefault("cors.allow_credentials", true)
+	viper.SetDefault("mcp.public_url", "")
 
 	// WebAuthn / Passkeys are opt-in because every deployment must explicitly
 	// declare its relying-party domain and trusted browser origins.
@@ -2087,6 +2146,8 @@ func setDefaults() {
 	viper.SetDefault("webauthn.rp_origins", []string{})
 
 	// Security
+	viper.SetDefault("security.mainland_web_block.enabled", false)
+	viper.SetDefault("security.mainland_web_block.cidr_file", "")
 	viper.SetDefault("security.url_allowlist.enabled", false)
 	viper.SetDefault("security.url_allowlist.upstream_hosts", []string{
 		"api.openai.com",
@@ -2819,6 +2880,9 @@ func (c *Config) Validate() error {
 		return fmt.Errorf("gemini.oauth.client_id and gemini.oauth.client_secret must be both set or both empty")
 	}
 
+	if err := c.MCP.Validate(); err != nil {
+		return err
+	}
 	if strings.TrimSpace(c.Server.FrontendURL) != "" {
 		if err := ValidateAbsoluteHTTPURL(c.Server.FrontendURL); err != nil {
 			return fmt.Errorf("server.frontend_url invalid: %w", err)

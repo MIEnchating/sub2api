@@ -3,11 +3,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { createI18n } from 'vue-i18n'
 import { createMemoryHistory, createRouter } from 'vue-router'
 import QQBotView from '../QQBotView.vue'
+import QQBotChatPreview from '@/components/admin/qqbot/QQBotChatPreview.vue'
 import zh from '@/i18n/locales/zh'
 import en from '@/i18n/locales/en'
 import { configSections, pickSection, cloneConfig } from '@/components/admin/qqbot/configSections'
 import { defaultModerationConfig, type QQBotConfig, type QQMemberOption } from '@/api/qqbot'
-const api = vi.hoisted(() => ({ config: vi.fn(), saveSection: vi.fn(), runtime: vi.fn(), bindings: vi.fn(), members: vi.fn(), deleteDiscoveredGroup: vi.fn(), probe: vi.fn(), configHistory: vi.fn(), commands: vi.fn() }))
+const api = vi.hoisted(() => ({ config: vi.fn(), saveSection: vi.fn(), runtime: vi.fn(), bindings: vi.fn(), members: vi.fn(), deleteDiscoveredGroup: vi.fn(), probe: vi.fn(), configHistory: vi.fn(), commands: vi.fn(), chatPreview: vi.fn() }))
 vi.mock('@/api/qqbot', async original => ({ ...await original<typeof import('@/api/qqbot')>(), qqbotAPI: api }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 const wrappers: VueWrapper[] = []
@@ -123,6 +124,85 @@ describe('QQ module settings', () => {
   await panel.get('input[placeholder="/a"]').setValue('/faq'); await w.get('form').trigger('submit'); await flushPromises()
   expect(server.custom_commands).toEqual([{ command: '/faq', reply: '固定回复', enabled: true }])
  })
+ it.each(['zh', 'en'] as const)('%s supports missing legacy knowledge and saves it independently of chat drafts', async locale => {
+  const w = await mountView(locale)
+  await w.get('#qqbot-settings-tab-chat').trigger('click')
+  await w.get('#qqbot-settings-panel-chat textarea').setValue('Unsaved persona')
+  await category(w, locale === 'zh' ? '对话与指令' : 'Conversations & commands')
+  await w.get('#qqbot-settings-tab-knowledge').trigger('click')
+  expect(w.get('#qqbot-settings-panel-knowledge').isVisible()).toBe(true)
+  expect((w.get('[data-testid="knowledge-enabled"]').element as HTMLInputElement).checked).toBe(false)
+  expect((w.get('[data-testid="knowledge-content"]').element as HTMLTextAreaElement).value).toBe('')
+  await w.get('[data-testid="knowledge-content"]').setValue('官网：https://example.com\n接入教程：在控制台创建 API Key。')
+  await w.get('[data-testid="knowledge-enabled"]').setValue(true)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(api.saveSection).toHaveBeenLastCalledWith('knowledge', 'knowledge-1', expect.objectContaining({ site_knowledge: { enabled: true, content: '官网：https://example.com\n接入教程：在控制台创建 API Key。' } }))
+  expect(server.system_prompt).toBe('Helpful')
+  expect(server.site_knowledge?.enabled).toBe(true)
+  await category(w, locale === 'zh' ? '连接与模型' : 'Connections & models')
+  await w.get('#qqbot-settings-tab-chat').trigger('click')
+  expect((w.get('#qqbot-settings-panel-chat textarea').element as HTMLTextAreaElement).value).toBe('Unsaved persona')
+ })
+ it('validates enabled knowledge and counts supplementary characters once', async () => {
+  const w = await mountView('zh', '/admin/qqbot/config?tab=knowledge')
+  const content = w.get('[data-testid="knowledge-content"]')
+  await w.get('[data-testid="knowledge-enabled"]').setValue(true)
+  await content.setValue(' \n\t')
+  const reportValidity = vi.spyOn(content.element as HTMLTextAreaElement, 'reportValidity')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(reportValidity).toHaveBeenCalledOnce()
+  expect(api.saveSection).not.toHaveBeenCalled()
+  await content.setValue('𠮷'.repeat(12001))
+  expect(w.get('[data-testid="knowledge-count"]').text()).toContain('12001 / 12000 字')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(api.saveSection).not.toHaveBeenCalled()
+  await content.setValue('𠮷'.repeat(12000))
+  expect(w.get('[data-testid="knowledge-count"]').text()).toContain('12000 / 12000 字')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(server.site_knowledge?.content).toBe('𠮷'.repeat(12000))
+ })
+ it('tries questions independently with saved configuration and retains knowledge drafts', async () => {
+  server.site_knowledge = { enabled: true, content: 'Saved knowledge' }
+  api.chatPreview.mockResolvedValue({ text: '试问回答', action: 'chat', input_tokens: 1, output_tokens: 1, duration_ms: 1, knowledge_sources: [] })
+  const w = await mountView('zh', '/admin/qqbot/config?tab=knowledge')
+  await w.get('[data-testid="knowledge-content"]').setValue('Unsaved knowledge')
+  const preview = w.getComponent(QQBotChatPreview)
+  expect(preview.props('config').site_knowledge.content).toBe('Saved knowledge')
+  await w.get('[data-testid="qq-preview-group"]').setValue('group')
+  await w.get('[data-testid="qq-preview-question"]').setValue('API 怎么接入？')
+  await w.get('[data-testid="qq-preview-run"]').trigger('click'); await flushPromises()
+  expect(api.chatPreview).toHaveBeenCalledWith({ group_id: 'group', member_id: undefined, question: 'API 怎么接入？' })
+  expect(api.saveSection).not.toHaveBeenCalled()
+  expect((w.get('[data-testid="knowledge-content"]').element as HTMLTextAreaElement).value).toBe('Unsaved knowledge')
+  expect(w.get('[data-testid="qq-preview-result"]').text()).toContain('试问回答')
+ })
+ it('retains knowledge text when disabled and keeps the draft on version conflicts', async () => {
+  server.site_knowledge = { enabled: true, content: 'Existing site guide' }
+  const w = await mountView('zh', '/admin/qqbot/config?tab=knowledge')
+  await w.get('[data-testid="knowledge-enabled"]').setValue(false)
+  api.saveSection.mockRejectedValueOnce(new Error('此模块已被其他页面更新'))
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(w.get('[role="alert"]').text()).toContain('其他页面')
+  expect((w.get('[data-testid="knowledge-content"]').element as HTMLTextAreaElement).value).toBe('Existing site guide')
+  expect((w.get('[data-testid="knowledge-enabled"]').element as HTMLInputElement).checked).toBe(false)
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(api.saveSection).toHaveBeenLastCalledWith('knowledge', 'knowledge-1', expect.anything())
+  expect(server.site_knowledge).toEqual({ enabled: false, content: 'Existing site guide' })
+ })
+ it('restores knowledge history as an unsaved draft', async () => {
+  server.site_knowledge = { enabled: true, content: 'Current site guide' }
+  api.configHistory.mockResolvedValue([{ at: '2026-10-30T10:00:00+08:00', section: 'knowledge', before: { site_knowledge: { enabled: false, content: 'Previous site guide' } }, after: { site_knowledge: server.site_knowledge } }])
+  const w = await mountView('zh', '/admin/qqbot/config?tab=knowledge')
+  const history = w.findAll('details').find(details => details.get('summary').text() === '最近 30 次配置变更')!
+  history.element.open = true; await history.trigger('toggle'); await flushPromises()
+  await history.find('button').trigger('click'); await flushPromises()
+  expect((w.get('[data-testid="knowledge-content"]').element as HTMLTextAreaElement).value).toBe('Previous site guide')
+  expect(server.site_knowledge?.content).toBe('Current site guide')
+  expect(api.saveSection).not.toHaveBeenCalled()
+  expect(w.get('#qqbot-settings-tab-knowledge').text()).toContain('•')
+  await w.get('form').trigger('submit'); await flushPromises()
+  expect(server.site_knowledge).toEqual({ enabled: false, content: 'Previous site guide' })
+ })
  it('shows and saves moderation only on the group page', async () => {
   const w = await mountView('zh', '/admin/qqbot/groups')
   expect(w.findAll('[role="tab"]')).toHaveLength(3)
@@ -132,7 +212,7 @@ describe('QQ module settings', () => {
   await w.get('form').trigger('submit'); await flushPromises()
   expect(server.moderation).toMatchObject({ enabled: true, groups: ['group'] })
  })
- it('merges report defaults into a legacy moderation config without changing rules or exemptions', async () => {
+ it('preserves legacy moderation rules and exemptions without exposing report controls', async () => {
   api.config.mockResolvedValue({ ...cloneConfig(server), moderation: {
    enabled: true, groups: ['group'], repeat_window_seconds: 12, repeat_count: 6,
    burst_window_seconds: 8, burst_count: 9, mute_minutes: 7,
@@ -141,65 +221,49 @@ describe('QQ module settings', () => {
   } })
   const w = await mountView('zh', '/admin/qqbot/groups')
   await w.get('#qqbot-settings-tab-moderation').trigger('click')
-  expect((w.get('[data-testid="moderation-report-enabled"]').element as HTMLInputElement).checked).toBe(false)
-  expect((w.get('[data-testid="moderation-report-mute-minutes"]').element as HTMLInputElement).value).toBe('5')
+  expect(w.find('[data-testid="moderation-report-enabled"]').exists()).toBe(false)
+  expect(w.find('[data-testid="moderation-report-mute-minutes"]').exists()).toBe(false)
   expect((w.get('[data-testid="moderation-repeat_count"]').element as HTMLInputElement).value).toBe('6')
   expect(w.get('[data-testid="moderation-exempt-member"]').text()).toContain('existing-member')
-  await w.get('[data-testid="moderation-report-enabled"]').setValue(true)
   await w.get('form').trigger('submit'); await flushPromises()
-  expect(server.moderation).toMatchObject({ enabled: true, report_enabled: true, report_mute_minutes: 5,
+  expect(server.moderation).toMatchObject({ enabled: true, report_enabled: false, report_mute_minutes: 5,
    repeat_window_seconds: 12, repeat_count: 6, burst_window_seconds: 8, burst_count: 9,
    mute_minutes: 7, repeat_offense_minutes: 45, escalated_mute_minutes: 60,
    groups: ['group'], exemptions: [{ group_id: 'group', member_id: 'existing-member' }]
   })
  })
- it.each(['zh', 'en'] as const)('%s saves reports independently of chat and flooding while preserving shared exemptions', async locale => {
+ it.each(['zh', 'en'] as const)('%s saves flood control independently of chat while preserving exemptions', async locale => {
   server.chat_disabled = true
   const w = await mountView(locale, '/admin/qqbot/groups')
   await w.get('#qqbot-settings-tab-moderation').trigger('click')
   expect(w.get('[data-testid="moderation-shared-groups"]').attributes('disabled')).toBeDefined()
-  await w.get('[data-testid="moderation-report-enabled"]').setValue(true)
+  await w.get('[data-testid="moderation-enabled"]').setValue(true)
   expect(w.get('[data-testid="moderation-shared-groups"]').attributes('disabled')).toBeUndefined()
-  expect(w.get('[data-testid="moderation-flood-fields"]').attributes('disabled')).toBeDefined()
+  expect(w.get('[data-testid="moderation-flood-fields"]').attributes('disabled')).toBeUndefined()
   await w.findAll('[data-testid="moderation-group"]')[0]!.setValue(true)
   await w.get('[data-testid="moderation-add-exemption"]').trigger('click')
   await flushPromises()
   await w.get('[data-testid="moderation-exempt-member"] [data-testid="qq-member-select"]').setValue(memberKey('group', 'trusted-member'))
-  await w.get('[data-testid="moderation-report-mute-minutes"]').setValue(8)
   await w.get('form').trigger('submit'); await flushPromises()
-  expect(server.moderation).toMatchObject({ enabled: false, report_enabled: true, report_mute_minutes: 8,
+  expect(server.moderation).toMatchObject({ enabled: true, report_enabled: false,
    groups: ['group'], exemptions: [{ group_id: 'group', member_id: 'trusted-member', nickname: 'Trusted member' }]
   })
   expect(server.chat_disabled).toBe(true)
-  await w.get('[data-testid="moderation-enabled"]').setValue(true)
-  await w.get('[data-testid="moderation-report-enabled"]').setValue(false)
-  expect(w.get('[data-testid="moderation-shared-groups"]').attributes('disabled')).toBeUndefined()
-  expect(w.get('[data-testid="moderation-report-mute-minutes"]').attributes('disabled')).toBeDefined()
-  await w.get('form').trigger('submit'); await flushPromises()
-  expect(server.moderation).toMatchObject({ enabled: true, report_enabled: false, report_mute_minutes: 8,
-   groups: ['group'], exemptions: [{ group_id: 'group', member_id: 'trusted-member', nickname: 'Trusted member' }]
-  })
   await w.get('[data-testid="moderation-enabled"]').setValue(false)
   expect(w.get('[data-testid="moderation-shared-exemptions"]').attributes('disabled')).toBeDefined()
   await w.get('form').trigger('submit'); await flushPromises()
   expect(server.moderation?.exemptions).toEqual([{ group_id: 'group', member_id: 'trusted-member', nickname: 'Trusted member' }])
   expect(server.moderation?.groups).toEqual(['group'])
  })
- it('validates the report mute duration as an integer from one to sixty minutes', async () => {
+ it('does not expose retired report settings or enable flood controls for old report-only configs', async () => {
   server.moderation = { ...defaultModerationConfig(), report_enabled: true, groups: ['group'] }
   const w = await mountView('zh', '/admin/qqbot/groups')
   await w.get('#qqbot-settings-tab-moderation').trigger('click')
-  const input = w.get('[data-testid="moderation-report-mute-minutes"]')
-  const reportValidity = vi.spyOn(input.element as HTMLInputElement, 'reportValidity')
-  for (const value of [0, 61, 1.5]) {
-   await input.setValue(value)
-   await w.get('form').trigger('submit'); await flushPromises()
-   expect(api.saveSection).not.toHaveBeenCalled()
-  }
-  expect(reportValidity).toHaveBeenCalledTimes(3)
-  await input.setValue(60)
-  await w.get('form').trigger('submit'); await flushPromises()
-  expect(server.moderation?.report_mute_minutes).toBe(60)
+  expect(w.find('[data-testid="moderation-report-enabled"]').exists()).toBe(false)
+  expect(w.find('[data-testid="moderation-report-mute-minutes"]').exists()).toBe(false)
+  expect(w.get('[data-testid="moderation-flood-fields"]').attributes('disabled')).toBeDefined()
+  expect(w.get('[data-testid="moderation-shared-groups"]').attributes('disabled')).toBeDefined()
+  expect(w.get('[data-testid="moderation-shared-exemptions"]').attributes('disabled')).toBeDefined()
  })
   it.each(['zh', 'en'] as const)('%s selects group admins by recent messages and bound identity and supports removal', async locale => {
     server.allowed_groups = ['group', 'second-group']

@@ -21,6 +21,9 @@ import (
 func TestScheduledTestQualityIntegration(t *testing.T) {
 	dsn := os.Getenv("MIGRATION_TEST_DATABASE_URL")
 	if dsn == "" {
+		dsn = integrationDatabaseDSN
+	}
+	if dsn == "" {
 		t.Skip("MIGRATION_TEST_DATABASE_URL is not set")
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
@@ -101,6 +104,7 @@ func TestScheduledTestQualityIntegration(t *testing.T) {
 	applyMigration("284_scheduled_test_output_tokens.sql")
 	applyMigration("312_scheduled_test_pass_rate.sql")
 	applyMigration("315_scheduled_test_multi_model.sql")
+	applyMigration("326_scheduled_test_all_pass_rounds.sql")
 	var statisticsCount int
 	require.NoError(t, db.QueryRowContext(ctx, `SELECT count(*) FROM scheduled_test_definitions WHERE key='hourly_stats' AND output_kind='statistics' AND prompt='' AND enabled AND sort_order=2`).Scan(&statisticsCount))
 	require.Equal(t, 1, statisticsCount, "the local statistics definition is seeded idempotently")
@@ -461,6 +465,10 @@ func TestScheduledTestQualityIntegration(t *testing.T) {
 		require.NoError(t, err)
 		require.Len(t, latest, 1)
 		require.Equal(t, newer[0].ID, latest[0].ID, "failed snapshot publication rolls back both rows and the latest-run pointer")
+	})
+
+	t.Run("latest execution hides deleted accounts while history retains them", func(t *testing.T) {
+		testScheduledTestDeletedAccountResults(t, ctx, db, plans, results, candyID)
 	})
 
 	t.Run("group-mode retention keeps every actual account and type", func(t *testing.T) {
