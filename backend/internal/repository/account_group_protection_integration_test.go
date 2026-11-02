@@ -21,6 +21,10 @@ import (
 func testManualMembershipProtection(t *testing.T, ctx context.Context, db *sql.DB, plans *scheduledTestPlanRepository, results *scheduledTestResultRepository, definitionID int64, scenario string) {
 	scoped := strings.HasPrefix(scenario, "scoped ")
 	scenario = strings.TrimPrefix(scenario, "scoped ")
+	if strings.HasPrefix(scenario, "full access ") {
+		ctx = adminaccess.WithPrincipal(ctx, &adminaccess.Principal{Policy: adminaccess.Policy{FullAccess: true}})
+		scenario = strings.TrimPrefix(scenario, "full access ")
+	}
 	exec := func(query string, args ...any) {
 		t.Helper()
 		_, err := db.ExecContext(ctx, query, args...)

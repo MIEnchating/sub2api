@@ -4,15 +4,53 @@ package repository
 
 import (
 	"context"
+	"errors"
 	"testing"
 
 	"entgo.io/ent/dialect"
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
+
+func TestBindGroupsAdminKeyTransactionBoundary(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		principal *adminaccess.Principal
+	}{
+		{name: "ordinary administrator"},
+		{name: "full access key", principal: &adminaccess.Principal{Policy: adminaccess.Policy{FullAccess: true}}},
+		{name: "restricted key", principal: &adminaccess.Principal{}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			db, mock, err := sqlmock.New()
+			require.NoError(t, err)
+			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
+			t.Cleanup(func() { _ = client.Close() })
+			repo := newAccountRepositoryWithSQL(client, db, nil)
+			ctx := context.Background()
+			if tc.principal != nil {
+				ctx = adminaccess.WithPrincipal(ctx, tc.principal)
+			}
+			if tc.principal != nil && !tc.principal.Policy.FullAccess {
+				// Restricted edits must arrive in the authorization transaction.
+				require.EqualError(t, repo.BindGroups(ctx, 31, nil), "scoped membership writing requires a transaction")
+			} else {
+				// Full access follows the ordinary administrator path, but must
+				// still acquire the protection lock before reading memberships.
+				lockErr := errors.New("protection lock unavailable")
+				mock.ExpectBegin()
+				mock.ExpectExec(`SELECT pg_advisory_xact_lock\(1937006960,1735553655\)`).WillReturnError(lockErr)
+				mock.ExpectRollback()
+				require.ErrorIs(t, repo.BindGroups(ctx, 31, nil), lockErr)
+			}
+			require.NoError(t, mock.ExpectationsWereMet())
+		})
+	}
+}
 
 func TestScopedAdminLockAccountPreservesProtectionLockOrder(t *testing.T) {
 	for _, exists := range []bool{true, false} {

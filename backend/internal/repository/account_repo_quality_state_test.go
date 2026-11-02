@@ -165,3 +165,58 @@ func TestAccountWritePreservesCurrentActiveModelProtection(t *testing.T) {
 		}
 	}
 }
+
+func TestAccountWritePreservesLiveModelQualityProjection(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		current map[string]any
+	}{
+		{"new failure", map[string]any{
+			"active_test_model_holds":       map[string]any{"model-a": "failed"},
+			"active_test_model_states":      map[string]any{"model-a": map[string]any{"status": "blocked"}, "model-b": map[string]any{"status": "normal"}},
+			"active_pass_rate_holds":        map[string]any{"model-c": "low pass rate"},
+			"active_test_all_models_paused": true,
+		}},
+		{"recovered model", map[string]any{
+			"active_test_model_states": map[string]any{"model-a": map[string]any{"status": "normal"}},
+		}},
+		{"removed policy", map[string]any{}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			incoming := map[string]any{
+				"active_test_model_holds":       map[string]any{"old-model": "old failure"},
+				"active_test_model_states":      map[string]any{"old-model": map[string]any{"status": "blocked"}},
+				"active_pass_rate_holds":        map[string]any{"old-model": "old rate"},
+				"active_test_all_models_paused": true,
+				"unrelated":                     "edited",
+			}
+			account := &service.Account{Status: service.StatusActive, Schedulable: true, Extra: incoming}
+			preserveLockedAccountSchedulingState(account, accountSchedulingState{status: service.StatusActive, schedulable: true}, tt.current, incoming)
+			for _, key := range []string{"active_test_model_holds", "active_test_model_states", "active_test_all_models_paused", "active_pass_rate_holds"} {
+				value, exists := tt.current[key]
+				if exists {
+					require.Equal(t, value, incoming[key], key)
+				} else {
+					require.NotContains(t, incoming, key)
+				}
+			}
+			require.Equal(t, "edited", incoming["unrelated"])
+		})
+	}
+}
+
+func TestAccountWritePreservesAliasedModelQualityProjection(t *testing.T) {
+	extra := map[string]any{
+		"active_test_model_holds":       map[string]any{"model-a": "failed"},
+		"active_test_model_states":      map[string]any{"model-a": map[string]any{"status": "blocked"}},
+		"active_test_all_models_paused": true,
+		"active_pass_rate_holds":        map[string]any{"model-b": "low pass rate"},
+	}
+	account := &service.Account{Status: service.StatusActive, Schedulable: true, Extra: extra}
+	preserveLockedAccountSchedulingState(account, accountSchedulingState{status: service.StatusActive, schedulable: true}, extra, extra)
+	require.Len(t, extra, 4)
+	holds, ok := extra["active_test_model_holds"].(map[string]any)
+	require.True(t, ok, "active model holds must remain a map after an aliased account write")
+	require.Equal(t, "failed", holds["model-a"])
+	require.Equal(t, true, extra["active_test_all_models_paused"])
+}

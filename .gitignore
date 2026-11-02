@@ -140,7 +140,6 @@ docs/*
 !docs/strict-failover.md
 !docs/group-unavailable-fallback.md
 !docs/channel-quality-experience.md
-!docs/passive-quality.md
 !docs/codex-fingerprint.md
 !docs/codex-ticket-diagnostics.md
 
@@ -190,3 +189,6 @@ deploy/docker-compose.updater.json
 
 !docs/channel-quality.md
 !docs/admin-api-keys.md
+
+!docs/custom-features.md
+!docs/AUTO_UPDATE.md

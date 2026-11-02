@@ -1275,7 +1275,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		return nil
 	}
 	keys := []string{
-		"active_pass_rate_holds",
 		// Anthropic shared-window and Fable-only threshold checks run on this
 		// projection. UpdateExtra refreshes both payloads without a bucket rebuild.
 		"session_window_utilization",
@@ -1362,6 +1361,11 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.OpenAIAutoResetCreditStateExtraKey,
 		"model_rate_limits",
 		service.OpenAIModelNormalizationEnabledExtraKey,
+		// Model protection must survive the metadata projection used by candidate
+		// and sticky filters; display-only model states stay outside this cache.
+		"active_test_model_holds",
+		"active_pass_rate_holds",
+		"active_test_all_models_paused",
 		service.UpstreamBillingProbeExtraKey,
 		service.UpstreamBillingRateLimitExtraKey,
 		service.GrokMediaEligibleExtraKey,
