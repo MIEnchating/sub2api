@@ -397,6 +397,14 @@ func (s *OpenAIGatewayService) prepareOpenAIStrictFailover(ctx context.Context, 
 		if !accountSupportsOpenAICapabilities(a, capability, imageCapability) || (compact && openAICompactSupportTier(a) == 0) {
 			return "capability_not_supported", nil
 		}
+		// An explicit size is a capability requirement, so an incompatible
+		// strict tier can be exhausted. Unspecified-size preferences must stay
+		// inside the active strict tier; they cannot bypass a busy primary.
+		if size, ok := openAIImageSizeRoutingFromContext(ctx); ok {
+			if tier, explicit := ClassifyImageBillingTier(size); explicit && !a.SupportsOpenAIImageSizeTier(tier) {
+				return openAIImageSizeTierUnsupportedReason, nil
+			}
+		}
 		if len(transports) > 0 && transports[0] != "" && transports[0] != OpenAIUpstreamTransportAny && transports[0] != OpenAIUpstreamTransportHTTPSSE && !s.isOpenAIAccountTransportCompatible(a, transports[0]) {
 			return "transport_not_supported", nil
 		}

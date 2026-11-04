@@ -712,6 +712,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	if err := requestmodel.ValidateWebSocketModelFields(firstClientMessage); err != nil {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 	}
+	if err := openAIWSRejectExcelBPS(account, openAIWSPassthroughRequestModelForFrame(firstClientMessage), openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)); err != nil {
+		return err
+	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
 		return err
 	}
@@ -784,6 +787,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	}
 	if capturedSessionModel != "" && capturedSessionModel != strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()) {
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
+	}
+	if err := openAIWSRejectExcelBPS(account, initialRequestModel, capturedSessionModel); err != nil {
+		return err
 	}
 	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
 	if !vmBound {
@@ -940,6 +946,27 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 		proxyURL = account.Proxy.URL()
 	}
 
+	var wsBinding *openAICodexWSBinding
+	if !vmBound {
+		wsBinding = s.bindCodexTicketWS(ctx, account, capturedSessionModel, headers)
+		if err := s.checkCodexTicketWS(ctx, account, capturedSessionModel, wsBinding); err != nil {
+			return err
+		}
+		var releaseEgress func()
+		proxyURL, releaseEgress, err = s.pinCodexTicketWSAcquire(ctx, headers, account)
+		if err != nil {
+			return err
+		}
+		defer releaseEgress()
+		if wsBinding.ticket != nil {
+			defer s.holdCodexTicketChat(account)()
+		}
+		firstClientMessage, err = wsBinding.pinPayload(firstClientMessage)
+		if err != nil {
+			return err
+		}
+	}
+
 	dialer := s.getOpenAIWSPassthroughDialer()
 	if dialer == nil {
 		return errors.New("openai ws passthrough dialer is nil")
@@ -960,14 +987,14 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	account429RetryExhausted := false
 	for {
 		if !vmBound {
-			headers, _, err = s.openAIWSCodexTicketHeadersFactory(account, gjson.GetBytes(firstClientMessage, "model").String())(ctx, headers)
-			if err != nil {
-				return fmt.Errorf("refresh ws ticket headers: %w", err)
+			if err := s.checkCodexTicketWS(ctx, account, capturedSessionModel, wsBinding); err != nil {
+				return err
 			}
 			headers, err = s.refreshOpenAIAgentIdentityHeaders(ctx, account, headers)
 			if err != nil {
 				return fmt.Errorf("refresh ws authentication headers: %w", err)
 			}
+			wsBinding.restoreHeaders(headers)
 		}
 		upstreamConn, statusCode, handshakeHeaders, account429RetryExhausted, err = dialAccount429Retry(ctx, account, func(attemptCtx context.Context) (openAIWSClientConn, int, http.Header, error) {
 			dialCtx, cancelDial := context.WithTimeout(attemptCtx, s.openAIWSDialTimeout())
@@ -1242,6 +1269,16 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 			if vmBound && isResponseCreate {
 				model = account.GetMappedModel(model)
 			}
+			if isResponseCreate || eventType == "session.update" {
+				if err := openAIWSRejectExcelBPS(account, requestModelForThisFrame, model); err != nil {
+					return payload, nil, err
+				}
+				if !vmBound {
+					if err := s.checkCodexTicketWS(ctx, account, model, wsBinding); err != nil {
+						return payload, nil, err
+					}
+				}
+			}
 			if isResponseCreate && model != "" && model != strings.TrimSpace(gjson.GetBytes(payload, "model").String()) {
 				payload = s.ReplaceModelInBody(payload, model)
 			}
@@ -1275,6 +1312,13 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 						return out, nil, fmt.Errorf("apply codex fingerprint to ws frame: %w", fingerprintErr)
 					}
 				}
+				if !vmBound {
+					var pinErr error
+					out, pinErr = wsBinding.pinPayload(out)
+					if pinErr != nil {
+						return out, nil, pinErr
+					}
+				}
 				usageMeta.updateFromResponseCreate(out, model, requestModelForThisFrame)
 				_, actualModel := usageMeta.turnModels(requestModelForThisFrame)
 				SetOpsUpstreamModel(c, actualModel)
@@ -1287,6 +1331,9 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 				turnOutputCommitted = false
 				clientOutputMu.Unlock()
 				acceptedTurn = true
+			}
+			if policyErr == nil && blocked == nil && !vmBound && eventType == "session.update" {
+				out, policyErr = wsBinding.pinPayload(out)
 			}
 			return out, blocked, policyErr
 		},
@@ -1305,6 +1352,11 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 		},
 	}
 	upstreamFirstMessageSent := false
+	if !vmBound {
+		if err := s.checkCodexTicketWS(ctx, account, capturedSessionModel, wsBinding); err != nil {
+			return err
+		}
+	}
 	firstWriteCtx, cancelFirstWrite := context.WithTimeout(ctx, s.openAIWSWriteTimeout())
 	firstWriteErr := relayUpstreamFrameConn.WriteFrame(firstWriteCtx, coderws.MessageText, firstClientMessage)
 	cancelFirstWrite()

@@ -238,6 +238,54 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('keeps BPS off by default during Codex session import', async () => {
+    const wrapper = await openCodexImportStep()
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    expect(importCodexSessionMock).toHaveBeenCalledTimes(1)
+    expect(importCodexSessionMock.mock.calls[0]?.[0]?.extra ?? {}).not.toHaveProperty('openai_excel_bps')
+    wrapper.unmount()
+  })
+
+  it.each([false, true])('passes BPS model routing and IP-pool policy into Codex import (all models %s)', async (allModels) => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="excel-bps-toggle"]').setValue(true)
+    await wrapper.get('[data-testid="excel-bps-all-models"]').setValue(allModels)
+    await wrapper.get('[data-testid="excel-bps-mihomo"]').setValue(true)
+    await wrapper.get('[data-testid="excel-bps-proxy-source"]').setValue('ip_pool')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('BPS import')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await wrapper.get('[data-testid="import-codex-session"]').trigger('click')
+    await flushPromises()
+    const extra = importCodexSessionMock.mock.calls[0]?.[0]?.extra
+    expect(extra).toMatchObject({ openai_excel_bps: true, openai_excel_bps_mihomo: true, openai_excel_bps_proxy_source: 'ip_pool' })
+    if (allModels) expect(extra).not.toHaveProperty('openai_excel_bps_models')
+    else expect(extra.openai_excel_bps_models).toEqual(['gpt-6-astra', 'gpt-5.6-sol', 'gpt-5.6-terra'])
+    wrapper.unmount()
+  })
+
+  it('blocks OAuth creation when BPS auto-move has no destination', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await wrapper.get('[data-testid="excel-bps-toggle"]').setValue(true)
+    await wrapper.get('[data-testid="excel-bps-auto-move-on-403"]').setValue(true)
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('BPS invalid destination')
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    expect(wrapper.find('[data-testid="import-codex-session"]').exists()).toBe(false)
+    expect(createAccountMock).not.toHaveBeenCalled()
+    expect(importCodexSessionMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('hides BPS account options for OpenAI API keys', async () => {
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    expect(wrapper.find('[data-testid="excel-bps-settings"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('sets month and year expiry presets without submitting the account form', async () => {
     vi.useFakeTimers({ toFake: ['Date'] })
     vi.setSystemTime(new Date('2026-01-31T12:34:00'))
@@ -404,6 +452,25 @@ describe('CreateAccountModal OpenAI long-context billing', () => {
 
     expect(createAccountMock).toHaveBeenCalledTimes(1)
     expect(createAccountMock.mock.calls[0]?.[0]?.extra?.images_url_to_b64_json).toBe(true)
+  })
+
+  it('omits image size tiers by default and sends restricted tiers when set', async () => {
+    await submitApiKeyAccount('openai')
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra).not.toHaveProperty('openai_image_size_tiers')
+
+    createAccountMock.mockClear()
+    const wrapper = mountModal()
+    await selectButtonByText(wrapper, 'OpenAI')
+    await selectButtonByText(wrapper, 'API Key')
+    await wrapper.get('form#create-account-form input[type="text"]').setValue('openai account')
+    await wrapper.get('form#create-account-form input[type="password"]').setValue('test-api-key')
+    await wrapper.get('[data-testid="openai-image-size-tier-1K"]').setValue(false)
+    await wrapper.get('[data-testid="openai-image-size-tier-2K"]').setValue(false)
+    await wrapper.get('form#create-account-form').trigger('submit.prevent')
+    await flushPromises()
+
+    expect(createAccountMock).toHaveBeenCalledTimes(1)
+    expect(createAccountMock.mock.calls[0]?.[0]?.extra?.openai_image_size_tiers).toEqual(['4K'])
   })
 
   it('persists upstream model metadata after creating an account from preview', async () => {

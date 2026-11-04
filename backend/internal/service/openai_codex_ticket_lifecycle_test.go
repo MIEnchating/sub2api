@@ -27,7 +27,7 @@ func codexTicketResponse() *http.Response {
 	h := http.Header{}
 	h.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
 	addFakeCodexTicketCookies(h)
-	return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader("data: {}\n\n"))}
+	return &http.Response{StatusCode: http.StatusOK, Header: h, Body: io.NopCloser(strings.NewReader(`{"status":"completed"}`))}
 }
 
 func TestCodexTicketProbeBypassesPluginDuringWiring(t *testing.T) {
@@ -99,7 +99,7 @@ func (r *codexTicketLifecycleSettings) GetValue(ctx context.Context, key string)
 }
 
 func TestCodexTicketHarvesterStopCancelsInFlightWork(t *testing.T) {
-	for _, stage := range []string{"settings-enabled", "accounts", "upstream", "persist"} {
+	for _, stage := range []string{"settings-enabled", "settings-proxy", "accounts", "upstream", "persist"} {
 		t.Run(stage, func(t *testing.T) {
 			started := make(chan struct{})
 			cancelled := make(chan struct{})
@@ -119,7 +119,7 @@ func TestCodexTicketHarvesterStopCancelsInFlightWork(t *testing.T) {
 				}
 				return codexTicketResponse(), nil
 			}}
-			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestAttemptTimeoutSeconds: 25, Models: []string{"gpt-6-astra"}}, upstream)
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, HarvestProxyURL: "http://proxy.example.com:8080", HarvestAttemptTimeoutSeconds: 25, Models: []string{"gpt-6-astra"}}, upstream)
 			svc.accountRepo = repo
 			if stage == "accounts" {
 				repo.list = func(ctx context.Context) ([]Account, error) { return nil, block(ctx) }
@@ -129,7 +129,7 @@ func TestCodexTicketHarvesterStopCancelsInFlightWork(t *testing.T) {
 			}
 			if strings.HasPrefix(stage, "settings-") {
 				svc.settingService = NewSettingService(&codexTicketLifecycleSettings{get: func(ctx context.Context, key string) (string, error) {
-					if stage == "settings-enabled" && key == SettingKeyOpenAICodexTicketEnabled {
+					if stage == "settings-enabled" && key == SettingKeyOpenAICodexTicketEnabled || stage == "settings-proxy" && key == SettingKeyOpenAICodexTicketHarvestProxyURL {
 						return "", block(ctx)
 					}
 					if key == SettingKeyOpenAICodexTicketEnabled {
@@ -169,16 +169,16 @@ type codexTicketHeaderOnlyBody struct{ reads, closes int }
 
 func (b *codexTicketHeaderOnlyBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
 func (b *codexTicketHeaderOnlyBody) Close() error             { b.closes++; return nil }
-func TestCodexTicketProbeClosesStreamWithoutDraining(t *testing.T) {
+func TestCodexTicketProbeRejectsEmptyStreamAndCloses(t *testing.T) {
 	body := &codexTicketHeaderOnlyBody{}
-	svc := ticketTestService(t, config.OpenAICodexTicketConfig{}, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) {
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{HarvestProxyURL: "http://proxy.example:8080"}, &codexTicketFuncUpstream{do: func(*http.Request) (*http.Response, error) {
 		response := codexTicketResponse()
 		response.Body = body
 		return response, nil
 	}})
 	_, _, err := svc.fireOpenAICodexTicketProbe(context.Background(), ticketTestAccount(41), "test-token", "gpt-6-astra", "", time.Second)
-	require.NoError(t, err)
-	require.Zero(t, body.reads)
+	require.Error(t, err)
+	require.Equal(t, 1, body.reads)
 	require.Equal(t, 1, body.closes)
 }
 
@@ -188,7 +188,7 @@ func TestCodexTicketPolicyExemptsCredentialShadows(t *testing.T) {
 	shadow := ticketTestAccount(42)
 	shadow.ParentAccountID = &parentID
 	shadow.Status = StatusActive
-	cfg := config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}
+	cfg := config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true, HarvestProxyURL: "http://proxy.example.com:8080"}
 	upstream := &httpUpstreamRecorder{}
 	svc := ticketTestService(t, cfg, upstream)
 	svc.accountRepo = &codexTicketRefreshRepo{accounts: []Account{*shadow}}

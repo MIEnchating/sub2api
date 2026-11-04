@@ -11,6 +11,8 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <ExcelBPSSettings v-if="account?.platform === 'openai' && account.type === 'oauth' && !isSparkShadow" v-model="excelBPSConfig" :groups="groups" :allow-composite="!authStore.isSimpleMode" />
+
       <div>
         <label class="input-label">{{ t('common.name') }}</label>
         <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
@@ -2340,6 +2342,14 @@
         </button>
       </div>
 
+      <!-- OpenAI images: size tier routing -->
+      <div
+        v-if="account?.platform === 'openai'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <OpenAIImageSizeTiersField v-model="openAIImageSizeTiers" />
+      </div>
+
       <UpstreamBillingProbeSettings
         v-if="account?.type === 'apikey'"
         :auto-probe-enabled="upstreamBillingAutoProbeEnabled"
@@ -3541,9 +3551,12 @@
 </template>
 
 <script setup lang="ts">
+import ExcelBPSSettings from './ExcelBPSSettings.vue'
+import { hasValidExcelBPS403Target, readExcelBPSConfig, writeExcelBPSConfig } from '@/utils/excelBps'
 import { ref, reactive, computed, watch, nextTick, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 import { adminAPI } from '@/api/admin'
 import { useCodexTicketGatewayGate } from '@/composables/useCodexTicketGatewayGate'
@@ -3570,6 +3583,13 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
+import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import {
+  OPENAI_IMAGE_SIZE_TIERS,
+  applyOpenAIImageSizeTiersToExtra,
+  readOpenAIImageSizeTiers,
+  type OpenAIImageSizeTier
+} from '@/components/account/openaiImageSizeTiers'
 import Toggle from '@/components/common/Toggle.vue'
 import UpstreamBillingProbeSettings from './UpstreamBillingProbeSettings.vue'
 import Icon from '@/components/icons/Icon.vue'
@@ -3674,6 +3694,8 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const excelBPSConfig = ref(readExcelBPSConfig())
 const browserTimeZone = getBrowserTimeZone()
 
 const selectableGroups = computed(() => {
@@ -4338,6 +4360,7 @@ const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
+const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -4843,6 +4866,7 @@ const applyOpenAIModelMappingCredentials = (credentials: Record<string, unknown>
 }
 
 const syncFormFromAccount = (newAccount: Account | null) => {
+  excelBPSConfig.value = readExcelBPSConfig(newAccount?.extra)
   if (!newAccount) {
     return
   }
@@ -4903,6 +4927,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
 	allowOverages.value = extra?.allow_overages === true
 	upstreamRequestIdHeader.value = readUpstreamRequestIdHeader(extra)
 	openAIImagesUrlToB64JsonEnabled.value = extra?.images_url_to_b64_json === true
+	openAIImageSizeTiers.value = readOpenAIImageSizeTiers(extra)
 	autoPause5hThreshold.value = typeof extra?.auto_pause_5h_threshold === 'number' ? extra.auto_pause_5h_threshold * 100 : null
 	autoPause7dThreshold.value = typeof extra?.auto_pause_7d_threshold === 'number' ? extra.auto_pause_7d_threshold * 100 : null
 	autoPause5hDisabled.value = extra?.auto_pause_5h_disabled === true
@@ -5966,6 +5991,12 @@ const handleSubmit = async () => {
     appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
     return
   }
+  if (props.account?.platform === 'openai' && props.account.type === 'oauth' && !isSparkShadow.value
+    && !hasValidExcelBPS403Target(excelBPSConfig.value, props.groups, !authStore.isSimpleMode)) {
+    appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
+    return
+  }
+  if (!props.account) return
   const accountID = props.account.id
 
   const currentAccountExtra = (
@@ -6556,6 +6587,11 @@ const handleSubmit = async () => {
     if (props.account.platform === 'openai' && (props.account.type === 'oauth' || props.account.type === 'setup-token' || props.account.type === 'apikey')) {
       const currentExtra = currentAccountExtra || {}
       const newExtra: Record<string, unknown> = { ...currentExtra }
+      if (props.account.type === 'oauth' && !isSparkShadow.value) {
+        const policy = writeExcelBPSConfig(excelBPSConfig.value, newExtra)
+        for (const key of Object.keys(newExtra)) delete newExtra[key]
+        Object.assign(newExtra, policy)
+      }
       const hadCodexCLIOnlyEnabled = currentExtra.codex_cli_only === true
       if (props.account.type === 'oauth' || props.account.type === 'setup-token') {
         newExtra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
@@ -6610,6 +6646,7 @@ const handleSubmit = async () => {
           newExtra.web_search_emulation = webSearchEmulationMode.value
         }
 		}
+		applyOpenAIImageSizeTiersToExtra(newExtra, openAIImageSizeTiers.value)
 		if (autoPause5hThreshold.value != null && autoPause5hThreshold.value > 0) {
 			newExtra.auto_pause_5h_threshold = autoPause5hThreshold.value / 100
 		} else {

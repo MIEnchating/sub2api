@@ -19,7 +19,7 @@
 <script setup lang="ts">
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
-import { adminAPI } from '@/api'
+import { testCodexTicketProxy } from '@/api/admin/settings'
 import type { CodexTicketProxyTestResult } from '@/api/admin/settings'
 import Icon from '@/components/icons/Icon.vue'
 
@@ -53,7 +53,7 @@ async function testProxy() {
   requestError.value = ''
   try {
     // The server resolves the saved proxy; no URL or masked password leaves this component.
-    const response = await adminAPI.settings.testCodexTicketProxy(1, controller.signal)
+    const response = await testCodexTicketProxy(1, controller.signal)
     if (requestRevision === revision) result.value = response
   } catch (error: unknown) {
     if (requestRevision !== revision) return

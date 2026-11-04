@@ -6,8 +6,11 @@ import enCommon from "@/i18n/locales/en/common";
 import enSettings from "@/i18n/locales/en/admin/settings";
 import zhCommon from "@/i18n/locales/zh/common";
 import zhSettings from "@/i18n/locales/zh/admin/settings";
+import CodexTicketSettings from '@/components/admin/settings/CodexTicketSettings.vue';
 import SettingsView from "../SettingsView.vue";
 import { useRoute, useRouter } from "vue-router";
+
+vi.mock('@/api/admin/groups', async (importOriginal) => ({ ...await importOriginal<object>(), getAll: vi.fn().mockResolvedValue([]) }));
 
 vi.mock("vue-router", async () => {
   const actual = await vi.importActual<typeof import("vue-router")>("vue-router");
@@ -103,6 +106,8 @@ const {
 
 const localeRef = vi.hoisted(() => ({ value: "zh-CN" }));
 
+vi.mock("@/api/admin/settings", async (importOriginal) => ({ ...await importOriginal<object>(), getSettings, updateSettings, testCodexTicketProxy }));
+
 vi.mock("@/api", () => ({
   adminAPI: {
     settings: {
@@ -128,6 +133,7 @@ vi.mock("@/api", () => ({
       }),
       updateCodexPreOutputRetrySettings: vi.fn().mockImplementation(async (payload) => payload),
       testCodexTicketProxy,
+      getRegistrationEmailBlacklist: vi.fn().mockResolvedValue({ emails: [], max: 20000 }),
     },
     accounts: {
       getUpstreamBillingProbeSettings,
@@ -149,6 +155,8 @@ vi.mock("@/api", () => ({
     },
   },
 }));
+
+vi.mock("@/stores/app", () => ({ useAppStore: () => ({ showError, showSuccess, showWarning: vi.fn(), showInfo: vi.fn(), fetchPublicSettings }) }));
 
 vi.mock("@/stores", () => ({
   useAppStore: () => ({
@@ -596,6 +604,8 @@ function mountView() {
         ImageUpload: ImageUploadStub,
         BackupSettings: true,
         AdminAccessKeysSettings: true,
+        CodexTicketSettings: true,
+        ExcelBPSImageSettings: true,
         OpenAIVMSettings: { template: '<section data-testid="openai-vm-settings-stub"><form data-testid="vm-settings-form"><button type="submit">Save Bridge</button></form></section>' },
       },
     },
@@ -804,7 +814,7 @@ describe("admin SettingsView payment visible method controls", () => {
       ...baseSettingsResponse,
       openai_codex_ticket_enabled: false,
     });
-    const wrapper = mountView();
+    const wrapper = mount(CodexTicketSettings, { global: { stubs: { ModelWhitelistSelector: true, MihomoProxySelector: true, RouterLink: true } } });
     await flushPromises();
     const toggle = wrapper.get("#codex-ticket-enabled");
     await toggle.setValue(true);
@@ -821,7 +831,7 @@ describe("admin SettingsView payment visible method controls", () => {
       openai_codex_ticket_harvest_proxy_url: "http://user:***@old.example.com:8080",
       openai_codex_ticket_harvest_proxy_configured: true,
     });
-    const wrapper = mountView();
+    const wrapper = mount(CodexTicketSettings, { global: { stubs: { ModelWhitelistSelector: true, MihomoProxySelector: true, RouterLink: true } } });
     await flushPromises();
     const input = wrapper.get<HTMLInputElement>("#codex-ticket-harvest-proxy");
     expect(input.element.value).toBe("http://user:***@old.example.com:8080");
@@ -842,9 +852,8 @@ describe("admin SettingsView payment visible method controls", () => {
       openai_codex_ticket_harvest_proxy_configured: true,
       openai_codex_ticket_harvest_proxy_count: 1,
     });
-    const wrapper = mountView();
+    const wrapper = mount(CodexTicketSettings, { global: { stubs: { ModelWhitelistSelector: true, MihomoProxySelector: true, RouterLink: true } } });
     await flushPromises();
-    await openGatewayTab(wrapper);
     await wrapper.get("#codex-ticket-enabled").setValue(false);
     expect(wrapper.find("#codex-ticket-proxy-mode").exists()).toBe(false);
     expect(wrapper.find("#codex-ticket-harvest-proxy").exists()).toBe(false);
@@ -865,9 +874,8 @@ describe("admin SettingsView payment visible method controls", () => {
       openai_codex_ticket_enabled: true,
       openai_codex_ticket_harvest_proxy_url: storedPool,
     });
-    const wrapper = mountView();
+    const wrapper = mount(CodexTicketSettings, { global: { stubs: { ModelWhitelistSelector: true, MihomoProxySelector: true, RouterLink: true } } });
     await flushPromises();
-    await openGatewayTab(wrapper);
     const button = wrapper.get('[data-testid="codex-ticket-test-exit"]');
     expect(button.attributes("disabled")).toBeUndefined();
     await button.trigger("click");
@@ -1625,6 +1633,8 @@ describe("admin SettingsView payment visible method controls", () => {
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
           AdminAccessKeysSettings: true,
+        CodexTicketSettings: true,
+        ExcelBPSImageSettings: true,
         },
       },
     });
@@ -2097,6 +2107,8 @@ describe("admin SettingsView payment visible method controls", () => {
           ImageUpload: ImageUploadStub,
           BackupSettings: true,
           AdminAccessKeysSettings: true,
+        CodexTicketSettings: true,
+        ExcelBPSImageSettings: true,
         },
       },
     });

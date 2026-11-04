@@ -51,6 +51,9 @@ func ResolveOpenAICodexTicketAccountConfig(account *Account, fallback config.Ope
 // Known personal Pro plans use 292; Team/Business workspaces use 332. Keep the
 // configured default for other/unknown plans instead of guessing from a ticket.
 func openAICodexTicketTargetLength(account *Account, fallback config.OpenAICodexTicketConfig) int {
+	if fallback.TargetLength == 780 {
+		return 780
+	}
 	if account != nil {
 		plan := normalizedOpenAICodexTicketPlan(account)
 		switch plan {

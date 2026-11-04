@@ -43,6 +43,8 @@
           </nav>
         </div>
 
+      <CodexTicketSettings v-if="activeTab === 'gateway'" />
+      <ExcelBPSImageSettings v-if="activeTab === 'features'" />
       <!-- Independently saved settings stay outside this form. -->
       <form v-show="activeTab !== 'openai-vm'" @submit.prevent="saveSettings" class="space-y-6" novalidate>
         <!-- Tab: Security — Admin API Key -->
@@ -1533,6 +1535,9 @@
                   v-model="form.registration_email_domain_quota_enabled"
                 />
               </div>
+
+              <!-- Exact Email Blacklist -->
+              <RegistrationEmailBlacklistEditor />
 
               <!-- Promo Code -->
               <div
@@ -4542,55 +4547,6 @@
               </h2>
             </div>
             <div class="p-6 space-y-4">
-                <div class="flex items-center justify-between gap-4">
-                  <div class="min-w-0">
-                    <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabled") }}
-                    </h3>
-                    <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                      {{ t("admin.settings.gatewayForwarding.codexTicketEnabledDesc") }}
-                    </p>
-                  </div>
-                  <Toggle
-                    id="codex-ticket-enabled"
-                    v-model="form.openai_codex_ticket_enabled"
-                  />
-                </div>
-
-                <div v-if="form.openai_codex_ticket_enabled">
-                  <h3 class="text-base font-semibold text-gray-900 dark:text-white">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxy") }}
-                  </h3>
-                  <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyDesc") }}
-                  </p>
-                  <input
-                    id="codex-ticket-harvest-proxy"
-                    v-model="form.openai_codex_ticket_harvest_proxy_url"
-                    type="text"
-                    class="input mt-3 w-full font-mono text-sm"
-                    :placeholder="t('admin.settings.gatewayForwarding.codexTicketHarvestProxyPlaceholder')"
-                    autocomplete="off"
-                  />
-                  <p
-                    v-if="form.openai_codex_ticket_harvest_proxy_configured"
-                    class="mt-1.5 text-xs text-gray-500 dark:text-gray-400"
-                  >
-                    {{ t("admin.settings.gatewayForwarding.codexTicketHarvestProxyConfigured") }}
-                  </p>
-                  <CodexTicketProxyTest
-                    :proxy-url="form.openai_codex_ticket_harvest_proxy_url"
-                    :saved-proxy-url="savedCodexTicketProxyURL"
-                    :disabled="loading || saving || loadFailed"
-                  />
-                </div>
-                <p
-                  v-else
-                  data-testid="codex-ticket-account-route-hint"
-                  class="text-sm text-gray-500 dark:text-gray-400"
-                >
-                  {{ t("admin.settings.gatewayForwarding.codexTicketAccountRouteHint") }}
-                </p>
                 <div>
                   <h3 class="text-base font-semibold text-gray-900 dark:text-white">
                     {{ t("admin.settings.gatewayForwarding.codexClientRestrictionTitle") }}
@@ -9340,6 +9296,8 @@
 </template>
 
 <script setup lang="ts">
+import CodexTicketSettings from '@/components/admin/settings/CodexTicketSettings.vue'
+import ExcelBPSImageSettings from '@/components/admin/settings/ExcelBPSImageSettings.vue'
 import GPTDirectSettings from "@/components/admin/settings/GPTDirectSettings.vue";
 import OpenAIVMSettings from "@/components/admin/settings/OpenAIVMSettings.vue";
 import { ref, reactive, computed, onMounted, watch } from "vue";
@@ -9408,8 +9366,8 @@ import {
   type RechargeBonusMode,
   type RechargeBonusTierDraft,
 } from "@/utils/rechargeBonus";
+import RegistrationEmailBlacklistEditor from "@/components/admin/settings/RegistrationEmailBlacklistEditor.vue";
 import OpenAIFastPolicyUserSelector from "@/views/admin/settings/OpenAIFastPolicyUserSelector.vue";
-import CodexTicketProxyTest from "@/views/admin/settings/CodexTicketProxyTest.vue";
 import { useClipboard } from "@/composables/useClipboard";
 import {
   useStepUp,
@@ -9593,7 +9551,6 @@ const loading = ref(true);
 const loadFailed = ref(false);
 const saving = ref(false);
 
-const savedCodexTicketProxyURL = ref("");
 const testingSmtp = ref(false);
 const sendingTestEmail = ref(false);
 const smtpPasswordManuallyEdited = ref(false);
@@ -11526,7 +11483,6 @@ async function loadSettings() {
   try {
     const settings = await adminAPI.settings.getSettings();
 
-    savedCodexTicketProxyURL.value = settings.openai_codex_ticket_harvest_proxy_url ?? "";
     settings.payment_load_balance_strategy =
       settings.payment_load_balance_strategy || "round-robin";
     // Only assign non-null values from backend (null means unconfigured, keep defaults)
@@ -12234,12 +12190,6 @@ async function saveSettings() {
         form.openai_codex_client_version?.trim() || "",
       openai_codex_version_auto_sync_enabled:
         form.openai_codex_version_auto_sync_enabled,
-      openai_codex_ticket_enabled: form.openai_codex_ticket_enabled,
-
-      openai_codex_ticket_harvest_proxy_url:
-        form.openai_codex_ticket_enabled
-          ? form.openai_codex_ticket_harvest_proxy_url?.trim() || ""
-          : "",
       claude_code_client_version: form.claude_code_client_version?.trim() || "",
       claude_code_version_auto_sync_enabled:
         form.claude_code_version_auto_sync_enabled,
@@ -12405,7 +12355,6 @@ async function saveSettings() {
       adminAPI.settings.updateSettings(payload),
     );
 
-    savedCodexTicketProxyURL.value = updated.openai_codex_ticket_harvest_proxy_url ?? "";
     for (const [key, value] of Object.entries(updated)) {
       if (key === "openai_fast_policy_settings") continue;
       if (value !== null && value !== undefined) {

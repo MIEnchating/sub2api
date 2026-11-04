@@ -6,6 +6,10 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
+      <div v-if="allOpenAIOAuthOnly" class="space-y-3">
+        <label class="flex items-center gap-2 text-sm"><input v-model="enableExcelBPS" type="checkbox" data-testid="bulk-enable-excel-bps" />{{ t('admin.accounts.openai.excelBPS') }}</label>
+        <ExcelBPSSettings v-if="enableExcelBPS" v-model="excelBPSConfig" :groups="groups" :allow-composite="!authStore.isSimpleMode" />
+      </div>
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -191,6 +195,43 @@
         >
           {{ t('admin.accounts.bulkEdit.longContextShadowHint') }}
         </p>
+      </div>
+
+      <!-- OpenAI images: size tier routing -->
+      <div
+        v-if="allOpenAIPassthroughCapable"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <div class="mb-3 flex items-center justify-between gap-4">
+          <label
+            id="bulk-edit-openai-image-size-tiers-label"
+            class="input-label mb-0"
+            for="bulk-edit-openai-image-size-tiers-enabled"
+          >
+            {{ t('admin.accounts.openai.imageSizeTiers') }}
+          </label>
+          <input
+            v-model="enableOpenAIImageSizeTiers"
+            id="bulk-edit-openai-image-size-tiers-enabled"
+            data-testid="bulk-edit-openai-image-size-tiers-enabled"
+            type="checkbox"
+            aria-controls="bulk-edit-openai-image-size-tiers-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
+          />
+        </div>
+        <div
+          id="bulk-edit-openai-image-size-tiers-body"
+          :class="!enableOpenAIImageSizeTiers && 'pointer-events-none opacity-50'"
+          role="group"
+          aria-labelledby="bulk-edit-openai-image-size-tiers-label"
+        >
+          <OpenAIImageSizeTiersField
+            v-model="openAIImageSizeTiers"
+            :disabled="!enableOpenAIImageSizeTiers"
+            hide-label
+            test-id-prefix="bulk-edit-openai-image-size-tier"
+          />
+        </div>
       </div>
 
       <!-- Base URL (API Key only) -->
@@ -1506,9 +1547,12 @@
 </template>
 
 <script setup lang="ts">
+import ExcelBPSSettings from './ExcelBPSSettings.vue'
+import { hasValidExcelBPS403Target, readExcelBPSConfig, writeExcelBPSConfig } from '@/utils/excelBps'
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
 import type {
   Proxy as ProxyConfig,
@@ -1540,6 +1584,13 @@ import {
   type HeaderOverrideRow
 } from '@/components/account/credentialsBuilder'
 import GrokBaseUrlPresets from '@/components/account/GrokBaseUrlPresets.vue'
+import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import {
+  OPENAI_IMAGE_SIZE_TIERS,
+  OPENAI_IMAGE_SIZE_TIERS_EXTRA_KEY,
+  openAIImageSizeTiersPayload,
+  type OpenAIImageSizeTier
+} from '@/components/account/openaiImageSizeTiers'
 import {
   OPENAI_WS_MODE_CTX_POOL,
   OPENAI_WS_MODE_OFF,
@@ -1573,6 +1624,9 @@ const emit = defineEmits<{
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const excelBPSConfig = ref(readExcelBPSConfig())
+const enableExcelBPS = ref(false)
 // Platform awareness
 const targetMode = computed(() => props.target?.mode ?? 'selected')
 const targetPreviewCount = computed(() => props.target?.previewCount ?? props.accountIds.length)
@@ -1693,6 +1747,7 @@ const enableGroups = ref(false)
 const enableOpenAIPassthrough = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
 const enableOpenAILongContextBilling = ref(false)
+const enableOpenAIImageSizeTiers = ref(false)
 const enableOpenAIEndpointCapabilities = ref(false)
 const enableOpenAIResponsesMode = ref(false)
 const enableOpenAIWSMode = ref(false)
@@ -1738,6 +1793,7 @@ const openaiPassthroughEnabled = ref(false)
 // Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
 const openaiFlattenNamespacesEnabled = ref(false)
 const openAILongContextBillingEnabled = ref(false)
+const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>([
   'chat_completions',
   'embeddings'
@@ -1980,6 +2036,10 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     return updates.extra as Record<string, unknown>
   }
 
+  if (enableExcelBPS.value && allOpenAIOAuthOnly.value) {
+    Object.assign(ensureExtra(), writeExcelBPSConfig(excelBPSConfig.value, {}, true))
+  }
+
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     updates.proxy_id = proxyIds.value[0] ?? 0
@@ -2042,6 +2102,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   if (applyOpenAILongContextBilling) {
     const extra = ensureExtra()
     extra.openai_long_context_billing_enabled = openAILongContextBillingEnabled.value
+  }
+
+  if (enableOpenAIImageSizeTiers.value && allOpenAIPassthroughCapable.value) {
+    // extra 按 JSONB 合并写入，不限档位用空列表覆盖旧值。
+    ensureExtra()[OPENAI_IMAGE_SIZE_TIERS_EXTRA_KEY] = openAIImageSizeTiersPayload(openAIImageSizeTiers.value) ?? []
   }
 
   if (applyOpenAIEndpointCapabilities) {
@@ -2244,16 +2309,23 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
 }
 
 const handleSubmit = async () => {
+  if (enableExcelBPS.value && allOpenAIOAuthOnly.value
+    && !hasValidExcelBPS403Target(excelBPSConfig.value, props.groups, !authStore.isSimpleMode)) {
+    appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
+    return
+  }
   if (targetMode.value === 'selected' && props.accountIds.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
     return
   }
 
   const hasAnyFieldEnabled =
+    (enableExcelBPS.value && allOpenAIOAuthOnly.value) ||
     enableBaseUrl.value ||
     enableOpenAIPassthrough.value ||
     enableOpenAIFlattenNamespaces.value ||
     (enableOpenAILongContextBilling.value && allOpenAIPassthroughCapable.value) ||
+    (enableOpenAIImageSizeTiers.value && allOpenAIPassthroughCapable.value) ||
     (enableOpenAIEndpointCapabilities.value && allOpenAIAPIKey.value) ||
     (enableOpenAIResponsesMode.value && allOpenAIAPIKey.value) ||
     enableModelRestriction.value ||
@@ -2401,6 +2473,8 @@ watch(
   () => props.show,
   (newShow) => {
     if (!newShow) {
+      enableExcelBPS.value = false
+      excelBPSConfig.value = readExcelBPSConfig()
       // Reset all enable flags
       enableBaseUrl.value = false
       enableModelRestriction.value = false
@@ -2418,6 +2492,7 @@ watch(
       enableOpenAIPassthrough.value = false
       enableOpenAIFlattenNamespaces.value = false
       enableOpenAILongContextBilling.value = false
+      enableOpenAIImageSizeTiers.value = false
       enableOpenAIEndpointCapabilities.value = false
       enableOpenAIResponsesMode.value = false
       enableOpenAIWSMode.value = false
@@ -2436,6 +2511,7 @@ watch(
       openaiPassthroughEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false
       openAILongContextBillingEnabled.value = false
+      openAIImageSizeTiers.value = [...OPENAI_IMAGE_SIZE_TIERS]
       openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
       openAIResponsesMode.value = 'auto'
       modelRestrictionMode.value = 'whitelist'

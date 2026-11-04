@@ -45,6 +45,8 @@
       @submit.prevent="handleSubmit"
       class="space-y-5"
     >
+      <ExcelBPSSettings v-if="form.platform === 'openai' && accountCategory === 'oauth-based' && form.type === 'oauth'" v-model="excelBPSConfig" :groups="groups" :allow-composite="!authStore.isSimpleMode" />
+
       <div>
         <label class="input-label">{{ t('admin.accounts.accountName') }}</label>
         <input
@@ -3737,6 +3739,14 @@
         </button>
       </div>
 
+      <!-- OpenAI images: size tier routing -->
+      <div
+        v-if="form.platform === 'openai'"
+        class="border-t border-gray-200 pt-4 dark:border-dark-600"
+      >
+        <OpenAIImageSizeTiersField v-model="openAIImageSizeTiers" />
+      </div>
+
       <div>
         <div class="flex items-center justify-between">
           <div>
@@ -4187,9 +4197,12 @@
 </template>
 
 <script setup lang="ts">
+import ExcelBPSSettings from './ExcelBPSSettings.vue'
+import { hasValidExcelBPS403Target, readExcelBPSConfig, writeExcelBPSConfig } from '@/utils/excelBps'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
 
 import {
   claudeModels,
@@ -4230,6 +4243,12 @@ import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
+import OpenAIImageSizeTiersField from '@/components/account/OpenAIImageSizeTiersField.vue'
+import {
+  OPENAI_IMAGE_SIZE_TIERS,
+  applyOpenAIImageSizeTiersToExtra,
+  type OpenAIImageSizeTier
+} from '@/components/account/openaiImageSizeTiers'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
 import ProxySelector from '@/components/common/ProxySelector.vue'
@@ -4402,6 +4421,8 @@ const emit = defineEmits<{
 }>()
 
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const excelBPSConfig = ref(readExcelBPSConfig())
 
 const hideAccountLongContextBilling = computed(() => {
   return allSelectedGroupsEnableLongContextPricing(form.group_ids, props.groups)
@@ -4790,6 +4811,7 @@ const openAICompactMode = ref<OpenAICompactMode>('auto')
 const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 // Images 非流式响应缺 b64_json 时由网关下载 url 回填（仅 OpenAI API Key）。
 const openAIImagesUrlToB64JsonEnabled = ref(false)
+const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
 const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
@@ -5333,6 +5355,7 @@ watch(
     headerOverrideEnabled.value = false
     headerOverrideRows.value = []
     openAIImagesUrlToB64JsonEnabled.value = false
+    openAIImageSizeTiers.value = [...OPENAI_IMAGE_SIZE_TIERS]
     grokOAuthCustomBaseUrlEnabled.value = false
     grokOAuthBaseUrl.value = ''
     // Reset OAuth states
@@ -5718,6 +5741,7 @@ const submitCreateAccount = async (payload: CreateAccountRequest) => {
 
 // Methods
 const resetForm = () => {
+  excelBPSConfig.value = readExcelBPSConfig()
   step.value = 1
   form.name = ''
   form.notes = ''
@@ -5775,6 +5799,7 @@ const resetForm = () => {
   headerOverrideEnabled.value = false
   headerOverrideRows.value = []
   openAIImagesUrlToB64JsonEnabled.value = false
+  openAIImageSizeTiers.value = [...OPENAI_IMAGE_SIZE_TIERS]
   grokOAuthCustomBaseUrlEnabled.value = false
   grokOAuthBaseUrl.value = ''
   interceptWarmupRequests.value = false
@@ -5930,8 +5955,10 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   } else {
     delete extra.images_url_to_b64_json
   }
+  applyOpenAIImageSizeTiersToExtra(extra, openAIImageSizeTiers.value)
 
-  return Object.keys(extra).length > 0 ? extra : undefined
+  const result = form.type === 'oauth' ? writeExcelBPSConfig(excelBPSConfig.value, extra) : extra
+  return Object.keys(result).length > 0 ? result : undefined
 }
 
 const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
@@ -6074,6 +6101,11 @@ const handleVertexServiceAccountDrop = async (event: DragEvent) => {
 }
 
 const handleSubmit = async () => {
+  if (form.platform === 'openai' && form.type === 'oauth'
+    && !hasValidExcelBPS403Target(excelBPSConfig.value, props.groups, !authStore.isSimpleMode)) {
+    appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
+    return
+  }
   // For OAuth-based type, handle OAuth flow (goes to step 2)
   if (isOAuthFlow.value) {
     if (!isGrokSSOInputMethod.value && !form.name.trim()) {

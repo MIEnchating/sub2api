@@ -31,6 +31,13 @@ function mountDiagnostics(overrides: Partial<CodexTurnTicketStatus> = {}, compac
 }
 
 describe('CodexTicketDiagnostics', () => {
+  it('shows a fixed retry message for persistence failures without database details', () => {
+    const wrapper = mountDiagnostics({ last_error_code: 'persist_failed' })
+    expect(wrapper.text()).toContain('门票保存失败，将自动重试')
+    expect(wrapper.html()).not.toContain('secret')
+    expect(wrapper.html()).not.toContain('private-token')
+  })
+
   it('shows 292 routing cookie availability and a fixed safe error', async () => {
     const wrapper = mountDiagnostics({ target_length: 292, cookie_ready: false, last_error_code: 'cookie_missing' })
     expect(wrapper.text()).toContain('路由 Cookie 缺失或已过期')

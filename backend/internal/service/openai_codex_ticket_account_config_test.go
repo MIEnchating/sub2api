@@ -69,10 +69,10 @@ func TestOpenAICodexTicketAccountPolicy_GatewayHotTogglePreservesCachedTicketAnd
 	account.Extra = map[string]any{OpenAICodexTicketEnabledExtraKey: true}
 	state := fakeCodexTicketState(292)
 	seedCodexTicketCookies(svc, account)
-	svc.storeOpenAICodexTicket(ctx, account, &openAICodexTicket{
+	require.NoError(t, svc.storeOpenAICodexTicket(ctx, account, &openAICodexTicket{
 		AccountID: account.ID, Model: "gpt-6-astra", State: state, Length: len(state),
 		CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour),
-	})
+	}))
 	h := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(ctx, account, "gpt-6-astra", h))
 	require.Equal(t, state, h.Get(openAICodexTurnStateHeader))
@@ -116,7 +116,7 @@ func TestOpenAICodexTicketAccountPolicy_ValidTicketAllowsThenExpiryBlocks(t *tes
 		ExpiresAt:  time.Now().Add(time.Hour),
 	}
 	seedCodexTicketCookies(svc, account)
-	svc.storeOpenAICodexTicket(context.Background(), account, ticket)
+	require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, ticket))
 	h := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", h))
 	require.Equal(t, state, h.Get(openAICodexTurnStateHeader))
@@ -127,7 +127,7 @@ func TestOpenAICodexTicketAccountPolicy_ValidTicketAllowsThenExpiryBlocks(t *tes
 	expired := *ticket
 	expired.ExpiresAt = time.Now().Add(-time.Second)
 	seedCodexTicketCookies(svc, account)
-	svc.storeOpenAICodexTicket(context.Background(), account, &expired)
+	require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &expired))
 	require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
 	h = http.Header{}
 	require.ErrorIs(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", h), ErrOpenAICodexTicketUnavailable)

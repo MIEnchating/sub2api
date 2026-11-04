@@ -145,6 +145,7 @@ docs/*
 
 !docs/upstream-merge-2026-09-21.md
 !docs/upstream-billing-rate-limit.md
+!docs/codex-ticket-mihomo-excel-bps.md
 !docs/channel-quality-protection.md
 !docs/channel-test-strategies.md
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md

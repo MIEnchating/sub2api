@@ -375,6 +375,82 @@ describe('EditAccountModal', () => {
 
   afterEach(() => vi.useRealTimers())
 
+  it('keeps BPS disabled by default and preserves unrelated OAuth extra', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { unrelated_policy: 'keep' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.get<HTMLInputElement>('[data-testid="excel-bps-toggle"]').element.checked).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra.unrelated_policy).toBe('keep')
+    expect(extra).not.toHaveProperty('openai_excel_bps')
+    wrapper.unmount()
+  })
+
+  it.each([undefined, []])('preserves legacy all-model versus empty BPS scope %j on OAuth saves', async (scope) => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_excel_bps: true, unrelated_policy: 'keep' }
+    if (scope) account.extra.openai_excel_bps_models = scope
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(extra.openai_excel_bps).toBe(true)
+    if (scope) expect(extra.openai_excel_bps_models).toEqual([])
+    else expect(extra).not.toHaveProperty('openai_excel_bps_models')
+    expect(extra.unrelated_policy).toBe('keep')
+    wrapper.unmount()
+  })
+
+  it('removes saved BPS policy when disabled while preserving unrelated OAuth extra', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_excel_bps: true, openai_excel_bps_models: ['gpt-6-astra'], openai_excel_bps_ignore_images: true, unrelated_policy: 'keep' }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="excel-bps-toggle"]').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    const extra = updateAccountMock.mock.calls[0]?.[1]?.extra
+    expect(Object.keys(extra).filter(key => key.startsWith('openai_excel_bps'))).toEqual([])
+    expect(extra.unrelated_policy).toBe('keep')
+    wrapper.unmount()
+  })
+
+  it('filters BPS 403 destinations by platform and simple mode and rejects stale destinations', async () => {
+    const account = buildOpenAIOAuthParentAccount()
+    account.extra = { openai_excel_bps: true, openai_excel_bps_auto_move_on_403: true, openai_excel_bps_403_target_group_id: 9 }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    const wrapper = mountModal(account)
+    await wrapper.setProps({ groups: [
+      { id: 1, name: 'OpenAI', platform: 'openai' },
+      { id: 2, name: 'Composite', platform: 'composite' },
+      { id: 3, name: 'Claude', platform: 'anthropic' },
+    ] as any })
+    const choices = () => wrapper.get('[data-testid="excel-bps-target-group"]').findAll('option').map(option => option.attributes('value'))
+    expect(choices()).toEqual(['', '0', '1'])
+    authIsSimpleMode.value = false
+    await wrapper.setProps({ groups: [...wrapper.props('groups')] })
+    expect(choices()).toEqual(['', '0', '1', '2'])
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('preserves inherited BPS policy on Spark shadow accounts without exposing its editor', async () => {
+    const account = buildOpenAISparkShadowAccount()
+    account.extra = { openai_excel_bps: true, openai_excel_bps_models: ['gpt-6-astra'] }
+    updateAccountMock.mockReset().mockResolvedValue(account)
+    checkMixedChannelRiskMock.mockReset().mockResolvedValue({ has_risk: false })
+    const wrapper = mountModal(account)
+    expect(wrapper.find('[data-testid="excel-bps-settings"]').exists()).toBe(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toMatchObject(account.extra)
+    wrapper.unmount()
+  })
+
   it('preserves quality protection when saving unrelated account settings', async () => {
     const account = { ...buildAccount(), status: 'quality_paused', schedulable: false }
     updateAccountMock.mockReset().mockResolvedValue(account)
@@ -1152,6 +1228,41 @@ describe('EditAccountModal', () => {
     expect(updateAccountMock).toHaveBeenCalledTimes(1)
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toBeDefined()
     expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('images_url_to_b64_json')
+  })
+
+  it('writes restricted image size tiers into extra', async () => {
+    const account = buildAccount()
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    await wrapper.get('[data-testid="openai-image-size-tier-1K"]').setValue(false)
+    await wrapper.get('[data-testid="openai-image-size-tier-2K"]').setValue(false)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra?.openai_image_size_tiers).toEqual(['4K'])
+  })
+
+  it('removes image size tiers from extra when every tier is selected again', async () => {
+    const account = buildAccount()
+    account.extra = { openai_image_size_tiers: ['1K', '2K'] }
+    updateAccountMock.mockReset()
+    checkMixedChannelRiskMock.mockReset()
+    checkMixedChannelRiskMock.mockResolvedValue({ has_risk: false })
+    updateAccountMock.mockResolvedValue(account)
+
+    const wrapper = mountModal(account)
+    const tier4K = wrapper.get('[data-testid="openai-image-size-tier-4K"]')
+    expect((tier4K.element as HTMLInputElement).checked).toBe(false)
+    await tier4K.setValue(true)
+    await wrapper.get('form#edit-account-form').trigger('submit.prevent')
+
+    expect(updateAccountMock).toHaveBeenCalledTimes(1)
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).toBeDefined()
+    expect(updateAccountMock.mock.calls[0]?.[1]?.extra).not.toHaveProperty('openai_image_size_tiers')
   })
 
   it('hides the Codex namespace flatten toggle for non-OAuth OpenAI accounts', async () => {

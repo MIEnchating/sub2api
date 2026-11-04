@@ -17,10 +17,13 @@ func (s *OpenAIGatewayService) openAIWSCodexTicketHeadersFactory(account *Accoun
 		if headers == nil {
 			headers = make(http.Header)
 		}
-		managed, err := s.applyOpenAICodexTicketWithResult(ctx, account, model, headers)
+		managed, err := s.applyOpenAICodexTicketWithResult(ctx, account, model, headers, "websocket")
 		if err != nil {
 			return nil, false, err
 		}
+		// Pool selection and the actual dial must compare the same harvest
+		// identity and cookies, including the removal of expired bundles.
+		s.restoreBoundCodexTicketHarvestIdentity(ctx, headers, account)
 		return headers, managed, nil
 	}
 }

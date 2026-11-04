@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"testing"
 	"time"
@@ -24,7 +25,7 @@ func TestCodexTicketCookieRequirementSharedAcrossModelsAndFailClosed(t *testing.
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
 	account := ticketTestAccount(901)
 	for _, model := range svc.openAICodexTicketConfig().Models {
-		svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: model, State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+		require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: model, State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}))
 		h := http.Header{"Cookie": []string{"__cflb=client; __oailb=client"}}
 		require.ErrorIs(t, svc.applyOpenAICodexTicket(context.Background(), account, model, h), ErrOpenAICodexTicketUnavailable)
 		require.Empty(t, h.Get(openAICodexTurnStateHeader))
@@ -41,7 +42,7 @@ func TestCodexTicketCookieRequirementSharedAcrossModelsAndFailClosed(t *testing.
 	require.Equal(t, cookieDeadline, svc.lookupOpenAICodexTicketCookies(account).expiresAt(), "injection cannot renew cookies")
 	// Reusing the ticket material under a different account still has no routing cookies.
 	other := ticketTestAccount(902)
-	svc.storeOpenAICodexTicket(context.Background(), other, &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+	require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), other, &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}))
 	require.True(t, svc.openAICodexTicketBlocksAccount(other, "gpt-6-astra"))
 	svc.captureOpenAICodexTicketCookies(context.Background(), account, http.Header{"Set-Cookie": []string{"__oailb=; Max-Age=0; Path=/"}}, time.Now())
 	require.True(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"))
@@ -72,6 +73,28 @@ func TestCodexTicketMissingCookieProbeRetriesAndReportsSafeReason(t *testing.T) 
 	require.WithinDuration(t, ticket.CapturedAt.Add(180*time.Second), *next, time.Second)
 }
 
+func TestCodexTicketProbePersistenceFailureSchedulesRetry(t *testing.T) {
+	upstream := &httpUpstreamRecorder{responses: []*http.Response{codexTicketResponse()}}
+	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, upstream)
+	account := ticketTestAccount(907)
+	svc.accountRepo = &codexTicketLifecycleRepo{persist: func(context.Context) error {
+		return errors.New("database unavailable with private connection details")
+	}}
+	svc.probeOnceOpenAICodexTicket(context.Background(), account, "gpt-6-astra")
+	job := svc.openaiCodexTicketScheduler.jobs[openAICodexTicketKey(account.ID, "gpt-6-astra")]
+	require.Equal(t, "persist_failed", job.LastErrorCode)
+	require.Equal(t, "Ticket persistence failed", job.LastError)
+	require.Equal(t, 1, job.ConsecutiveFailures)
+	require.NotNil(t, job.NextRetryAt)
+	require.True(t, job.NextRetryAt.After(time.Now()))
+	require.False(t, job.Paused)
+	require.False(t, svc.openAICodexTicketBlocksAccount(account, "gpt-6-astra"), "a database failure must preserve the usable in-memory ticket")
+	events := svc.OpenAICodexTicketHistory(context.Background(), account, "")
+	require.Len(t, events, 1)
+	require.Equal(t, "failure", events[0].Outcome)
+	require.Equal(t, "persist_failed", events[0].ErrorCode)
+}
+
 func TestCodexTicketCookieExpirySchedulesEarlyRefreshAndFailureKeepsTicket(t *testing.T) {
 	upstream := &httpUpstreamRecorder{responses: []*http.Response{{StatusCode: 503, Header: http.Header{}, Body: http.NoBody}}}
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, upstream)
@@ -80,7 +103,7 @@ func TestCodexTicketCookieExpirySchedulesEarlyRefreshAndFailureKeepsTicket(t *te
 	h := http.Header{"Set-Cookie": []string{"__cflb=c; Max-Age=90; Path=/", "__oailb=o; Max-Age=90; Path=/"}}
 	svc.captureOpenAICodexTicketCookies(context.Background(), account, h, now)
 	ticket := &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292, CapturedAt: now, ExpiresAt: now.Add(240 * time.Second)}
-	svc.storeOpenAICodexTicket(context.Background(), account, ticket)
+	require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, ticket))
 	cfg := svc.openAICodexTicketConfig()
 	require.False(t, svc.startOpenAICodexTicketProbe(context.Background(), account, "gpt-6-astra", cfg, now, false))
 	job := svc.openaiCodexTicketScheduler.jobs[openAICodexTicketKey(account.ID, "gpt-6-astra")]
@@ -99,7 +122,7 @@ func TestCodexTicketTeamCookieRequirementIsNotInferred(t *testing.T) {
 	svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
 	account := ticketTestAccount(905)
 	account.Credentials["plan_type"] = "team"
-	svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(332), Length: 332, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(240 * time.Second)})
+	require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: "gpt-6-astra", State: fakeCodexTicketState(332), Length: 332, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(240 * time.Second)}))
 	headers := http.Header{}
 	require.NoError(t, svc.applyOpenAICodexTicket(context.Background(), account, "gpt-6-astra", headers))
 	require.Empty(t, headers.Get("Cookie"))

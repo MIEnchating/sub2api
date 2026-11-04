@@ -53,6 +53,8 @@ type codexTicketDiagnosticsEnricher interface {
 
 // AccountHandler handles admin account management
 type AccountHandler struct {
+	codexHarvest            *service.CodexHarvestService
+	openAIGatewayService    *service.OpenAIGatewayService
 	claudeResetCredits      claudeResetReader
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
@@ -84,11 +86,6 @@ func (h *AccountHandler) SetUpstreamBillingProbeService(probe *service.UpstreamB
 
 func (h *AccountHandler) SetOllamaCloudUsageService(usage *service.OllamaCloudUsageService) {
 	h.ollamaCloudUsage = usage
-}
-
-// SetCodexTicketSettings supplies the live policy without mutating shared config.
-func (h *AccountHandler) SetCodexTicketSettings(settings *service.SettingService) {
-	h.codexTicketSettings = settings
 }
 
 func (h *AccountHandler) SetCodexTicketGateway(gateway codexTicketDiagnosticsEnricher) {
@@ -385,25 +382,6 @@ func (h *AccountHandler) accountListResponseFromService(account *service.Account
 		h.ollamaCloudUsage.EnrichState(out.OllamaCloudUsage)
 	}
 	return out
-}
-
-func (h *AccountHandler) enrichCodexTicketStatus(account *service.Account, out *dto.Account) {
-	if out == nil || account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() {
-		return
-	}
-	cfg := config.OpenAICodexTicketConfig{}
-	if h != nil && h.cfg != nil {
-		cfg = h.cfg.Gateway.OpenAICodexTicket
-	}
-	if h != nil && h.codexTicketSettings != nil {
-		cfg.Enabled = h.codexTicketSettings.GetOpenAICodexTicketEnabled(context.Background(), cfg.Enabled)
-	}
-	policy := service.ResolveOpenAICodexTicketAccountConfig(account, cfg)
-	out.CodexTicketConfig = &policy
-	out.CodexTurnTickets = service.OpenAICodexTicketStatuses(account, cfg, time.Now())
-	if h != nil && h.codexTicketGateway != nil {
-		h.codexTicketGateway.EnrichOpenAICodexTicketDiagnostics(account, out.CodexTurnTickets)
-	}
 }
 
 func (h *AccountHandler) isSimpleMode() bool {

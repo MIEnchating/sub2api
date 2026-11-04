@@ -2621,7 +2621,7 @@ func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Head
 	key := openAIWSHandshakeCompatibilityKey{
 		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
 	}
-	if len(managedTicket) > 0 && managedTicket[0] {
+	if len(managedTicket) == 0 || managedTicket[0] {
 		key.codexTicketDigest = sha256.Sum256([]byte(headers.Get(openAICodexTurnStateHeader) + "\x00" + headers.Get("Cookie")))
 	}
 	if account != nil && account.IdentityProtectionEnabled() {

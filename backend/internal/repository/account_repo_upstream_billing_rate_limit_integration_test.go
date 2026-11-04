@@ -47,6 +47,10 @@ func TestAccountRateLimitPersistsAcrossDisableAndStaleWrites(t *testing.T) {
 
 	_, err = repo.BulkUpdate(ctx, []int64{account.ID}, service.AccountBulkUpdate{ProbeEnabled: probeBoolPtr(false)})
 	require.NoError(t, err)
+	got, err = repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, true, got.Extra[service.UpstreamBillingProbeEnabledExtraKey])
+	require.True(t, got.IsUpstreamBillingRateLimited(), "bulk disable must retain the expensive probe snapshot while a rate ceiling is configured")
 	require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{service.UpstreamBillingProbeEnabledExtraKey: false}))
 	got, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)

@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import CodexTicketProxyTest from '../CodexTicketProxyTest.vue'
 
 const testProxy = vi.hoisted(() => vi.fn())
-vi.mock('@/api', () => ({ adminAPI: { settings: { testCodexTicketProxy: testProxy } } }))
+vi.mock('@/api/admin/settings', () => ({ testCodexTicketProxy: testProxy }))
 vi.mock('vue-i18n', () => ({ useI18n: () => ({
   t: (key: string, params?: Record<string, unknown>) => `${key} ${Object.values(params || {}).join(' ')}`.trim(),
 }) }))

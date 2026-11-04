@@ -145,6 +145,11 @@ func (s *OpenAIGatewayService) dispatchOpenAICodexTickets(ctx context.Context, a
 		return
 	}
 	cfg := s.openAICodexTicketHarvestConfig(ctx)
+	scope, scopeErr := s.settingService.GetCodexTicketHarvestScope(ctx)
+	if scopeErr != nil {
+		s.cancelOpenAICodexTicketJobs()
+		return
+	}
 
 	now := time.Now()
 	activeKeys := make(map[string]bool)
@@ -152,13 +157,13 @@ func (s *OpenAIGatewayService) dispatchOpenAICodexTickets(ctx context.Context, a
 	r := &s.openaiCodexTicketScheduler
 	// Fetch policy before holding the scheduler lock: settings reads may do I/O.
 	for _, account := range accounts {
-		if account.Status != StatusActive || !s.openAICodexTicketAccountConfig(ctx, &account).Enabled {
+		if account.Status != StatusActive || openAICodexSkipHarvest(&account) || !scope.includes(&account) || !scope.allowsAccount(&account) || !s.openAICodexTicketAccountConfig(ctx, &account).Enabled {
 			continue
 		}
 		for _, rawModel := range cfg.Models {
 			model := normalizeOpenAICodexTicketModel(rawModel)
 			key := openAICodexTicketKey(account.ID, model)
-			if model == "" || activeKeys[key] {
+			if model == "" || activeKeys[key] || !isOpenAICodexTicketAccount(&account, model) {
 				continue
 			}
 			activeKeys[key] = true
@@ -254,8 +259,13 @@ func (r *codexTicketScheduler) job(account *Account, model string, cfg config.Op
 }
 
 func (s *OpenAIGatewayService) startOpenAICodexTicketProbe(ctx context.Context, account *Account, model string, cfg config.OpenAICodexTicketConfig, now time.Time, async bool) bool {
-	if ctx.Err() != nil || s.httpUpstream == nil || !s.openAICodexTicketAccountConfig(ctx, account).Enabled {
+	if ctx.Err() != nil || s.httpUpstream == nil || openAICodexSkipHarvest(account) || s.openAICodexTicketHarvestExcluded(account) || !isOpenAICodexTicketAccount(account, model) || !s.openAICodexTicketAccountConfig(ctx, account).Enabled {
 		return false
+	}
+	// The legacy dispatcher shares the live strategy with directed harvesting.
+	// Read before taking its mutex, and retain cookie expiry as a readiness gate.
+	if s.settingService.GetCodexTicketStrategy(ctx) == "fixed" {
+		cfg.RefreshBeforeSeconds = 0
 	}
 	ticket := s.lookupOpenAICodexTicket(account, model)
 	readyUntil := openAICodexTicketReadyUntil(ticket, s.lookupOpenAICodexTicketCookies(account), now, openAICodexTicketTargetLength(account, cfg))
@@ -378,7 +388,9 @@ func (s *OpenAIGatewayService) runOpenAICodexTicketProbe(ctx context.Context, ac
 		// Start the lifetime before the request, so network/persistence latency
 		// cannot silently extend a ticket beyond the upstream's short window.
 		harvested = &openAICodexTicket{AccountID: account.ID, Model: model, State: state, Length: len(state), CapturedAt: started, ExpiresAt: started.Add(time.Duration(cfg.TTLSeconds) * time.Second), Attempts: attempts}
-		s.storeOpenAICodexTicket(ctx, account, harvested)
+		if err := s.storeOpenAICodexTicket(ctx, account, harvested); err != nil {
+			result = &openAICodexTicketProbeError{Code: "persist_failed", Message: "Ticket persistence failed", HTTPStatus: status}
+		}
 	}
 	// Persistence is part of the attempt too; even a slow database must not
 	// consume the minimum quiet interval after completion.
@@ -457,7 +469,7 @@ func codexTicketRetryDelay(result *openAICodexTicketProbeError, failures int, ba
 		if delay < 30*time.Second {
 			delay = 30 * time.Second
 		}
-	case "network", "timeout", "proxy_auth", "upstream_5xx", "invalid_response":
+	case "network", "timeout", "proxy_auth", "upstream_5xx", "invalid_response", "persist_failed":
 		delay = codexTicketExponentialDelay(base, failures, 2*time.Minute)
 	}
 	if result.RetryAfter > delay {
@@ -480,9 +492,13 @@ func (s *OpenAIGatewayService) EnrichOpenAICodexTicketDiagnostics(account *Accou
 		status.setCookieStatus(cookies, now)
 		// The runtime cookie pool may invalidate an older account snapshot.
 		status.Ready, status.Length, status.RemainingSeconds, status.ExpiresAt = false, 0, 0, nil
-		status.Blocked = s.openAICodexTicketAccountConfig(context.Background(), account).FailClosed
+		status.Blocked = s.openAICodexTicketAccountConfig(context.Background(), account).FailClosed && !openAICodexSkipHarvest(account)
 		ticket := s.lookupOpenAICodexTicket(account, status.Model)
-		if until := openAICodexTicketReadyUntil(ticket, cookies, now, status.TargetLength); !until.IsZero() {
+		until := openAICodexTicketReadyUntil(ticket, cookies, now, status.TargetLength)
+		if !s.requiresLegacyCodexCookies(account, ticket) && ticket.valid(now, status.TargetLength) {
+			until = openAICodexTicketRemainingUntil(ticket)
+		}
+		if !until.IsZero() {
 			status.Ready = true
 			status.Length = ticket.Length
 			status.RemainingSeconds = int64(until.Sub(now) / time.Second)

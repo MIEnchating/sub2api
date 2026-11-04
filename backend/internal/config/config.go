@@ -1268,28 +1268,6 @@ func (c *UserMessageQueueConfig) GetEffectiveMode() string {
 	return ""
 }
 
-// OpenAICodexTicketConfig controls account-scoped Codex tickets.
-// HarvestProxyURL is a single dedicated proxy, independent of business egress.
-// Pro uses 292 bytes, Team/Business uses 332; TargetLength is the fallback.
-// 账号通过 extra 的 codex_ticket_* 保留启用和缺票策略；Pro 使用 292，Team/Business 使用 332。
-// TargetLength 是其他/未知套餐的默认长度，FailClosed 兼容未配置账号策略的旧账号。
-// 打票请求使用专用 HarvestProxyURL，与业务出口隔离；292 门票还需携带账号路由 Cookie。
-// 门票默认最多有效 240 秒，默认提前 60 秒重新打票。
-type OpenAICodexTicketConfig struct {
-	Enabled                      bool     `mapstructure:"enabled"`
-	HarvestProxyURL              string   `mapstructure:"harvest_proxy_url"`
-	TargetLength                 int      `mapstructure:"target_length"`
-	TTLSeconds                   int      `mapstructure:"ttl_seconds"`
-	RefreshBeforeSeconds         int      `mapstructure:"refresh_before_seconds"`
-	HarvestProbeIntervalSeconds  int      `mapstructure:"harvest_probe_interval_seconds"`
-	HarvestAttemptTimeoutSeconds int      `mapstructure:"harvest_attempt_timeout_seconds"`
-	HarvestMaxConcurrent         int      `mapstructure:"harvest_max_concurrent"`
-	HarvestAccountConcurrency    int      `mapstructure:"harvest_account_concurrency"`
-	HarvestProxyConcurrency      int      `mapstructure:"harvest_proxy_concurrency"`
-	FailClosed                   bool     `mapstructure:"fail_closed"`
-	Models                       []string `mapstructure:"models"`
-}
-
 const (
 	DefaultOpenAICodexTicketTTLSeconds           = 240
 	DefaultOpenAICodexTicketRefreshBeforeSeconds = 60
@@ -2465,6 +2443,8 @@ func setDefaults() {
 	viper.SetDefault("gateway.openai_codex_ticket.models", []string{"gpt-6-astra", "gpt-5.6-sol"})
 	viper.SetDefault("gateway.live.max_session_duration_seconds", 3600)
 	// OpenAI Responses WebSocket（默认开启；可通过 force_http 紧急回滚）
+	viper.SetDefault("gateway.openai_codex_ticket.harvest_cooldown_seconds", 180)
+	viper.SetDefault("gateway.openai_codex_ticket.max_probes_per_round", 6)
 	viper.SetDefault("gateway.openai_ws.enabled", true)
 	viper.SetDefault("gateway.openai_ws.mode_router_v2_enabled", false)
 	viper.SetDefault("gateway.openai_ws.ingress_mode_default", "ctx_pool")

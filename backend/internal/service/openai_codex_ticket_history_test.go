@@ -73,7 +73,7 @@ func TestCodexTicketInjectMissOnlyCountsEligibleOutboundInjection(t *testing.T) 
 				account.Type = AccountTypeAPIKey
 			case "valid":
 				seedCodexTicketCookies(svc, account)
-				svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: model, State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)})
+				require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{Model: model, State: fakeCodexTicketState(292), Length: 292, CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Hour)}))
 			case "fail_open":
 				svc.cfg.Gateway.OpenAICodexTicket.FailClosed = false
 			}

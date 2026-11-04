@@ -33,6 +33,8 @@ func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
 		t.Run(changed, func(t *testing.T) {
 			pool, dialer := newCodexTicketWSTestPool(t)
 			var generation atomic.Int32
+			initialState := fakeCodexTicketStateSalt(292, 0)
+			rotatedState := fakeCodexTicketStateSalt(292, 1)
 			req := openAIWSAcquireRequest{
 				Account: ticketTestAccount(41),
 				WSURL:   "wss://chatgpt.com/backend-api/codex/responses",
@@ -40,10 +42,10 @@ func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
 					if h == nil {
 						h = make(http.Header)
 					}
-					state, cookie := fakeCodexTicketState(292), "__cflb=one; __oailb=one"
+					state, cookie := initialState, "__cflb=one; __oailb=one"
 					if generation.Load() > 0 {
 						if changed != "cookie" {
-							state = strings.Replace(state, "B", "C", 1)
+							state = rotatedState
 						}
 						if changed != "ticket" {
 							cookie = "__cflb=two; __oailb=two"
@@ -154,10 +156,10 @@ func TestOpenAIWSCodexTicketFactoryPoliciesAndIsolation(t *testing.T) {
 				seedCodexTicketCookies(svc, account)
 			}
 			if mode != "fail_open" {
-				svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
+				require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
 					Model: model, State: fakeCodexTicketState(292), Length: 292,
 					CapturedAt: time.Now(), ExpiresAt: time.Now().Add(240 * time.Second),
-				})
+				}))
 			}
 			switch mode {
 			case "gateway_off":
@@ -210,6 +212,58 @@ func TestOpenAIWSCodexTicketClearsRetiredManagedHeaders(t *testing.T) {
 	require.False(t, req.codexTicketManaged)
 }
 
+func TestOpenAIWSCodexLegacyTicketKeepsRoutingCookies(t *testing.T) {
+	headers := http.Header{}
+	headers.Set(openAICodexTurnStateHeader, fakeCodexTicketState(292))
+	headers.Set("Cookie", "__cflb=valid; __oailb=valid")
+	restoreBoundCodexTicketHarvestIdentity(headers, &openAICodexTicket{Length: 292})
+	require.Equal(t, "__cflb=valid; __oailb=valid", headers.Get("Cookie"))
+}
+
+func TestOpenAIWSCodexTicketBindingHandshakeCompatibility(t *testing.T) {
+	for _, harvest := range []bool{false, true} {
+		name := "legacy_routing_cookies"
+		if harvest {
+			name = "harvest_identity_and_cookies"
+		}
+		t.Run(name, func(t *testing.T) {
+			svc := ticketTestService(t, config.OpenAICodexTicketConfig{Enabled: true, FailClosed: true}, nil)
+			account := ticketTestAccount(41)
+			seedCodexTicketCookies(svc, account)
+			ticket := &openAICodexTicket{
+				Model: "gpt-6-astra", State: fakeCodexTicketState(292), Length: 292,
+				CapturedAt: time.Now(), ExpiresAt: time.Now().Add(time.Minute),
+			}
+			wantCookie := "__cflb=test-cflb; __oailb=test-oailb"
+			if harvest {
+				ticket.HarvestSessionID = "harvest-session"
+				ticket.HarvestCookies = []string{"__cflb=harvest", "__oailb=harvest"}
+				wantCookie = "__cflb=harvest; __oailb=harvest"
+			}
+			require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, ticket))
+			factory := svc.openAIWSCodexTicketHeadersFactory(account, ticket.Model)
+			headers, managed, err := factory(context.Background(), http.Header{})
+			require.NoError(t, err)
+			require.True(t, managed)
+			require.Equal(t, wantCookie, headers.Get("Cookie"))
+			binding := svc.bindCodexTicketWS(context.Background(), account, ticket.Model, headers)
+			pool, dialer := newCodexTicketWSTestPool(t)
+			req := openAIWSAcquireRequest{
+				Account: account, WSURL: "wss://chatgpt.com/backend-api/codex/responses", Headers: headers,
+				CodexTicketHeadersFactory: factory,
+				HeadersFactory: func(_ context.Context, h http.Header) (http.Header, error) {
+					binding.restoreHeaders(h)
+					return h, nil
+				},
+			}
+			lease, err := pool.Acquire(context.Background(), req)
+			require.NoError(t, err)
+			require.Equal(t, 1, dialer.DialCount(), "stable credentials must not cause a redial loop")
+			lease.Release()
+		})
+	}
+}
+
 func TestOpenAIWSCodexTicketIngressRotatesOnlyStandaloneTurns(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	for _, continuation := range []bool{false, true} {
@@ -246,12 +300,15 @@ func TestOpenAIWSCodexTicketIngressRotatesOnlyStandaloneTurns(t *testing.T) {
 				"responses_websockets_v2_enabled":           true,
 				codexFingerprintModeExtraKey:                "off",
 			}
+			svc.accountRepo = &snapshotUpdateAccountRepo{
+				stubOpenAIAccountRepo: stubOpenAIAccountRepo{accounts: []Account{*account}},
+			}
 			seedCodexTicketCookies(svc, account)
 			storeTicket := func(state string) {
-				svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
+				require.NoError(t, svc.storeOpenAICodexTicket(context.Background(), account, &openAICodexTicket{
 					Model: "gpt-6-astra", State: state, Length: 292,
 					CapturedAt: time.Now(), ExpiresAt: time.Now().Add(240 * time.Second),
-				})
+				}))
 			}
 			storeTicket(fakeCodexTicketState(292))
 			serverErrCh := make(chan error, 1)
@@ -285,7 +342,15 @@ func TestOpenAIWSCodexTicketIngressRotatesOnlyStandaloneTurns(t *testing.T) {
 			_, response, err := client.Read(ctx)
 			require.NoError(t, err)
 			require.Equal(t, "resp_ticket_1", gjson.GetBytes(response, "response.id").String())
-			storeTicket(strings.Replace(fakeCodexTicketState(292), "B", "C", 1))
+			// Harvest stores a new ticket as standby while the primary is valid.
+			// Model an actual primary rotation, retaining the old ticket so a
+			// tool continuation remains authorized on its original connection.
+			previousTicket := svc.lookupOpenAICodexTicket(account, "gpt-6-astra")
+			rotatedTicket := *previousTicket
+			rotatedTicket.State = fakeCodexTicketStateSalt(292, 1)
+			rotatedTicket.Standby = previousTicket
+			require.NotEqual(t, previousTicket.State, rotatedTicket.State)
+			svc.openaiCodexTickets.Store(openAICodexTicketKey(account.ID, "gpt-6-astra"), &rotatedTicket)
 			next := `{"type":"response.create","model":"gpt-6-astra","input":[{"role":"user","content":"second complete input"}]}`
 			if continuation {
 				next = `{"type":"response.create","model":"gpt-6-astra","previous_response_id":"resp_ticket_1","input":[{"type":"function_call_output","call_id":"call_ticket","output":"ok"}]}`

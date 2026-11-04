@@ -908,6 +908,11 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	if testModelID == "" {
 		testModelID = openai.DefaultTestModel
 	}
+	// Account probes must follow the selected model's BPS route as real user
+	// requests do. Forward retains the authoritative VM binding's priority.
+	if account.IsExcelBPSEnabledForModel(testModelID) {
+		return s.testExcelBPSAccountConnection(c, account, testModelID, prompt)
+	}
 
 	// Align test routing with gateway behavior: OpenAI accounts apply normal
 	// account model mapping. Native remote compaction v2 rides the ordinary
@@ -3482,6 +3487,9 @@ func (s *AccountTestService) testOpenAIImageAPIKey(c *gin.Context, ctx context.C
 		"n":               1,
 		"response_format": "b64_json",
 	}
+	if size := account.OpenAIImageTestSize(); size != "" {
+		payload["size"] = size
+	}
 	payloadBytes, _ := json.Marshal(payload)
 
 	req, err := http.NewRequestWithContext(ctx, "POST", apiURL, bytes.NewReader(payloadBytes))
@@ -3578,7 +3586,9 @@ func (s *AccountTestService) testOpenAIImageOAuth(c *gin.Context, ctx context.Co
 		Endpoint: openAIImagesGenerationsEndpoint,
 		Model:    strings.TrimSpace(modelID),
 		Prompt:   prompt,
+		Size:     account.OpenAIImageTestSize(),
 	}
+	parsed.ExplicitSize = parsed.Size != ""
 	applyOpenAIImagesDefaults(parsed)
 
 	upstreamModel := account.GetMappedModel(parsed.Model)
