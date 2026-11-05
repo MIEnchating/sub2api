@@ -157,13 +157,13 @@ func (s *OpenAIGatewayService) dispatchOpenAICodexTickets(ctx context.Context, a
 	r := &s.openaiCodexTicketScheduler
 	// Fetch policy before holding the scheduler lock: settings reads may do I/O.
 	for _, account := range accounts {
-		if account.Status != StatusActive || openAICodexSkipHarvest(&account) || !scope.includes(&account) || !scope.allowsAccount(&account) || !s.openAICodexTicketAccountConfig(ctx, &account).Enabled {
+		if account.Status != StatusActive || openAICodexSkipHarvest(&account) || !s.harvestScopeIncludesAccount(ctx, scope, &account) || !s.harvestScopeAllowsAccount(ctx, scope, &account) || !s.openAICodexTicketAccountConfig(ctx, &account).Enabled {
 			continue
 		}
 		for _, rawModel := range cfg.Models {
 			model := normalizeOpenAICodexTicketModel(rawModel)
 			key := openAICodexTicketKey(account.ID, model)
-			if model == "" || activeKeys[key] || !isOpenAICodexTicketAccount(&account, model) {
+			if model == "" || activeKeys[key] || !s.isOpenAICodexTicketAccount(ctx, &account, model) {
 				continue
 			}
 			activeKeys[key] = true
@@ -259,7 +259,7 @@ func (r *codexTicketScheduler) job(account *Account, model string, cfg config.Op
 }
 
 func (s *OpenAIGatewayService) startOpenAICodexTicketProbe(ctx context.Context, account *Account, model string, cfg config.OpenAICodexTicketConfig, now time.Time, async bool) bool {
-	if ctx.Err() != nil || s.httpUpstream == nil || openAICodexSkipHarvest(account) || s.openAICodexTicketHarvestExcluded(account) || !isOpenAICodexTicketAccount(account, model) || !s.openAICodexTicketAccountConfig(ctx, account).Enabled {
+	if ctx.Err() != nil || s.httpUpstream == nil || openAICodexSkipHarvest(account) || s.openAICodexTicketHarvestExcluded(account) || !s.isOpenAICodexTicketAccount(ctx, account, model) || !s.openAICodexTicketAccountConfig(ctx, account).Enabled {
 		return false
 	}
 	// The legacy dispatcher shares the live strategy with directed harvesting.

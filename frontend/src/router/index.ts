@@ -14,6 +14,7 @@ import { getSetupStatus } from '@/api/setup'
 import { resolveCompletedSetupRedirectPath } from './setupRedirect'
 import { resolveRouteDocumentTitle } from './title'
 import { isNavigationItemVisible } from '@/utils/navigationVisibility'
+import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
 
 /**
  * Route definitions with lazy loading
@@ -647,7 +648,7 @@ const routes: RouteRecordRaw[] = [
     path: '/admin/harvest-flow',
     name: 'AdminHarvestFlow',
     component: () => import('@/views/admin/HarvestFlowView.vue'),
-    meta: { requiresAuth: true, requiresAdmin: true, title: 'Codex ticket management', titleKey: 'admin.harvestFlow.title' }
+    meta: { requiresAuth: true, requiresAdmin: true, requiresCodexTicket: true, title: 'Codex ticket management', titleKey: 'admin.harvestFlow.title' }
   },
   {
     path: '/admin/proxies',
@@ -1028,6 +1029,11 @@ router.beforeEach(async (to, _from, next) => {
     } catch (error) {
       console.warn('Failed to load public settings in route guard', error)
     }
+  }
+
+  if (to.meta.requiresCodexTicket && !resolveFeatureFlag(appStore.cachedPublicSettings, FeatureFlags.codexTicket)) {
+    next({ path: '/admin/settings', query: { tab: 'features' } })
+    return
   }
 
   // Only an explicit value from successfully loaded settings can disable a route.

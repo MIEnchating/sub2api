@@ -65,8 +65,9 @@ func newAnthropicCompatStreamWithInterval(cfg *config.Config, c *gin.Context, re
 		maxLineSize = cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
+	scanner.Split(newBoundedSSESplit(cfg, maxLineSize, nil))
 	stream := &anthropicCompatStream{
-		pump:        newAnthropicNativeLinePump(scanner, interval),
+		pump:        newAnthropicNativeLinePump(scanner, interval, cfg),
 		body:        resp.Body,
 		maxLineSize: maxLineSize,
 		logPrefix:   logPrefix,

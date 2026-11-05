@@ -4,13 +4,49 @@ import (
 	"bytes"
 	"compress/gzip"
 	"compress/zlib"
+	"context"
 	"errors"
 	"io"
 	"net/http"
 	"testing"
 
+	"github.com/stretchr/testify/require"
+
 	"github.com/klauspost/compress/zstd"
 )
+
+func TestReadRequestBodyWithPreallocLimitSharesIngressBudget(t *testing.T) {
+	payload := bytes.Repeat([]byte("x"), 4096)
+	for _, encoding := range []string{"identity", "gzip"} {
+		t.Run(encoding, func(t *testing.T) {
+			wire := payload
+			if encoding == "gzip" {
+				var compressed bytes.Buffer
+				writer := gzip.NewWriter(&compressed)
+				_, err := writer.Write(payload)
+				require.NoError(t, err)
+				require.NoError(t, writer.Close())
+				wire = compressed.Bytes()
+			}
+			budget := NewBodyMemoryBudget(2048)
+			ctx, release := WithRequestBodyMemoryBudget(context.Background(), budget)
+			defer release()
+			req := newRequestWithBody(t, wire, encoding).WithContext(ctx)
+			_, err := ReadRequestBodyWithPreallocLimit(req, 8192)
+			require.ErrorIs(t, err, ErrRequestBodyMemoryBudget)
+			require.Zero(t, budget.used, "failed reads must refund raw and decoded storage")
+
+			budget.limit = 16384
+			req = newRequestWithBody(t, wire, encoding).WithContext(ctx)
+			body, err := ReadRequestBodyWithPreallocLimit(req, 8192)
+			require.NoError(t, err)
+			require.Equal(t, payload, body)
+			require.Equal(t, int64(len(payload)), budget.used)
+			release()
+			require.Zero(t, budget.used)
+		})
+	}
+}
 
 func TestReadRequestBodyWithPreallocLimit_CompressedBody(t *testing.T) {
 	body := []byte(samplePayload)

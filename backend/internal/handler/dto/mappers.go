@@ -289,6 +289,7 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		GroupIDs:                   a.GroupIDs,
 		ParentAccountID:            a.ParentAccountID,
 		QuotaDimension:             a.QuotaDimension,
+		ExcelBPSCredentialState:    service.ExcelBPSCredentialStateFromAccount(a, time.Now()),
 	}
 
 	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
@@ -427,7 +428,7 @@ func redactAccountManagedExtra(extra map[string]any) map[string]any {
 	redacted := make(map[string]any, len(extra))
 	for key, value := range extra {
 		switch {
-		case key == service.OllamaCloudUsageSessionExtraKey,
+		case key == service.ExcelBPSCredentialStateExtraKey, key == service.OllamaCloudUsageSessionExtraKey,
 			key == service.OllamaCloudUsageAutoRefreshExtraKey,
 			key == service.OllamaCloudUsageSnapshotExtraKey,
 			key == service.OpenCodeGoUsageAutoRefreshExtraKey,
@@ -480,7 +481,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		CodexTurnTickets:  a.CodexTurnTickets,
 		ProxyIDs:          a.ProxyIDs,
 		ProxyID:           a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
-		Concurrency: a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
+		ExcelBPSCredentialState: a.ExcelBPSCredentialState,
+		Concurrency:             a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
 		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
 		AutoPauseOnExpired: a.AutoPauseOnExpired, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 		Schedulable: a.Schedulable, RateLimitedAt: a.RateLimitedAt, RateLimitResetAt: a.RateLimitResetAt,
@@ -543,6 +545,7 @@ func ProxyFromService(p *service.Proxy) *Proxy {
 		Host:           p.Host,
 		Port:           p.Port,
 		Username:       p.Username,
+		MihomoNodeID:   p.MihomoNodeID,
 		Status:         p.Status,
 		CreatedAt:      p.CreatedAt,
 		UpdatedAt:      p.UpdatedAt,

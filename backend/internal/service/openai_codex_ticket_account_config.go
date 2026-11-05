@@ -25,13 +25,13 @@ type OpenAICodexTicketAccountConfig struct {
 	TargetLength   int  `json:"target_length"`
 }
 
-func ResolveOpenAICodexTicketAccountConfig(account *Account, fallback config.OpenAICodexTicketConfig) OpenAICodexTicketAccountConfig {
+func ResolveOpenAICodexTicketAccountConfig(account *Account, fallback config.OpenAICodexTicketConfig, bpsEnabled ...bool) OpenAICodexTicketAccountConfig {
 	policy := OpenAICodexTicketAccountConfig{
 		GatewayEnabled: fallback.Enabled,
 		FailClosed:     true,
 		TargetLength:   openAICodexTicketTargetLength(account, fallback),
 	}
-	if !isOpenAICodexTicketAccount(account) {
+	if !isOpenAICodexTicketAccountWithBPS(account, bpsEnabled) {
 		return policy
 	}
 	policy.AccountEnabled = true // Preserve untouched pre-account-switch installations.
@@ -75,7 +75,11 @@ func openAICodexTicketTargetLength(account *Account, fallback config.OpenAICodex
 func (s *OpenAIGatewayService) openAICodexTicketAccountConfig(ctx context.Context, account *Account) OpenAICodexTicketAccountConfig {
 	cfg := s.openAICodexTicketConfig()
 	cfg.Enabled = s.openAICodexTicketEnabledContext(ctx)
-	return ResolveOpenAICodexTicketAccountConfig(account, cfg)
+	bpsEnabled := true
+	if isNativeOpenAICodexTicketAccount(account) && !isOpenAICodexTicketAccount(account) {
+		bpsEnabled = s.excelBPSGloballyEnabled(ctx)
+	}
+	return ResolveOpenAICodexTicketAccountConfig(account, cfg, bpsEnabled)
 }
 
 func normalizedOpenAICodexTicketPlan(account *Account) string {

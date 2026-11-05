@@ -246,6 +246,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAffiliateEnabled,
 		SettingKeyRiskControlEnabled,
 		SettingKeyAllowUserViewErrorRequests,
+		SettingKeyExcelBPSEnabled,
+		SettingKeyOpenAICodexTicketEnabled,
 	}
 
 	settings, err := s.settingRepo.GetMultiple(ctx, keys)
@@ -303,7 +305,16 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		balanceLowNotifyThreshold = v
 	}
 
+	// Share the runtime switch: unset deployments default off, while an explicit
+	// YAML/env choice remains effective until the administrator saves a value.
+	codexTicketEnabled := s.cfg != nil && s.cfg.Gateway.OpenAICodexTicket.Enabled
+	if raw := settings[SettingKeyOpenAICodexTicketEnabled]; strings.TrimSpace(raw) != "" {
+		codexTicketEnabled = raw == "true"
+	}
+
 	return &PublicSettings{
+		OpenAICodexTicketEnabled:            codexTicketEnabled,
+		ExcelBPSEnabled:                     settings[SettingKeyExcelBPSEnabled] != "false",
 		GPTDirectEnabled:                    gptDirectEnabled(settings[SettingKeyGPTDirectConfig]),
 		RegistrationEnabled:                 settings[SettingKeyRegistrationEnabled] == "true",
 		EmailVerifyEnabled:                  emailVerifyEnabled,
@@ -573,6 +584,8 @@ func (s *SettingService) IsUserErrorViewAllowed(ctx context.Context) bool {
 // A unit test diffs this struct's JSON keys against dto.PublicSettings to catch
 // drift automatically (see setting_service_injection_test.go).
 type PublicSettingsInjectionPayload struct {
+	OpenAICodexTicketEnabled            bool                     `json:"openai_codex_ticket_enabled"`
+	ExcelBPSEnabled                     bool                     `json:"excel_bps_enabled"`
 	GPTDirectEnabled                    bool                     `json:"gpt_direct_enabled"`
 	RegistrationEnabled                 bool                     `json:"registration_enabled"`
 	EmailVerifyEnabled                  bool                     `json:"email_verify_enabled"`
@@ -672,6 +685,8 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 	}
 
 	return &PublicSettingsInjectionPayload{
+		OpenAICodexTicketEnabled:            settings.OpenAICodexTicketEnabled,
+		ExcelBPSEnabled:                     settings.ExcelBPSEnabled,
 		GPTDirectEnabled:                    settings.GPTDirectEnabled,
 		RegistrationEnabled:                 settings.RegistrationEnabled,
 		EmailVerifyEnabled:                  settings.EmailVerifyEnabled,

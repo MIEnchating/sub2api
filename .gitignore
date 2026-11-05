@@ -146,9 +146,13 @@ docs/*
 !docs/upstream-merge-2026-09-21.md
 !docs/upstream-billing-rate-limit.md
 !docs/codex-ticket-mihomo-excel-bps.md
+!docs/excel-bps-authorization-and-diagnostics.md
+!docs/mihomo-ticket-updates-20261104.md
+!docs/bps-mihomo-harvest-update-20261104.md
 !docs/channel-quality-protection.md
 !docs/channel-test-strategies.md
 !docs/ANTIGRAVITY_ATTRIBUTION_429.md
+!docs/agent-resource-safety.md
 !docs/admin-api-keys.md
 !docs/mcp.md
 !docs/PAYMENT.md

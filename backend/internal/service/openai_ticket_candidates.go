@@ -27,11 +27,11 @@ func (s *OpenAIGatewayService) listSchedulableAccountsForRequest(
 		if _, excluded := excludedIDs[account.ID]; excluded {
 			continue
 		}
-		if !account.IsSchedulable() || !isOpenAICodexTicketAccount(account) || !s.openAICodexTicketAccountConfig(ctx, account).FailClosed {
+		if !account.IsSchedulable() || !s.isOpenAICodexTicketAccount(ctx, account) || !s.openAICodexTicketAccountConfig(ctx, account).FailClosed {
 			continue
 		}
 		model := s.openAICodexTicketOutboundModel(account, requestedModel, requireCompact)
-		if !isOpenAICodexTicketAccount(account, model) || !s.openAICodexTicketGatedModel(model) {
+		if !s.isOpenAICodexTicketAccount(context.Background(), account, model) || !s.openAICodexTicketGatedModel(model) {
 			continue
 		}
 		if _, exists := hydrate[account.ID]; !exists {

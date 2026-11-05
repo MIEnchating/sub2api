@@ -1332,6 +1332,9 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.AccountProtectionPolicyKey,
 		// 生图尺寸档位在候选过滤阶段按本投影判定，裁掉后受限账号会接到不允许的档位。
 		service.AccountExtraOpenAIImageSizeTiers,
+		"astra_model_disabled",
+		"astra_model_blocked_keys",
+		"astra_model_empty_mapping",
 		"openai_excel_bps",
 		"openai_excel_bps_auto_disable_on_403",
 		service.ExcelBPSAutoMoveOn403Key,

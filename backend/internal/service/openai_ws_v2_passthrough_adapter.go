@@ -712,7 +712,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	if err := requestmodel.ValidateWebSocketModelFields(firstClientMessage); err != nil {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 	}
-	if err := openAIWSRejectExcelBPS(account, openAIWSPassthroughRequestModelForFrame(firstClientMessage), openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)); err != nil {
+	if err := s.rejectExcelBPSWebSocket(ctx, account, openAIWSPassthroughRequestModelForFrame(firstClientMessage), openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)); err != nil {
 		return err
 	}
 	if err := validateOpenAIWSBearerToken(account, token); err != nil {
@@ -788,7 +788,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	if capturedSessionModel != "" && capturedSessionModel != strings.TrimSpace(gjson.GetBytes(firstClientMessage, "model").String()) {
 		firstClientMessage = s.ReplaceModelInBody(firstClientMessage, capturedSessionModel)
 	}
-	if err := openAIWSRejectExcelBPS(account, initialRequestModel, capturedSessionModel); err != nil {
+	if err := s.rejectExcelBPSWebSocket(ctx, account, initialRequestModel, capturedSessionModel); err != nil {
 		return err
 	}
 	firstMessageResponsesLite := isOpenAIResponsesLiteWebSocketPayload(firstClientMessage)
@@ -1270,7 +1270,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 				model = account.GetMappedModel(model)
 			}
 			if isResponseCreate || eventType == "session.update" {
-				if err := openAIWSRejectExcelBPS(account, requestModelForThisFrame, model); err != nil {
+				if err := s.rejectExcelBPSWebSocket(ctx, account, requestModelForThisFrame, model); err != nil {
 					return payload, nil, err
 				}
 				if !vmBound {

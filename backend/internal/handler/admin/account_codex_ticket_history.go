@@ -34,19 +34,23 @@ func (h *AccountHandler) GetCodexTicketHistory(c *gin.Context) {
 		response.NotFound(c, "Account not found")
 		return
 	}
+	bpsEnabled := true
 	cfg := config.OpenAICodexTicketConfig{}
 	if h.cfg != nil {
 		cfg = h.cfg.Gateway.OpenAICodexTicket
 	}
 	if h.codexTicketSettings != nil {
+		if account.IsExcelBPSEnabled() {
+			bpsEnabled, _ = h.codexTicketSettings.GetProtocolFeatureEnabled(c.Request.Context(), service.SettingKeyExcelBPSEnabled)
+		}
 		cfg.Enabled = h.codexTicketSettings.GetOpenAICodexTicketEnabled(c.Request.Context(), cfg.Enabled)
 	}
 	events := make([]service.OpenAICodexTicketEvent, 0)
-	if service.ResolveOpenAICodexTicketAccountConfig(account, cfg).Enabled {
+	if service.ResolveOpenAICodexTicketAccountConfig(account, cfg, bpsEnabled).Enabled {
 		model := strings.TrimSpace(c.Query("model"))
 		if model != "" {
 			valid := false
-			for _, status := range service.OpenAICodexTicketStatuses(account, cfg, time.Now()) {
+			for _, status := range service.OpenAICodexTicketStatuses(account, cfg, time.Now(), bpsEnabled) {
 				if status.Model == model {
 					valid = true
 					break

@@ -57,7 +57,7 @@ func RequestModelFields(maxBodySize, textMaxBodySize int64) gin.HandlerFunc {
 			// Match the lenient JSON accepted by downstream handlers without
 			// rewriting their input or letting a raw control byte hide duplicates.
 			var normalized []byte
-			normalized, err = httputil.NormalizeLenientJSONRequestBody(body, readLimit)
+			normalized, err = httputil.NormalizeLenientJSONRequestBodyWithContext(c.Request.Context(), body, readLimit)
 			if err == nil {
 				if validationErr := requestmodel.ValidateJSONModelFields(normalized); validationErr != nil {
 					requestModelFieldsError(c, http.StatusBadRequest, validationErr.Error())
@@ -69,6 +69,9 @@ func RequestModelFields(maxBodySize, textMaxBodySize int64) gin.HandlerFunc {
 			}
 		}
 
+		if RejectRequestBodyReadError(c, err) {
+			return
+		}
 		status := http.StatusBadRequest
 		message := "Failed to read request body"
 		var maxErr *http.MaxBytesError

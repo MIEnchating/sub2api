@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync/atomic"
+	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -117,6 +118,10 @@ type WebSearchManagerBuilder func(cfg *WebSearchEmulationConfig, proxyURLs map[i
 
 // SettingService 系统设置服务
 type SettingService struct {
+	astraRoutingMu                     sync.Mutex
+	astraRoutingOnSaved                func(config.AstraRoutingSettings)
+	astraRoutingCache                  *config.AstraRoutingSettings
+	astraRoutingExpires                time.Time
 	openAICodexTicketEnabledCache      atomic.Value // *cachedOpenAICodexTicketEnabled
 	openAICodexTicketEnabledSF         singleflight.Group
 	openAICodexTicketFailClosedCache   atomic.Value // *cachedOpenAICodexTicketFailClosed
@@ -328,6 +333,9 @@ func NewSettingService(settingRepo SettingRepository, cfg *config.Config) *Setti
 		cfg:         cfg,
 	}
 	svc.gatewayRuntimePolicy.Store(gatewayRuntimePolicyFromConfig(cfg))
+	if cfg != nil {
+		cfg.SetAstraRoutingLoader(svc.astraRoutingRuntime)
+	}
 	return svc
 }
 

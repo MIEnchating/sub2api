@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"crypto/sha256"
@@ -613,6 +612,10 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if parsed == nil {
 		return nil, fmt.Errorf("parsed images request is required")
 	}
+	if account.IsExcelOAuth() {
+		return nil, writeExcelOAuthRouteError(c)
+	}
+
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
@@ -661,7 +664,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	// 就把已经在出图的上游调用打断成 context canceled，网关记 502、不扣费，而上游那边
 	// 图已经生成并计费。同一端点的 OAuth 分支 forwardOpenAIImagesOAuth 以及 Grok 媒体
 	// 路径本来就无条件脱钩，这里对齐；上游侧仍由 ResponseHeaderTimeout 兜底。
-	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx)
+	upstreamCtx, releaseUpstreamCtx := detachUpstreamContext(ctx, s.openAIImageDrainTimeout())
 	defer releaseUpstreamCtx()
 
 	token, _, err := s.GetAccessToken(upstreamCtx, account)
@@ -1057,12 +1060,37 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	clientDisconnected := false
 	lastDownstreamWriteAt := time.Now()
 	var fallbackBody bytes.Buffer
-	var pendingClientLines bytes.Buffer
 	fallbackBytes := int64(0)
 	fallbackLimit := resolveUpstreamResponseReadLimit(s.cfg)
 	seenSSEData := false
 	fallbackTooLarge := false
 	var sseData openAISSEDataAccumulator
+	// Keep raw passthrough frames until their delimiter so a rejected event is
+	// never completed downstream by the gateway's own error frame. These strings
+	// share storage with sseData and are bounded by the same SSE event limits.
+	var pendingRawLines []string
+	var pendingRawBytes int64
+	discardRawEvent := func() {
+		clear(pendingRawLines)
+		pendingRawLines = pendingRawLines[:0]
+		pendingRawBytes = 0
+	}
+	flushRawEvent := func() {
+		defer discardRawEvent()
+		if clientDisconnected || len(pendingRawLines) == 0 {
+			return
+		}
+		for _, line := range pendingRawLines {
+			if _, writeErr := io.WriteString(c.Writer, line); writeErr != nil {
+				clientDisconnected = true
+				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected, continue draining upstream for billing")
+				return
+			}
+		}
+		flusher.Flush()
+		lastDownstreamWriteAt = time.Now()
+	}
+	defer discardRawEvent()
 	var streamErr error
 	stopAfterStreamErr := func() bool {
 		if streamErr == nil {
@@ -1170,28 +1198,21 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 	}
 
-	flushSSEEvent := func() {
-		sseData.Flush(processSSEData)
-	}
 	flushPendingClientLines := func() {
-		if direct != nil || pendingClientLines.Len() == 0 {
+		if direct != nil || len(pendingRawLines) == 0 {
 			return
 		}
 		if upstreamErr, ok := streamErr.(*OpenAIImagesUpstreamError); ok && openAIImagesBillingStatus(upstreamErr) != 0 {
 			writeBillingClientError()
-			pendingClientLines.Reset()
+			discardRawEvent()
 			return
 		}
-		if !clientDisconnected {
-			if _, err := c.Writer.Write(pendingClientLines.Bytes()); err != nil {
-				clientDisconnected = true
-				logger.LegacyPrintf("service.openai_gateway", "[OpenAI] Images stream client disconnected, continue draining upstream for billing")
-			} else {
-				flusher.Flush()
-				lastDownstreamWriteAt = time.Now()
-			}
-		}
-		pendingClientLines.Reset()
+		flushRawEvent()
+	}
+	flushSSEEvent := func() {
+		// Inspect the complete payload before forwarding raw bytes so provider
+		// billing details never bypass the gateway's public error message.
+		sseData.Flush(processSSEData)
 	}
 
 	processLine := func(line []byte) {
@@ -1202,16 +1223,18 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			ms := int(time.Since(startTime).Milliseconds())
 			firstTokenMs = &ms
 		}
-		if direct == nil {
-			if int64(pendingClientLines.Len())+int64(len(line)) > fallbackLimit {
+		rawLine := string(line)
+		if direct == nil && !clientDisconnected {
+			if pendingRawBytes+int64(len(line)) > fallbackLimit {
 				streamErr = fmt.Errorf("%w: image SSE frame limit=%d", ErrUpstreamResponseBodyTooLarge, fallbackLimit)
-				pendingClientLines.Reset()
+				discardRawEvent()
 				return
 			}
-			_, _ = pendingClientLines.Write(line)
+			pendingRawLines = append(pendingRawLines, rawLine)
+			pendingRawBytes += int64(len(line))
 		}
 
-		trimmedLine := strings.TrimRight(string(line), "\r\n")
+		trimmedLine := strings.TrimRight(rawLine, "\r\n")
 		if _, ok := extractOpenAISSEDataLine(trimmedLine); ok || strings.TrimSpace(trimmedLine) == "" {
 			sseData.AddLine(trimmedLine, processSSEData)
 			if strings.TrimSpace(trimmedLine) == "" {
@@ -1253,9 +1276,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	streamInterval := s.openAIImageStreamDataInterval()
 	keepaliveInterval := s.openAIImageStreamKeepaliveInterval()
 	if streamInterval <= 0 && keepaliveInterval <= 0 {
-		reader := bufio.NewReader(resp.Body)
+		reader := newBoundedSSELineReader(resp.Body, s.cfg)
 		for {
-			line, err := readOpenAIImagesStreamLine(reader, fallbackLimit)
+			line, err := reader.ReadLine()
+			if errors.Is(err, errSSETransportLimit) {
+				discardRawEvent()
+				s.tryWriteOpenAIImagesStreamLimitError(c, flusher, &clientDisconnected, &lastDownstreamWriteAt)
+				_ = resp.Body.Close()
+				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
+			}
 			processLine(line)
 			if stopAfterStreamErr() {
 				flushPendingClientLines()
@@ -1266,6 +1295,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			}
 			if err != nil {
 				flushSSEEvent()
+				finalizeFallbackBody()
+				flushPendingClientLines()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
 			}
 		}
@@ -1281,11 +1312,16 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 	events := make(chan readEvent, 16)
 	done := make(chan struct{})
+	queueBudget := newSSEQueueBudget(s.cfg)
 	sendEvent := func(ev readEvent) bool {
+		if !queueBudget.acquire(len(ev.line), done) {
+			return false
+		}
 		select {
 		case events <- ev:
 			return true
 		case <-done:
+			queueBudget.release(len(ev.line))
 			return false
 		}
 	}
@@ -1293,9 +1329,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
 	go func() {
 		defer close(events)
-		reader := bufio.NewReader(resp.Body)
+		reader := newBoundedSSELineReader(resp.Body, s.cfg)
 		for {
-			line, err := readOpenAIImagesStreamLine(reader, fallbackLimit)
+			line, err := reader.ReadLine()
 			if len(line) > 0 {
 				atomic.StoreInt64(&lastReadAt, time.Now().UnixNano())
 			}
@@ -1336,6 +1372,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	for {
 		select {
 		case ev, ok := <-events:
+			if ok {
+				queueBudget.release(len(ev.line))
+			}
 			if !ok {
 				flushSSEEvent()
 				finalizeFallbackBody()
@@ -1343,7 +1382,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, finish()
 			}
 			if ev.err != nil {
+				if errors.Is(ev.err, errSSETransportLimit) {
+					discardRawEvent()
+					s.tryWriteOpenAIImagesStreamLimitError(c, flusher, &clientDisconnected, &lastDownstreamWriteAt)
+					_ = resp.Body.Close()
+					return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
+				}
 				flushSSEEvent()
+				finalizeFallbackBody()
+				flushPendingClientLines()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
 			}
 			processLine(ev.line)
@@ -1373,20 +1420,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			}
 			flusher.Flush()
 			lastDownstreamWriteAt = time.Now()
-		}
-	}
-}
-
-func readOpenAIImagesStreamLine(reader *bufio.Reader, maxBytes int64) ([]byte, error) {
-	var line bytes.Buffer
-	for {
-		fragment, err := reader.ReadSlice('\n')
-		if int64(line.Len())+int64(len(fragment)) > maxBytes {
-			return nil, fmt.Errorf("%w: image SSE line limit=%d", ErrUpstreamResponseBodyTooLarge, maxBytes)
-		}
-		_, _ = line.Write(fragment)
-		if err != bufio.ErrBufferFull {
-			return line.Bytes(), err
 		}
 	}
 }
@@ -1930,4 +1963,14 @@ func dedupeStrings(values []string) []string {
 		out = append(out, value)
 	}
 	return out
+}
+
+// Image generation may continue long enough to incur upstream costs after the
+// client disconnects. Keep its bounded billing drain aligned with image idle
+// configuration, while preserving a safety limit if idle checks are disabled.
+func (s *OpenAIGatewayService) openAIImageDrainTimeout() time.Duration {
+	if timeout := s.openAIImageStreamDataInterval(); timeout > 0 {
+		return timeout
+	}
+	return 900 * time.Second
 }

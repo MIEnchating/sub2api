@@ -452,23 +452,31 @@ var ErrNoAvailableCompactAccounts = errors.New("no available accounts support /r
 
 // OpenAIGatewayService handles OpenAI API gateway operations
 type OpenAIGatewayService struct {
-	excelBPSWarmMu         sync.Mutex
-	excelBPSWarmCancel     context.CancelFunc
-	excelBPSWarmDone       chan struct{}
-	excelBPSWarmStopped    bool
-	excelBPSImagesMu       sync.Mutex
-	excelBPSImages         *basispoints.ImageRelay
-	excelBPSAttachments    basispoints.AttachmentCache
-	excelBPSIPPoolMu       sync.Mutex
-	excelBPSIPPoolSyncedAt time.Time
-	harvestIPPoolMu        sync.Mutex
-	harvestIPPoolExits     []harvestIPPoolExit
-	harvestIPPoolSyncedAt  time.Time
-	harvestIPPoolCursor    atomic.Uint64
-	codexHarvestRunMu      sync.RWMutex
+	astraCandyMu            sync.Mutex
+	astraCandySeen          map[[32]byte]time.Time
+	astraCandyRunning       int
+	excelBPSModelsCache     openAIModelsCache
+	excelOAuthReauth        *OpenAIOAuthReauthService
+	excelBPSRecoveryMu      sync.Mutex
+	excelBPSRecoveryCancel  context.CancelFunc
+	excelBPSRecoveryDone    chan struct{}
+	excelBPSRecoveryStopped bool
+	excelBPSWarmMu          sync.Mutex
+	excelBPSWarmCancel      context.CancelFunc
+	excelBPSWarmDone        chan struct{}
+	excelBPSWarmStopped     bool
+	excelBPSImagesMu        sync.Mutex
+	excelBPSImages          *basispoints.ImageRelay
+	excelBPSAttachments     basispoints.AttachmentCache
+	excelBPSIPPoolMu        sync.Mutex
+	excelBPSIPPoolSyncedAt  time.Time
+	harvestIPPoolMu         sync.Mutex
+	harvestIPPoolExits      []harvestIPPoolExit
+	harvestIPPoolSyncedAt   time.Time
+	harvestIPPoolCursor     atomic.Uint64
+	codexHarvestRunMu       sync.RWMutex
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，292 长度门票。
 	openaiCodexTickets             sync.Map
-	codex780Routes                 codex780RouteCache
 	openaiCodexTicketStateMu       sync.Mutex
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketFlight        singleflight.Group
@@ -542,8 +550,8 @@ type OpenAIGatewayService struct {
 	responseHeaderFilter                *responseheaders.CompiledHeaderFilter
 	codexSnapshotThrottle               *accountWriteThrottle
 	openAIModelsCache                   openAIModelsCache
-	openaiCompatSessionResponses        sync.Map
-	openaiCompatAnthropicDigestSessions sync.Map
+	openaiCompatSessionResponses        sessionMemoryCache
+	openaiCompatAnthropicDigestSessions sessionMemoryCache
 	// openaiCodexTurnStateOrigins: 下游会话 seed → openAICodexTurnStateOrigin，
 	// 记录最近一次向该会话下发 x-codex-turn-state 的铸造账号，供出站守卫
 	// 剥离跨账号回带（openai_codex_turn_state.go）。
@@ -765,10 +773,15 @@ func (s *OpenAIGatewayService) billingDeps() *billingDeps {
 	}
 }
 
-// CloseOpenAIWSPool 关闭 OpenAI WebSocket 连接池的后台 worker 和空闲连接。
+// CloseOpenAIWSPool 关闭 OpenAI WebSocket 连接池、后台 worker 和会话缓存清理 timer。
 // 应在应用优雅关闭时调用。
 func (s *OpenAIGatewayService) CloseOpenAIWSPool() {
-	if s != nil && s.openaiWSPool != nil {
+	if s == nil {
+		return
+	}
+	s.openaiCompatSessionResponses.Close()
+	s.openaiCompatAnthropicDigestSessions.Close()
+	if s.openaiWSPool != nil {
 		s.openaiWSPool.Close()
 	}
 }
@@ -1277,7 +1290,9 @@ func (s *OpenAIGatewayService) GetAccessToken(ctx context.Context, account *Acco
 		if err != nil {
 			return "", "", err
 		}
-		if bound {
+		// Keep the original shadow identity until the credential resolver below
+		// has validated its parent, including the Excel-only credential boundary.
+		if bound && !account.IsShadow() {
 			current, err := s.accountRepo.GetByID(ctx, openAIVMOwnerID(account))
 			if err != nil {
 				return "", "", err

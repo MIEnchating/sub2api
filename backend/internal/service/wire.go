@@ -298,6 +298,8 @@ func ProvideAccountTestService(
 	service.SetSettingService(settingService)
 	service.SetPluginManager(pluginManager)
 	service.openaiVM = openaiVM
+	settingService.SetAstraRoutingOnSaved(service.StartAstraAutomaticSetup)
+	service.astraSchedulingStop = service.StartAstraAccountScheduling()
 	return service
 }
 
@@ -921,6 +923,7 @@ var ProviderSet = wire.NewSet(
 	NewOAuthService,
 	ProvideClaudeResetCreditService,
 	ProvideOpenAIOAuthService,
+	ProvideOpenAIOAuthReauthService,
 	ProvideGrokOAuthService,
 	wire.Bind(new(GrokOAuthTokenService), new(*GrokOAuthService)),
 	NewGeminiOAuthService,

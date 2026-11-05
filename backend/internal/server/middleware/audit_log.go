@@ -158,6 +158,7 @@ var auditActionOverrides = map[string]string{
 var auditBodyOmittedRoutes = map[string]struct{}{
 	"POST /api/v1/qqbot/transfer/preview":                       {},
 	"POST /api/v1/qqbot/transfer/confirm":                       {},
+	"PUT /api/v1/admin/accounts/:id/openai-reauth/config":       {},
 	"POST /api/v1/gpt-direct/verify":                            {},
 	"POST /api/v1/gpt-direct/query":                             {},
 	"POST /api/v1/gpt-direct/redeem":                            {},

@@ -28,9 +28,9 @@ func TestBulkUpdateModelSyncSavesMappingAndMetadataAtomically(t *testing.T) {
 			mock.ExpectBegin()
 			// Top-level JSONB merge replaces the entire nested model_mapping while
 			// preserving other credential keys, including concurrent token updates.
-			// Model sync must also retain the dedicated account-protection fields.
-			extraSQL := preserveProtectionExtraSQL(context.Background(), "COALESCE(extra, '{}'::jsonb) || $2::jsonb")
-			mock.ExpectExec(regexp.QuoteMeta("UPDATE accounts SET credentials = COALESCE(credentials, '{}'::jsonb) || $1::jsonb, extra = "+extraSQL+", updated_at = NOW() WHERE id = ANY($3) AND deleted_at IS NULL")).
+			extraExpression := reconcileExcelAuthorizationSQL("COALESCE(extra, '{}'::jsonb) || $2::jsonb", "COALESCE(credentials, '{}'::jsonb) || $1::jsonb")
+			extraExpression = preserveProtectionExtraSQL(context.Background(), extraExpression)
+			mock.ExpectExec(regexp.QuoteMeta("UPDATE accounts SET credentials = COALESCE(credentials, '{}'::jsonb) || $1::jsonb, extra = "+extraExpression+", updated_at = NOW() WHERE id = ANY($3) AND deleted_at IS NULL")).
 				WithArgs([]byte(`{"model_mapping":{"new-model":"new-model"}}`),
 					[]byte(`{"upstream_model_metadata":{"models":{"new-model":{"id":"new-model"}}}}`), "{91}").
 				WillReturnResult(sqlmock.NewResult(0, 1))
