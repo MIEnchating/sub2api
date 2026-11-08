@@ -103,7 +103,7 @@ func TestQQBotFullGroupCommandsAndMentionedChat(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, "new-member", bound.MemberID)
 	require.Contains(t, lastReply.Load(), "<qqbot-at-user id=\"new-member\" />\n")
-	for _, content := range []string{"/帮助", "/我的余额", "/我的奖励", "/邀请活动", "/邀请奖励", "/我的邀请", "/抽奖次数", "/抽奖活动", "/成长任务", "帮助", "我的余额", "成长任务"} {
+	for _, content := range []string{"/帮助", "/我的余额", "/余额", "/我的奖励", "/邀请活动", "/邀请奖励", "/我的邀请", "/抽奖次数", "/抽奖活动", "/成长任务", "帮助", "我的余额", "余额", "成长任务"} {
 		enqueue("command-"+content, content, "member", nil)
 		s.runOne(ctx)
 		var status string

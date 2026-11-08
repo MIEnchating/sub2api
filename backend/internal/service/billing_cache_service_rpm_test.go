@@ -4,6 +4,7 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"sync/atomic"
 	"testing"
@@ -250,4 +251,84 @@ func TestBillingCacheService_CheckRPM_NilUserIsNoop(t *testing.T) {
 	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userGroupCalls))
 	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userCalls))
 	require.EqualValues(t, 0, atomic.LoadInt32(&repo.calls))
+}
+
+func TestBillingCacheService_CheckRPM_SnapshotConfirmedNoOverrideSkipsLookup(t *testing.T) {
+	cache := &userRPMCacheStub{userGroupCounts: []int{5, 6}}
+	repo := &rpmOverrideRepoStub{err: errors.New("must not be queried")}
+	svc := newBillingServiceForRPM(t, cache, repo)
+
+	user := &User{ID: 1, UserGroupRPMOverrideGroupID: 10}
+	group := &Group{ID: 10, RPMLimit: 5}
+
+	require.NoError(t, svc.checkRPM(context.Background(), user, group))
+	require.ErrorIs(t, svc.checkRPM(context.Background(), user, group), ErrGroupRPMExceeded)
+	require.EqualValues(t, 0, atomic.LoadInt32(&repo.calls), "snapshot 已确认无 override 时不应查 DB")
+}
+
+func TestBillingCacheService_CheckRPM_SnapshotForAnotherGroupStillLooksUp(t *testing.T) {
+	override := 0
+	cache := &userRPMCacheStub{}
+	repo := &rpmOverrideRepoStub{override: &override}
+	svc := newBillingServiceForRPM(t, cache, repo)
+
+	user := &User{ID: 1, UserGroupRPMOverrideGroupID: 10}
+	group := &Group{ID: 11, RPMLimit: 5}
+
+	require.NoError(t, svc.checkRPM(context.Background(), user, group))
+	require.EqualValues(t, 1, atomic.LoadInt32(&repo.calls), "snapshot 只确认了 key 所属分组")
+	require.EqualValues(t, 0, atomic.LoadInt32(&cache.userGroupCalls), "DB override=0 应跳过分组计数")
+}
+
+func TestBillingCacheService_CheckRPM_DoesNotReuseAnotherGroupsUnlimitedOverride(t *testing.T) {
+	primaryOverride := 0
+	cache := &userRPMCacheStub{userGroupCounts: []int{6}}
+	repo := &rpmOverrideRepoStub{}
+	svc := newBillingServiceForRPM(t, cache, repo)
+	user := &User{ID: 1, UserGroupRPMOverride: &primaryOverride, UserGroupRPMOverrideGroupID: 10}
+
+	require.ErrorIs(t, svc.checkRPM(context.Background(), user, &Group{ID: 11, RPMLimit: 5}), ErrGroupRPMExceeded)
+	require.EqualValues(t, 1, atomic.LoadInt32(&repo.calls))
+	require.EqualValues(t, 1, atomic.LoadInt32(&cache.userGroupCalls))
+}
+
+func TestAPIKeyAuthSnapshotRPMOverrideIsRequestLocal(t *testing.T) {
+	groupID := int64(10)
+	override := 3
+	svc := &APIKeyService{userGroupRateRepo: &rpmOverrideRepoStub{override: &override}}
+	snapshot := svc.snapshotFromAPIKey(context.Background(), &APIKey{ID: 2, UserID: 1, GroupID: &groupID,
+		User: &User{ID: 1}, Group: &Group{ID: groupID, RequirePrivacySet: true}})
+	override = 7
+	require.Equal(t, 3, *snapshot.User.UserGroupRPMOverride)
+	first := svc.snapshotToAPIKey("k", snapshot)
+	second := svc.snapshotToAPIKey("k", snapshot)
+	*first.User.UserGroupRPMOverride = 0
+	require.Equal(t, 3, *second.User.UserGroupRPMOverride)
+	require.Equal(t, groupID, second.User.UserGroupRPMOverrideGroupID)
+	require.True(t, second.Group.RequirePrivacySet)
+}
+
+func TestAPIKeyAuthSnapshotRecordsResolvedRPMOverrideGroup(t *testing.T) {
+	groupID := int64(10)
+	newKey := func() *APIKey {
+		return &APIKey{ID: 2, UserID: 1, GroupID: &groupID, Status: StatusActive,
+			User: &User{ID: 1, Status: StatusActive}}
+	}
+
+	svc := &APIKeyService{userGroupRateRepo: &rpmOverrideRepoStub{}}
+	snapshot := svc.snapshotFromAPIKey(context.Background(), newKey())
+	require.Nil(t, snapshot.User.UserGroupRPMOverride)
+	require.Equal(t, groupID, snapshot.User.UserGroupRPMOverrideGroupID)
+	payload, err := json.Marshal(&APIKeyAuthCacheEntry{Snapshot: snapshot})
+	require.NoError(t, err)
+	var restored APIKeyAuthCacheEntry
+	require.NoError(t, json.Unmarshal(payload, &restored))
+	materialized, used, err := svc.applyAuthCacheEntry("k", &restored)
+	require.NoError(t, err)
+	require.True(t, used)
+	require.Equal(t, groupID, materialized.User.UserGroupRPMOverrideGroupID)
+
+	failing := &APIKeyService{userGroupRateRepo: &rpmOverrideRepoStub{err: errors.New("db down")}}
+	snapshot = failing.snapshotFromAPIKey(context.Background(), newKey())
+	require.Zero(t, snapshot.User.UserGroupRPMOverrideGroupID, "查询失败时必须保留回源")
 }

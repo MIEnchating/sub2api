@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -96,7 +95,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		mappedModel = account.GetMappedModel(req.Model)
 	}
 
-	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody)
+	geminiReq, err := convertClaudeMessagesToGeminiGenerateContent(claudeBody, mappedModel)
 	if err != nil {
 		return nil, s.writeChatCompletionsError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 	}
@@ -274,7 +273,7 @@ func (s *GeminiMessagesCompatService) forwardClaudeBodyAsChatCompletions(
 		streamFinished = streamRes.finished
 	} else if useUpstreamStream {
 		var billingBody []byte
-		collected, usageObj, _, err := collectGeminiSSEObserved(resp.Body, account.Type == AccountTypeOAuth, func(rawBytes []byte) {
+		collected, usageObj, _, err := collectGeminiSSEObserved(s.cfg, resp.Body, account.Type == AccountTypeOAuth, func(rawBytes []byte) {
 			if IsUpstreamBillingError(http.StatusOK, rawBytes) {
 				billingBody = append(billingBody[:0], rawBytes...)
 			}
@@ -635,11 +634,11 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 	nextBlockIndex := 0
 	openBlockIndex := -1
 	openBlockType := ""
-	seenText := ""
-	seenThought := ""
+	var seenText geminiTextDelta
+	var seenThought geminiTextDelta
 	openToolIndex := -1
 	openToolName := ""
-	seenToolJSON := ""
+	var seenToolJSON geminiTextDelta
 
 	closeOpenBlock := func() bool {
 		if openBlockIndex < 0 {
@@ -657,13 +656,13 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 		disconnected := emitAnthropicEvent(&apicompat.AnthropicStreamEvent{Type: "content_block_stop"})
 		openToolIndex = -1
 		openToolName = ""
-		seenToolJSON = ""
+		seenToolJSON.reset()
 		return disconnected
 	}
 
-	reader := bufio.NewReader(resp.Body)
+	reader := newBoundedSSELineReader(resp.Body, s.cfg)
 	for {
-		line, err := reader.ReadString('\n')
+		line, err := reader.ReadLineString()
 		// A failed read can contain an unfinished event. As with the native
 		// and Messages paths, only EOF makes an unterminated last line valid.
 		if len(line) > 0 && (err == nil || errors.Is(err, io.EOF)) {
@@ -715,8 +714,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 						}
 						for _, part := range extractGeminiParts(geminiResp) {
 							if text, ok := part["text"].(string); ok && isGeminiThoughtPart(part) {
-								delta, newSeen := computeGeminiTextDelta(seenThought, text)
-								seenThought = newSeen
+								delta := seenThought.next(text)
 								if delta == "" {
 									continue
 								}
@@ -755,8 +753,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 										return streamResult(), nil
 									}
 								}
-								delta, newSeen := computeGeminiTextDelta(seenText, text)
-								seenText = newSeen
+								delta := seenText.next(text)
 								if delta == "" {
 									continue
 								}
@@ -836,8 +833,7 @@ func (s *GeminiMessagesCompatService) handleChatCompletionsStreamingResponseFrom
 										argsJSONText = string(b)
 									}
 								}
-								delta, newSeen := computeGeminiTextDelta(seenToolJSON, argsJSONText)
-								seenToolJSON = newSeen
+								delta := seenToolJSON.next(argsJSONText)
 								if delta != "" {
 									if emitAnthropicEvent(&apicompat.AnthropicStreamEvent{
 										Type: "content_block_delta",

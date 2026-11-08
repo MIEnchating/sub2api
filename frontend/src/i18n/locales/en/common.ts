@@ -1,5 +1,7 @@
 export default {
   common: {
+    newFeature: 'New',
+    dismissNewFeature: 'Dismiss new feature notice',
     loading: 'Loading...',
     submitting: 'Submitting...',
     justNow: 'just now',

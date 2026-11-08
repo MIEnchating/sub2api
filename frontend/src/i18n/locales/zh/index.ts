@@ -1,5 +1,6 @@
 import gptDirect from './gptDirect'
 import qqbot from './qqbot'
+import accountPerformance from './accountPerformance'
 import adminAccessKeys from './adminAccessKeys'
 import mcp from './mcp'
 import landing from './landing'
@@ -12,6 +13,7 @@ import misc from './misc'
 export default {
   gptDirect,
   ...qqbot,
+ accountPerformance,
   adminAccessKeys,
   mcp,
   ...landing,

@@ -134,6 +134,10 @@ func (r *apiKeyRepository) GetByKeyForAuth(ctx context.Context, key string) (*se
 	return r.getForAuth(ctx, r.activeQuery().Where(apikey.KeyEQ(service.APIKeyStoredValue(key))))
 }
 
+func (r *apiKeyRepository) GetByIDForAuth(ctx context.Context, id int64) (*service.APIKey, error) {
+	return r.getForAuth(ctx, r.activeQuery().Where(apikey.IDEQ(id)))
+}
+
 func (r *apiKeyRepository) getForAuth(ctx context.Context, query *dbent.APIKeyQuery) (*service.APIKey, error) {
 	m, err := query.Select(
 		apikey.FieldID,
@@ -239,6 +243,8 @@ func (r *apiKeyRepository) getForAuth(ctx context.Context, query *dbent.APIKeyQu
 				group.FieldProfitControlEnabled,
 				group.FieldProfitMinMargin,
 				group.FieldProfitSafetyBuffer,
+				// OpenAI 选号从 ctx 分组读取隐私门，漏选会放行未设置隐私的账号。
+				group.FieldRequirePrivacySet,
 			)
 		}).
 		// The fallback group becomes the effective billing group when selected, so

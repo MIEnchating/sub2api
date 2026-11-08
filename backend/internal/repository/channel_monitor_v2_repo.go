@@ -708,6 +708,7 @@ func (r *channelMonitorV2Repository) loadErrorDetails(ctx context.Context, filte
 		"current_error.created_at >= $1",
 		"current_error.created_at < $2",
 		"NOT current_error.is_count_tokens",
+		"NOT " + opsClientRejectionSQL("current_error"),
 		"(COALESCE(current_error.status_code, 0) >= 400 OR current_error.error_type = 'cyber_policy')",
 		`(NULLIF(current_error.request_id, '') IS NULL OR NOT EXISTS (
 				SELECT 1 FROM ops_error_logs newer
@@ -1275,13 +1276,13 @@ func (a *metricAccumulator) addHistogram(h channelMonitorV2Histogram) {
 func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelMonitorV2Metric {
 	requests := a.success + a.errors
 	tokens := a.input + a.output + a.cacheCreation + a.cacheRead
-	// Match upstream: all successful request types contribute to cache rate.
-	// Use full totals retained alongside the legacy eligible-token columns.
-	denom := a.input + a.cacheCreation + a.cacheRead
+	// Only streaming/WS requests contribute to cache rate; keep full token
+	// totals above for traffic metrics independently of cache eligibility.
+	denom := a.cacheEligibleInput + a.cacheEligibleCreation + a.cacheEligibleRead
 	if minutes <= 0 {
 		minutes = 1
 	}
-	m := service.ChannelMonitorV2Metric{SuccessRequests: a.success, ErrorRequests: a.errors, RequestCount: requests, InputTokens: a.input, CacheEligibleInputTokens: a.cacheEligibleInput, OutputTokens: a.output, CacheCreationTokens: a.cacheCreation, CacheReadTokens: a.cacheRead, TokenCount: tokens, RPM: float64(requests) / minutes, TPM: float64(tokens) / minutes, CacheRateNumerator: a.cacheRead, CacheRateDenominator: denom, TTFT: latencyMetric(a.ttftSum, a.ttftCount, a.hist["ttft"]), Duration: latencyMetric(a.durationSum, a.durationCount, a.hist["duration"])}
+	m := service.ChannelMonitorV2Metric{SuccessRequests: a.success, ErrorRequests: a.errors, RequestCount: requests, InputTokens: a.input, CacheEligibleInputTokens: a.cacheEligibleInput, OutputTokens: a.output, CacheCreationTokens: a.cacheCreation, CacheReadTokens: a.cacheRead, TokenCount: tokens, RPM: float64(requests) / minutes, TPM: float64(tokens) / minutes, CacheRateNumerator: a.cacheEligibleRead, CacheRateDenominator: denom, TTFT: latencyMetric(a.ttftSum, a.ttftCount, a.hist["ttft"]), Duration: latencyMetric(a.durationSum, a.durationCount, a.hist["duration"])}
 	m.OutputTPS = service.OutputTokensPerSecond(a.tpsOutputTokens, float64(a.tpsGenerationMS))
 	m.TPSSamples = a.tpsSamples
 	if requests > 0 {
@@ -1290,7 +1291,7 @@ func (a *metricAccumulator) metric(minutes float64, admin bool) service.ChannelM
 	}
 	if denom > 0 {
 		m.HasCacheSamples = true
-		m.CacheRate = float64(a.cacheRead) / float64(denom)
+		m.CacheRate = float64(a.cacheEligibleRead) / float64(denom)
 	}
 	if admin {
 		affected, attempts := a.upstreamAffected, a.upstreamAttempts

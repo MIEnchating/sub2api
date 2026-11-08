@@ -345,11 +345,19 @@ func (s *Service) generateImage(ctx context.Context, c Config, prompt string) ([
 	}
 	defer cancel()
 	base, key := imageConnection(c)
-	raw, _, err := s.request(ctx, "POST", endpoint(base, "/images/generations"), key, map[string]any{"model": c.ImageModel, "prompt": prompt, "n": 1, "size": c.ImageSize}, 32<<20)
+	body := map[string]any{"model": c.ImageModel, "prompt": prompt, "n": 1, "size": c.ImageSize}
+	if c.ImageOutputFormat != "" {
+		body["output_format"] = c.ImageOutputFormat
+	}
+	raw, _, err := s.request(ctx, "POST", endpoint(base, "/images/generations"), key, body, 32<<20)
 	if err != nil {
 		return nil, err
 	}
-	return imageResult(ctx, raw)
+	data, err := imageResult(ctx, raw)
+	if err != nil {
+		return nil, err
+	}
+	return checkRequestedImageFormat(data, c.ImageOutputFormat)
 }
 
 func imageConnection(c Config) (string, string) {
@@ -385,7 +393,7 @@ func imageResult(ctx context.Context, raw []byte) ([]byte, error) {
 	if err != nil {
 		return nil, errors.New("获取生成图片失败")
 	}
-	return normalizeImage(data)
+	return normalizeGeneratedImage(data)
 }
 func publicIP(ip net.IP) bool {
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
@@ -600,7 +608,7 @@ func (s *Service) sendFormattedWithKeyboard(ctx context.Context, c Config, j Job
 	}
 	deliveredText := limitText(text, 1800)
 	if len(img) > 0 {
-		data, err := s.qqRequest(ctx, c, base+"/files", map[string]any{"file_type": 1, "file_name": "ctav.jpg", "file_data": base64.StdEncoding.EncodeToString(img), "srv_send_msg": false})
+		data, err := s.qqRequest(ctx, c, base+"/files", map[string]any{"file_type": 1, "file_name": generatedImageFileName(img), "file_data": base64.StdEncoding.EncodeToString(img), "srv_send_msg": false})
 		if err != nil {
 			return err
 		}
@@ -662,6 +670,26 @@ func (s *Service) Probe(ctx context.Context, kind string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	return s.probeConfig(ctx, c, kind)
+}
+func (s *Service) probeConfig(ctx context.Context, c Config, kind string) (string, error) {
+	var err error
+	if kind == "chat_flow" {
+		result, e := s.siteChatTurnOnce(ctx, c, []Message{{Role: "user", Content: "Call query_site_info with kind activity_rules, activity all, model empty and page 1. Do not generate or edit images."}})
+		if e != nil {
+			return "", e
+		}
+		if result.SiteQuery == nil {
+			return "", errors.New("模型未按实际聊天协议返回站点查询工具")
+		}
+		if result.SiteQuery.Kind != "activity_rules" {
+			return "", errors.New("模型未按要求选择公开活动查询")
+		}
+		if _, e = s.ActivityTemplates(ctx); e != nil {
+			return "", errors.New("模型工具调用通过，但读取本站活动规则失败")
+		}
+		return "实际聊天协议、站点查询工具与公开活动规则读取通过；未执行账户操作或发送 QQ 消息。", nil
+	}
 	if kind == "qq" {
 		_, err = s.token(ctx, c)
 		return "QQ 凭据有效；请在测试群验证事件和消息权限。", err
@@ -680,7 +708,14 @@ func (s *Service) Probe(ctx context.Context, kind string) (string, error) {
 	}
 	if kind == "vision" {
 		result, _, _, err := s.chat(ctx, c, []Message{{Role: "user", Content: "Describe the color and shape in this image in one short sentence.", Images: []string{probeImage()}}})
-		return "视觉请求已完成，请核对回答是否识别蓝色方块：" + limitText(result, 250), err
+		if err != nil {
+			return "", err
+		}
+		normalized := strings.ToLower(result)
+		if (!strings.Contains(normalized, "blue") && !strings.Contains(normalized, "蓝")) || (!strings.Contains(normalized, "square") && !strings.Contains(normalized, "方")) {
+			return "", errors.New("视觉接口已响应，但未识别蓝色方块，请核对所选模型的视觉能力")
+		}
+		return "视觉样本识别通过（蓝色方块）；不保证所有图片识别准确。", nil
 	}
 	if kind == "tools" {
 		c.ImageEnabled = true

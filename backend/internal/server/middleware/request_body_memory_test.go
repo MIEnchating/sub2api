@@ -4,8 +4,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"sync"
 	"testing"
@@ -67,10 +69,15 @@ func TestRejectRequestBodyReadErrorCancellation(t *testing.T) {
 		name      string
 		cancelled bool
 		committed bool
+		readErr   error
+		handled   bool
 	}{
-		{name: "cancelled", cancelled: true},
-		{name: "cancelled_after_commit", cancelled: true, committed: true},
+		{name: "cancelled", cancelled: true, handled: true},
+		{name: "cancelled_after_commit", cancelled: true, committed: true, handled: true},
 		{name: "ordinary_read_error"},
+		// An HTTP/1 read deadline also cancels the request context; the
+		// timeout must reach AbortWithRequestBodyReadFailure (408).
+		{name: "read_timeout_with_cancelled_context", cancelled: true, readErr: &net.OpError{Op: "read", Net: "tcp", Err: os.ErrDeadlineExceeded}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
@@ -86,10 +93,14 @@ func TestRejectRequestBodyReadErrorCancellation(t *testing.T) {
 				require.NoError(t, err)
 			}
 			bodyBefore := recorder.Body.String()
-			require.Equal(t, tc.cancelled, RejectRequestBodyReadError(c, io.ErrUnexpectedEOF))
-			require.Equal(t, tc.cancelled, c.IsAborted())
+			readErr := tc.readErr
+			if readErr == nil {
+				readErr = io.ErrUnexpectedEOF
+			}
+			require.Equal(t, tc.handled, RejectRequestBodyReadError(c, "test", readErr))
+			require.Equal(t, tc.handled, c.IsAborted())
 			status := http.StatusOK
-			if tc.cancelled && !tc.committed {
+			if tc.handled && !tc.committed {
 				status = 499
 			}
 			require.Equal(t, status, c.Writer.Status())

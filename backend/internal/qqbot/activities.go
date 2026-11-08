@@ -18,13 +18,15 @@ const (
 )
 
 type CheckinConfig struct {
-	StreakReward  *GrowthReward `json:"streak_reward,omitempty"`
-	StreakDays    int           `json:"streak_days"`
-	StreakChances int           `json:"streak_chances"`
-	Growth        GrowthConfig  `json:"growth"`
-	Enabled       bool          `json:"enabled"`
-	MinAmount     float64       `json:"min_amount"`
-	MaxAmount     float64       `json:"max_amount"`
+	Milestones         []CheckinMilestone         `json:"milestones"`
+	StreakReward       *GrowthReward              `json:"streak_reward,omitempty"`
+	StreakDays         int                        `json:"streak_days"`
+	StreakChances      int                        `json:"streak_chances"`
+	Growth             GrowthConfig               `json:"growth"`
+	Enabled            bool                       `json:"enabled"`
+	MinAmount          float64                    `json:"min_amount"`
+	MaxAmount          float64                    `json:"max_amount"`
+	RewardDistribution *CheckinRewardDistribution `json:"reward_distribution,omitempty"`
 	RechargeRequirement
 }
 type InviteConfig struct {
@@ -57,6 +59,7 @@ func (c *InviteConfig) UnmarshalJSON(data []byte) error {
 type LotteryPrize struct {
 	Name           string  `json:"name"`
 	Amount         float64 `json:"amount"`
+	Chances        int     `json:"chances"`
 	ProbabilityBPS int     `json:"probability_bps"`
 }
 type LotteryConfig struct {
@@ -96,10 +99,13 @@ func loadCheckinConfig(ctx context.Context, db queryRower, legacy float64) (Chec
 	c := CheckinConfig{Enabled: legacy > 0, MinAmount: legacy, MaxAmount: legacy,
 		RechargeRequirement: RechargeRequirement{RechargeWindowDays: DefaultRechargeWindowDays}}
 	_, err := readActivityConfig(ctx, db, checkinConfigKey, &c)
+	if c.RewardDistribution == nil {
+		distribution := c.rewardDistribution()
+		c.RewardDistribution = &distribution
+	}
 	c.RechargeWindowDays = c.windowDays()
 	c.StreakDays = c.streakDays()
-	c.Growth.Tasks = c.Growth.tasks()
-	return c, err
+	return normalizeCheckinMilestones(c), err
 }
 func (s *Service) CheckinConfig(ctx context.Context) (CheckinConfig, error) {
 	c, err := s.Config(ctx)
@@ -155,6 +161,12 @@ func (s *Service) SaveInviteConfig(ctx context.Context, c InviteConfig) error {
 	return err
 }
 func validateCheckin(c CheckinConfig) error {
+	if err := validateCheckinMilestones(c); err != nil {
+		return err
+	}
+	if err := validateCheckinDistribution(c.rewardDistribution()); err != nil {
+		return err
+	}
 	if err := validateGrowth(c); err != nil {
 		return err
 	}
@@ -184,8 +196,8 @@ func validateLottery(c LotteryConfig) error {
 			return fmt.Errorf("保底奖池：%w", err)
 		}
 		for _, p := range c.GuaranteePrizes {
-			if p.Amount <= 0 {
-				return errors.New("保底奖项额度必须大于 0")
+			if p.Amount <= 0 && p.Chances <= 0 {
+				return errors.New("保底奖项额度或抽奖次数必须大于 0")
 			}
 		}
 	}
@@ -197,8 +209,8 @@ func validateLotteryPrizes(prizes []LotteryPrize) error {
 	}
 	sum := 0
 	for _, p := range prizes {
-		if strings.TrimSpace(p.Name) == "" || len([]rune(p.Name)) > 60 || !validRewardAmount(p.Amount) || p.ProbabilityBPS < 1 || p.ProbabilityBPS > 10000 {
-			return errors.New("奖项名称、金额或概率不正确；概率最小 0.01%，金额最多 1000 USD")
+		if strings.TrimSpace(p.Name) == "" || len([]rune(p.Name)) > 60 || !validRewardAmount(p.Amount) || p.Chances < 0 || p.Chances > 1000 || p.ProbabilityBPS < 1 || p.ProbabilityBPS > 10000 {
+			return errors.New("奖项名称、金额、抽奖次数或概率不正确；概率最小 0.01%，金额最多 1000 USD，抽奖次数须为 0～1000")
 		}
 		sum += p.ProbabilityBPS
 	}
@@ -234,6 +246,15 @@ func (s *Service) saveActivityConfig(ctx context.Context, key string, lock int64
 		if !ok {
 			return errors.New("invalid checkin configuration")
 		}
+		previous := current
+		// Older clients cannot reset probabilities they do not send. Merge only
+		// after taking the configuration lock and checking the draft revision.
+		if next.RewardDistribution == nil {
+			next.RewardDistribution = current.RewardDistribution
+		}
+		if next.Milestones == nil {
+			next.Milestones = current.Milestones
+		}
 		switch section {
 		case "checkin":
 			next.Growth = current.Growth
@@ -246,6 +267,10 @@ func (s *Service) saveActivityConfig(ctx context.Context, key string, lock int64
 		case "":
 		default:
 			return errors.New("未知活动配置模块")
+		}
+		next = normalizeCheckinMilestones(next)
+		if e = validateActivityRewardCadences(previous, next); e != nil {
+			return e
 		}
 		if e = validateCheckin(next); e != nil {
 			return e
@@ -275,7 +300,6 @@ func (s *Service) SaveCheckinConfig(ctx context.Context, c CheckinConfig) error 
 	}
 	c.RechargeWindowDays = c.windowDays()
 	c.StreakDays = c.streakDays()
-	c.Growth.Tasks = c.Growth.tasks()
 	return s.saveActivityConfig(ctx, checkinConfigKey, checkinConfigLock, c)
 }
 func (s *Service) SaveLotteryConfig(ctx context.Context, c LotteryConfig) error {

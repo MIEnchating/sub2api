@@ -81,8 +81,8 @@ func channelMonitorV2RecentQuery(filter service.ChannelMonitorV2Filter, cfg serv
   FROM jsonb_to_recordset($4::jsonb) AS d(idx integer, platform text, group_id bigint, model text)
   CROSS JOIN LATERAL (
     (SELECT ul.created_at, ul.id, ` + usageModel + ` AS model, FALSE AS is_error, ul.first_token_ms::bigint, ul.duration_ms::bigint,
-      ul.cache_read_tokens::double precision /
-        NULLIF(ul.input_tokens::bigint + ul.cache_creation_tokens::bigint + ul.cache_read_tokens::bigint, 0) AS cache_rate,
+      CASE WHEN ` + channelMonitorV2CacheEligibleUL + ` THEN ul.cache_read_tokens::double precision /
+        NULLIF(ul.input_tokens::bigint + ul.cache_creation_tokens::bigint + ul.cache_read_tokens::bigint, 0) END AS cache_rate,
       CASE WHEN ` + outputTPSEligibleSQL("ul") + ` THEN ul.output_tokens::double precision*1000/(ul.duration_ms::bigint-ul.first_token_ms::bigint) END AS output_tps,
       ''::text AS error_type, ''::text AS error_owner, ''::text AS error_source, 0 AS status_code, 0 AS upstream_status_code, ''::text AS message, ''::text AS error_summary
     FROM usage_logs ul
@@ -110,6 +110,7 @@ func channelMonitorV2RecentQuery(filter service.ChannelMonitorV2Filter, cfg serv
     LEFT JOIN groups g ON g.id = current_error.group_id
     LEFT JOIN accounts a ON a.id = current_error.account_id
     WHERE ` + scope("current_error", channelMonitorV2RecentErrorPlatform, errorModel) + `
+      AND NOT ` + opsClientRejectionSQL("current_error") + `
       AND NOT current_error.is_count_tokens
       AND (COALESCE(current_error.status_code, 0) >= 400 OR current_error.error_type = 'cyber_policy')
       AND (COALESCE(current_error.request_type,0)=3 OR NULLIF(current_error.request_id, '') IS NULL OR (

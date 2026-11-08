@@ -228,6 +228,8 @@ func (s *OpenAICodexUsageSnapshot) Normalize() *NormalizedCodexLimits {
 
 // OpenAIUsage represents OpenAI API response usage
 type OpenAIUsage struct {
+	CacheReadKnown           bool `json:"-"`
+	cacheReadMediaObserved   bool
 	CacheUsageReported       bool `json:"-"`
 	InputTokens              int  `json:"input_tokens"`
 	ImageInputTokens         int  `json:"image_input_tokens,omitempty"`
@@ -309,12 +311,16 @@ type OpenAIForwardResult struct {
 	wsReplayInput                []json.RawMessage
 	wsReplayInputExists          bool
 	wsAccountFailoverReplayInput []json.RawMessage
+	streamReadIncomplete         bool
 }
 
 // SucceededForScheduling reports whether this result is an upstream success
 // that may clear model-scoped transient state. The zero value remains a success
 // for existing non-WS callers.
 func (r *OpenAIForwardResult) SucceededForScheduling() bool {
+	if r != nil && r.streamReadIncomplete {
+		return false
+	}
 	if r == nil || !r.OpenAIWSMode || r.UpstreamTerminalEvent == "" {
 		return true
 	}

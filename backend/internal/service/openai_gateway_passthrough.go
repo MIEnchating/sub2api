@@ -18,6 +18,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
@@ -942,6 +943,9 @@ func (s *OpenAIGatewayService) handleErrorResponsePassthrough(
 		upstreamDetail = truncateString(string(body), maxBytes)
 	}
 	setOpsUpstreamError(c, resp.StatusCode, upstreamMsg, upstreamDetail)
+	if !cyberHit && s.writeOpenAIContextLimitError(resp, c, account, body, true) {
+		return fmt.Errorf("upstream context limit: %d", resp.StatusCode)
+	}
 	logOpenAIInstructionsRequiredDebug(ctx, c, account, resp.StatusCode, upstreamMsg, requestBody, body)
 	// 错误体虽不会原样透传，运行态账号状态仍需更新，避免粘性路由继续复用
 	// 刚被限流的账号。cyber 例外：不冷却账号。
@@ -1244,9 +1248,22 @@ func openAIStreamDataStartsVisibleOutput(data, eventType string) bool {
 	return false
 }
 
-// openAIStreamDataStartsSemanticTTFT 保留 900194fab 之前的 first_token_ms
-// 口径：跳过 Responses preamble 后，首个语义 SSE 事件即视为首 token。
+// openAIStreamDataStartsSemanticTTFT follows the shared Responses semantic endpoint.
 func openAIStreamDataStartsSemanticTTFT(data, eventType string) bool {
+	trimmed := strings.TrimSpace(data)
+	if trimmed == "" || trimmed == "[DONE]" || !gjson.Valid(trimmed) {
+		return false
+	}
+	eventType = strings.TrimSpace(eventType)
+	if eventType == "" {
+		eventType = strings.TrimSpace(gjson.Get(trimmed, "type").String())
+	}
+	return openai.ResponseStartsSemanticOutput([]byte(trimmed), eventType)
+}
+
+// Keep the historical event classification for non-Responses observers such
+// as Chat Completions priority sampling.
+func openAIStreamDataStartsLegacySemanticTTFT(data, eventType string) bool {
 	trimmed := strings.TrimSpace(data)
 	if trimmed == "" || trimmed == "[DONE]" {
 		return false
@@ -1278,11 +1295,11 @@ func (s *OpenAIGatewayService) openAITTFTMode(ctx context.Context) string {
 	return normalizeOpenAITTFTMode(mode)
 }
 
-func openAIStreamDataStartsTTFT(data, eventType string, forceOutput bool, mode string) bool {
+func openAIStreamDataStartsTTFT(data, eventType string, _ bool, mode string) bool {
 	if mode == OpenAITTFTModeVisible {
 		return openAIStreamDataStartsVisibleOutput(data, eventType)
 	}
-	return forceOutput || openAIStreamDataStartsSemanticTTFT(data, eventType)
+	return openAIStreamDataStartsSemanticTTFT(data, eventType)
 }
 
 // openAIStreamFailedEventErrorCode 提取流内 failed 事件的错误码（小写），
@@ -1962,6 +1979,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	clientDisconnected := false
 	sawDone := false
 	sawTerminalEvent := false
+	protectionTerminalSuccessful := false
 	sawFailedEvent := false
 	sawBareError := false
 	sawResponseFailed := false
@@ -2024,6 +2042,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 	// flushPending 表示已写入但未到 SSE 空行边界的脏状态；defer 兜底函数退出前的残留，断连后不再 Flush。
 	flushPending := false
 	pendingSSEEventType := ""
+	var metricEvent openAISSEMetricEvent
 	flushPendingOutput := func() {
 		if clientDisconnected || !flushPending {
 			return
@@ -2078,6 +2097,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	needModelReplace := strings.TrimSpace(originalModel) != "" && strings.TrimSpace(mappedModel) != "" && strings.TrimSpace(originalModel) != strings.TrimSpace(mappedModel)
 	resultWithUsage := func() *openaiStreamingResultPassthrough {
+		if !protectionTerminalSuccessful || clientDisconnected || sawFailedEvent {
+			usage.CacheReadKnown = false
+		}
 		return &openaiStreamingResultPassthrough{
 			usage:            usage,
 			firstTokenMs:     firstTokenMs,
@@ -2089,6 +2111,9 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 
 	for documentScanner.Scan() {
 		line := documentScanner.Text()
+		if _, dataLine := extractOpenAISSEDataLine(line); !dataLine {
+			metricEvent.observeLine(line)
+		}
 		if eventType, ok := extractOpenAISSEEventLine(line); ok {
 			pendingSSEEventType = eventType
 			eventType = strings.TrimSpace(eventType)
@@ -2240,6 +2265,7 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				terminalEventType = "[DONE]"
 			}
 			if openAIStreamEventIsTerminalWithType(trimmedData, eventType) {
+				protectionTerminalSuccessful = openAIUsageSuccessfulTerminal(dataBytes, eventType)
 				sawTerminalEvent = true
 				if trimmedData != "[DONE]" {
 					terminalEventType = eventType
@@ -2271,7 +2297,13 @@ func (s *OpenAIGatewayService) handleStreamingResponsePassthrough(
 				openAIResponsesCompletedEventIsEmpty(dataBytes, usage) {
 				return resultWithUsage(), newOpenAIResponsesEmptyCompletedFailoverError(c, account, upstreamRequestID)
 			}
-			if firstTokenMs == nil && openAIStreamDataStartsTTFT(trimmedData, eventType, forceFlushFailedEvent, ttftMode) {
+			metricPayload, metricType := metricEvent.observeLine("data: " + trimmedData)
+			startsSemanticOutput := openAIStreamDataStartsSemanticTTFT(string(metricPayload), metricType)
+			startsTTFTOutput := startsSemanticOutput
+			if ttftMode == OpenAITTFTModeVisible {
+				startsTTFTOutput = openAIStreamDataStartsVisibleOutput(trimmedData, eventType)
+			}
+			if firstTokenMs == nil && startsTTFTOutput {
 				ms := int(time.Since(startTime).Milliseconds())
 				firstTokenMs = &ms
 			}
@@ -2484,6 +2516,9 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 		if failoverErr := s.nonStreamingTerminalFailureFailover(c, resp, account, true, terminalType, terminalPayload, msg, s.parseSSEUsageFromBody(bodyText), mappedModel); failoverErr != nil {
 			return nil, failoverErr
 		}
+		if s.writeOpenAIContextLimitError(resp, c, account, terminalPayload, true) {
+			return nil, fmt.Errorf("non-streaming openai context limit: %s", msg)
+		}
 		return nil, s.writeOpenAINonStreamingProtocolError(resp, c, msg, terminalPayload)
 	}
 	finalResponse, ok := extractCodexFinalResponse(bodyText)
@@ -2494,6 +2529,7 @@ func (s *OpenAIGatewayService) handlePassthroughSSEToJSON(resp *http.Response, c
 	usage := s.parseSSEUsageFromBody(bodyText)
 	if ok {
 		if parsedUsage, parsed := extractOpenAIUsageFromJSONBytes(finalResponse); parsed {
+			mergeOpenAICacheUsageEvidence(*usage, &parsedUsage)
 			*usage = parsedUsage
 		}
 		// When the terminal event has an empty output array, reconstruct

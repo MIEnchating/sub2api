@@ -3,11 +3,13 @@ package middleware
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"errors"
 	"io"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -265,3 +267,38 @@ func TestRequestModelFieldsTextLimitBeforePreread(t *testing.T) {
 		})
 	}
 }
+
+func TestRequestModelFieldsReadFailuresKeepProtocolShape(t *testing.T) {
+	for _, path := range []string{"/v1/responses", "/v1/messages", "/v1beta/models/gemini:generateContent"} {
+		for _, tc := range []struct {
+			name   string
+			err    error
+			status int
+		}{
+			{"timeout", os.ErrDeadlineExceeded, http.StatusRequestTimeout},
+			{"disconnect", context.Canceled, 499},
+			{"size", &http.MaxBytesError{Limit: 16}, http.StatusRequestEntityTooLarge},
+		} {
+			t.Run(path+"/"+tc.name, func(t *testing.T) {
+				gin.SetMode(gin.TestMode)
+				router := gin.New()
+				router.Use(RequestModelFields(1024, 1024))
+				router.POST(path, func(c *gin.Context) { t.Error("failed read reached handler") })
+				req := httptest.NewRequest(http.MethodPost, path, io.NopCloser(io.MultiReader(strings.NewReader("{"), requestModelFailureReader{tc.err})))
+				rec := httptest.NewRecorder()
+				router.ServeHTTP(rec, req)
+				require.Equal(t, tc.status, rec.Code, rec.Body.String())
+				if strings.HasPrefix(path, "/v1beta") {
+					require.Contains(t, rec.Body.String(), `"status"`)
+				}
+				if path == "/v1/messages" {
+					require.Contains(t, rec.Body.String(), `"type":"error"`)
+				}
+			})
+		}
+	}
+}
+
+type requestModelFailureReader struct{ err error }
+
+func (r requestModelFailureReader) Read([]byte) (int, error) { return 0, r.err }

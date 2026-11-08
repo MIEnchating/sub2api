@@ -290,6 +290,7 @@ func (s *OpenAIGatewayService) scanCCStream(
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
+	var protectionFinished, protectionIncomplete bool
 
 	scanner := s.newUpstreamSSEScanner(resp.Body)
 	for scanner.Scan() {
@@ -313,7 +314,11 @@ func (s *OpenAIGatewayService) scanCCStream(
 			observer.ObserveOpenAI([]byte(payload), "")
 		}
 
+		finished, incomplete := openAICCFinishState([]byte(payload))
+		protectionFinished = protectionFinished || finished
+		protectionIncomplete = protectionIncomplete || incomplete
 		if u := extractCCStreamUsage(payload); u != nil {
+			mergeOpenAICacheUsageEvidence(st.Usage, u)
 			st.Usage = *u
 		}
 
@@ -340,6 +345,9 @@ func (s *OpenAIGatewayService) scanCCStream(
 			)
 		}
 		st.Err = err
+	}
+	if !st.SawDone || st.Err != nil || !protectionFinished || protectionIncomplete {
+		st.Usage.CacheReadKnown = false
 	}
 	return st
 }
@@ -380,6 +388,10 @@ func (s *OpenAIGatewayService) readCCUpstreamJSONResponse(
 	usage := OpenAIUsage{}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(respBody); ok {
 		usage = parsed
+	}
+	finished, incomplete := openAICCFinishState(respBody)
+	if !finished || incomplete {
+		usage.CacheReadKnown = false
 	}
 	return &ccResp, usage, nil
 }

@@ -89,3 +89,23 @@ func (s *APIKeyService) validateCachedCredential(ctx context.Context, id int64, 
 	}
 	return nil
 }
+
+// GetForOwnerAuth is only for JWT-authenticated panel operations. It cannot be
+// used on the public gateway and never reconstructs a credential.
+func (s *APIKeyService) GetForOwnerAuth(ctx context.Context, id, userID int64) (*APIKey, error) {
+	repo, ok := s.apiKeyRepo.(interface {
+		GetByIDForAuth(context.Context, int64) (*APIKey, error)
+	})
+	if !ok {
+		return nil, ErrAPIKeyNotFound
+	}
+	key, err := repo.GetByIDForAuth(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if key == nil || key.UserID != userID {
+		return nil, ErrAPIKeyNotFound
+	}
+	s.compileAPIKeyIPRules(key)
+	return key, nil
+}

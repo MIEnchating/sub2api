@@ -56,6 +56,7 @@ type AccountHandler struct {
 	codexHarvest            *service.CodexHarvestService
 	openAIGatewayService    *service.OpenAIGatewayService
 	claudeResetCredits      claudeResetReader
+	performance             *service.AccountPerformanceService
 	adminService            service.AdminService
 	oauthService            *service.OAuthService
 	openaiOAuthService      *service.OpenAIOAuthService

@@ -1,5 +1,7 @@
 export default {
   common: {
+    newFeature: '新功能',
+    dismissNewFeature: '关闭新功能提示',
     loading: '加载中...',
     submitting: '提交中...',
     justNow: '刚刚',

@@ -1,13 +1,9 @@
 package service
 
 import (
-	"context"
 	"encoding/json"
-	"os"
-	"os/exec"
 	"strconv"
 	"testing"
-	"time"
 
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
@@ -591,18 +587,7 @@ func buildToolSchemaNullTypeBody(t *testing.T, hits int) []byte {
 // 构造请求可以塞进百万级命中，会被放大成 TB 级 memcpy。这里用分配次数锁死该行为：
 // 命中数放大 500 倍，分配次数不得随之增长。
 func TestSanitizeOpenAIResponsesToolParameterTypes_RewriteCountIndependentOfHits(t *testing.T) {
-	// AllocsPerRun counts process-wide allocations. Isolate this guard from
-	// background services started by other tests without relaxing its limit.
-	const subprocessEnv = "SUB2API_TOOL_SCHEMA_ALLOC_TEST"
-	if os.Getenv(subprocessEnv) != "1" {
-		executable, err := os.Executable()
-		require.NoError(t, err)
-		ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-		defer cancel()
-		cmd := exec.CommandContext(ctx, executable, "-test.run=^"+t.Name()+"$", "-test.count=1")
-		cmd.Env = append(os.Environ(), subprocessEnv+"=1")
-		output, err := cmd.CombinedOutput()
-		require.NoError(t, err, "isolated allocation guard failed: %s", output)
+	if runMemoryGuardInSubprocess(t) {
 		return
 	}
 

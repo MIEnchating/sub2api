@@ -10,12 +10,17 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
+	"go.uber.org/zap"
 )
 
 const maxAPIKeyAuthorizationHeaderBytes = service.MaxAPIKeyCredentialBytes + 128
+
+// statusClientClosedRequest 非标准状态码 499：客户端在响应前断开。
+const statusClientClosedRequest = 499
 
 // NewAPIKeyAuthMiddleware 创建 API Key 认证中间件
 func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) APIKeyAuthMiddleware {
@@ -110,6 +115,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 				AbortWithError(c, http.StatusServiceUnavailable, "API_KEY_AUTH_OVERLOADED", "API key authentication is temporarily unavailable")
 				return
 			}
+			if abortIfAPIKeyLookupClientGone(c, err) {
+				return
+			}
 			AbortWithError(c, 500, "INTERNAL_ERROR", "Failed to validate API key")
 			return
 		}
@@ -123,6 +131,12 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 	// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
 	// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
 	SetOpsFallbackAPIKey(c, apiKey)
+	// The panel session is already authenticated: a disabled key must not cause
+	// the browser to refresh or discard that valid login session.
+	keyDeniedStatus := http.StatusUnauthorized
+	if strings.HasPrefix(c.FullPath(), "/api/v1/key-tests/") {
+		keyDeniedStatus = http.StatusForbidden
+	}
 
 	// ── 3. 基础鉴权（始终执行） ─────────────────────────────────
 
@@ -131,7 +145,7 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 		apiKey.Status != service.StatusAPIKeyExpired &&
 		apiKey.Status != service.StatusAPIKeyQuotaExhausted {
 		MarkIngressRejected(c, IngressRejectAPIKeyDisabled)
-		AbortWithError(c, http.StatusUnauthorized, "API_KEY_DISABLED", "API key is disabled")
+		AbortWithError(c, keyDeniedStatus, "API_KEY_DISABLED", "API key is disabled")
 		return
 	}
 
@@ -153,14 +167,14 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 
 	// 检查关联的用户
 	if apiKey.User == nil {
-		AbortWithError(c, http.StatusUnauthorized, "USER_NOT_FOUND", "User associated with API key not found")
+		AbortWithError(c, keyDeniedStatus, "USER_NOT_FOUND", "User associated with API key not found")
 		return
 	}
 
 	// 检查用户状态
 	if !apiKey.User.IsActive() {
 		MarkIngressRejected(c, IngressRejectUserInactive)
-		AbortWithError(c, http.StatusUnauthorized, "USER_INACTIVE", "User account is not active")
+		AbortWithError(c, keyDeniedStatus, "USER_INACTIVE", "User account is not active")
 		return
 	}
 	if abortIfAPIKeyGroupUnavailable(c, apiKey) {
@@ -466,4 +480,18 @@ func validateAPIKeyGroupAvailable(apiKey *service.APIKey) (string, string, bool)
 		return "GROUP_DISABLED", "API Key 所属分组已停用", false
 	}
 	return "", "", true
+}
+
+// abortIfAPIKeyLookupClientGone 处理 GetByKey 的非业务错误。
+// 客户端已断开（连接关闭、HTTP/2 流被取消）时请求 ctx 被取消，查 Key 拿到的只是
+// context 错误，不是服务端故障：以 499 结束并返回 true。其余错误记一行日志（不含 key），
+// 由调用方按 500 处理。
+func abortIfAPIKeyLookupClientGone(c *gin.Context, err error) bool {
+	ctx := c.Request.Context()
+	if ctx.Err() != nil {
+		c.AbortWithStatus(statusClientClosedRequest)
+		return true
+	}
+	logger.FromContext(ctx).Warn("api key lookup failed", zap.Error(err))
+	return false
 }

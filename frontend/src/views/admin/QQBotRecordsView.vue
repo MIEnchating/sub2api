@@ -7,7 +7,9 @@
       </div>
       <div class="flex flex-wrap gap-2"><RouterLink v-for="mode in recordModes" :key="mode" :to="{ query: { tab: mode } }" class="btn" :class="recordMode === mode ? 'btn-primary' : 'btn-secondary'">{{ t(`qqbot.workspace.${mode}`) }}</RouterLink></div>
       <p v-if="appError && recordMode !== 'activities'" role="alert" class="text-red-600">{{ appError }}</p>
-      <QQJobRecords v-if="recordMode === 'tasks' || recordMode === 'notifications'" :notifications="recordMode === 'notifications'" :app-id="appId" />
+      <QQBotDiagnostics v-if="recordMode === 'diagnostics'" />
+      <QQBotConfigHistory v-else-if="recordMode === 'history'" />
+      <QQJobRecords v-else-if="recordMode === 'tasks' || recordMode === 'notifications'" :notifications="recordMode === 'notifications'" :app-id="appId" />
       <QQModerationRecords v-else-if="recordMode === 'moderation'" :app-id="appId" />
       <template v-else>
       <nav role="tablist" :aria-label="t('qqbot.recordsTitle')" class="flex gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-dark-700 dark:bg-dark-800">
@@ -38,6 +40,7 @@
                 <span v-if="activeTab !== 'invite' || record.rewarded_at" class="font-semibold tabular-nums">${{ record.amount.toFixed(2) }}</span>
               </div>
               <p v-if="activeTab === 'lottery'" class="text-sm">{{ record.prize_name }} · {{ t('qqbot.remainingAtDraw') }} {{ record.remaining }}</p>
+              <p v-if="activeTab === 'lottery' && record.chances" class="text-sm font-medium text-primary-600">{{ t('qqbot.chanceReward', { count: record.chances }) }}</p>
               <p v-if="activeTab === 'lottery' && record.is_guaranteed" class="text-sm font-medium text-primary-600 dark:text-primary-400">{{ t('qqbot.guaranteedDraw') }}</p>
               <p v-if="record.rewarded_at" class="break-all text-xs text-gray-500">{{ t('qqbot.recordRewardAccount') }}：{{ record.reward_email || record.reward_user_id }} · ID: {{ record.reward_user_id }}</p>
               <dl class="space-y-1 text-xs text-gray-500">
@@ -69,7 +72,7 @@
                 <td class="py-4 pr-5"><QQBotRecordParticipant :person="record.participant" /></td>
                 <td class="py-4 pr-5"><code class="block max-w-36 break-all text-xs text-gray-500">{{ record.group_id }}</code></td>
                 <td class="py-4 pr-5"><span class="inline-block whitespace-nowrap rounded-md bg-gray-100 px-2 py-1 text-xs dark:bg-dark-700">{{ t(`qqbot.recordStatus.${record.status}`) }}</span><p v-if="activeTab === 'invite'" class="mt-2 text-xs text-gray-500">{{ membership(record) }}</p></td>
-                <td v-if="activeTab === 'lottery'" class="py-4 pr-5"><p class="max-w-40 break-words">{{ record.prize_name }}</p><p v-if="record.is_guaranteed" class="mt-1 text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('qqbot.guaranteedDraw') }}</p><p class="mt-1 text-xs text-gray-500">{{ t('qqbot.remainingAtDraw') }}：{{ record.remaining }}</p></td>
+                <td v-if="activeTab === 'lottery'" class="py-4 pr-5"><p class="max-w-40 break-words">{{ record.prize_name }}</p><p v-if="record.chances" class="mt-1 text-xs font-medium text-primary-600">{{ t('qqbot.chanceReward', { count: record.chances }) }}</p><p v-if="record.is_guaranteed" class="mt-1 text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('qqbot.guaranteedDraw') }}</p><p class="mt-1 text-xs text-gray-500">{{ t('qqbot.remainingAtDraw') }}：{{ record.remaining }}</p></td>
                 <td class="py-4 pr-5"><p class="font-medium tabular-nums">{{ activeTab === 'invite' && !record.rewarded_at ? '—' : `$${record.amount.toFixed(2)}` }}</p><p v-if="record.rewarded_at" class="mt-1 max-w-48 break-all text-xs text-gray-500">{{ t('qqbot.recordRewardAccount') }}：{{ record.reward_email || record.reward_user_id }} · ID: {{ record.reward_user_id }}</p></td>
                 <td class="space-y-1 whitespace-nowrap py-4 text-xs text-gray-500">
                   <template v-if="activeTab === 'invite'">
@@ -100,6 +103,8 @@ import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '@/components/layout/AppLayout.vue'
+import QQBotDiagnostics from '@/components/admin/qqbot/QQBotDiagnostics.vue'
+import QQBotConfigHistory from '@/components/admin/qqbot/QQBotConfigHistory.vue'
 import QQJobRecords from '@/components/admin/qqbot/QQJobRecords.vue'
 import QQModerationRecords from '@/components/admin/qqbot/QQModerationRecords.vue'
 import QQBotRecordParticipant from '@/components/admin/qqbot/QQBotRecordParticipant.vue'
@@ -108,8 +113,8 @@ import { qqbotAPI, type QQActivityKind, type QQActivityRecord, type QQActivityRe
 const { t } = useI18n()
 const route = useRoute()
 const router = useRouter()
-const recordModes = ['tasks', 'notifications', 'moderation', 'activities'] as const
-const recordMode = computed(() => ['tasks', 'notifications', 'moderation'].includes(String(route.query.tab || 'tasks')) ? String(route.query.tab || 'tasks') : 'activities')
+const recordModes = ['diagnostics', 'history', 'tasks', 'notifications', 'moderation', 'activities'] as const
+const recordMode = computed(() => ['diagnostics', 'history', 'tasks', 'notifications', 'moderation'].includes(String(route.query.tab || 'tasks')) ? String(route.query.tab || 'tasks') : 'activities')
 const appId = ref(''), appLoading = ref(false), appError = ref('')
 let appRequest = 0
 async function loadApp() {

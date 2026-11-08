@@ -2,7 +2,6 @@ package middleware
 
 import (
 	"bytes"
-	"errors"
 	"mime"
 	"net/http"
 	"strings"
@@ -69,17 +68,14 @@ func RequestModelFields(maxBodySize, textMaxBodySize int64) gin.HandlerFunc {
 			}
 		}
 
-		if RejectRequestBodyReadError(c, err) {
+		if RejectRequestBodyReadError(c, "middleware.request_model_fields", err) {
 			return
 		}
-		status := http.StatusBadRequest
-		message := "Failed to read request body"
-		var maxErr *http.MaxBytesError
-		if errors.As(err, &maxErr) {
-			status = http.StatusRequestEntityTooLarge
-			message = "Request body is too large"
+		failure := httputil.DescribeRequestBodyReadFailure(c.Request, err)
+		if failure.Kind != httputil.RequestBodyReadErrorMaxBytes {
+			logRequestBodyReadFailure(c, "middleware.request_model_fields", failure)
 		}
-		requestModelFieldsError(c, status, message)
+		requestModelFieldsError(c, failure.Status, failure.Message)
 		c.Abort()
 	}
 }

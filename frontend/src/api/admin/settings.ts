@@ -1540,11 +1540,7 @@ export async function updateStreamTimeoutSettings(
   return data;
 }
 
-// ==================== Rectifier Settings ====================
 
-/**
- * Rectifier settings interface
- */
 export interface RectifierSettings {
   enabled: boolean;
   thinking_signature_enabled: boolean;

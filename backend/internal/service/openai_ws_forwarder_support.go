@@ -472,6 +472,7 @@ func populateOpenAIUsageFromResponseJSON(body []byte, usage *OpenAIUsage) {
 		return
 	}
 	if parsed, ok := extractOpenAIUsageFromJSONBytes(body); ok {
+		mergeOpenAICacheUsageEvidence(*usage, &parsed)
 		*usage = parsed
 	}
 }

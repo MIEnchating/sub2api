@@ -23,7 +23,7 @@ func ProvideConcurrencyCache(rdb *redis.Client, cfg *config.Config) service.Conc
 	if waitTTLSeconds <= 0 {
 		waitTTLSeconds = cfg.Gateway.ConcurrencySlotTTLMinutes * 60
 	}
-	return NewConcurrencyCache(rdb, cfg.Gateway.ConcurrencySlotTTLMinutes, waitTTLSeconds)
+	return NewConcurrencyCacheWithAPIKeyTTL(rdb, cfg.Gateway.ConcurrencySlotTTLMinutes, waitTTLSeconds, cfg.Gateway.APIKeySlotTTLSeconds)
 }
 
 // ProvideGitHubReleaseClient 创建 GitHub Release 客户端
@@ -72,6 +72,7 @@ var ProviderSet = wire.NewSet(
 	NewAdminGroupRepository,
 	NewCompositeModelRouteRepository,
 	NewAccountRepository,
+	NewAccountPerformanceRepository,
 	NewOpenAIOAuthReauthRepository,
 	NewOpenAICredentialEncryptor,
 	NewCodexHarvestNodeRepository,

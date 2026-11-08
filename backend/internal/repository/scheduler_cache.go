@@ -1343,6 +1343,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"openai_excel_bps_proxy_source",
 		"openai_excel_bps_models",
 		service.OpenAICodexSkipHarvestExtraKey,
+		// 生图尺寸档位在候选过滤阶段按本投影判定，裁掉后受限账号会接到不允许的档位。
+		service.AccountExtraOpenAIImageSizeTiers,
 		"codex_fingerprint_mode",
 		"codex_fingerprint_seed",
 		"enable_tls_fingerprint",
