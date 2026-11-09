@@ -362,6 +362,19 @@ const routes: RouteRecordRaw[] = [
       requiresPayment: true
     }
   },
+  { path: '/coupons', name: 'UserCoupons', component: () => import('@/views/user/UserCouponsView.vue'), meta: { requiresAuth: true, requiresAdmin: false, title: 'My coupons', titleKey: 'coupon.title' } },
+  {
+    path: '/invoices',
+    name: 'UserInvoices',
+    component: () => import('@/views/user/UserInvoicesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: false,
+      title: 'Self-service invoicing',
+      titleKey: 'invoice.title',
+      requiresPayment: true
+    }
+  },
   {
     path: '/payment/qrcode',
     name: 'PaymentQRCode',
@@ -817,6 +830,19 @@ const routes: RouteRecordRaw[] = [
       requiresAdmin: true,
       title: 'Order Management',
       titleKey: 'nav.orderManagement',
+      requiresPayment: true
+    }
+  },
+  { path: '/admin/orders/coupons', name: 'AdminCoupons', component: () => import('@/views/admin/orders/AdminCouponsView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Recharge coupons', titleKey: 'coupon.adminTitle' } },
+  {
+    path: '/admin/orders/invoices',
+    name: 'AdminInvoices',
+    component: () => import('@/views/admin/orders/AdminInvoicesView.vue'),
+    meta: {
+      requiresAuth: true,
+      requiresAdmin: true,
+      title: 'Invoice management',
+      titleKey: 'invoice.adminTitle',
       requiresPayment: true
     }
   },

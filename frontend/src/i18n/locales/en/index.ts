@@ -9,6 +9,8 @@ import dashboard from './dashboard'
 import channelMonitorV2 from './channelMonitorV2'
 import admin from './admin'
 import misc from './misc'
+import invoice from './invoice'
+import coupon from './coupon'
 
 export default {
   gptDirect,
@@ -22,4 +24,6 @@ export default {
   ...channelMonitorV2,
   admin,
   ...misc,
+  invoice,
+  coupon,
 }

@@ -73,67 +73,86 @@ func TestExcelBPSCacheCreationAsInputBilling(t *testing.T) {
 		{"all input cached", true, true, 1000, 800, 200, 50, 800, 0},
 		{"empty usage", true, true, 0, 0, 0, 0, 0, 0},
 	} {
-		for _, stream := range []bool{false, true} {
-			for _, subscription := range []bool{false, true} {
-				t.Run(fmt.Sprintf("%s/stream=%t/subscription=%t", tt.name, stream, subscription), func(t *testing.T) {
-					usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
-					billingRepo := &openAIRecordUsageBillingRepoStub{}
-					svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
-					svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
-						"gpt-6-astra": {
-							InputCostPerToken: 5e-6, OutputCostPerToken: 30e-6,
-							CacheCreationInputTokenCost: 6.25e-6, CacheCreationInputTokenCostExplicit: true,
-							CacheReadInputTokenCost: 0.5e-6,
-						},
-					}})
-					extra := map[string]any{"openai_excel_bps": tt.bps}
-					if tt.option != nil {
-						extra["openai_excel_bps_cache_creation_as_input"] = tt.option
-					}
-					original := OpenAIUsage{InputTokens: tt.input, CacheCreationInputTokens: tt.creation, CacheReadInputTokens: tt.read, OutputTokens: tt.output}
-					result := &OpenAIForwardResult{RequestID: "resp_bps_billing", UpstreamEndpoint: "/basispoints/api/responses", Usage: original, Model: "gpt-6-astra", Stream: stream, Duration: time.Second}
-					input := &OpenAIRecordUsageInput{
-						Result: result, APIKey: &APIKey{ID: 1001}, User: &User{ID: 2001},
-						Account: &Account{ID: 3001, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: extra},
-					}
-					if subscription {
-						input.Subscription = &UserSubscription{ID: 4001}
-						input.APIKey.Group = &Group{SubscriptionType: "subscription"}
-					}
-					require.NoError(t, svc.RecordUsage(context.Background(), input))
-					require.Equal(t, original, result.Usage, "billing must not rewrite upstream response usage")
-					require.NotNil(t, usageRepo.lastLog)
-					log := usageRepo.lastLog
-					require.Equal(t, tt.wantInput, log.InputTokens)
-					require.Equal(t, tt.wantCreation, log.CacheCreationTokens)
-					require.Equal(t, tt.read, log.CacheReadTokens)
-					require.Equal(t, tt.output, log.OutputTokens)
-					require.Equal(t, tt.input+tt.output, log.TotalTokens())
-					require.Equal(t, stream, log.Stream)
-					wantInputCost := float64(tt.wantInput) * 5e-6
-					wantCreationCost := float64(tt.wantCreation) * 6.25e-6
-					wantReadCost := float64(tt.read) * 0.5e-6
-					wantOutputCost := float64(tt.output) * 30e-6
-					wantTotal := wantInputCost + wantCreationCost + wantReadCost + wantOutputCost
-					require.InDelta(t, wantInputCost, log.InputCost, 1e-12)
-					require.InDelta(t, wantCreationCost, log.CacheCreationCost, 1e-12)
-					require.InDelta(t, wantReadCost, log.CacheReadCost, 1e-12)
-					require.InDelta(t, wantOutputCost, log.OutputCost, 1e-12)
-					require.InDelta(t, wantTotal, log.TotalCost, 1e-12)
-					require.InDelta(t, wantTotal*1.1, log.ActualCost, 1e-12)
-					require.Equal(t, 1, billingRepo.calls)
-					cmd := billingRepo.lastCmd
-					require.Equal(t, tt.wantInput, cmd.InputTokens)
-					require.Equal(t, tt.wantCreation, cmd.CacheCreationTokens)
-					require.Equal(t, tt.read, cmd.CacheReadTokens)
-					if subscription {
-						require.Zero(t, cmd.BalanceCost)
-						require.InDelta(t, wantTotal*1.1, cmd.SubscriptionCost, 1e-12)
-					} else {
-						require.Zero(t, cmd.SubscriptionCost)
-						require.InDelta(t, wantTotal*1.1, cmd.BalanceCost, 1e-12)
-					}
-				})
+		for _, ttlDivisor := range []int{0, 2, 4} {
+			withTTL := ttlDivisor != 0
+			for _, stream := range []bool{false, true} {
+				for _, subscription := range []bool{false, true} {
+					t.Run(fmt.Sprintf("%s/ttl_divisor=%d/stream=%t/subscription=%t", tt.name, ttlDivisor, stream, subscription), func(t *testing.T) {
+						usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+						billingRepo := &openAIRecordUsageBillingRepoStub{}
+						svc := newOpenAIRecordUsageServiceWithBillingRepoForTest(usageRepo, billingRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+						svc.billingService = NewBillingService(svc.cfg, &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+							"gpt-6-astra": {
+								InputCostPerToken: 5e-6, OutputCostPerToken: 30e-6,
+								CacheCreationInputTokenCost: 6.25e-6, CacheCreationInputTokenCostExplicit: true,
+								CacheReadInputTokenCost: 0.5e-6,
+							},
+						}})
+						extra := map[string]any{"openai_excel_bps": tt.bps}
+						if tt.option != nil {
+							extra["openai_excel_bps_cache_creation_as_input"] = tt.option
+						}
+						original := OpenAIUsage{InputTokens: tt.input, CacheCreationInputTokens: tt.creation, CacheReadInputTokens: tt.read, OutputTokens: tt.output}
+						if withTTL {
+							original.CacheCreation30mInputTokens = tt.creation / ttlDivisor
+							original.CacheCreation12hInputTokens = tt.creation - tt.creation/ttlDivisor
+						}
+						result := &OpenAIForwardResult{RequestID: "resp_bps_billing", UpstreamEndpoint: "/basispoints/api/responses", Usage: original, Model: "gpt-6-astra", Stream: stream, Duration: time.Second}
+						input := &OpenAIRecordUsageInput{
+							Result: result, APIKey: &APIKey{ID: 1001}, User: &User{ID: 2001},
+							Account: &Account{ID: 3001, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: extra},
+						}
+						if subscription {
+							input.Subscription = &UserSubscription{ID: 4001}
+							input.APIKey.Group = &Group{SubscriptionType: "subscription"}
+						}
+						require.NoError(t, svc.RecordUsage(context.Background(), input))
+						require.Equal(t, original, result.Usage, "billing must not rewrite upstream response usage")
+						require.NotNil(t, usageRepo.lastLog)
+						log := usageRepo.lastLog
+						require.Equal(t, tt.wantInput, log.InputTokens)
+						require.Equal(t, tt.wantCreation, log.CacheCreationTokens)
+						if withTTL {
+							require.Equal(t, tt.wantCreation/ttlDivisor, log.CacheCreation30mTokens)
+							require.Equal(t, tt.wantCreation-tt.wantCreation/ttlDivisor, log.CacheCreation12hTokens)
+						} else {
+							require.Zero(t, log.CacheCreation30mTokens)
+							require.Zero(t, log.CacheCreation12hTokens)
+						}
+						require.Equal(t, tt.read, log.CacheReadTokens)
+						require.Equal(t, tt.output, log.OutputTokens)
+						require.Equal(t, tt.input+tt.output, log.TotalTokens())
+						require.Equal(t, stream, log.Stream)
+						wantInputCost := float64(tt.wantInput) * 5e-6
+						wantCreationCost := float64(tt.wantCreation) * 6.25e-6
+						if withTTL {
+							// Known 12h writes use the official 2.5x input price;
+							// unknown lifetimes keep the legacy aggregate price.
+							wantCreationCost = float64(tt.wantCreation/ttlDivisor)*6.25e-6 + float64(tt.wantCreation-tt.wantCreation/ttlDivisor)*12.5e-6
+						}
+						wantReadCost := float64(tt.read) * 0.5e-6
+						wantOutputCost := float64(tt.output) * 30e-6
+						wantTotal := wantInputCost + wantCreationCost + wantReadCost + wantOutputCost
+						require.InDelta(t, wantInputCost, log.InputCost, 1e-12)
+						require.InDelta(t, wantCreationCost, log.CacheCreationCost, 1e-12)
+						require.InDelta(t, wantReadCost, log.CacheReadCost, 1e-12)
+						require.InDelta(t, wantOutputCost, log.OutputCost, 1e-12)
+						require.InDelta(t, wantTotal, log.TotalCost, 1e-12)
+						require.InDelta(t, wantTotal*1.1, log.ActualCost, 1e-12)
+						require.Equal(t, 1, billingRepo.calls)
+						cmd := billingRepo.lastCmd
+						require.Equal(t, tt.wantInput, cmd.InputTokens)
+						require.Equal(t, tt.wantCreation, cmd.CacheCreationTokens)
+						require.Equal(t, tt.read, cmd.CacheReadTokens)
+						if subscription {
+							require.Zero(t, cmd.BalanceCost)
+							require.InDelta(t, wantTotal*1.1, cmd.SubscriptionCost, 1e-12)
+						} else {
+							require.Zero(t, cmd.SubscriptionCost)
+							require.InDelta(t, wantTotal*1.1, cmd.BalanceCost, 1e-12)
+						}
+					})
+				}
 			}
 		}
 	}
@@ -150,7 +169,7 @@ func TestExcelBPSSelectedModelBillingPreservesCodexCacheCreation(t *testing.T) {
 	account.Extra["openai_excel_bps_models"] = []string{"gpt-6-astra"}
 	account.Extra["openai_excel_bps_cache_creation_as_input"] = true
 	require.False(t, account.IsExcelBPSEnabledForModel("gpt-6-sol"))
-	original := OpenAIUsage{InputTokens: 1000, CacheCreationInputTokens: 200, CacheReadInputTokens: 100, OutputTokens: 50}
+	original := OpenAIUsage{InputTokens: 1000, CacheCreationInputTokens: 200, CacheCreation30mInputTokens: 50, CacheCreation12hInputTokens: 150, CacheReadInputTokens: 100, OutputTokens: 50}
 	result := &OpenAIForwardResult{RequestID: "resp_codex_billing", Model: "gpt-6-sol", UpstreamEndpoint: "/v1/responses", Usage: original}
 	require.NoError(t, svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
 		Result: result, APIKey: &APIKey{ID: 1001}, User: &User{ID: 2001}, Account: account,
@@ -159,7 +178,9 @@ func TestExcelBPSSelectedModelBillingPreservesCodexCacheCreation(t *testing.T) {
 	require.NotNil(t, usageRepo.lastLog)
 	require.Equal(t, 700, usageRepo.lastLog.InputTokens)
 	require.Equal(t, 200, usageRepo.lastLog.CacheCreationTokens)
+	require.Equal(t, 50, usageRepo.lastLog.CacheCreation30mTokens)
+	require.Equal(t, 150, usageRepo.lastLog.CacheCreation12hTokens)
 	require.Equal(t, 100, usageRepo.lastLog.CacheReadTokens)
-	require.InDelta(t, 200*6.25e-6, usageRepo.lastLog.CacheCreationCost, 1e-12)
+	require.InDelta(t, 50*6.25e-6+150*12.5e-6, usageRepo.lastLog.CacheCreationCost, 1e-12)
 	require.Equal(t, 200, billingRepo.lastCmd.CacheCreationTokens)
 }

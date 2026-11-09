@@ -2239,7 +2239,10 @@ func (p *openAIWSConnPool) evictConn(accountID int64, connID string) {
 		ap.mu.Unlock()
 	})
 	if conn != nil {
-		conn.close()
+		// Eviction discards a failed or incompatible transport. Waiting for its
+		// peer to complete a close handshake can extend cancellation and the
+		// committed-turn usage drain by another five seconds.
+		conn.abort()
 	}
 }
 

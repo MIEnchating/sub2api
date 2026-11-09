@@ -72,8 +72,11 @@ describe('channel model default price synchronization', () => {
     const defaults = new Map([
       ['a', flash], ['b', { ...flash, cache_read_price: 0 }],
       ['c', { ...flash, reasoning_effort_multipliers: { max: 2 } }],
+      ['d', { ...flash, cache_write_12h_price: 1e-6 }],
     ])
-    expect(createModelPricingEntries([...defaults.keys()], defaults)).toHaveLength(3)
+    const entries = createModelPricingEntries([...defaults.keys()], defaults)
+    expect(entries).toHaveLength(4)
+    expect(entries[3]).toMatchObject({ models: ['d'], cache_write_12h_price: 1 })
   })
 
   it('deduplicates lookups and bounds concurrent requests', async () => {

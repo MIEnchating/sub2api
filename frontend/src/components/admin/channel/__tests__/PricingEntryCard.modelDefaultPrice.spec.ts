@@ -67,6 +67,13 @@ describe('PricingEntryCard default price auto-fill', () => {
     })
   })
 
+  it.each([0, 2.5])('preserves a manual 12h cache price of %s when adding a model', async price => {
+    const wrapper = await addModels({ ...createEntry(), cache_write_12h_price: price }, ['gpt-6-sol'])
+    await flushPromises()
+    expect(getModelDefaultPricing).not.toHaveBeenCalled()
+    expect(emittedEntries(wrapper).at(-1)).toMatchObject({ cache_write_12h_price: price })
+  })
+
   it('does not overwrite prices when appending a model to an entry that already has one', async () => {
     const entry = createEntry(['claude-opus-4-7'])
     const wrapper = await addModels(entry, ['claude-opus-4-7', 'claude-opus-4-8'])

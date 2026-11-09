@@ -47,6 +47,18 @@ func RegisterPaymentRoutes(
 		authenticated.GET("/checkout-info", paymentHandler.GetCheckoutInfo)
 		authenticated.GET("/plans", paymentHandler.GetPlans)
 		authenticated.GET("/limits", paymentHandler.GetLimits)
+		authenticated.GET("/coupons", paymentHandler.ListMyCoupons)
+		authenticated.GET("/coupons/usage", paymentHandler.ListMyCouponUsage)
+		authenticated.POST("/coupons/:id/quote", paymentHandler.QuoteCoupon)
+
+		invoices := authenticated.Group("/invoices")
+		{
+			invoices.GET("/config", paymentHandler.GetInvoiceConfig)
+			invoices.GET("/orders", paymentHandler.ListInvoiceOrders)
+			invoices.GET("", paymentHandler.ListInvoiceRequests)
+			invoices.POST("", paymentHandler.CreateInvoiceRequest)
+			invoices.GET("/:id/pdf", paymentHandler.DownloadInvoicePDF)
+		}
 
 		orders := authenticated.Group("/orders")
 		{
@@ -96,11 +108,31 @@ func RegisterPaymentRoutes(
 	adminGroup.Use(middleware.AdminComplianceGuard(settingService))
 	{
 		// Dashboard
+		coupons := adminGroup.Group("/coupons")
+		{
+			coupons.GET("/templates", adminPaymentHandler.ListCouponTemplates)
+			coupons.POST("/templates", adminPaymentHandler.SaveCouponTemplate)
+			coupons.PUT("/templates/:id", adminPaymentHandler.SaveCouponTemplate)
+			coupons.POST("/issue", adminPaymentHandler.IssueCoupons)
+			coupons.GET("", adminPaymentHandler.ListCoupons)
+			coupons.GET("/usage", adminPaymentHandler.ListCouponUsage)
+			coupons.POST("/:id/revoke", adminPaymentHandler.RevokeCoupon)
+		}
 		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)
 
 		// Config
 		adminGroup.GET("/config", adminPaymentHandler.GetConfig)
 		adminGroup.PUT("/config", adminPaymentHandler.UpdateConfig)
+
+		invoices := adminGroup.Group("/invoices")
+		{
+			invoices.GET("/config", adminPaymentHandler.GetInvoiceConfig)
+			invoices.PUT("/config", adminPaymentHandler.UpdateInvoiceConfig)
+			invoices.GET("", adminPaymentHandler.ListInvoiceRequests)
+			invoices.POST("/:id/reject", adminPaymentHandler.RejectInvoiceRequest)
+			invoices.POST("/:id/issue", adminPaymentHandler.IssueInvoiceRequest)
+			invoices.GET("/:id/pdf", adminPaymentHandler.DownloadInvoicePDF)
+		}
 
 		// Orders
 		adminOrders := adminGroup.Group("/orders")

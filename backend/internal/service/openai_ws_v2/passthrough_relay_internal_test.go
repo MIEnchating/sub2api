@@ -840,3 +840,33 @@ func TestRelayUsageProtectionRetainsProgressiveMediaEvidenceUntilTurnEnds(t *tes
 	require.True(t, next.CacheReadKnown, "the next text turn must not inherit media from the prior turn")
 	require.False(t, next.CacheReadMediaObserved)
 }
+
+func TestRelayCacheWriteTTLProgressiveAndTerminal(t *testing.T) {
+	for _, details := range []string{
+		`{"ttl_30m_tokens":3,"ttl_12h_tokens":1}`,
+		`{"ttl_30m_tokens":4,"ttl_12h_tokens":2}`,
+		`{"ttl_30m_tokens":-1,"ttl_12h_tokens":5}`,
+		`{"ttl_30m_tokens":3}`,
+	} {
+		for _, terminal := range []string{"completed", "in_progress"} {
+			state := &relayState{}
+			eventType := "response." + terminal
+			payload := []byte(`{"usage":{"input_tokens":10,"output_tokens":2,"input_tokens_details":{"cache_write_tokens":4,"cache_write_tokens_details":` + details + `}}}`)
+			parseUsageAndAccumulate(state, payload, eventType, nil)
+			if terminal == "in_progress" {
+				parseUsageAndAccumulate(state, []byte(`{"usage":{"input_tokens":0,"output_tokens":0}}`), "response.completed", nil)
+			}
+			turn := finalizeRelayTurnUsage(state)
+			require.Equal(t, 4, turn.CacheCreationInputTokens)
+			if details == `{"ttl_30m_tokens":3,"ttl_12h_tokens":1}` {
+				require.Equal(t, 3, turn.CacheCreation30mInputTokens)
+				require.Equal(t, 1, turn.CacheCreation12hInputTokens)
+			} else {
+				require.Zero(t, turn.CacheCreation30mInputTokens)
+				require.Zero(t, turn.CacheCreation12hInputTokens)
+			}
+			require.Equal(t, turn.CacheCreation30mInputTokens, state.usage.CacheCreation30mInputTokens)
+			require.Equal(t, turn.CacheCreation12hInputTokens, state.usage.CacheCreation12hInputTokens)
+		}
+	}
+}

@@ -1465,6 +1465,12 @@ func copyOpenAIUsageFromResponsesUsage(usage *apicompat.ResponsesUsage, observed
 	}
 	if len(observed) > 0 {
 		result.cacheReadMediaObserved = observed[0].cacheReadMediaObserved
+		// The typed compatibility view omits TTL details. Retain the raw
+		// observation only when its aggregate agrees with the canonical usage.
+		if result.CacheCreationInputTokens > 0 && observed[0].CacheCreationInputTokens == result.CacheCreationInputTokens {
+			result.CacheCreation30mInputTokens = observed[0].CacheCreation30mInputTokens
+			result.CacheCreation12hInputTokens = observed[0].CacheCreation12hInputTokens
+		}
 	}
 	if usage.InputTokensDetails != nil {
 		result.CacheUsageReported = usage.CacheReadUsageReported()

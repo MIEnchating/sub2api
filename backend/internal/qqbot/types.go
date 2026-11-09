@@ -11,6 +11,8 @@ import (
 var ErrDisabled = errors.New("QQ 机器人尚未启用")
 
 type Config struct {
+	InviteCouponTemplateID   int64                    `json:"invite_coupon_template_id,omitempty"`
+	InviteCouponQuantity     int                      `json:"invite_coupon_quantity,omitempty"`
 	SetupWarning             string                   `json:"setup_warning,omitempty"`
 	RewardBudgetDaily        *float64                 `json:"reward_budget_daily"`
 	AIConnection             string                   `json:"ai_connection"`
@@ -40,6 +42,10 @@ type Config struct {
 	ChatModel                string                   `json:"chat_model"`
 	ChatProtocol             string                   `json:"chat_protocol"`
 	ImageEnabled             bool                     `json:"image_enabled"`
+	ImageAIConnection        string                   `json:"image_ai_connection"`
+	ImageSiteAPIKeyID        int64                    `json:"image_site_api_key_id"`
+	ImageSiteGroupID         int64                    `json:"image_site_group_id"`
+	ImageSiteOwnerID         int64                    `json:"image_site_owner_id"`
 	ImageBaseURL             string                   `json:"image_base_url"`
 	ImageAPIKey              string                   `json:"image_api_key"`
 	ImageAPIKeySet           bool                     `json:"image_api_key_set"`
@@ -191,6 +197,7 @@ func (m Message) MarshalJSON() ([]byte, error) {
 }
 
 type Job struct {
+	AutonomousData  json.RawMessage `json:"autonomous_data,omitempty"`
 	SiteQuery       json.RawMessage `json:"site_query,omitempty"`
 	ImageDecision   json.RawMessage `json:"image_decision,omitempty"`
 	ChatExecution   json.RawMessage `json:"chat_execution,omitempty"`

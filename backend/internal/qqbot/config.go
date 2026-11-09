@@ -107,11 +107,20 @@ func validateURL(raw string) error {
 	return nil
 }
 func validateConfig(c Config) error {
+	if err := validateOptionalCoupon(c.InviteCouponTemplateID, c.InviteCouponQuantity); err != nil {
+		return err
+	}
 	if c.RewardBudgetDaily != nil && (math.IsNaN(*c.RewardBudgetDaily) || math.IsInf(*c.RewardBudgetDaily, 0) || *c.RewardBudgetDaily < 0 || *c.RewardBudgetDaily > 1000000 || math.Abs(*c.RewardBudgetDaily*1e8-math.Round(*c.RewardBudgetDaily*1e8)) > .001) {
 		return errors.New("每日奖励预算须为 0～1000000 USD，最多 8 位小数；0 暂停余额奖励，留空不限制")
 	}
 	if c.AIConnection != "" && c.AIConnection != "external" && c.AIConnection != "site" {
 		return errors.New("AI 连接类型不正确")
+	}
+	if c.ImageAIConnection != "" && c.ImageAIConnection != "reuse_chat" && c.ImageAIConnection != "external" && c.ImageAIConnection != "site" {
+		return errors.New("图片 AI 连接类型不正确")
+	}
+	if c.ImageAIConnection != "site" && (c.ImageSiteAPIKeyID != 0 || c.ImageSiteGroupID != 0 || c.ImageSiteOwnerID != 0) {
+		return errors.New("本站图片 AI 归属信息必须通过本站图片 AI 连接入口管理")
 	}
 	q := c.NotificationQuietHours
 	if q.StartHour < 0 || q.StartHour > 23 || q.EndHour < 0 || q.EndHour > 23 || (q.Enabled && q.StartHour == q.EndHour) {
@@ -232,8 +241,11 @@ func (s *Service) SaveBasicConfig(ctx context.Context, c Config) (Config, error)
 		c.SiteKnowledge = old.SiteKnowledge
 		c.RewardBudgetDaily = old.RewardBudgetDaily
 		c.AIConnection, c.SiteAPIKeyID, c.SiteGroupID, c.SiteOwnerID = old.AIConnection, old.SiteAPIKeyID, old.SiteGroupID, old.SiteOwnerID
+		preserveImageConnectionMetadata(&c, old)
 		c.InviteEnabled = old.InviteEnabled
 		c.InviteReward = old.InviteReward
+		c.InviteCouponTemplateID = old.InviteCouponTemplateID
+		c.InviteCouponQuantity = old.InviteCouponQuantity
 		c.InviteDailyLimit = old.InviteDailyLimit
 		c.InviteMinRechargeTotal = old.InviteMinRechargeTotal
 		c.InviteMinRecharge30d = old.InviteMinRecharge30d
@@ -272,8 +284,18 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 	if err != nil {
 		return c, err
 	}
-	if !managedSetupAllowed(ctx) && (old.AIConnection != c.AIConnection || old.SiteAPIKeyID != c.SiteAPIKeyID || old.SiteGroupID != c.SiteGroupID || old.SiteOwnerID != c.SiteOwnerID || (old.AIConnection == "site" && (old.BaseURL != c.BaseURL || (c.APIKey != "" && c.APIKey != old.APIKey) || c.ClearAPIKey))) {
-		return c, errors.New("本站 AI 凭据由快速配置管理，请通过本站 AI 连接入口修改")
+	if imageConnectionMetadataOmitted(c) {
+		preserveImageConnectionMetadata(&c, old)
+	}
+	if !managedSetupAllowed(ctx) && (old.AIConnection != c.AIConnection || old.SiteAPIKeyID != c.SiteAPIKeyID || old.SiteGroupID != c.SiteGroupID || old.SiteOwnerID != c.SiteOwnerID || (old.AIConnection == "site" && (old.ChatProtocol != c.ChatProtocol || old.BaseURL != c.BaseURL || (c.APIKey != "" && c.APIKey != old.APIKey) || c.ClearAPIKey))) {
+		return c, errors.New("本站 AI 凭据和接口由快速配置管理，请通过本站 AI 连接入口修改")
+	}
+	if !managedSetupAllowed(ctx) && (old.ImageAIConnection != c.ImageAIConnection || old.ImageSiteAPIKeyID != c.ImageSiteAPIKeyID || old.ImageSiteGroupID != c.ImageSiteGroupID || old.ImageSiteOwnerID != c.ImageSiteOwnerID || managedImageCredentialsChanged(old, c)) {
+		return c, errors.New("本站图片 AI 凭据由快速配置管理，请通过本站图片 AI 连接入口修改")
+	}
+	if c.ImageAIConnection == "reuse_chat" {
+		c.ImageBaseURL, c.ImageAPIKey = "", ""
+		c.ClearImageAPIKey = true
 	}
 	if ConfigVersion(old.AllowedGroups) != ConfigVersion(c.AllowedGroups) {
 		reconcileRemovedGroups(&c)
