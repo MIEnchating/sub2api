@@ -120,7 +120,7 @@ func TestReadOpenAIWSClientMessage_ParentCancellationStillJoinsRead(t *testing.T
 	}))
 	defer server.Close()
 
-	dialCtx, cancelDial := context.WithTimeout(context.Background(), time.Second)
+	dialCtx, cancelDial := context.WithTimeout(context.Background(), 10*time.Second)
 	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(server.URL, "http"), nil)
 	cancelDial()
 	require.NoError(t, err)

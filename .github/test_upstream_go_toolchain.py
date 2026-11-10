@@ -20,14 +20,27 @@ class GoToolchainTest(unittest.TestCase):
         self.bin = self.root / 'bin'
         self.bin.mkdir()
         docker = self.bin / 'docker'
-        docker.write_text('#!/usr/bin/env python3\nimport json, sys\nprint(json.dumps(sys.argv[1:]))\n')
+        docker.write_text('''#!/usr/bin/env python3
+import json, os, sys
+from pathlib import Path
+args = sys.argv[1:]
+print(json.dumps(args))
+if os.environ.get('PROBE_SCRATCH'):
+    mounts = [arg.removesuffix(':/tmp') for arg in args if arg.endswith(':/tmp')]
+    assert len(mounts) == 1, args
+    scratch = Path(mounts[0])
+    assert scratch.is_dir(), scratch
+    assert 'TMPDIR=/tmp' in args and 'GOTMPDIR=/tmp' in args, args
+    (scratch / 'go-build-fixture').mkdir()
+    (scratch / 'go-build-fixture/_pkg_.a').write_bytes(b'compiled package')
+    (scratch / 'sub2api-server').write_bytes(b'linked binary')
+    sys.exit(int(os.environ.get('DOCKER_STATUS', '0')))
+''')
         docker.chmod(0o755)
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'],
                         WORKTREE=str(self.root), TOOLS_DIR=str(self.root / 'tools'), GO_IMAGE='')
-        source = (ROOT / 'scripts/upstream-sync-validation.sh').read_text()
-        self.functions = '\n'.join(
-            name + '() {' + source.split(name + '() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
-            for name in ('backend_go_image', 'docker_go', 'check_backend_lint', 'check_backend_security'))
+        self.env['VALIDATOR'] = str(ROOT / 'scripts/upstream-sync-validation.sh')
+        self.functions = 'source "$VALIDATOR"'
 
     def run_shell(self, command, **env):
         return subprocess.run(['bash', '-ec', self.functions + '\n' + command],
@@ -82,6 +95,34 @@ class GoToolchainTest(unittest.TestCase):
         self.assertEqual(args[args.index('--network') + 1], 'host')
         self.assertNotIn('/var/run/docker.sock:/var/run/docker.sock',
                          self.container_args('docker_go go test ./...'))
+
+    def test_host_scratch_is_private_and_cleaned_on_success_and_failure(self):
+        parent = self.root / 'scratch parent'
+        parent.mkdir()
+        unrelated = parent / 'unrelated'
+        unrelated.write_text('preserve')
+        paths = set()
+        for command in ('go test ./...', 'go test -tags=unit ./...',
+                        'go test -tags=integration ./...',
+                        '/bin/bash -ec "CGO_ENABLED=0 go build -o /tmp/sub2api-server ./cmd/server"'):
+            for status in (0, 23, 125):
+                with self.subTest(command=command, status=status):
+                    result = self.run_shell('docker_go ' + command, TMPDIR=str(parent),
+                                            PROBE_SCRATCH='true', DOCKER_STATUS=str(status))
+                    self.assertEqual(result.returncode, status, result.stderr)
+                    args = json.loads(result.stdout)
+                    scratch = next(arg.removesuffix(':/tmp') for arg in args if arg.endswith(':/tmp'))
+                    self.assertNotIn(scratch, paths)
+                    paths.add(scratch)
+                    self.assertFalse(Path(scratch).exists())
+                    self.assertEqual(list(parent.iterdir()), [unrelated])
+                    self.assertEqual(unrelated.read_text(), 'preserve')
+
+    def test_scratch_creation_failure_never_launches_container(self):
+        result = self.run_shell('docker_go go test ./...', TMPDIR=str(self.root / 'missing'))
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+        self.assertIn('mktemp', result.stderr)
 
     def test_tools_rebuild_after_go_upgrade_and_do_not_use_legacy_cache(self):
         go = self.bin / 'go'

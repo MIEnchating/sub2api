@@ -11,10 +11,15 @@ backend_go_image() {
   printf '%s\n' "${GO_IMAGE:-golang:$version}"
 }
 
-docker_go() {
-  local image
+docker_go() (
+  local image scratch_dir
   local -a integration_args=()
   image="$(backend_go_image)" || return 1
+  # Large test binaries and trimpath builds must not fill Docker's writable
+  # layer. Give each check host-backed /tmp space, including nested go commands
+  # (ent schema loading), and remove only this invocation's scratch directory.
+  scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-sync-go.XXXXXX")" || return 1
+  trap 'rm -rf -- "$scratch_dir"' EXIT
   if [[ " $* " == *' -tags=integration '* ]]; then
     # Testcontainers must reach Docker and the ephemeral ports it publishes.
     integration_args=(--network host -v /var/run/docker.sock:/var/run/docker.sock
@@ -27,9 +32,11 @@ docker_go() {
     -v "$TOOLS_DIR:/tools" \
     -v sub2api-sync-go-mod:/go/pkg/mod \
     -v sub2api-sync-go-build:/root/.cache/go-build \
+    -v "$scratch_dir:/tmp" \
+    -e TMPDIR=/tmp -e GOTMPDIR=/tmp \
     -e GOTOOLCHAIN=local -e GOMAXPROCS=4 -e GOFLAGS=-p=4 \
     -w /src/backend "$image" "$@"
-}
+)
 
 check_backend_security() {
   docker_go /bin/bash -ec '

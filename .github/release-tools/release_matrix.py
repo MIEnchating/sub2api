@@ -107,6 +107,9 @@ def generate_config(args):
 def collect(args):
     target = {'goos': args.goos, 'goarch': args.goarch}
     name = archive_name(args.version, target)
+    metadata = json.loads(Path('dist/metadata.json').read_text())
+    if metadata.get('version') != args.version or metadata.get('commit') != args.sha:
+        raise ValueError('build metadata does not match the selected release version and commit')
     source = Path('dist') / name
     checksums = {line.split()[1].lstrip('*'): line.split()[0] for line in Path('dist/checksums.txt').read_text().splitlines()}
     digest = sha256(source)

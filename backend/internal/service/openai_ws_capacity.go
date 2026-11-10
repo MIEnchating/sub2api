@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sync/atomic"
+	"time"
 
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
@@ -35,11 +36,13 @@ type openAIWSCapacityFrameConn struct {
 	pendingSize int64
 	committed   bool
 	observed    atomic.Bool
+	receivedAt  time.Time
 }
 
 type openAIWSStagedFrame struct {
 	messageType coderws.MessageType
 	payload     []byte
+	receivedAt  time.Time
 }
 
 func (c *openAIWSCapacityFrameConn) ReadFrame(ctx context.Context) (coderws.MessageType, []byte, error) {
@@ -51,6 +54,7 @@ func (c *openAIWSCapacityFrameConn) ReadFrame(ctx context.Context) (coderws.Mess
 	}
 	for {
 		msgType, payload, err := c.FrameConn.ReadFrame(ctx)
+		c.receivedAt = time.Now()
 		if err == nil {
 			c.observed.Store(true)
 		}
@@ -67,7 +71,7 @@ func (c *openAIWSCapacityFrameConn) ReadFrame(ctx context.Context) (coderws.Mess
 		if !commit && c.pendingSize+int64(len(payload)) > openAIFirstOutputStageMaxBytes {
 			return msgType, nil, errors.New("OpenAI websocket first-output staging limit exceeded")
 		}
-		c.pending = append(c.pending, openAIWSStagedFrame{messageType: msgType, payload: append([]byte(nil), payload...)})
+		c.pending = append(c.pending, openAIWSStagedFrame{messageType: msgType, payload: append([]byte(nil), payload...), receivedAt: c.receivedAt})
 		c.pendingSize += int64(len(payload))
 		if commit {
 			c.committed = true
@@ -83,8 +87,15 @@ func (c *openAIWSCapacityFrameConn) ReadBufferedFrame() (coderws.MessageType, []
 		return coderws.MessageText, nil, false
 	}
 	frame := c.pending[0]
+	c.receivedAt = frame.receivedAt
 	c.pending[0] = openAIWSStagedFrame{}
 	c.pending = c.pending[1:]
 	c.pendingSize -= int64(len(frame.payload))
 	return frame.messageType, frame.payload, true
+}
+
+// FrameReceivedAt keeps timing tied to upstream arrival while metadata waits
+// for a committed attempt. Staging must not turn semantic TTFT into visible TTFT.
+func (c *openAIWSCapacityFrameConn) FrameReceivedAt() time.Time {
+	return c.receivedAt
 }

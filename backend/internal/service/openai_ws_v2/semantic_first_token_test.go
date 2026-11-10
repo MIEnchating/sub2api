@@ -54,6 +54,56 @@ func TestRelaySemanticFirstToken(t *testing.T) {
 }
 func semanticInt(v int) *int { return &v }
 
+type stagedSemanticClockConn struct {
+	*semanticClockConn
+	base time.Time
+}
+
+func (c *stagedSemanticClockConn) FrameReceivedAt() time.Time {
+	// Buffered delivery is observed after arrival. Deliberately use a
+	// different clock from RelayOptions.Now to detect delivery-time timing.
+	return c.base.Add(time.Duration(c.tick.Load()/2) * time.Millisecond)
+}
+
+func TestRelayStagedArrivalPreservesFirstTokenModes(t *testing.T) {
+	for _, visible := range []bool{false, true} {
+		t.Run(map[bool]string{false: "semantic", true: "visible"}[visible], func(t *testing.T) {
+			var tick atomic.Int64
+			base := time.Now()
+			frames := []passthroughTestFrame{}
+			for _, event := range []string{
+				`{"type":"response.created","response":{"id":"staged"}}`,
+				`{"type":"response.output_item.added","item":{"type":"reasoning","summary":[]}}`,
+				`{"type":"response.output_text.delta","delta":"hello"}`,
+				`{"type":"response.completed","response":{"id":"staged","usage":{"input_tokens":7,"output_tokens":3}}}`,
+			} {
+				frames = append(frames, passthroughTestFrame{msgType: coderws.MessageText, payload: []byte(event)})
+			}
+			upstream := &stagedSemanticClockConn{semanticClockConn: &semanticClockConn{
+				FrameConn: newPassthroughTestFrameConn(frames, true), tick: &tick,
+			}, base: base}
+			options := RelayOptions{Now: func() time.Time { return base.Add(time.Duration(tick.Load()) * time.Millisecond) }, FirstTurnStartedAt: base}
+			if visible {
+				options.IsFirstTokenEvent = func(eventType string, _ []byte) bool { return eventType == "response.output_text.delta" }
+			}
+			var turn RelayTurnResult
+			options.OnTurnComplete = func(result RelayTurnResult) { turn = result }
+			result, exit := Relay(context.Background(), newPassthroughTestFrameConn(nil, false), upstream,
+				[]byte(`{"type":"response.create","model":"synthetic"}`), options)
+			require.Nil(t, exit)
+			want := 100
+			if visible {
+				want = 150
+			}
+			require.Equal(t, &want, result.FirstTokenMs)
+			require.Equal(t, &want, turn.FirstTokenMs)
+			require.Equal(t, 200*time.Millisecond, turn.Duration)
+			require.Equal(t, 7, turn.Usage.InputTokens)
+			require.Equal(t, 3, turn.Usage.OutputTokens)
+		})
+	}
+}
+
 // The upstream emits a fresh sequence only after the relay writes each create.
 type semanticTurnsConn struct {
 	*semanticClockConn

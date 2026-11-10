@@ -292,7 +292,12 @@
                 <span class="text-gray-500 dark:text-gray-400"
                   >{{ t("keys.today") }}:</span
                 >
-                <span class="font-medium text-gray-900 dark:text-white">
+                <span
+                  v-if="usageLoading && !usageStats[row.id]"
+                  data-test="usage-pending"
+                  class="inline-block h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-dark-600"
+                ><span class="sr-only">—</span></span>
+                <span v-else class="font-medium text-gray-900 dark:text-white">
                   {{ usageStats[row.id] ? `$${usageStats[row.id].today_actual_cost.toFixed(4)}` : "—" }}
                 </span>
               </div>
@@ -300,7 +305,12 @@
                 <span class="text-gray-500 dark:text-gray-400"
                   >{{ t("keys.total") }}:</span
                 >
-                <span class="font-medium text-gray-900 dark:text-white">
+                <span
+                  v-if="usageLoading && !usageStats[row.id]"
+                  data-test="usage-pending"
+                  class="inline-block h-3 w-14 animate-pulse rounded bg-gray-200 dark:bg-dark-600"
+                ><span class="sr-only">—</span></span>
+                <span v-else class="font-medium text-gray-900 dark:text-white">
                   {{ usageStats[row.id] ? `$${usageStats[row.id].total_actual_cost.toFixed(4)}` : "—" }}
                 </span>
               </div>
@@ -1935,6 +1945,7 @@ const submitting = ref(false);
 const now = ref(new Date());
 let resetTimer: ReturnType<typeof setInterval> | null = null;
 const usageStats = ref<Record<string, BatchApiKeyUsageStats>>({});
+const usageLoading = ref(false);
 const userGroupRates = ref<Record<number, number>>({});
 
 const pagination = ref({
@@ -2317,7 +2328,9 @@ watch(
     const controller = new AbortController();
     usageAbortController = controller;
     usageStats.value = {};
+    usageLoading.value = false;
     if (!visible || keys.length === 0) return;
+    usageLoading.value = true;
     try {
       const response = await usageAPI.getDashboardApiKeysUsage(
         keys.map((key) => key.id),
@@ -2328,6 +2341,8 @@ watch(
       if (!controller.signal.aborted && !isAbortError(error)) {
         console.error("Failed to load usage stats:", error);
       }
+    } finally {
+      if (usageAbortController === controller) usageLoading.value = false;
     }
   },
 );
@@ -2339,6 +2354,7 @@ const loadApiKeys = async () => {
   abortController = controller;
   const { signal } = controller;
   loading.value = true;
+  usageLoading.value = false;
   try {
     // Build filters
     const filters: {

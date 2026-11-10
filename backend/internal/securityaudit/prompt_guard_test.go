@@ -199,16 +199,16 @@ func TestGuardEvaluatorFlagSharedDeadlineFailClosedAndContextCancel(t *testing.T
 
 	t.Run("all failovers share first endpoint deadline", func(t *testing.T) {
 		calls := 0
+		var sharedDeadline time.Time
 		scanner := PromptScannerFunc(func(ctx context.Context, endpoint ActiveEndpoint, _ string, _ []string) (*NormalizedResult, error) {
 			calls++
+			deadline, ok := ctx.Deadline()
+			require.True(t, ok)
 			if endpoint.ID == "first" {
-				select {
-				case <-time.After(35 * time.Millisecond):
-					return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
-				case <-ctx.Done():
-					return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: true, Cause: ctx.Err()}
-				}
+				sharedDeadline = deadline
+				return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true}
 			}
+			require.Equal(t, sharedDeadline, deadline, "failover must not renew the scan budget")
 			<-ctx.Done()
 			return nil, &GuardError{Code: ErrorCodeUnavailable, Retryable: true, Timeout: true, Cause: ctx.Err()}
 		})
@@ -224,7 +224,7 @@ func TestGuardEvaluatorFlagSharedDeadlineFailClosedAndContextCancel(t *testing.T
 		require.Equal(t, 2, calls)
 		// The bound only has to prove the failover shared the first endpoint's
 		// 70ms deadline instead of taking the second endpoint's own 500ms one.
-		// An unshared deadline lands at ~535ms, so 350ms still fails loudly
+		// An unshared deadline lands at ~500ms, so 350ms still fails loudly
 		// while leaving room for scheduler delay on a busy CI machine. A
 		// tighter bound made this test flaky, not stricter.
 		require.Less(t, elapsed, 350*time.Millisecond)

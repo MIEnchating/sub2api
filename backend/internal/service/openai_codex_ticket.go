@@ -484,7 +484,7 @@ func (s *OpenAIGatewayService) refreshHarvestIPPool(ctx context.Context) {
 	}
 	exits := make([]harvestIPPoolExit, 0, len(proxies))
 	for i := range proxies {
-		if proxies[i].IsExpired(now) {
+		if proxies[i].IsExpired(now) || strings.HasPrefix(proxies[i].Username, "v6-sub2-") {
 			continue
 		}
 		exits = append(exits, harvestIPPoolExit{url: proxies[i].URL(), name: strings.TrimSpace(proxies[i].Name)})
@@ -613,7 +613,11 @@ func (s *OpenAIGatewayService) lookupOpenAICodexTicket(account *Account, model s
 	}
 	s.openaiCodexTicketStateMu.Lock()
 	defer s.openaiCodexTicketStateMu.Unlock()
-	return s.lookupCodexTicketLocked(account, model)
+	ticket := s.lookupCodexTicketLocked(account, model)
+	if !codexTicketMatchesIPv6Route(account, ticket) {
+		return nil
+	}
+	return ticket
 }
 
 // Keep the production identity binding: candidates are hydrated by the
@@ -1572,4 +1576,15 @@ func isOpenAICodexTicketAccountWithBPS(account *Account, bpsEnabled []bool, mode
 		return isNativeOpenAICodexTicketAccount(account)
 	}
 	return isOpenAICodexTicketAccount(account, models...)
+}
+
+func codexTicketMatchesIPv6Route(a *Account, ticket *openAICodexTicket) bool {
+	if ticket == nil {
+		return true
+	}
+	if a.IsOpenAIIPv6Bound() {
+		return validateOpenAIIPv6Proxy(a, a.Proxy) == nil && ticket.HarvestProxyURL == a.Proxy.URL() && ticket.HarvestNodeID == "" && ticket.HarvestNodeName == ""
+	}
+	u, err := url.Parse(ticket.HarvestProxyURL)
+	return err == nil && (u.User == nil || !strings.HasPrefix(u.User.Username(), "v6-sub2-"))
 }

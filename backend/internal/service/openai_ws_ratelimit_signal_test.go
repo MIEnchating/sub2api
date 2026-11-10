@@ -242,7 +242,9 @@ func TestOpenAIGatewayService_Forward_WSv2Handshake429PersistsRateLimit(t *testi
 func TestOpenAIGatewayService_Forward_WSv2Handshake502RecordsModelTransient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
+	handshakeAttempts := 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		handshakeAttempts++
 		w.Header().Set("x-request-id", "req-ws-502")
 		w.WriteHeader(http.StatusBadGateway)
 		_, _ = w.Write([]byte(`{"error":{"type":"server_error","message":"bad gateway"}}`))
@@ -252,6 +254,12 @@ func TestOpenAIGatewayService_Forward_WSv2Handshake502RecordsModelTransient(t *t
 	cfg := newOpenAIWSV2TestConfig()
 	cfg.Security.URLAllowlist.Enabled = false
 	cfg.Security.URLAllowlist.AllowInsecureHTTP = true
+	// This test verifies the account-model transient threshold across two
+	// requests; keep each request to its first failed handshake.
+	cfg.Gateway.OpenAIWS.RetryTotalBudgetMS = 1
+	cfg.Gateway.OpenAIWS.RetryBackoffInitialMS = 100
+	cfg.Gateway.OpenAIWS.RetryBackoffMaxMS = 100
+	cfg.Gateway.OpenAIWS.RetryJitterRatio = 0
 	account := Account{
 		ID:          504,
 		Platform:    PlatformOpenAI,
@@ -270,6 +278,7 @@ func TestOpenAIGatewayService_Forward_WSv2Handshake502RecordsModelTransient(t *t
 		openaiWSResolver: NewOpenAIWSProtocolResolver(cfg),
 		toolCorrector:    NewCodexToolCorrector(),
 	}
+	defer svc.CloseOpenAIWSPool()
 	body := []byte(`{"model":"gpt-5.5","stream":false,"input":"hello"}`)
 
 	for range 2 {
@@ -283,6 +292,7 @@ func TestOpenAIGatewayService_Forward_WSv2Handshake502RecordsModelTransient(t *t
 	}
 
 	require.True(t, svc.isOpenAIAccountModelRuntimeBlocked(&account, "gpt-5.5"))
+	require.Equal(t, 2, handshakeAttempts)
 }
 
 func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ErrorEventUsageLimitPersistsRateLimit(t *testing.T) {

@@ -128,6 +128,37 @@ class ReleaseMatrixTest(unittest.TestCase):
         self.assertFalse(leaf['dockers'])
         self.assertIn('{{ .Env.RELEASE_DATE }}', '\n'.join(leaf['builds'][0]['ldflags']))
 
+    def test_full_and_simple_binaries_use_selected_release_version(self):
+        for simple in (False, True):
+            with self.subTest(simple=simple):
+                self.assertIn('-X main.Version={{.Version}}', release.config(simple)['builds'][0]['ldflags'])
+
+    def test_collect_requires_matching_build_metadata_and_checksum(self):
+        target = {'goos': 'linux', 'goarch': 'amd64'}
+        name = release.archive_name('9.8.7', target)
+        Path('dist').mkdir()
+        Path('dist', name).write_bytes(b'archive')
+        Path('dist/checksums.txt').write_text(f'{release.sha256(Path("dist", name))}  {name}\n')
+        metadata = {'version': '9.8.7', 'commit': 'a' * 40}
+        args = argparse.Namespace(version='9.8.7', sha='a' * 40, **target, output='collected')
+        for invalid in ({}, metadata | {'version': '9.8.6'}, metadata | {'commit': 'b' * 40}):
+            with self.subTest(metadata=invalid):
+                Path('dist/metadata.json').write_text(json.dumps(invalid))
+                with self.assertRaisesRegex(ValueError, 'build metadata'):
+                    release.collect(args)
+                self.assertFalse(Path('collected').exists())
+        Path('dist/metadata.json').write_text(json.dumps(metadata))
+        Path('dist', name).write_bytes(b'corrupted archive')
+        with self.assertRaisesRegex(ValueError, 'build checksum'):
+            release.collect(args)
+        self.assertFalse(Path('collected').exists())
+        Path('dist', name).write_bytes(b'archive')
+        release.collect(args)
+        self.assertEqual(Path('collected', name).read_bytes(), b'archive')
+        self.assertEqual(json.loads(Path('collected/manifest-linux-amd64.json').read_text()),
+                         dict(sha=args.sha, version=args.version, target=target, archive=name,
+                              sha256=release.sha256(Path('dist', name))))
+
     def test_publication_config_has_no_compilation_or_docker_work(self):
         for simple in (False, True):
             with self.subTest(simple=simple):

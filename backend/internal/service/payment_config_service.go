@@ -371,8 +371,14 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 		return infraerrors.BadRequest("INVALID_INVOICE_INSTRUCTIONS", "invoice instructions must not exceed 5000 characters")
 	}
 	if req.BalanceRechargeMultiplier != nil {
-		if math.IsNaN(*req.BalanceRechargeMultiplier) || math.IsInf(*req.BalanceRechargeMultiplier, 0) || *req.BalanceRechargeMultiplier <= 0 {
+		v := *req.BalanceRechargeMultiplier
+		if math.IsNaN(v) || math.IsInf(v, 0) || v <= 0 {
 			return infraerrors.BadRequest("INVALID_BALANCE_RECHARGE_MULTIPLIER", "balance recharge multiplier must be greater than 0")
+		}
+		// 6 位小数可容纳实时汇率（如 1 USD = 7.100000 CNY → 0.140845），
+		// 到账金额仍按结算币种精度取整，余额不会被放大精度。
+		if balanceRechargeMultiplierHasExcessPrecision(v) {
+			return infraerrors.BadRequest("INVALID_BALANCE_RECHARGE_MULTIPLIER", "balance recharge multiplier allows at most 6 decimal places")
 		}
 	}
 	if req.SubscriptionUSDToCNYRate != nil {
@@ -441,7 +447,7 @@ func (s *PaymentConfigService) UpdatePaymentConfig(ctx context.Context, req Upda
 		m[SettingBalancePayDisabled] = formatBoolOrEmpty(req.BalanceDisabled)
 	}
 	if req.BalanceRechargeMultiplier != nil {
-		m[SettingBalanceRechargeMult] = formatPositiveFloat(req.BalanceRechargeMultiplier)
+		m[SettingBalanceRechargeMult] = formatBalanceRechargeMultiplier(req.BalanceRechargeMultiplier)
 	}
 	if req.SubscriptionUSDToCNYRate != nil {
 		m[SettingSubscriptionUSDToCNYRate] = formatPositiveFloatExact(req.SubscriptionUSDToCNYRate)
@@ -521,6 +527,23 @@ func formatPositiveFloat(v *float64) string {
 		return "" // empty → parsePaymentConfig uses default
 	}
 	return strconv.FormatFloat(*v, 'f', 2, 64)
+}
+
+const balanceRechargeMultiplierMaxDecimals = 6
+
+func balanceRechargeMultiplierHasExcessPrecision(v float64) bool {
+	// Round in decimal text: scaling a finite float can overflow, and tiny
+	// positive values must not round to zero and later reload as the default.
+	rounded, err := strconv.ParseFloat(strconv.FormatFloat(v, 'f', balanceRechargeMultiplierMaxDecimals, 64), 64)
+	return err != nil || rounded <= 0 || math.Abs(v-rounded) > 1e-12
+}
+
+func formatBalanceRechargeMultiplier(v *float64) string {
+	if v == nil || *v <= 0 {
+		return "" // empty → parsePaymentConfig uses default
+	}
+	rounded, _ := strconv.ParseFloat(strconv.FormatFloat(*v, 'f', balanceRechargeMultiplierMaxDecimals, 64), 64)
+	return strconv.FormatFloat(rounded, 'f', -1, 64)
 }
 
 // formatPositiveFloatExact 保留完整精度，用于汇率等对小数位敏感的配置。

@@ -3656,3 +3656,72 @@ Go 1.27.3、原始 go.mod/go.sum 下，扩展服务回归逐项执行：398 个�
 - 服务层首次扩选包含需要监听端口的 VM 路由测试而中断，随后按原始断言执行上述明确集合；没有修改产品代码、测试配置或放宽断言来规避失败。完整后端单元、数据库集成和安全验收本阶段没有完成，前两阶段未完成的检查也没有被视为通过。
 - 前端完整测试正常退出：495 个文件、4364 项测试全部通过；类型检查、完整 ESLint 和 Vite 生产构建通过。复用的依赖目录与当前 manifest/lockfile 逐字节一致，vue-i18n 为 11.4.16；临时符号链接已移除，生产构建仅输出 `/tmp/nov9-final-frontend-dist`。
 - 全树 Go 语法、重复复合字面量字段及声明检查通过；功能排除与 7 项规则测试通过。最终候选用独立临时索引检查本阶段及发布累计空白、真实冲突标记与功能排除，真实索引 SHA 和 HEAD 保持不变。决策 JSON 按指定完整 schema 校验，日志及审查中间结果保存在 `/tmp/nov9-final-*`。
+
+## 2026-11-10 主上游文本与语义冲突审查（第 1/3 轮）
+
+本阶段基线为 `origin/main=0dae8a618`，正在合并 `upstream/main=e2c981219`，第二上游参照为 `overdraft/sub2api-custom=34606511b`。阅读双方提交、冲突 stage、自动合并结果及发布累计差异；本阶段是外层流程的主上游合并修复，不提前替换第二上游合并阶段。候选保留第二上游已融合的 `87eea4e9b` 全部非排除功能；新增 `8ec92375d`（粘性路由重绑、SmartWS、固定 IPv6 出口、QQ 奖励编辑）及 `34606511b`（请求 Fast 定价）已审阅，须由后续第二上游阶段完整融合，不视为功能排除或已进入本候选。
+
+发布累计基准为 `v2026.10.23=23fd587350eb02645d5cac41796f837b2fb957a5`。本候选覆盖两上游累计 216 个去重非合并提交，包含此前已合并但尚未发布的更新；本阶段主上游新增 33 个非合并提交、106 条变更路径。
+
+### 冲突与融合行为
+
+- 逐段处理 14 个文件中的文本冲突；真实索引保留原有 42 条 stage 记录，供外层临时索引检查后统一暂存。
+- 两个 Anthropic 兼容转发入口先统一执行账号错误策略，包括默认切换列表外的状态码；同时保留余额耗尽切换、429 标记、原始状态及响应头、普通账号池重试约束，避免重复执行账号策略。
+- 调度 hydrate 失败总是清理已传入的释放回调；成功路径继续保留代理预留一致性校验、利润门禁和 ReleaseFunc 归属，不提前释放成功选择。
+- OpenAI 过载仅在 OpenAI 平台应用请求级容量语义，显式模型冷却优先于同账号重试；原有余额限制、OAuth 429 deadline、毫秒/正文 retry hints 和 HTTP 观测状态保持。
+- WebSocket Relay 组合可配置 semantic/visible TTFT 与 VM 中断确认、逐轮用量及有限断连排水。未注入判定函数时继续使用本项目既有语义输出判定，空 delta、元数据和纯终止事件不计为首 token。分配回归复用本项目带超时的子进程隔离，保持双方原分配断言。
+- 搜索启用重连、完整历史校验和后续轮失败禁止重放首帧全部保留。修复自动合并遗漏的 `currentPayloadBytes` 引用：本项目发送边界已按 pin 后的最终 payload 计算长度，不恢复失效的外层长度缓存。
+- 账号刷新保留行与缓存用量，同时保留容量列、过滤器、平台/分组面板和模型同步诊断。密钥用量采用独立可取消请求、隐藏列不查询、过期响应不回写；新增加载提示，缺失或失败仍显示“—”，不伪装为零消费。设置保存浮标保留，独立的 GPT Direct 与备份页不显示公共保存按钮。
+- 原子消费 refresh token、UTF-8 校验、Codex Page 外部上下文归一化、sealed function call 元数据、会话 seed 稳定性、最终 effort 策略校验、Gemini 正文排除思考摘要、Antigravity 工具结果顺序及 Pro Argon 配额隔离全部保留。
+- 保留 Claude 5.2 与 Sonnet 5.5 价格修复、价格哈希不一致后重试、按实例配置 EasyPay 退款成功码和六位充值倍率。额外修复倍率乘百万时极小正数归零、极大有限值溢出的问题，使用十进制格式化/回读校验；增加最小正倍率、极小非法倍率及极大有限倍率回归。
+
+### 排除与数据库兼容
+
+主上游缺失的 65 条路径均为批量生图专属实现；已融合第二上游的缺失路径中，68 条为批量专属文件、两条为共享账号池迁移/测试、两条为通用认证重命名，另一条为此前已清理的无调用方 780 缓存辅助文件。通用 `panel_key_auth.go` 与第二上游 `panel_api_key_auth.go` 逐字节相同，普通认证、780 探针及反馈均保留，不将它们当作产品功能排除。
+
+本轮在 `.gitignore` 中合并普通图片说明 `docs/OPENAI_IMAGES_CODEX.md`，明确拒绝恢复 `docs/BATCH_IMAGE_MVP.md` 的跟踪例外。批量专属路径继续按此前完整逐路径记录排除，包括 ORM/schema、handler/repository/service、前端 API/composable/页面/文案及专属测试。混合文件中的批量接线、队列/worker、权限/计费开关、配置、路由/导航继续不恢复；普通生图及异步单图完整保留。
+
+共享账号池继续明确排除 `backend/migrations/255_retire_shared_account_pool.sql` 与 `backend/migrations/retire_shared_account_pool_integration_test.go`；用户/管理员入口、共享市场调度、权限与钱包支持均未恢复。普通账号池、代理池、Astra 内部票据池、同名 Google One 共享配额概念不受影响。
+
+发布基准的 354 份历史 SQL 逐字节不变，`migrations_runner.go` 的既有校验和兼容规则块逐字节保留。累计新增 59 份 SQL；本阶段新增 `249_add_usage_logs_api_key_cost_index_notx.sql`，仅并发创建 API Key 用量覆盖索引，迁移重试会先清理无效索引。不删除历史批量表、数据、冻结余额，也不执行共享账号池退役迁移。250/345 TTL 字段迁移的幂等性继续保持。
+
+### 累计保留功能与剩余边界
+
+此前未发布的范围管理员密钥、MCP OAuth、密钥摘要/依赖安全更新、邮箱黑名单、图片实际输出/尺寸计费、Grok/Gemini 兼容、质量/性能规则与恢复、严格分层、个人密钥和分组回退、调度 outbox、Codex 292/332/780、Excel、Mihomo、BPS、Astra/VM、发票申请/费用/PDF、充值券/阶梯叠加、QQ AI/图片独立连接、接话/预算/持久化投递、优惠券奖励及成长/GIF均保留。
+
+上一阶段仍存在的具体产品边界继续覆盖整个累计窗口：摘要/质量迁移不能只回滚镜像，旧实例须协调软删除及租约；旧批量任务须由旧版结算/取消并核冻；VM 停桥前需解绑恢复代理；Coding Plan 快照刷新窗口内可能短冷却重试；EasyPay 非标准回调需对账；环境代理最终 DNS 不受本地预检约束；邮箱黑名单有 60 秒缓存和首次读库失败空名单；严格票据拒绝不能撤销已有上游费用；BPS 图片 URL 在有效期内具有访问能力；有限断连排水后的迟到 usage 无法补记；有限通知队列可能丢通知；配额 DB 补写没有持久重试；凭据加密密钥须持久化并跨实例一致；主动验证/恢复/准备/诊断会产生上游费用；混合版本 API Key 槽位 TTL 须统一配置；旧版回滚前须排空 outbox；优惠券已复用/作废的迟到付款需人工审核重试；QQ 每图 1024 token 仅是规划估算，不能视为实际账单或费用上限。
+
+本阶段仅修改工作树，未 fetch、git add、commit、push、打标签、发布或重启服务；服务版本保持 `2026.10.23`，不宣称已发布新版本。
+
+
+## 2026-11-10 双上游候选集中验证修复（第 1/3 轮）
+
+逐项读取普通测试、unit、integration 三份独立失败日志，去重后共有六类失败，本轮集中处理：
+
+- `TestCapacityRecoveryWSRetriesOnlyCurrentTextTurn/ctx_pool` 与 `TestUpstreamErrorRetryWebSocketPreservesCurrentTurn` 的两个 `turn_2` 子例：native ingress 的兜底 defer 再次包装已构建的当前轮失败，覆盖为 nil 正文，分别触发 1013 关闭与“正文不包含 second question”。兜底现只包装没有当前轮标记的失败；显式安全正文与显式 nil 均保留。仅完整历史允许当前轮重试，孤立工具结果、容量失败携带工具结果、已输出内容和已有 usage 的禁止重试规则继续保留。
+- `TestOpenAIUserAffinityCapacityAndQualitySpilloverPreserveOwner/{legacy,advanced}/quality_held=false`：第二上游新增普通会话的容量溢出准入后重绑时，遗漏用户亲和绑定的临时溢出语义。legacy 与 advanced 均恢复 `PreserveStickyBinding`；普通会话成功准入后重绑及明确质量/硬失败的迁移继续保留。
+- `TestOpenAIWSPassthroughFirstTokenFollowsTTFTMode/semantic`：容量保护暂存推理元数据，导致 relay 以可见输出到达时间记录语义 TTFT（901ms，而上限为 550ms）。缓冲帧现保留上游接收时间，relay 在正常读取和断连后的内存结算中使用该时间；不提前提交容量尝试，不释放未提交元数据，不改变计费 usage。新增无监听端口的双模式时间回归。
+- `TestOpenAIResponsesWebSocket_NativeLaterTurnUsageLimitDoesNotReplayFirstMessage/handshake_after_disconnect`：账号新增的默认五次 429 握手重试超过测试五秒读取预算，得到 -1 而非 1013。该测试显式将额外重试设为零，单独验证耗尽后的禁止首帧重放；产品默认重试次数与已有握手重试专项回归不变。
+- `TestGuardEvaluatorFlagSharedDeadlineFailClosedAndContextCancel/all_failovers_share_first_endpoint_deadline`：繁忙执行器可能让第一次 35ms 等待耗尽整个 70ms 预算，实际调用一次而非两次。移除首次人为延迟，改为精确断言两个端点的 deadline 相同；70ms 总预算、第二端点 500ms 配置、调用数、超时计数、失败关闭和取消断言全部保留。
+
+同时检查 Release、打包和发布元数据：两个 GoReleaser 配置显式注入所选版本，避免独立标签构建沿用旧 VERSION；矩阵收集归档前核对真实 `dist/metadata.json` 的版本和完整提交，再核对 checksum，拒绝将错误构建重新标记为候选版本。工作流步骤与回归同步更新，矩阵、普通/简化发布、dry-run、镜像与 updater 校验继续保留。
+
+本轮没有新增功能排除路径：共享账号池和批量生图继续按上述完整路径记录排除，普通生图、异步单图和其他双上游功能保留。历史 SQL 及 `backend/internal/repository/migrations_runner.go` 没有修改，不操作历史表、记录或冻结余额。
+
+验证证据：调度/用户亲和/容量暂存/安全重试正文定向普通及 unit 标签测试通过；WebSocket relay 全包通过；安全审计原失败函数连续 20 次通过；受影响 service、handler、securityaudit、relay 四个包的 Go vet 通过；Release 工具 16 项与功能排除规则 7 项通过，功能排除扫描与 diff 空白检查通过。日志位于 `/tmp/sub2api-concentrated-*.log`。
+
+验证限制：当前沙箱禁止监听本地端口，`TestCapacityRecoveryWSRetriesOnlyCurrentTextTurn`、`TestOpenAIResponsesWebSocket_NativeLaterTurnUsageLimitDoesNotReplayFirstMessage`、`TestOpenAIWSPassthroughFirstTokenFollowsTTFTMode`、`TestUpstreamErrorRetryWebSocketPreservesCurrentTurn` 的原网络链路需外层重新验证，错误为 `httptest: failed to listen on a port: socket: operation not permitted`；完整安全审计包的 `TestOpenAICompatibleScannerRequestContract` 同样受此限制。`go test ./cmd/server -run '^$'` 在包加载阶段缺少 `github.com/google/jsonschema-go v0.4.2`、`github.com/segmentio/encoding v0.5.4`、`github.com/yosida95/uritemplate/v3 v3.0.2`，模块缓存只读且本轮使用 `GOPROXY=off`，未改依赖版本来规避；不宣称完整构建已通过。外层仍需执行普通、unit、integration、安全及构建的整套验证。
+
+本轮仅修改工作树，没有 fetch、提交、推送、打标签、发布、重启服务或读取密钥；没有发布新版本，服务 VERSION 保持 `2026.10.23`。
+
+## 2026-11-10 双上游候选集中验证修复（第 2/3 轮）
+
+逐份读取失败清单指定的三个独立日志：后端单元测试 `_.log.FJaoF7`、后端集成测试 `_.log.6mK8zm` 和后端生产构建 `_.log.VxpBU7`。共同错误均为 `no space left on device`：编译器无法写入 `$WORK/.../_pkg_.a`、`vet.cfg` 或 `importcfg.link`，链接器报 `mapping output file failed`。`TestAuthIdentityFoundationSchemas` 的失败同样来自 `entc/load` 子进程写盘失败，不是 schema 断言变化；日志没有暴露新的业务断言失败，编译中断的包仍须重跑。
+
+验证脚本此前只挂载模块与构建缓存，Go 临时工作目录及 `/tmp/sub2api-server` 仍写入容器文件系统。本轮让 `docker_go` 为每次调用创建独立宿主机临时目录并绑定到容器 `/tmp`，显式设置 `TMPDIR` 和 `GOTMPDIR`，覆盖普通、unit、integration 测试、嵌套 ent 加载及生产构建。函数使用独立子 shell 和 EXIT 清理，仅删除本次创建的目录；保留 Docker/测试原始退出码及外层数据库清理 trap，不清理共享缓存或其他任务的临时目录。回归覆盖包含空格的路径、连续检查隔离、成功及 23/125 失败状态、临时目录创建失败和无关文件保留；该回归对原始脚本的 12 个子例均失败，对修复后脚本全部通过。
+
+本轮完整同步自动化回归执行 115 项，113 项通过、2 项按既有条件跳过；集成验证器的 9 项、Go 工具链与存储的 8 项均包含在该集合内。Release、打包和发布元数据的 16 项回归全部通过，继续保留上一轮对所选版本注入、完整提交元数据与归档 checksum 的校验；无需新增发布配置修改。功能排除扫描、Shell 语法及差异空白检查通过。日志位于 `/tmp/sub2api-repair2-*.log`。
+
+真实后端复验仍需外层环境完成：当前沙箱访问 Docker API 报 `permission denied while trying to connect to the docker API at unix:///var/run/docker.sock`，无法在此确认容器写层容量或执行 `go test -tags=unit ./...`、`go test -count=1 -tags=integration -timeout=30m ./...` 和 `CGO_ENABLED=0 go build -trimpath -o /tmp/sub2api-server ./cmd/server`。宿主机检查时约有 70 GB 可用空间；没有把脚本回归视为这些真实后端检查通过，也没有通过跳过测试或放宽断言绕过原失败。
+
+本轮没有新增功能排除路径，没有修改业务源码、历史 SQL、`migrations_runner.go` 或校验和兼容记录；共享账号池与批量生图继续排除，普通生图、异步单图及两上游其他功能保持。没有对项目执行 fetch、commit、push、打标签、发布、重启服务或读取密钥；服务 VERSION 仍为 `2026.10.23`，本轮没有发布新版本。
