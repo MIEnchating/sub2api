@@ -122,6 +122,8 @@ const (
 	FieldAllowLive = "allow_live"
 	// FieldForceOpenaiFast holds the string denoting the force_openai_fast field in the database.
 	FieldForceOpenaiFast = "force_openai_fast"
+	// FieldForceOpenaiServiceTier holds the string denoting the force_openai_service_tier field in the database.
+	FieldForceOpenaiServiceTier = "force_openai_service_tier"
 	// FieldFreeOpenaiFast holds the string denoting the free_openai_fast field in the database.
 	FieldFreeOpenaiFast = "free_openai_fast"
 	// FieldRequireOauthOnly holds the string denoting the require_oauth_only field in the database.
@@ -289,6 +291,7 @@ var Columns = []string{
 	FieldAllowMessagesDispatch,
 	FieldAllowLive,
 	FieldForceOpenaiFast,
+	FieldForceOpenaiServiceTier,
 	FieldFreeOpenaiFast,
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
@@ -415,6 +418,10 @@ var (
 	DefaultAllowLive bool
 	// DefaultForceOpenaiFast holds the default value on creation for the "force_openai_fast" field.
 	DefaultForceOpenaiFast bool
+	// DefaultForceOpenaiServiceTier holds the default value on creation for the "force_openai_service_tier" field.
+	DefaultForceOpenaiServiceTier string
+	// ForceOpenaiServiceTierValidator is a validator for the "force_openai_service_tier" field. It is called by the builders before save.
+	ForceOpenaiServiceTierValidator func(string) error
 	// DefaultFreeOpenaiFast holds the default value on creation for the "free_openai_fast" field.
 	DefaultFreeOpenaiFast bool
 	// DefaultRequireOauthOnly holds the default value on creation for the "require_oauth_only" field.
@@ -694,6 +701,11 @@ func ByAllowLive(opts ...sql.OrderTermOption) OrderOption {
 // ByForceOpenaiFast orders the results by the force_openai_fast field.
 func ByForceOpenaiFast(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldForceOpenaiFast, opts...).ToFunc()
+}
+
+// ByForceOpenaiServiceTier orders the results by the force_openai_service_tier field.
+func ByForceOpenaiServiceTier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldForceOpenaiServiceTier, opts...).ToFunc()
 }
 
 // ByFreeOpenaiFast orders the results by the free_openai_fast field.

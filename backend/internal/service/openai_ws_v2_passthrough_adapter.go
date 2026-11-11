@@ -867,7 +867,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2PassthroughWithVMRoute(
 	// 在 policy filter 之后再提取 service_tier / reasoning_effort 用于
 	// usage 上报：filter 命中时 service_tier 已经从 firstClientMessage 中删除，
 	// 最终出站 tier 应为 nil，而不是用户最初请求的 "priority"。观察到的回包
-	// tier 单独保存在 UpstreamResponseServiceTier，由 usage 阶段统一决策。
+	// tier 单独保存在 UpstreamResponseServiceTier 供诊断，不改变出站档位计费。
 	// HTTP 入口（line ~2728 extractOpenAIServiceTier(reqBody)）
 	// 与 WS ingress（openai_ws_forwarder.go:2991 取自 payload）的语义一致。
 	//

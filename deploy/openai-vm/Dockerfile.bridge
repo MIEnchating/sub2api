@@ -1,5 +1,5 @@
 # Build from the repository root. No Docker socket in the bridge runtime.
-ARG GOLANG_IMAGE=golang:1.27.3-alpine
+ARG GOLANG_IMAGE=golang:1.27.4-alpine
 ARG ALPINE_IMAGE=alpine:3.20
 FROM --platform=$BUILDPLATFORM ${GOLANG_IMAGE} AS build
 ARG TARGETOS=linux

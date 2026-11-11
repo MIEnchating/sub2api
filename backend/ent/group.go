@@ -126,6 +126,8 @@ type Group struct {
 	AllowLive bool `json:"allow_live,omitempty"`
 	// 是否强制此 OpenAI/Composite 分组请求使用 service_tier=priority
 	ForceOpenaiFast bool `json:"force_openai_fast,omitempty"`
+	// 强制此 OpenAI/Composite 分组的服务档位：空、priority 或 ultrafast
+	ForceOpenaiServiceTier string `json:"force_openai_service_tier,omitempty"`
 	// 是否让此 OpenAI/Composite 分组的 Fast 请求按 Standard 价格计费
 	FreeOpenaiFast bool `json:"free_openai_fast,omitempty"`
 	// 仅允许非 apikey 类型账号关联到此分组
@@ -281,7 +283,7 @@ func (*Group) scanValues(columns []string) ([]any, error) {
 			values[i] = new(sql.NullFloat64)
 		case group.FieldID, group.FieldDefaultValidityDays, group.FieldFallbackGroupID, group.FieldFallbackGroupIDOnUnavailable, group.FieldFallbackGroupIDOnInvalidRequest, group.FieldSortOrder, group.FieldRpmLimit, group.FieldUserConcurrencyLimit:
 			values[i] = new(sql.NullInt64)
-		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort, group.FieldMaxReasoningEffortOverLimit:
+		case group.FieldName, group.FieldDescription, group.FieldPeakStart, group.FieldPeakEnd, group.FieldStatus, group.FieldDuplicateOperationID, group.FieldPlatform, group.FieldSubscriptionType, group.FieldForceOpenaiServiceTier, group.FieldDefaultMappedModel, group.FieldMaxReasoningEffort, group.FieldMaxReasoningEffortOverLimit:
 			values[i] = new(sql.NullString)
 		case group.FieldCreatedAt, group.FieldUpdatedAt, group.FieldDeletedAt:
 			values[i] = new(sql.NullTime)
@@ -655,6 +657,12 @@ func (_m *Group) assignValues(columns []string, values []any) error {
 				return fmt.Errorf("unexpected type %T for field force_openai_fast", values[i])
 			} else if value.Valid {
 				_m.ForceOpenaiFast = value.Bool
+			}
+		case group.FieldForceOpenaiServiceTier:
+			if value, ok := values[i].(*sql.NullString); !ok {
+				return fmt.Errorf("unexpected type %T for field force_openai_service_tier", values[i])
+			} else if value.Valid {
+				_m.ForceOpenaiServiceTier = value.String
 			}
 		case group.FieldFreeOpenaiFast:
 			if value, ok := values[i].(*sql.NullBool); !ok {
@@ -1033,6 +1041,9 @@ func (_m *Group) String() string {
 	builder.WriteString(", ")
 	builder.WriteString("force_openai_fast=")
 	builder.WriteString(fmt.Sprintf("%v", _m.ForceOpenaiFast))
+	builder.WriteString(", ")
+	builder.WriteString("force_openai_service_tier=")
+	builder.WriteString(_m.ForceOpenaiServiceTier)
 	builder.WriteString(", ")
 	builder.WriteString("free_openai_fast=")
 	builder.WriteString(fmt.Sprintf("%v", _m.FreeOpenaiFast))

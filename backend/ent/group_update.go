@@ -1008,6 +1008,20 @@ func (_u *GroupUpdate) SetNillableForceOpenaiFast(v *bool) *GroupUpdate {
 	return _u
 }
 
+// SetForceOpenaiServiceTier sets the "force_openai_service_tier" field.
+func (_u *GroupUpdate) SetForceOpenaiServiceTier(v string) *GroupUpdate {
+	_u.mutation.SetForceOpenaiServiceTier(v)
+	return _u
+}
+
+// SetNillableForceOpenaiServiceTier sets the "force_openai_service_tier" field if the given value is not nil.
+func (_u *GroupUpdate) SetNillableForceOpenaiServiceTier(v *string) *GroupUpdate {
+	if v != nil {
+		_u.SetForceOpenaiServiceTier(*v)
+	}
+	return _u
+}
+
 // SetFreeOpenaiFast sets the "free_openai_fast" field.
 func (_u *GroupUpdate) SetFreeOpenaiFast(v bool) *GroupUpdate {
 	_u.mutation.SetFreeOpenaiFast(v)
@@ -1595,6 +1609,11 @@ func (_u *GroupUpdate) check() error {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ForceOpenaiServiceTier(); ok {
+		if err := group.ForceOpenaiServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "force_openai_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.force_openai_service_tier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
@@ -1925,6 +1944,9 @@ func (_u *GroupUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if value, ok := _u.mutation.ForceOpenaiFast(); ok {
 		_spec.SetField(group.FieldForceOpenaiFast, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ForceOpenaiServiceTier(); ok {
+		_spec.SetField(group.FieldForceOpenaiServiceTier, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.FreeOpenaiFast(); ok {
 		_spec.SetField(group.FieldFreeOpenaiFast, field.TypeBool, value)
@@ -3318,6 +3340,20 @@ func (_u *GroupUpdateOne) SetNillableForceOpenaiFast(v *bool) *GroupUpdateOne {
 	return _u
 }
 
+// SetForceOpenaiServiceTier sets the "force_openai_service_tier" field.
+func (_u *GroupUpdateOne) SetForceOpenaiServiceTier(v string) *GroupUpdateOne {
+	_u.mutation.SetForceOpenaiServiceTier(v)
+	return _u
+}
+
+// SetNillableForceOpenaiServiceTier sets the "force_openai_service_tier" field if the given value is not nil.
+func (_u *GroupUpdateOne) SetNillableForceOpenaiServiceTier(v *string) *GroupUpdateOne {
+	if v != nil {
+		_u.SetForceOpenaiServiceTier(*v)
+	}
+	return _u
+}
+
 // SetFreeOpenaiFast sets the "free_openai_fast" field.
 func (_u *GroupUpdateOne) SetFreeOpenaiFast(v bool) *GroupUpdateOne {
 	_u.mutation.SetFreeOpenaiFast(v)
@@ -3918,6 +3954,11 @@ func (_u *GroupUpdateOne) check() error {
 			return &ValidationError{Name: "audio_stt_price_per_hour", err: fmt.Errorf(`ent: validator failed for field "Group.audio_stt_price_per_hour": %w`, err)}
 		}
 	}
+	if v, ok := _u.mutation.ForceOpenaiServiceTier(); ok {
+		if err := group.ForceOpenaiServiceTierValidator(v); err != nil {
+			return &ValidationError{Name: "force_openai_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.force_openai_service_tier": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.DefaultMappedModel(); ok {
 		if err := group.DefaultMappedModelValidator(v); err != nil {
 			return &ValidationError{Name: "default_mapped_model", err: fmt.Errorf(`ent: validator failed for field "Group.default_mapped_model": %w`, err)}
@@ -4265,6 +4306,9 @@ func (_u *GroupUpdateOne) sqlSave(ctx context.Context) (_node *Group, err error)
 	}
 	if value, ok := _u.mutation.ForceOpenaiFast(); ok {
 		_spec.SetField(group.FieldForceOpenaiFast, field.TypeBool, value)
+	}
+	if value, ok := _u.mutation.ForceOpenaiServiceTier(); ok {
+		_spec.SetField(group.FieldForceOpenaiServiceTier, field.TypeString, value)
 	}
 	if value, ok := _u.mutation.FreeOpenaiFast(); ok {
 		_spec.SetField(group.FieldFreeOpenaiFast, field.TypeBool, value)

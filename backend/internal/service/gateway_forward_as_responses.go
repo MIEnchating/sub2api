@@ -171,6 +171,7 @@ func (s *GatewayService) ForwardAsResponses(
 		if s.rateLimitService != nil {
 			shouldDisable = s.rateLimitService.HandleUpstreamError(ctx, account, resp.StatusCode, resp.Header, respBody, mappedModel)
 		}
+		// Billing exhaustion remains an account failover even when encoded as a 400.
 		if shouldDisable || s.shouldFailoverUpstreamError(resp.StatusCode) || IsUpstreamBillingError(resp.StatusCode, respBody) {
 			appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
 				ProxyID:            opsUpstreamProxyID(account),

@@ -229,11 +229,11 @@
         <div
           id="account-platform-panel"
           ref="accountTableRef"
+          :aria-busy="loading"
+          :inert="loading && accounts.length > 0"
           role="tabpanel"
           :aria-labelledby="`account-platform-tab-${params.platform || 'all'}`"
           class="flex min-h-0 flex-1 flex-col overflow-hidden"
-          :aria-busy="loading"
-          :inert="loading && accounts.length > 0"
         >
         <div
           id="account-group-panel"

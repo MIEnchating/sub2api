@@ -544,7 +544,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		return nil, handleErr
 	}
 
-	// Propagate ServiceTier and ReasoningEffort to result for billing
+	// Session continuation is only safe after a successful response.
 	if handleErr == nil && result != nil {
 		if compatContinuationEnabled && promptCacheKey != "" && result.ResponseID != "" {
 			s.bindOpenAICompatSessionResponseID(ctx, c, account, promptCacheKey, result.ResponseID)
@@ -552,11 +552,11 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if promptCacheKey != "" && anthropicDigestChain != "" {
 			s.bindOpenAICompatAnthropicDigestPromptCacheKey(account, apiKeyID, anthropicDigestChain, promptCacheKey, anthropicMatchedDigestChain)
 		}
-		// 计费 tier 优先采用上游回显值；上游未回显时回退到最终出站 body（经过
-		// fast policy filter/force 之后）里的 tier。
-		if tier := resolvedOpenAIUpstreamServiceTier(c, extractOpenAIServiceTierFromBody(responsesBody)); tier != nil {
-			result.ServiceTier = tier
-		}
+	}
+	// Bill the final outbound request tier, including billable partial streams.
+	// The upstream response tier remains separate for diagnostics.
+	if result != nil {
+		result.ServiceTier = resolvedOpenAIUpstreamServiceTier(c, extractOpenAIServiceTierFromBody(responsesBody))
 		if responsesReq.Reasoning != nil && responsesReq.Reasoning.Effort != "" {
 			re := responsesReq.Reasoning.Effort
 			result.ReasoningEffort = &re

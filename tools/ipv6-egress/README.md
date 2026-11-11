@@ -22,7 +22,7 @@ VM、票据绑定和独立插件的原有传输逻辑保留。票据绑定请求
 
 在本目录构建：
 
-    GOTOOLCHAIN=go1.27.3 go build -trimpath -o sub2api-ipv6-egress .
+    GOTOOLCHAIN=go1.27.4 go build -trimpath -o sub2api-ipv6-egress .
 
 macOS 构建 Linux 产物需指定 GOOS=linux 和目标 GOARCH。将二进制安装到 systemd 单元中的 /usr/local/libexec/sub2api-ipv6-egress。
 参考 config.example.json 和 sub2api-ipv6-egress.service：

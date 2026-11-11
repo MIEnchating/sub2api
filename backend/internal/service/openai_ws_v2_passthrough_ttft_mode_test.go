@@ -71,19 +71,45 @@ func runOpenAIWSPassthroughTTFTModeCase(t *testing.T, mode string) {
 
 	const reasoningDelay = 600 * time.Millisecond
 	const tolerance = 250 * time.Millisecond
-	// The second turn's events wait so its response.create is accepted first.
 	turns := [][]openAIWSTTFTModeTestEvent{
 		openAIWSTTFTModeTestTurn("resp_ttft_1", 0, reasoningDelay),
 		openAIWSTTFTModeTestTurn("resp_ttft_2", 200*time.Millisecond, reasoningDelay),
 	}
 
-	upstreamConn := &openAIWSCaptureConn{}
-	for _, turn := range turns {
-		for _, event := range turn {
-			upstreamConn.events = append(upstreamConn.events, []byte(event.payload))
-			upstreamConn.readDelays = append(upstreamConn.readDelays, event.delay)
+	upstreamConn := newStagedPassthroughConn()
+	upstreamCtx, cancelUpstream := context.WithCancel(context.Background())
+	upstreamDone := make(chan struct{})
+	defer func() {
+		cancelUpstream()
+		<-upstreamDone
+	}()
+	go func() {
+		defer close(upstreamDone)
+		for _, turn := range turns {
+			// Start each response's delays only after its response.create reaches
+			// the upstream. Reading ahead after the previous terminal event makes
+			// the nominal delay include client/relay scheduling between turns.
+			select {
+			case <-upstreamConn.writes:
+			case <-upstreamCtx.Done():
+				return
+			}
+			for _, event := range turn {
+				timer := time.NewTimer(event.delay)
+				select {
+				case <-timer.C:
+				case <-upstreamCtx.Done():
+					timer.Stop()
+					return
+				}
+				select {
+				case upstreamConn.frames <- stagedPassthroughFrame{messageType: coderws.MessageText, payload: []byte(event.payload)}:
+				case <-upstreamCtx.Done():
+					return
+				}
+			}
 		}
-	}
+	}()
 
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.Enabled = false
@@ -102,7 +128,7 @@ func runOpenAIWSPassthroughTTFTModeCase(t *testing.T, mode string) {
 		cache:                     &stubGatewayCache{},
 		openaiWSResolver:          NewOpenAIWSProtocolResolver(cfg),
 		toolCorrector:             NewCodexToolCorrector(),
-		openaiWSPassthroughDialer: &openAIWSCaptureDialer{conn: upstreamConn},
+		openaiWSPassthroughDialer: &stagedPassthroughDialer{conn: upstreamConn},
 	}
 	account := &Account{
 		ID: 454, Name: "openai-ws-ttft-mode", Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
@@ -133,6 +159,7 @@ func runOpenAIWSPassthroughTTFTModeCase(t *testing.T, mode string) {
 		if readErr != nil {
 			return
 		}
+		hooks.InitialTurnStartedAt = time.Now()
 		_ = svc.ProxyResponsesWebSocketFromClient(r.Context(), ginCtx, conn, account, "sk-test", firstMessage, hooks)
 	}))
 	defer wsServer.Close()
@@ -145,6 +172,11 @@ func runOpenAIWSPassthroughTTFTModeCase(t *testing.T, mode string) {
 
 	request := []byte(`{"type":"response.create","model":"gpt-5.4","input":"hi"}`)
 	for i, turn := range turns {
+		if i > 0 {
+			// Model client think time longer than the next response.created delay;
+			// it must not consume any of that turn's simulated upstream latency.
+			time.Sleep(300 * time.Millisecond)
+		}
 		writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
 		require.NoError(t, clientConn.Write(writeCtx, coderws.MessageText, request))
 		cancelWrite()

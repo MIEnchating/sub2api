@@ -885,7 +885,7 @@ func observeUpstreamMessage(
 		// delta 等 token 事件不携带 response.id，归属当前活跃 turn。
 		turnTiming = state.activeTurn
 	}
-	// 每个 turn 独立记录首 token；连接级 firstTokenMs 只反映整条连接的第一个 token。
+	// 每个 turn 独立记录首 token，遵循调用方的 TTFT 配置；连接级只记录第一个 token。
 	if turnTiming != nil && turnTiming.firstTokenMs == nil && state.startsFirstToken(eventType, message) {
 		ms := int(now.Sub(turnTiming.startAt).Milliseconds())
 		if ms >= 0 {

@@ -53,7 +53,7 @@ npm install -g pnpm
 
 ### CI 要求
 
-- Go 版本必须是 **1.27.0**：三个 workflow 都用 `go-version-file: backend/go.mod` 取版本，随后硬断言 `go version | grep -q 'go1.27.0'`。升级 Go 时要同时改 `backend/go.mod`、`backend-ci.yml`（两处）、`release.yml`、`security-scan.yml` 里的这句断言，**以及三个 Dockerfile 里的 Go 构建镜像**（`Dockerfile` / `deploy/Dockerfile` 的 `ARG GOLANG_IMAGE`、`backend/Dockerfile` 的 `FROM golang:`）。前者漏了 CI 会在版本校验步骤直接失败；**后者漏了 CI 不会报，而是等到有人用这些 Dockerfile 构建时才失败**（`go.mod requires go >= X (running Y; GOTOOLCHAIN=local)`）。
+- Go 版本以 `backend/go.mod` 为准（当前 **1.27.4**，修复 GO-2026-6859）：`backend-ci.yml`、`release.yml`、`security-scan.yml` 均通过 `go-version-file` 安装选定源码的版本，再用 `GOTOOLCHAIN=local go env GOVERSION` 精确校验。升级时同步更新 `Dockerfile`、`deploy/Dockerfile`、`backend/Dockerfile`、`deploy/Dockerfile.updater`、`deploy/openai-vm/Dockerfile.bridge` 的 Go 构建镜像，以及 `tools/ipv6-egress/go.mod` 和构建说明。外层验证也从候选的 `backend/go.mod` 选择镜像；Release 的所有矩阵二进制和宿主 updater 使用同一工具链，版本、源码提交及 SHA256 元数据仍由发布工具校验。
 - 前端使用 `pnpm install --frozen-lockfile`，必须提交 `pnpm-lock.yaml`
 
 ### 本地测试命令

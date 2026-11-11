@@ -165,6 +165,7 @@ docs/*
 !docs/ASYNC_IMAGE_TASKS.md
 !docs/OPENAI_IMAGES_CODEX.md
 !docs/UPSTREAM_EXCLUSIONS.md
+!docs/upstream-v0.2.21-merge-20261111.md
 !docs/COMPOSITE_GROUPS.md
 !docs/PLUGIN_DEVELOPMENT.md
 !docs/openai-vm.md
