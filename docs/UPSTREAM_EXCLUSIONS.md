@@ -3997,3 +3997,136 @@ Go 1.27.3、原始 go.mod/go.sum 下，扩展服务回归逐项执行：398 个�
 - 后端档位/补偿/部分流、管理 API 与鉴权快照、槽位释放的定向回归通过；relay/迁移回归、相关 service/repository/admin/DTO 的 Go vet、仓储 integration 测试编译通过。全量 unit 命令已执行并收集全部失败：52 个测试包通过，其余为缺失离线模块或禁止监听本地端口导致的 setup/httptest/miniredis 失败，未发现新的业务断言失败；这不替代外层完整后端、真实数据库集成和安全验收。
 - 同步自动化回归 115 项通过（2 项条件跳过），功能排除规则回归 7 项通过。退役功能扫描、真实冲突标记扫描、工作树及发布累计空白检查通过，决策对象字段/类型符合仓库 schema。
 - HEAD 和真实索引 SHA-256 保持接手值（`e699a21dd523d92e188241822fbdb186a85412319d4aabd729346880e9744287`）；唯一持久修改为本文的最终复核记录。没有本轮业务代码修复，也没有新增功能排除或未解决冲突；本轮明确排除的路径仍按前节完整清单记录。验证日志为 `/tmp/nov11-final-*.log`。
+
+
+## 2026-11-12 第二上游集中冲突审查（第 1/3 轮）
+
+接手基线为 `origin/main=70fa9768f`，主上游 `upstream/main=530c5e3a4` 已被包含，第二上游为 `overdraft/sub2api-custom=8e0368ec7`。本轮新增 `8ff1afd1d` 与 `8e0368ec7` 两个非合并提交，共 42 条变更路径。累计范围仍从正式发布 `v2026.10.23=23fd587350eb02645d5cac41796f837b2fb957a5` 起算：两上游 225 个去重非合并提交；解决版本冲突后的候选相对发布树为 2428 条变更路径、245907 行新增、25206 行删除（不含本节追加文本）。已复核两上游提交记录、当前增量的全部文件，以及累计窗口的迁移、权限、计费和既有兼容修复，未以本轮两次 QQ 提交替代累计审查。
+
+### 文本及语义合并
+
+- 唯一文本冲突 `backend/cmd/server/VERSION` 保留本项目尚未发布的服务版本 `2026.10.23`；`FORK_VERSION` 保留第二上游新增的 `v0.2.21-custom.3`。版本标识分别承担本项目发布版本和来源版本职责，不以任何一侧整体覆盖候选。
+- 第二上游手动公告完整保留：严格管理员鉴权、32 KiB 请求限制、未知字段及尾随 JSON 拒绝、显式目标群、已保存配置与群通知权限校验、UUID 与内容哈希幂等、整批事务入队、发送前配置锁复核、1 小时过期、与自动通知共享 3.1 秒节流和任务记录。手动公告绕过自动通知静默时段，不调用 AI；失败及未知结果不自动重发。错误仅记录 QQ 状态/错误码，不暴露凭据或上游正文。
+- 自动价格和健康通知独立保留默认关闭的 @所有人开关；仅修改提及选项不清空价格基线或健康状态，同批次同群仅第一条提及；排行继续只提及获奖成员。旧队列没有 continuation 字段时仍作为首条处理。
+- 四类消费/充值累计或连续达标日任务完整保留：北京时间归日、完整精度消费、扣赠送/退款的有效充值、排除关联支付订单兑换码重复、1～3650 整数天、每日两位小数金额门槛、成就与循环任务、历史连续段、独立金额门槛、每轮最多 25 次追补。游标、奖励和余额在用户锁/同一事务中更新，换绑、重启、退款或改规则不会重新使用已奖励日期；预览、站点规则、前端及双语文案保持一致。
+- 本项目 `353_group_billing_auth_cache_compat.sql` 与第二上游 `353_qq_bot_growth_amount_days.sql` 同时保留。runner 按完整文件名排序、校验和登记，并不按数字前缀去重；两者分别作用于鉴权缓存触发函数与 QQ 日期游标，不冲突。不重命名或改写任何上游历史 SQL。
+- 累计分组 priority/ultrafast 与全局策略、最终出站档位计费、OAuth/setup-token 粘性缓存补偿、实际图片计数与尺寸/TTL 定价、摘要密钥及鉴权快照、双索引迁移恢复均继续保留。范围管理员密钥、MCP OAuth、安全依赖、质量/性能及严格分层、outbox、Codex/Excel/Mihomo/BPS/Astra/VM、QQ 图片预算与持久投递、发票/PDF/充值券、SmartWS、固定 IPv6 和普通账号/代理池均未过滤。
+
+### 退役功能与数据库兼容
+
+354 份已发布 SQL 与历史 checksum 兼容规则块逐字节保持发布树内容；累计新增 64 份 SQL。未删除历史表、记录、字段或冻结余额，普通生图与异步单图继续支持。逐树缺失路径保持前轮范围：主上游 65 条全部为批量生图专属；第二上游 74 条包括 68 条批量专属、两条共享账号池专属，以及已保留实现的面板鉴权旧路径、主上游移除的赞助图片和未被调用的 780 缓存文件。实际 780 探针、路由和反馈及重命名后的面板鉴权继续保留。
+
+本轮明确继续排除的共享账号池路径：
+
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+本轮明确继续排除的批量生图专属路径如下；历史 SQL 和 checksum 兼容文件不属于删除范围：
+
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/internal/handler/batch_image_error_message_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_error_message_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/__tests__/batchImage.panel.spec.ts`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+
+混合用途文件仅排除退役支持代码，保留其他功能：依赖注入 `backend/cmd/server/{wire.go,wire_gen.go}`、配置 `backend/internal/config/config.go`、路由 `backend/internal/server/routes/gateway.go`、Group ORM/schema/descriptor、group handler/DTO、group/api_key 仓储、admin_group/鉴权缓存，以及前端 types、GroupsView、路由和导航。排除机器扫描和规则回归通过，没有恢复共享账号池或批量生图入口。
+
+### 累计窗口剩余产品边界
+
+前节九项具体风险继续适用：摘要/质量迁移、租约和 outbox 的回滚边界；混合实例 ultrafast 与 API Key 槽位 TTL；旧批量任务和冻结余额；VM 解绑和 Coding Plan 冷却；支付及优惠券迟到履约；代理 DNS、邮箱名单缓存与 BPS URL 权限；严格票据既有费用、有限断连 usage 与配额补写；有限通知队列和凭据密钥；QQ 图片 token 预算估算。
+
+本轮新增 QQ 边界：@所有人需要 QQ 群管理员权限，手动及自动通知共用每群每日一次的平台额度，平台拒绝不会降级或自动重发；公告幂等墓碑沿用 30 天保留期。消费/充值按日奖励依赖尚存的源记录，已发奖励不因后续退款追回，日期游标之前迟到达标的记录不会补奖；删除后新建任务会重新计算历史资格。这些行为均在 `docs/qq-bot.md` 公开说明。
+
+本阶段仅修改临时工作树；不执行 fetch、git add、commit、push、打标签、发布或服务重启。真实索引的 VERSION 三个 stage 保留供外层复核。没有发布新版本，原因是本轮仅审查与修复工作树。
+
+
+### 本阶段验证结果
+
+- 匹配 package.json/锁文件并确认实际 vue-i18n 11.4.16 后，用仓库原始 Vitest 配置运行全量前端。首次全量进程在资源竞争期间出现 7 项测试超时和 9 项 worker 通信超时，不能称为单次全量绿灯；对失败或未完成的 6 个文件串行补跑，351 项全部通过，退出码 0。合并每个文件的最后结果，覆盖 501 个文件、4433 项测试，无剩余业务断言失败。设置页另一次独立 61 项回归也通过；未修改任何断言或超时设置。
+- 全量 TypeScript、ESLint 和 Vite 生产构建通过。构建仅以临时配置关闭重复的内嵌类型检查 worker（独立 vue-tsc 已通过），生产打包和 CSP/i18n 配置不变；构建产物位于 /tmp/nov12-review/frontend-verified-dist。验证依赖包装目录、缓存和临时配置均已移除，没有修改依赖或锁文件。
+- QQ 新增参数、金额门槛、时区、连续奖励和规则展示的 5 个顶层纯逻辑回归通过；公告管理员权限/严格请求回归通过，QQ 模块 Go vet 通过；相关仓储/迁移回归通过。QQ 新增 integration 用例已编译，因未配置 QQBOT_TEST_DSN 而跳过，不声称已完成真实数据库验证。测试使用可用的 Go 1.27.3 和 /tmp 内仅调整工具补丁版本的 modfile，没有改写仓库要求的 Go 1.27.4 或依赖。
+- 广泛后端 QQ 用例受本地监听限制，累计服务包重编译遇内存限制；不把这些验证范围限制视为产品风险，也不声称已完成全量后端、安全及发行验收。外层仍须完成完整验证。
+- 同步自动化回归 115 项通过（2 项条件跳过），排除规则回归 7 项通过。变更 Go 文件 gofmt、功能排除、真实冲突标记及工作树/发布累计空白检查通过。候选用 /tmp 中的临时索引及对象目录校验，没有暂存真实索引；真实索引 SHA-256 与 VERSION 的三个 stage 和接手时一致。决策对象全部字段、类型、枚举和额外字段约束通过仓库 schema 检查。
+
+日志与决策对象保存在 /tmp/nov12-review/。运行开始于 2026-11-12 16:30:01 UTC；本阶段报告时间为 2026-11-12 17:29 UTC。本轮未发布新版本，原因是仅修改临时工作树。
+
+## 2026-11-12 最终双上游兼容复核
+
+接手候选为 `e0aa96dc7`，工作树干净，真实索引已无未合并 stage；前一阶段的修复已由外层合入候选。本阶段没有重建或覆盖真实索引。现有 `origin/main=70fa9768f`、`upstream/main=530c5e3a4`、`overdraft/sub2api-custom=8e0368ec7` 均为候选祖先。继续核对前阶段修复及两上游差异，不执行 fetch、git add、commit、push、标签、发布或服务重启。
+
+累计范围仍为 `v2026.10.23=23fd587350eb02645d5cac41796f837b2fb957a5` 至候选，两上游共 225 个去重非合并提交；本次 QQ 增量不能代替累计审查。复核范围包括范围管理员密钥和 MCP OAuth、密钥摘要及鉴权快照、安全依赖、协议/模型与请求预算、实际图片输出和尺寸/TTL 计费、质量/性能规则与严格分层、租约/outbox、Codex/Excel/Mihomo/BPS/Astra/VM、QQ 持久投递及奖励、支付/发票/优惠券、SmartWS 和固定 IPv6。VERSION 继续为本项目 `2026.10.23`，FORK_VERSION 为来源 `v0.2.21-custom.3`。
+
+逐树复核缺失路径与前阶段一致：主上游 65 条均为批量专属；第二上游 74 条包括 68 条批量专属、两条共享账号池专属、面板鉴权及测试的两条重命名路径、主上游删除的赞助图片、前轮 lint 清理的不可达 780 缓存。通用面板鉴权与测试逐字节保留于 `panel_key_auth.go` 及对应测试，实际 780 探针/路由验证/反馈仍在，没有新增产品功能过滤。
+
+本次发现并移除两个混合用途测试夹具中的批量生图支持残留：`frontend/src/views/admin/__tests__/GroupsView.openaiServiceTier.spec.ts` 与 `frontend/src/views/admin/__tests__/GroupsView.smartWS.spec.ts` 的 `allow_batch_image_generation`、`batch_image_discount_multiplier`、`batch_image_hold_multiplier`。仅删除退役字段，不改测试断言；服务档位与 SmartWS 功能及其回归完整保留。继续明确排除前节所列 68 条批量专属路径、批量依赖注入/配置/路由/分组权限及计费/ORM/导航的代码，以及共享账号池的 `backend/migrations/255_retire_shared_account_pool.sql`、`backend/migrations/retire_shared_account_pool_integration_test.go`。普通账号池、代理池、普通生图和异步单图保持支持。
+
+354 份已发布 SQL 再次逐字节对照发布基准，全部未变；历史 checksum 兼容规则块也未变。迁移 runner 的累计变动只增加两条同名索引迁移的无效索引恢复，不放宽 checksum 检查。两份 353 迁移按完整文件名分别登记执行：分组计费/鉴权缓存兼容修复和 QQ 日期奖励游标同时保留。没有删除或修改历史表、数据及冻结余额。
+
+公告继续保留管理员鉴权、严格 JSON 与请求体上限、配置和群权限锁复核、事务入队、内容哈希幂等、共享节流与过期控制；失败或未知结果不自动重放。金额达标日奖励继续保留北京时间、完整金额精度、扣赠送/退款及兑换码去重、独立门槛、已奖励日期游标和奖励/余额同事务。前节列出的累计数据库回滚、混合实例、历史批量余额、支付迟到履约、代理 DNS、黑名单缓存、有限用量/通知队列、凭据密钥及 QQ 平台额度/奖励源记录边界仍然适用，本次夹具清理未改变这些行为。
+
+本阶段复验：前端 7 个文件 74 项测试通过，覆盖修改的两个夹具、QQ 公告/成长设置/API 和退役导航断言；全量 TypeScript 与修改文件 ESLint 通过；QQ 新增参数/金额/时区/规则展示的 5 个纯逻辑顶层回归及公告 handler 权限/严格解析回归通过。同步自动化 115 项通过（2 项条件跳过），发布辅助工具 16 项通过；自动化测试中的工作流派发和标签输出来自隔离夹具。没有实际派发远程流程或发布新版本。日志位于 `/tmp/nov12-final-review/`，前阶段全量验证证据保留于 `/tmp/nov12-review/`；本阶段定向复验不替代外层发布前完整验收。
+
+最终功能排除扫描、全树真实冲突标记检查、当前及发布累计空白检查、完整决策 schema 校验通过。候选使用 `/tmp` 内的临时 Git 索引与对象目录检查，真实索引 SHA-256 和 HEAD 与接手时相同；本阶段依赖包装目录已经清理。没有未解决冲突。
