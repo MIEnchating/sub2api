@@ -1955,6 +1955,17 @@ func (s *OpenAIGatewayService) fetchCodexModelsManifestUpstreamForRequest(reques
 }
 
 func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, request openAIModelsRequest, ifNoneMatch string) (*OpenAIModelsResponse, error) {
+	if err := rejectRetiredVMAccount(ctx, s.accountRepo, request.credentialAccount); err != nil {
+		return nil, err
+	}
+	if s.openaiIPv6 != nil {
+		if err := s.openaiIPv6.CheckRoute(ctx, request.credentialAccount, request.proxyURL); err != nil {
+			return nil, err
+		}
+	}
+	if err := validateOpenAIIPv6Route(request.credentialAccount, request.proxyURL); err != nil {
+		return nil, err
+	}
 	totalTimeout := account429RetryTotalTimeout(codexModelsManifestRequestTimeout, request.account)
 	if totalTimeout <= 0 {
 		totalTimeout = codexModelsManifestRequestTimeout
@@ -1987,23 +1998,13 @@ func (s *OpenAIGatewayService) fetchOpenAIModelsUpstream(ctx context.Context, re
 	} else {
 		var directClient *http.Client
 		var proxyConfigErr error
-		vmRouted := false
 		doRequest := func(attemptReq *http.Request) (*http.Response, error) {
-			if s.openaiVM != nil {
-				if vmResp, handled, vmErr := s.openaiVM.RoundTrip(attemptReq, request.credentialAccount); handled {
-					vmRouted = true
-					return vmResp, vmErr
-				}
-			}
-			if vmRouted {
-				return nil, errors.New("OpenAI VM binding changed during manifest retry; direct fallback is disabled")
-			}
 			if request.credentialAccount != nil {
-				if proxyErr := validateOpenAIVMProxy(request.credentialAccount, request.credentialAccount.Proxy); proxyErr != nil {
+				if proxyErr := validateManagedAccountProxy(request.credentialAccount, request.credentialAccount.Proxy); proxyErr != nil {
 					return nil, proxyErr
 				}
 			}
-			if s.pluginManager != nil {
+			if s.pluginManager != nil && !request.credentialAccount.IsManagedIPv6Bound() {
 				pluginResp, handled, pluginErr := s.pluginManager.RoundTripOpenAIOAuth(attemptReq.Context(), attemptReq, request.proxyURL, request.credentialAccount)
 				if handled {
 					return pluginResp, pluginErr

@@ -134,6 +134,7 @@ func NewAccountHandler(
 
 // CreateAccountRequest represents create account request
 type CreateAccountRequest struct {
+	ProxyMode               string         `json:"proxy_mode" binding:"omitempty,oneof=direct specified random least_used ovh_ipv6"`
 	Name                    string         `json:"name" binding:"required"`
 	Notes                   *string        `json:"notes"`
 	Platform                string         `json:"platform" binding:"required"`
@@ -158,6 +159,7 @@ type CreateAccountRequest struct {
 // UpdateAccountRequest represents update account request
 // 使用指针类型来区分"未提供"和"设置为0"
 type UpdateAccountRequest struct {
+	ProxyMode               string         `json:"proxy_mode" binding:"omitempty,oneof=direct specified random least_used ovh_ipv6"`
 	Name                    string         `json:"name"`
 	Notes                   *string        `json:"notes"`
 	Type                    string         `json:"type" binding:"omitempty,oneof=oauth setup-token apikey upstream bedrock service_account"`
@@ -181,6 +183,7 @@ type UpdateAccountRequest struct {
 
 // BulkUpdateAccountsRequest represents the payload for bulk editing accounts
 type BulkUpdateAccountsRequest struct {
+	ProxyMode               string                    `json:"proxy_mode" binding:"omitempty,oneof=direct specified random least_used ovh_ipv6"`
 	AccountIDs              []int64                   `json:"account_ids"`
 	Filters                 *BulkUpdateAccountFilters `json:"filters"`
 	Name                    string                    `json:"name"`
@@ -1123,6 +1126,7 @@ func (h *AccountHandler) Create(c *gin.Context) {
 			ProbeEnabled:           req.ProbeEnabled,
 			Schedulable:            req.Schedulable,
 			SkipMixedChannelCheck:  skipCheck,
+			ProxyMode:              req.ProxyMode,
 		})
 		if execErr != nil {
 			return nil, execErr
@@ -1264,6 +1268,7 @@ func (h *AccountHandler) Update(c *gin.Context) {
 		ProbeEnabled:           req.ProbeEnabled,
 		RateSyncEnabled:        req.RateSyncEnabled,
 		SkipMixedChannelCheck:  skipCheck,
+		ProxyMode:              req.ProxyMode,
 	})
 	if err != nil {
 		// 检查是否为混合渠道错误
@@ -2222,6 +2227,7 @@ func (h *AccountHandler) BatchCreate(c *gin.Context) {
 				Credentials:           item.Credentials,
 				Extra:                 item.Extra,
 				ProxyID:               item.ProxyID,
+				ProxyMode:             item.ProxyMode,
 				ProxyIDs:              item.ProxyIDs,
 				Concurrency:           item.Concurrency,
 				Priority:              item.Priority,
@@ -2457,6 +2463,7 @@ func (h *AccountHandler) BulkUpdate(c *gin.Context) {
 		Extra:                  req.Extra,
 		ProbeEnabled:           req.ProbeEnabled,
 		SkipMixedChannelCheck:  skipCheck,
+		ProxyMode:              req.ProxyMode,
 	})
 	if err != nil {
 		var mixedErr *service.MixedChannelError

@@ -1448,25 +1448,20 @@ func (s *AccountTestService) doUpstreamModelsRequest(req *http.Request, proxyURL
 	if err := validateRegisteredAntiDegrade(account); err != nil {
 		return nil, err
 	}
-	if s.openaiVM != nil {
-		bound, err := s.openaiVM.RouteBound(req.Context(), account)
-		if err != nil {
+	if err := rejectRetiredVMAccount(req.Context(), s.accountRepo, account); err != nil {
+		return nil, err
+	}
+	if s.openaiGatewayService != nil && s.openaiGatewayService.openaiIPv6 != nil {
+		if err := s.openaiGatewayService.openaiIPv6.CheckRoute(req.Context(), account, proxyURL); err != nil {
 			return nil, err
-		}
-		if bound {
-			return doAccount429Retry(req, account, func(attempt *http.Request) (*http.Response, error) {
-				response, handled, tripErr := s.openaiVM.RoundTrip(attempt, account)
-				if tripErr == nil && (!handled || response == nil) {
-					return nil, errors.New("OpenAI VM binding changed during model sync; direct fallback is disabled")
-				}
-				return response, tripErr
-			})
 		}
 	}
-	if account != nil {
-		if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
-			return nil, err
-		}
+	if err := validateOpenAIIPv6Route(account, proxyURL); err != nil {
+		return nil, err
+	}
+
+	if err := validateManagedAccountProxy(account, account.Proxy); err != nil {
+		return nil, err
 	}
 	if s.tlsFPProfileService == nil {
 		return doAccountHTTPUpstreamWithTLS(s.httpUpstream, req, proxyURL, account, nil)

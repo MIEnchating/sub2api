@@ -18,6 +18,7 @@ export interface ContentModerationModelFilter {
 }
 
 export interface ContentModerationConfig {
+  auto_assign_ipv6?: boolean
   engine?: ModerationEngine
   engine_configs?: Record<ModerationEngine, ContentModerationConfig>
   enabled: boolean
@@ -61,6 +62,7 @@ export interface ContentModerationConfig {
 export type ContentModerationAPIKeyStatusValue = 'unknown' | 'ok' | 'error' | 'frozen'
 
 export interface ContentModerationAPIKeyStatus {
+  managed_ipv6?: string
   index: number
   key_hash: string
   masked: string
@@ -77,6 +79,7 @@ export interface ContentModerationAPIKeyStatus {
 }
 
 export interface TestContentModerationAPIKeysPayload {
+  auto_assign_ipv6?: boolean
   engine?: ModerationEngine
   thresholds?: Record<string, number>
   api_keys?: string[]
@@ -106,6 +109,7 @@ export interface ContentModerationTestAuditResult {
 }
 
 export interface UpdateContentModerationConfig {
+  auto_assign_ipv6?: boolean
   engine?: ModerationEngine
   engine_configs?: Partial<Record<ModerationEngine, UpdateModerationEngineConfig>>
   enabled?: boolean
@@ -227,7 +231,7 @@ export interface ContentModerationLog {
 }
 
 export type UpdateModerationEngineConfig = Pick<UpdateContentModerationConfig,
-  'base_url' | 'model' | 'proxy_id' | 'api_keys' | 'api_keys_mode' | 'delete_api_key_hashes' |
+  'base_url' | 'model' | 'proxy_id' | 'auto_assign_ipv6' | 'api_keys' | 'api_keys_mode' | 'delete_api_key_hashes' |
   'clear_api_key' | 'timeout_ms' | 'retry_count' | 'thresholds'>
 
 export interface ListContentModerationLogsParams {
@@ -315,11 +319,19 @@ export async function clearFlaggedHashes(): Promise<ClearFlaggedHashesResponse> 
   return data
 }
 
+export async function allocateAPIKeyIPv6(engine: ModerationEngine, keyHash: string): Promise<ContentModerationConfig> {
+  const { data } = await apiClient.post<ContentModerationConfig>('/admin/risk-control/api-keys/allocate-ipv6', {
+    engine, key_hash: keyHash,
+  }, { timeout: 60000 })
+  return data
+}
+
 export const riskControlAPI = {
   getConfig,
   updateConfig,
   getStatus,
   testAPIKeys,
+  allocateAPIKeyIPv6,
   listLogs,
   unbanUser,
   deleteFlaggedHash,

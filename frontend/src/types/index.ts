@@ -985,6 +985,8 @@ export interface ClaudeModel {
 }
 
 export interface Proxy {
+  managed_ipv6?: string
+  managed_ipv6_state?: 'reserved' | 'bound' | 'retiring'
   mihomo_node_id?: string
   id: number
   name: string
@@ -1702,7 +1704,10 @@ export interface OpenAIResponsesState {
   openai_responses_supported?: boolean
 }
 
+export type AccountProxyMode = '' | 'direct' | 'specified' | 'random' | 'least_used' | 'ovh_ipv6'
+
 export interface CreateAccountRequest {
+  proxy_mode?: AccountProxyMode
   name: string
   notes?: string | null
   platform: AccountPlatform
@@ -1724,6 +1729,7 @@ export interface CreateAccountRequest {
 }
 
 export interface UpdateAccountRequest {
+  proxy_mode?: AccountProxyMode
   name?: string
   notes?: string | null
   type?: AccountType
@@ -1856,6 +1862,7 @@ export interface AdminDataImportResult {
 }
 
 export interface CodexSessionImportRequest {
+  proxy_mode?: AccountProxyMode
   content?: string
   contents?: string[]
   name?: string
@@ -1878,6 +1885,7 @@ export interface CodexSessionImportRequest {
 }
 
 export interface OpenAICodexPATCreateRequest {
+  proxy_mode?: AccountProxyMode
   proxy_ids?: number[]
   access_token: string
   name?: string

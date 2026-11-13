@@ -3230,7 +3230,8 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <ProxySelector v-model="form.proxy_ids" :proxies="proxies" multiple />
+        <AccountProxyModeSelect v-model="proxyMode" :allow-managed="allowManagedIPv6" />
+        <ProxySelector v-if="!proxyMode" v-model="form.proxy_ids" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" multiple />
         <p class="input-hint">{{ t('admin.accounts.proxyPoolHint') }}</p>
       </div>
 
@@ -4263,6 +4264,9 @@ import {
 } from '@/components/account/openaiImageSizeTiers'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'
 import Icon from '@/components/icons/Icon.vue'
+import AccountProxyModeSelect from '@/components/common/AccountProxyModeSelect.vue'
+import { accountProxyPayload, isManagedIPv6Proxy } from '@/utils/accountProxySelection'
+import type { AccountProxyMode } from '@/types'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import ProxyAdBanner from '@/components/common/ProxyAdBanner.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
@@ -5147,6 +5151,7 @@ const tempUnschedPresets = computed(() => [
   }
 ])
 
+const proxyMode = ref<AccountProxyMode>('')
 const form = reactive({
   name: '',
   notes: '',
@@ -5167,8 +5172,10 @@ const form = reactive({
 
 // OAuth 验证只能使用一个出口；多代理模式使用池中第一个代理认证，
 // 账号保存后实际请求仍按整个代理池调度。
+const allowManagedIPv6 = computed(() => form.platform === 'openai' && form.type === 'oauth' && accountCategory.value === 'oauth-based' && !isOpenAIBPSOAuth.value && !excelBPSConfig.value.enabled && !excelBPSConfig.value.recoveryPending && oauthFlowRef.value?.inputMethod !== 'agent_identity')
+watch(allowManagedIPv6, allowed => { if (!allowed && proxyMode.value === 'ovh_ipv6') proxyMode.value = '' })
 const authProxyID = computed(() =>
-  form.proxy_ids[0] ?? null
+  proxyMode.value ? null : form.proxy_ids[0] ?? null
 )
 
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
@@ -5705,6 +5712,9 @@ const ensureAntigravityMixedChannelConfirmed = async (onConfirm: () => Promise<v
 }
 
 const submitCreateAccount = async (payload: CreateAccountRequest) => {
+  if (payload.proxy_mode && ['ovh_ipv6', 'random', 'least_used'].includes(payload.proxy_mode)) {
+    delete payload.proxy_ids
+  }
   submitting.value = true
   try {
     const account = await adminAPI.accounts.create(
@@ -5773,6 +5783,7 @@ const resetForm = () => {
   form.credentials = {}
   form.proxy_id = null
   form.proxy_ids = []
+  proxyMode.value = ''
   form.concurrency = 10
   form.rate_limit_429_retry_count = DEFAULT_RATE_LIMIT_429_RETRY_COUNT
   form.load_factor = null
@@ -6418,6 +6429,7 @@ const handleSubmit = async () => {
 
   await doCreateAccount({
     ...form,
+    ...accountProxyPayload(proxyMode.value, form.proxy_ids),
     group_ids: form.group_ids,
     extra: withUpstreamRequestIdHeader(extra),
     upstream_billing_probe_enabled: upstreamBillingAutoProbeEnabled.value,
@@ -6542,8 +6554,7 @@ const createAccountAndFinish = async (
     type,
     credentials,
     extra: finalExtra,
-    proxy_id: authProxyID.value,
-    proxy_ids: [...form.proxy_ids],
+    ...accountProxyPayload(proxyMode.value, form.proxy_ids),
     concurrency: form.concurrency,
     rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
     load_factor: form.load_factor ?? undefined,
@@ -6611,8 +6622,7 @@ const handleGrokValidateRT = async (refreshTokenInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: authProxyID.value,
-          proxy_ids: [...form.proxy_ids],
+          ...accountProxyPayload(proxyMode.value, form.proxy_ids),
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -6679,8 +6689,7 @@ const handleGrokImportSSO = async (ssoInput: string) => {
       sso_tokens: ssoTokens,
       name: form.name || undefined,
       notes: form.notes || undefined,
-      proxy_id: authProxyID.value,
-      proxy_ids: [...form.proxy_ids],
+      ...accountProxyPayload(proxyMode.value, form.proxy_ids),
       group_ids: form.group_ids,
       credentials,
       concurrency: form.concurrency,
@@ -6791,8 +6800,7 @@ const handleGrokAuthorizePassword = async (emailPasswordInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: authProxyID.value,
-          proxy_ids: [...form.proxy_ids],
+          ...accountProxyPayload(proxyMode.value, form.proxy_ids),
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -6895,8 +6903,7 @@ const handleOpenAIExchange = async (authCode: string) => {
         type: 'oauth',
         credentials,
         extra: withUpstreamRequestIdHeader(extra),
-        proxy_id: authProxyID.value,
-        proxy_ids: [...form.proxy_ids],
+        ...accountProxyPayload(proxyMode.value, form.proxy_ids),
         concurrency: form.concurrency,
         rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
         load_factor: form.load_factor ?? undefined,
@@ -7002,8 +7009,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
       content: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: authProxyID.value,
-      proxy_ids: [...form.proxy_ids],
+      ...accountProxyPayload(proxyMode.value, form.proxy_ids),
       concurrency: form.concurrency,
       rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
       load_factor: form.load_factor ?? undefined,
@@ -7082,8 +7088,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
       access_token: trimmed,
       name: form.name,
       notes: form.notes || null,
-      proxy_id: authProxyID.value,
-      proxy_ids: [...form.proxy_ids],
+      ...accountProxyPayload(proxyMode.value, form.proxy_ids),
       concurrency: form.concurrency,
       rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
       load_factor: form.load_factor ?? undefined,
@@ -7182,8 +7187,7 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
             type: 'oauth',
             credentials,
             extra: withUpstreamRequestIdHeader(extra),
-            proxy_id: authProxyID.value,
-            proxy_ids: [...form.proxy_ids],
+            ...accountProxyPayload(proxyMode.value, form.proxy_ids),
             concurrency: form.concurrency,
             rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
             load_factor: form.load_factor ?? undefined,
@@ -7283,8 +7287,7 @@ const handleAntigravityValidateRT = async (refreshTokenInput: string) => {
           type: 'oauth',
           credentials,
           extra: withUpstreamRequestIdHeader({}),
-          proxy_id: authProxyID.value,
-          proxy_ids: [...form.proxy_ids],
+          ...accountProxyPayload(proxyMode.value, form.proxy_ids),
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,
@@ -7666,8 +7669,7 @@ const handleCookieAuth = async (sessionKey: string) => {
           type: addMethod.value, // Use addMethod as type: 'oauth' or 'setup-token'
           credentials,
           extra: withUpstreamRequestIdHeader(extra),
-          proxy_id: authProxyID.value,
-          proxy_ids: [...form.proxy_ids],
+          ...accountProxyPayload(proxyMode.value, form.proxy_ids),
           concurrency: form.concurrency,
           rate_limit_429_retry_count: normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count),
           load_factor: form.load_factor ?? undefined,

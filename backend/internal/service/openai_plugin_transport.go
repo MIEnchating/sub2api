@@ -17,6 +17,9 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if request == nil || account == nil {
 		return nil, errors.New("OpenAI request or account is missing")
 	}
+	if err := rejectRetiredVMAccount(request.Context(), s.accountRepo, account); err != nil {
+		return nil, err
+	}
 	if attempt, _ := request.Context().Value(groupSmartWSAttemptKey{}).(*groupSmartWSAttempt); attempt != nil && attempt.sent.Load() {
 		return nil, finishGroupSmartWSAttempt(attempt, errSmartWSAlreadyDispatched)
 	}
@@ -101,31 +104,19 @@ func (s *OpenAIGatewayService) doOpenAIUpstream(request *http.Request, proxyURL 
 	if err != nil {
 		return nil, err
 	}
-	vmRouted := false
 	return doAccount429Retry(request, account, func(attemptRequest *http.Request) (*http.Response, error) {
-		if s.openaiVM != nil {
-			if response, handled, err := s.openaiVM.RoundTrip(attemptRequest, account); handled {
-				vmRouted = true
-				return response, err
-			}
-		}
-		if vmRouted {
-			return nil, errors.New("OpenAI VM binding changed during retry; direct fallback is disabled")
-		}
-		if account != nil {
-			if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
-				return nil, err
-			}
+		if err := validateManagedAccountProxy(account, account.Proxy); err != nil {
+			return nil, err
 		}
 		if s.openaiIPv6 != nil {
 			if err := s.openaiIPv6.CheckRoute(attemptRequest.Context(), account, proxyURL); err != nil {
 				return nil, err
 			}
 		}
-		if profile != nil && (bound || s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
+		if profile != nil && (bound || account.IsManagedIPv6Bound() || s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
 			return s.httpUpstream.DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
-		if s.pluginManager != nil && !bound {
+		if s.pluginManager != nil && !bound && !account.IsManagedIPv6Bound() {
 			response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
 			if handled {
 				return response, err
@@ -149,6 +140,12 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	account *Account,
 	useTLSFallback bool,
 ) (*http.Response, error) {
+	if request == nil || account == nil {
+		return nil, errors.New("OpenAI request or account is missing")
+	}
+	if err := rejectRetiredVMAccount(request.Context(), s.accountRepo, account); err != nil {
+		return nil, err
+	}
 	// Validate persisted protection before invoking a plugin. Plugins are an
 	// alternate transport, but must never bypass a malformed account strategy.
 	if err := validateRegisteredAntiDegrade(account); err != nil {
@@ -175,20 +172,9 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 	if err != nil {
 		return nil, err
 	}
-	vmRouted := false
 	perform := func(attemptRequest *http.Request) (*http.Response, error) {
-		if s.openaiVM != nil {
-			started := time.Now().UTC()
-			if response, handled, err := s.openaiVM.RoundTrip(attemptRequest, account); handled {
-				vmRouted = true
-				return observeAccountTestResponse(attemptRequest.Context(), started, response, err)
-			}
-		}
-		if vmRouted {
-			return nil, errors.New("OpenAI VM binding changed during test retry; direct fallback is disabled")
-		}
 		if account != nil {
-			if err := validateOpenAIVMProxy(account, account.Proxy); err != nil {
+			if err := validateManagedAccountProxy(account, account.Proxy); err != nil {
 				return nil, err
 			}
 		}
@@ -197,10 +183,13 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 				return nil, err
 			}
 		}
-		if profile != nil && (account == nil || !account.IsOpenAIIPv6Bound()) && (s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
+		if err := validateOpenAIIPv6Route(account, proxyURL); err != nil {
+			return nil, err
+		}
+		if profile != nil && (account.IsManagedIPv6Bound() || s.pluginManager == nil || !s.pluginManager.ShouldRouteOpenAIOAuth(account)) {
 			return s.doAccountTestHTTPWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 		}
-		if s.pluginManager != nil && (account == nil || !account.IsOpenAIIPv6Bound()) {
+		if s.pluginManager != nil && !account.IsManagedIPv6Bound() {
 			started := time.Now().UTC()
 			response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
 			if handled {

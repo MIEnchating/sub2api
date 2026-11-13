@@ -20,6 +20,15 @@ import (
 )
 
 func TestScheduledTestProtectionIntegration(t *testing.T) {
+	for _, outputKind := range []string{"number", "html"} {
+		t.Run(outputKind, func(t *testing.T) {
+			testScheduledTestProtectionIntegration(t, outputKind)
+		})
+	}
+}
+
+func testScheduledTestProtectionIntegration(t *testing.T, outputKind string) {
+	t.Helper()
 	dsn := os.Getenv("MIGRATION_TEST_DATABASE_URL")
 	if dsn == "" {
 		t.Skip("MIGRATION_TEST_DATABASE_URL is not set")
@@ -88,6 +97,13 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 	groupID, accountID := int64(8), int64(62)
 	plain := service.ScheduledTestProtectionRule{TestDefinitionID: candyID, PauseOnFailure: true, OnPass: &service.ScheduledTestOutcomeAction{Scheduling: "resume"}, OnFail: &service.ScheduledTestOutcomeAction{Scheduling: "pause"}}
 	voting := service.ScheduledTestProtectionRule{TestDefinitionID: htmlID, ExpectedAnswer: "reference-only", OnPass: &service.ScheduledTestOutcomeAction{Scheduling: "resume"}, OnFail: &service.ScheduledTestOutcomeAction{Scheduling: "pause"}, Vote: &service.ScheduledTestVoteConfig{Enabled: true, PublicEnabled: true, RejectAbove: 1, PassAtLeast: 2}}
+	// HTML generation defaults to pass until vetoed; ordinary outputs still
+	// retain a hold until enough current-generation approval votes arrive.
+	belowApprovalStatus := "active"
+	if outputKind == "number" {
+		voting.TestDefinitionID = candyID
+		belowApprovalStatus = "quality_paused"
+	}
 	reset := func() {
 		exec(`TRUNCATE scheduled_test_plans,scheduled_test_results,scheduled_test_plan_definitions,scheduled_test_protection_states,scheduled_test_votes,scheduler_outbox RESTART IDENTITY CASCADE`)
 		exec(`UPDATE accounts SET status='active',schedulable=TRUE,deleted_at=NULL,extra='{}';TRUNCATE user_allowed_groups,user_subscriptions`)
@@ -107,7 +123,11 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 		t.Helper()
 		sequence++
 		started := time.Now().UTC().Add(time.Duration(sequence) * time.Second).Truncate(time.Microsecond)
-		result, err := repo.Create(ctx, &service.ScheduledTestResult{PlanID: plan.ID, TestDefinitionID: &definition, GroupID: plan.GroupID, AccountID: &accountID, TargetMode: plan.TargetMode, ModelID: plan.ModelID, ReasoningEffort: plan.ReasoningEffort, Status: "running", OutputKind: "html", StartedAt: started, FinishedAt: started})
+		kind := "html"
+		if definition == candyID {
+			kind = "number"
+		}
+		result, err := repo.Create(ctx, &service.ScheduledTestResult{PlanID: plan.ID, TestDefinitionID: &definition, GroupID: plan.GroupID, AccountID: &accountID, TargetMode: plan.TargetMode, ModelID: plan.ModelID, ReasoningEffort: plan.ReasoningEffort, Status: "running", OutputKind: kind, StartedAt: started, FinishedAt: started})
 		require.NoError(t, err)
 		exec(`UPDATE scheduled_test_plans SET latest_run_id=$2 WHERE id=$1`, plan.ID, fmt.Sprintf("fixture-%d", plan.ID))
 		exec(`UPDATE scheduled_test_results SET run_id=$2 WHERE id=$1`, result.ID, fmt.Sprintf("fixture-%d", plan.ID))
@@ -124,7 +144,13 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 		t.Helper()
 		result.Status = "success"
 		result.ResponseText = "safe output"
-		result.OutputHTML = "<p>safe output</p>"
+		if result.OutputKind == "html" {
+			result.OutputHTML = "<p>safe output</p>"
+		} else {
+			value := float64(21)
+			result.OutputNumeric = &value
+			result.ResponseText = "21"
+		}
 		require.NoError(t, repo.Update(ctx, result))
 		require.NoError(t, repo.CompleteProtection(ctx, result, verdict, "quality failed"))
 	}
@@ -203,7 +229,7 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 		changed := cast(1, r.ID, "pass")
 		require.Equal(t, 1, changed.Voting.FailCount)
 		require.Equal(t, 1, changed.Voting.PassCount)
-		require.Equal(t, "quality_paused", status(), "pending votes retain the previous hold")
+		require.Equal(t, belowApprovalStatus, status(), "only ordinary outputs require approval votes to release a hold")
 		recovered := cast(3, r.ID, "pass")
 		require.Equal(t, 2, recovered.Voting.PassCount)
 		require.Equal(t, "active", status())
@@ -243,11 +269,11 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 		require.NoError(t, err)
 		require.Empty(t, list, "an unfinished round must not offer voting")
 		complete(current, "pass")
-		require.Equal(t, "quality_paused", status(), "a successful generated result still needs new pass votes")
+		require.Equal(t, belowApprovalStatus, status(), "a new round uses the output kind's approval policy")
 		first := cast(1, current.ID, "pass")
 		require.Equal(t, 1, first.Voting.PassCount)
 		require.Zero(t, first.Voting.FailCount)
-		require.Equal(t, "quality_paused", status())
+		require.Equal(t, belowApprovalStatus, status())
 		cast(2, current.ID, "pass")
 		require.Equal(t, "active", status())
 		failed := begin(p, voting)
@@ -383,7 +409,7 @@ INSERT INTO account_groups VALUES(62,8),(62,9),(63,8);`)
 		require.Len(t, list, 1)
 		require.Zero(t, list[0].Voting.FailCount)
 		require.Empty(t, list[0].Voting.MyVote)
-		require.Equal(t, "quality_paused", status())
+		require.Equal(t, belowApprovalStatus, status(), "a retry uses fresh votes and the output kind's approval policy")
 		cast(1, r.ID, "pass")
 		cast(2, r.ID, "pass")
 		require.Equal(t, "active", status())
