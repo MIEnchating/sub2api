@@ -954,8 +954,7 @@ func (s *BillingCacheService) checkRPM(ctx context.Context, user *User, group *G
 	if group != nil {
 		// 解析 override：优先从 auth cache snapshot；snapshot 未确认该分组时回退 DB。
 		var override *int
-		if user.UserGroupRPMOverrideGroupID == group.ID ||
-			(user.UserGroupRPMOverrideGroupID == 0 && user.UserGroupRPMOverride != nil) {
+		if user.UserGroupRPMOverrideGroupID == group.ID {
 			override = user.UserGroupRPMOverride
 		} else if s.userGroupRateRepo != nil {
 			dbOverride, err := s.userGroupRateRepo.GetRPMOverrideByUserAndGroup(ctx, user.ID, group.ID)

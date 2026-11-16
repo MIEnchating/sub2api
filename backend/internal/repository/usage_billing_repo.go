@@ -15,7 +15,7 @@ type usageBillingRepository struct {
 	db *sql.DB
 }
 
-func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBillingRepository {
+func NewUsageBillingRepository(_ *dbent.Client, sqlDB *sql.DB) service.UsageBillingBatchRepository {
 	return &usageBillingRepository{db: sqlDB}
 }
 
@@ -212,9 +212,8 @@ func deductUsageBillingBalance(ctx context.Context, tx *sql.Tx, userID int64, am
 	return newBalance, false, nil
 }
 
-func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID int64, amount float64) (bool, error) {
-	var exhausted bool
-	err := tx.QueryRowContext(ctx, `
+// usageBillingAPIKeyQuotaUpdate increments key usage and marks quota exhaustion atomically.
+const usageBillingAPIKeyQuotaUpdate = `
 		UPDATE api_keys
 		SET quota_used = quota_used + $1,
 			status = CASE
@@ -226,7 +225,11 @@ func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID 
 				ELSE status
 			END,
 			updated_at = NOW()
-		WHERE id = $2 AND deleted_at IS NULL
+		WHERE id = $2 AND deleted_at IS NULL`
+
+func incrementUsageBillingAPIKeyQuota(ctx context.Context, tx *sql.Tx, apiKeyID int64, amount float64) (bool, error) {
+	var exhausted bool
+	err := tx.QueryRowContext(ctx, usageBillingAPIKeyQuotaUpdate+`
 		RETURNING quota > 0 AND quota_used >= quota AND quota_used - $1 < quota
 	`, amount, apiKeyID, service.StatusAPIKeyActive, service.StatusAPIKeyQuotaExhausted).Scan(&exhausted)
 	if errors.Is(err, sql.ErrNoRows) {

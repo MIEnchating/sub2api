@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 
 	"github.com/gin-gonic/gin"
 )
@@ -522,11 +523,22 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 	var eventLines []string
 	var eventData []string
 	eventName := ""
+	clientModel := compositeClientModel(ctx, "")
+	observeEvent := func(data string) {
+		observer.ObserveAnthropic([]byte(data))
+		parseSSEUsagePassthrough(data, usage)
+		if anthropicStreamEventIsTerminal(eventName, data) {
+			sawTerminalEvent = true
+		}
+	}
 	flushEvent := func() error {
 		if len(eventLines) == 0 {
 			return nil
 		}
 		data := strings.Join(eventData, "\n")
+		// SSE data fields form one payload. Parse it before any public-model
+		// rewriting so billing and observations retain the upstream values.
+		observeEvent(data)
 		if (strings.EqualFold(eventName, "error") || gjson.Get(data, "type").String() == "error") && IsUpstreamBillingError(http.StatusOK, []byte(data)) {
 			body := []byte(data)
 			statusCode := upstreamBillingStatusCode(http.StatusOK, body)
@@ -563,7 +575,26 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 		if !clientDisconnected {
 			writeResponseHeaders()
 			var output strings.Builder
+			rewrittenData := ""
+			if clientModel != "" && gjson.Get(data, "type").String() == "message_start" && gjson.Get(data, "message.model").Exists() {
+				if rewritten, err := sjson.Set(data, "message.model", clientModel); err == nil {
+					// Encode a single data field even when the input used several.
+					// SSE metadata and all other events remain untouched.
+					var compact bytes.Buffer
+					if json.Compact(&compact, []byte(rewritten)) == nil {
+						rewrittenData = compact.String()
+					}
+				}
+			}
+			wroteData := false
 			for _, line := range eventLines {
+				if _, ok := extractAnthropicSSEDataLine(line); ok && rewrittenData != "" {
+					if wroteData {
+						continue
+					}
+					line = "data: " + rewrittenData
+					wroteData = true
+				}
 				_, _ = output.Write(reverseToolNamesIfPresent(c, []byte(line)))
 				_ = output.WriteByte('\n')
 			}
@@ -607,6 +638,9 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 			}
 			if ev.err != nil {
+				// A transport error can follow a complete payload before its blank
+				// delimiter. Retain observed usage without forwarding that frame.
+				observeEvent(strings.Join(eventData, "\n"))
 				if sawTerminalEvent {
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}, nil
 				}
@@ -628,15 +662,10 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if data, ok := extractAnthropicSSEDataLine(line); ok {
 				eventData = append(eventData, data)
 				trimmed := strings.TrimSpace(data)
-				observer.ObserveAnthropic([]byte(trimmed))
-				if anthropicStreamEventIsTerminal("", trimmed) {
-					sawTerminalEvent = true
-				}
 				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
 					ms := int(time.Since(startTime).Milliseconds())
 					firstTokenMs = &ms
 				}
-				parseSSEUsagePassthrough(data, usage)
 			} else {
 				trimmed := strings.TrimSpace(line)
 				if strings.HasPrefix(trimmed, "event:") {
@@ -657,6 +686,7 @@ func (s *GatewayService) handleStreamingResponseAnthropicAPIKeyPassthrough(
 			if time.Since(lastRead) < streamInterval {
 				continue
 			}
+			observeEvent(strings.Join(eventData, "\n"))
 			if clientDisconnected {
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}, fmt.Errorf("stream usage incomplete after timeout")
 			}
@@ -991,6 +1021,7 @@ func (s *GatewayService) handleNonStreamingResponseAnthropicAPIKeyPassthrough(
 	if contentType == "" {
 		contentType = "application/json"
 	}
+	body = restoreCompositeClientModel(ctx, body)
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 	return usage, nil

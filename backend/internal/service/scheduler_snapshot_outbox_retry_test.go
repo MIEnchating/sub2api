@@ -5,6 +5,7 @@ import (
 	"errors"
 	"strconv"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -221,7 +222,9 @@ func (r *retryAccountRepository) WithLatestSchedulerAccounts(_ context.Context, 
 	return publish(r.current)
 }
 
-func (r *retryAccountRepository) ListSchedulableUngroupedByPlatform(context.Context, string) ([]Account, error) {
+func (r *retryAccountRepository) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
+	// The configured-pool query is deliberately stale; retry publication must
+	// still reconcile membership and credentials through the latest-row read.
 	return []Account{r.old}, nil
 }
 
@@ -339,4 +342,35 @@ func TestSchedulerOutboxRetryOrdinaryFeedbackKeepsItsExistingMergeSemantics(t *t
 	svc := NewSchedulerSnapshotService(cache, nil, accounts, nil, nil)
 	require.NoError(t, svc.cache.SetAccount(context.Background(), &old))
 	require.True(t, cache.account.Schedulable, "this PR must not silently replace ordinary request feedback semantics")
+}
+
+func TestSchedulerOutboxRetryCoolingSnapshotRecoversWithoutRebuild(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		until := time.Now().Add(30 * time.Second)
+		account := Account{ID: 101, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, GroupIDs: []int64{10}, RateLimitResetAt: &until}
+		repo := &retryAccountRepository{current: []Account{account}}
+		cache := &transientExpirySnapshotCache{}
+		svc := NewSchedulerSnapshotService(cache, nil, repo, nil, nil)
+		ctx := context.WithValue(context.Background(), schedulerOutboxRetryPublicationKey{}, true)
+		groupID := int64(10)
+		bucket := SchedulerBucket{GroupID: groupID, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}
+		require.NoError(t, svc.cache.SetSnapshot(ctx, bucket, SchedulerBucketWriteToken{Bucket: bucket, Epoch: 1}, []Account{account}))
+		require.Len(t, cache.accounts, 1, "retry publication must retain cooling configured members")
+		accounts, _, err := svc.ListSchedulableAccounts(context.Background(), &groupID, PlatformOpenAI, false)
+		require.NoError(t, err)
+		require.Empty(t, accounts, "retained membership must not bypass the cooldown")
+		time.Sleep(31 * time.Second)
+		accounts, _, err = svc.ListSchedulableAccounts(context.Background(), &groupID, PlatformOpenAI, false)
+		require.NoError(t, err)
+		require.Len(t, accounts, 1, "expiry must recover from the same snapshot without a DB rebuild")
+	})
+}
+
+func TestSchedulerOutboxRetrySimpleHistoricalBucketKeepsGroupBoundary(t *testing.T) {
+	account := Account{ID: 101, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true, GroupIDs: []int64{20}}
+	ctx := context.WithValue(context.Background(), schedulerOutboxRetrySimpleKey{}, true)
+	bucket := SchedulerBucket{GroupID: 10, Platform: PlatformOpenAI, Mode: SchedulerModeSingle}
+	require.Empty(t, filterOutboxRetryBucketAccounts(ctx, bucket, []Account{account}), "historical grouped buckets must not gain accounts from other groups in simple mode")
+	bucket.GroupID = 0
+	require.Len(t, filterOutboxRetryBucketAccounts(ctx, bucket, []Account{account}), 1, "the normalized global simple-mode bucket must still include grouped accounts")
 }

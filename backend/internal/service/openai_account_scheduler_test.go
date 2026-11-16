@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"strconv"
 	"sync"
 	"testing"
@@ -68,6 +69,23 @@ func (r schedulerTestOpenAIAccountRepo) ListSchedulableUngroupedByPlatform(ctx c
 
 type schedulerGroupAwareOpenAIAccountRepo struct {
 	schedulerTestOpenAIAccountRepo
+}
+
+// Snapshot fallback reads the configured pool through this query. Match the
+// repository's group/platform boundary without discarding transiently cooled
+// accounts, which must become schedulable again when their cooldown expires.
+func (r schedulerGroupAwareOpenAIAccountRepo) ListModelAvailabilityCandidates(_ context.Context, groupID *int64, platforms []string, includeGrouped bool) ([]Account, error) {
+	var result []Account
+	for _, acc := range r.accounts {
+		if acc.Status != StatusActive || !acc.Schedulable || !slices.Contains(platforms, acc.Platform) {
+			continue
+		}
+		if (groupID != nil || !includeGrouped) && !openAIStickyAccountMatchesGroup(&acc, groupID) {
+			continue
+		}
+		result = append(result, acc)
+	}
+	return result, nil
 }
 
 func (r schedulerGroupAwareOpenAIAccountRepo) ListSchedulableByGroupIDAndPlatform(ctx context.Context, groupID int64, platform string) ([]Account, error) {

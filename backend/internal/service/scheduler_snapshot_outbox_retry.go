@@ -28,7 +28,9 @@ func filterOutboxRetryBucketAccounts(ctx context.Context, bucket SchedulerBucket
 	simple, _ := ctx.Value(schedulerOutboxRetrySimpleKey{}).(bool)
 	filtered := make([]Account, 0, len(accounts))
 	for _, account := range accounts {
-		if !account.IsSchedulable() {
+		// Publish configured membership, just like loadAccountsFromDB. Runtime
+		// cooldowns are checked on reads so their expiry needs no new event.
+		if !account.IsActive() || !account.Schedulable {
 			continue
 		}
 		if bucket.Mode == SchedulerModeMixed {
@@ -38,8 +40,8 @@ func filterOutboxRetryBucketAccounts(ctx context.Context, bucket SchedulerBucket
 		} else if account.Platform != bucket.Platform {
 			continue
 		}
-		if !simple && ((bucket.GroupID > 0 && !slices.Contains(account.GroupIDs, bucket.GroupID)) ||
-			(bucket.GroupID == 0 && len(account.GroupIDs) > 0)) {
+		if (bucket.GroupID > 0 && !slices.Contains(account.GroupIDs, bucket.GroupID)) ||
+			(!simple && bucket.GroupID == 0 && len(account.GroupIDs) > 0) {
 			continue
 		}
 		filtered = append(filtered, account)

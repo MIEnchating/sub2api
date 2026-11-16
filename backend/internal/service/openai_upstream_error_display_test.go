@@ -54,9 +54,17 @@ func TestOpenAIUpstreamErrorClientMessage(t *testing.T) {
 		{"server failure", `{"error":{"type":"server_error"}}`, "worker shard failed with exception at internal.node:42", OpenAIUpstreamFailureClientMessage},
 		{"misclassified invalid request", `{"error":{"type":"invalid_request_error"}}`, internalExcelFailure, OpenAIUpstreamFailureClientMessage},
 		{"request parameter", `{"error":{"type":"invalid_request_error","param":"tools[0].name"}}`, "Missing required parameter: tools[0].name", "Missing required parameter: tools[0].name"},
+		{"grok image parameter", `{"code":"invalid_image","error":"Image URL rejected"}`, "Image URL: https://example.test?access_token=secret", "Image URL: https://example.test?access_token=***"},
+		{"grok image size", `{"error":{"code":"invalid_size","message":"Invalid size"}}`, "Invalid size", "Invalid size"},
+		{"grok misclassified internal failure", `{"code":"invalid_image"}`, internalExcelFailure, OpenAIUpstreamFailureClientMessage},
 		{"context window", `{"response":{"error":{"code":"context_length_exceeded"}}}`, "input exceeds the context window", "input exceeds the context window"},
 		{"policy", `{"error":{"code":"content_policy_violation"}}`, "blocked by our content policy", "blocked by our content policy"},
 		{"billing", `{"error":{"code":"insufficient_quota"}}`, "provider balance empty", UpstreamBillingExhaustedClientMessage},
+		{"rate limit frame", `{"response":{"error":{"code":"rate_limit_exceeded"}}}`, "Rate limit reached for gpt-5.4", "Rate limit reached for gpt-5.4"},
+		{"rate limit type", `{"error":{"type":"rate_limit_error"}}`, "Too many requests; retry later", "Too many requests; retry later"},
+		{"rate limit redacts credentials", `{"error":{"code":"rate_limit_exceeded"}}`, "Retry https://example.test?access_token=secret", "Retry https://example.test?access_token=***"},
+		{"rate limit with internal failure", `{"error":{"code":"rate_limit_exceeded"}}`, internalExcelFailure, OpenAIUpstreamFailureClientMessage},
+		{"rate limit with billing failure", `{"error":{"code":"rate_limit_exceeded","message":"Provider account has no credits remaining"}}`, "Provider account has no credits remaining", UpstreamBillingExhaustedClientMessage},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			require.Equal(t, tc.want, OpenAIUpstreamErrorClientMessage([]byte(tc.payload), tc.message))
