@@ -121,7 +121,8 @@ const (
 	// FieldAllowLive holds the string denoting the allow_live field in the database.
 	FieldAllowLive = "allow_live"
 	// FieldForceOpenaiFast holds the string denoting the force_openai_fast field in the database.
-	FieldForceOpenaiFast = "force_openai_fast"
+	FieldForceOpenaiFast      = "force_openai_fast"
+	FieldForceOpenaiUltrafast = "force_openai_ultrafast"
 	// FieldForceOpenaiServiceTier holds the string denoting the force_openai_service_tier field in the database.
 	FieldForceOpenaiServiceTier = "force_openai_service_tier"
 	// FieldFreeOpenaiFast holds the string denoting the free_openai_fast field in the database.
@@ -292,6 +293,7 @@ var Columns = []string{
 	FieldAllowLive,
 	FieldForceOpenaiFast,
 	FieldForceOpenaiServiceTier,
+	FieldForceOpenaiUltrafast,
 	FieldFreeOpenaiFast,
 	FieldRequireOauthOnly,
 	FieldRequirePrivacySet,
@@ -417,7 +419,8 @@ var (
 	// DefaultAllowLive holds the default value on creation for the "allow_live" field.
 	DefaultAllowLive bool
 	// DefaultForceOpenaiFast holds the default value on creation for the "force_openai_fast" field.
-	DefaultForceOpenaiFast bool
+	DefaultForceOpenaiFast      bool
+	DefaultForceOpenaiUltrafast bool
 	// DefaultForceOpenaiServiceTier holds the default value on creation for the "force_openai_service_tier" field.
 	DefaultForceOpenaiServiceTier string
 	// ForceOpenaiServiceTierValidator is a validator for the "force_openai_service_tier" field. It is called by the builders before save.
@@ -701,6 +704,11 @@ func ByAllowLive(opts ...sql.OrderTermOption) OrderOption {
 // ByForceOpenaiFast orders the results by the force_openai_fast field.
 func ByForceOpenaiFast(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldForceOpenaiFast, opts...).ToFunc()
+}
+
+// ByForceOpenaiUltrafast orders the results by the force_openai_ultrafast field.
+func ByForceOpenaiUltrafast(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldForceOpenaiUltrafast, opts...).ToFunc()
 }
 
 // ByForceOpenaiServiceTier orders the results by the force_openai_service_tier field.

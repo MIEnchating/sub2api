@@ -2235,7 +2235,28 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 	return nil
 }
 
-func openAIGroupForcedServiceTier(ctx context.Context, account *Account) string {
+// openAIModelSupportsUltrafast reports whether OpenAI offers the Ultrafast
+// service tier for the model: GPT-6 Astra and GPT-6.1 Sol only. Both the
+// model-scoped group flag and the 6x Ultrafast billing multiplier use this gate;
+// the explicit custom service-tier override remains independent.
+func openAIModelSupportsUltrafast(model string) bool {
+	normalized := normalizeKnownOpenAICodexModel(model)
+	return isOpenAIGPT6AstraModel(normalized) || normalized == "gpt-6.1-sol"
+}
+
+// openAIGroupForcedServiceTier returns the service_tier that the trusted request
+// Group forces onto an OpenAI-account request for the given upstream model, or
+// "" when the group forces nothing and the client's value is kept.
+//
+// An explicit ForceOpenAIServiceTier retains the custom tier override. Otherwise
+// the two group flags are independent and resolve as Ultrafast > Fast > client:
+//   - ForceOpenAIUltrafast applies only to models that support Ultrafast
+//     (openAIModelSupportsUltrafast) and yields "ultrafast".
+//   - Otherwise ForceOpenAIFast yields "priority", for every model.
+//
+// So a group with only ForceOpenAIUltrafast leaves unsupported models to the
+// client, and a group with both flags falls back to Fast for them.
+func openAIGroupForcedServiceTier(ctx context.Context, account *Account, model string) string {
 	if ctx == nil || account == nil || account.Platform != PlatformOpenAI {
 		return ""
 	}
@@ -2247,12 +2268,18 @@ func openAIGroupForcedServiceTier(ctx context.Context, account *Account) string 
 	case OpenAIFastTierPriority, OpenAIFastTierUltrafast:
 		return group.ForceOpenAIServiceTier
 	case "":
-		// Older auth snapshots and callers only carry the legacy Fast flag.
-		if group.ForceOpenAIFast {
-			return OpenAIFastTierPriority
-		}
+		// The upstream boolean controls are used only without an explicit tier.
+	default:
+		return ""
 	}
-	return ""
+	switch {
+	case group.ForceOpenAIUltrafast && openAIModelSupportsUltrafast(model):
+		return OpenAIFastTierUltrafast
+	case group.ForceOpenAIFast:
+		return OpenAIFastTierPriority
+	default:
+		return ""
+	}
 }
 
 // applyOpenAIFastPolicyToBody applies the OpenAI fast policy to a raw request
@@ -2260,8 +2287,10 @@ func openAIGroupForcedServiceTier(ctx context.Context, account *Account) string 
 // action=block it returns (body, *OpenAIFastBlockedError). On pass it
 // normalizes the service_tier value (e.g. client alias "fast" → "priority").
 // action=force_priority rewrites any matched known tier to "priority". Before
-// the global policy is evaluated, a trusted request Group can force
-// service_tier to "priority" or "ultrafast".
+// the global policy is evaluated, a trusted request Group may force an explicit
+// service tier. Otherwise ForceOpenAIFast sets service_tier to "priority";
+// ForceOpenAIUltrafast sets it to "ultrafast" for models that support it and
+// takes precedence there (see openAIGroupForcedServiceTier).
 // The global policy remains authoritative and may still pass, filter, or block
 // that final value.
 //
@@ -2274,10 +2303,10 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToBody(ctx context.Context, 
 	if len(body) == 0 {
 		return body, nil
 	}
-	if tier := openAIGroupForcedServiceTier(ctx, account); tier != "" {
-		updated, err := sjson.SetBytes(body, "service_tier", tier)
+	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
+		updated, err := sjson.SetBytes(body, "service_tier", forcedTier)
 		if err != nil {
-			return body, fmt.Errorf("force group service_tier %s on body: %w", tier, err)
+			return body, fmt.Errorf("force group service_tier %s on body: %w", forcedTier, err)
 		}
 		body = updated
 	}
@@ -2361,7 +2390,8 @@ func writeOpenAIFastPolicyBlockedResponse(c *gin.Context, err *OpenAIFastBlocked
 //   - filter: returns a copy with top-level service_tier removed
 //   - force_priority: keeps service_tier and rewrites it to "priority"
 //   - block: returns (frame, *OpenAIFastBlockedError)
-//   - Group forced tier: sets priority or ultrafast first, then applies the global rule
+//   - Group forced tier: the explicit custom tier wins; otherwise the model-scoped
+//     Ultrafast flag and Fast fallback apply, followed by the global rule
 //
 // Only frames whose "type" field strictly equals "response.create" are
 // inspected/mutated. Any other frame type — including the empty string —
@@ -2400,10 +2430,10 @@ func (s *OpenAIGatewayService) applyOpenAIFastPolicyToWSResponseCreate(
 	if frameType != "response.create" {
 		return frame, nil, nil
 	}
-	if tier := openAIGroupForcedServiceTier(ctx, account); tier != "" {
-		updated, err := sjson.SetBytes(frame, "service_tier", tier)
+	if forcedTier := openAIGroupForcedServiceTier(ctx, account, model); forcedTier != "" {
+		updated, err := sjson.SetBytes(frame, "service_tier", forcedTier)
 		if err != nil {
-			return frame, nil, fmt.Errorf("force group service_tier %s in ws frame: %w", tier, err)
+			return frame, nil, fmt.Errorf("force group service_tier %s in ws frame: %w", forcedTier, err)
 		}
 		frame = updated
 	}

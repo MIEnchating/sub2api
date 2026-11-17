@@ -290,6 +290,11 @@ func ForceOpenaiFast(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldForceOpenaiFast, v))
 }
 
+// ForceOpenaiUltrafast applies equality check predicate on the "force_openai_ultrafast" field. It's identical to ForceOpenaiUltrafastEQ.
+func ForceOpenaiUltrafast(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldForceOpenaiUltrafast, v))
+}
+
 // ForceOpenaiServiceTier applies equality check predicate on the "force_openai_service_tier" field. It's identical to ForceOpenaiServiceTierEQ.
 func ForceOpenaiServiceTier(v string) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldForceOpenaiServiceTier, v))
@@ -2265,9 +2270,19 @@ func ForceOpenaiFastEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldEQ(FieldForceOpenaiFast, v))
 }
 
+// ForceOpenaiUltrafastEQ applies the EQ predicate on the "force_openai_ultrafast" field.
+func ForceOpenaiUltrafastEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldEQ(FieldForceOpenaiUltrafast, v))
+}
+
 // ForceOpenaiFastNEQ applies the NEQ predicate on the "force_openai_fast" field.
 func ForceOpenaiFastNEQ(v bool) predicate.Group {
 	return predicate.Group(sql.FieldNEQ(FieldForceOpenaiFast, v))
+}
+
+// ForceOpenaiUltrafastNEQ applies the NEQ predicate on the "force_openai_ultrafast" field.
+func ForceOpenaiUltrafastNEQ(v bool) predicate.Group {
+	return predicate.Group(sql.FieldNEQ(FieldForceOpenaiUltrafast, v))
 }
 
 // ForceOpenaiServiceTierEQ applies the EQ predicate on the "force_openai_service_tier" field.

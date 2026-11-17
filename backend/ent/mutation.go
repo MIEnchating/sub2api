@@ -17461,6 +17461,7 @@ type GroupMutation struct {
 	allow_messages_dispatch                 *bool
 	allow_live                              *bool
 	force_openai_fast                       *bool
+	force_openai_ultrafast                  *bool
 	force_openai_service_tier               *string
 	free_openai_fast                        *bool
 	require_oauth_only                      *bool
@@ -20291,9 +20292,23 @@ func (m *GroupMutation) SetForceOpenaiFast(b bool) {
 	m.force_openai_fast = &b
 }
 
+// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
+func (m *GroupMutation) SetForceOpenaiUltrafast(b bool) {
+	m.force_openai_ultrafast = &b
+}
+
 // ForceOpenaiFast returns the value of the "force_openai_fast" field in the mutation.
 func (m *GroupMutation) ForceOpenaiFast() (r bool, exists bool) {
 	v := m.force_openai_fast
+	if v == nil {
+		return
+	}
+	return *v, true
+}
+
+// ForceOpenaiUltrafast returns the value of the "force_openai_ultrafast" field in the mutation.
+func (m *GroupMutation) ForceOpenaiUltrafast() (r bool, exists bool) {
+	v := m.force_openai_ultrafast
 	if v == nil {
 		return
 	}
@@ -20317,9 +20332,30 @@ func (m *GroupMutation) OldForceOpenaiFast(ctx context.Context) (v bool, err err
 	return oldValue.ForceOpenaiFast, nil
 }
 
+// OldForceOpenaiUltrafast returns the old force_openai_ultrafast field value.
+// An error is returned unless this is an UpdateOne mutation with a readable entity.
+func (m *GroupMutation) OldForceOpenaiUltrafast(ctx context.Context) (v bool, err error) {
+	if !m.op.Is(OpUpdateOne) {
+		return v, errors.New("OldForceOpenaiUltrafast is only allowed on UpdateOne operations")
+	}
+	if m.id == nil || m.oldValue == nil {
+		return v, errors.New("OldForceOpenaiUltrafast requires an ID field in the mutation")
+	}
+	oldValue, err := m.oldValue(ctx)
+	if err != nil {
+		return v, fmt.Errorf("querying old value for OldForceOpenaiUltrafast: %w", err)
+	}
+	return oldValue.ForceOpenaiUltrafast, nil
+}
+
 // ResetForceOpenaiFast resets all changes to the "force_openai_fast" field.
 func (m *GroupMutation) ResetForceOpenaiFast() {
 	m.force_openai_fast = nil
+}
+
+// ResetForceOpenaiUltrafast resets all changes to the "force_openai_ultrafast" field.
+func (m *GroupMutation) ResetForceOpenaiUltrafast() {
+	m.force_openai_ultrafast = nil
 }
 
 // SetForceOpenaiServiceTier sets the "force_openai_service_tier" field.
@@ -21565,6 +21601,9 @@ func (m *GroupMutation) Fields() []string {
 	if m.force_openai_fast != nil {
 		fields = append(fields, group.FieldForceOpenaiFast)
 	}
+	if m.force_openai_ultrafast != nil {
+		fields = append(fields, group.FieldForceOpenaiUltrafast)
+	}
 	if m.force_openai_service_tier != nil {
 		fields = append(fields, group.FieldForceOpenaiServiceTier)
 	}
@@ -21727,6 +21766,8 @@ func (m *GroupMutation) Field(name string) (ent.Value, bool) {
 		return m.AllowLive()
 	case group.FieldForceOpenaiFast:
 		return m.ForceOpenaiFast()
+	case group.FieldForceOpenaiUltrafast:
+		return m.ForceOpenaiUltrafast()
 	case group.FieldForceOpenaiServiceTier:
 		return m.ForceOpenaiServiceTier()
 	case group.FieldFreeOpenaiFast:
@@ -21874,6 +21915,8 @@ func (m *GroupMutation) OldField(ctx context.Context, name string) (ent.Value, e
 		return m.OldAllowLive(ctx)
 	case group.FieldForceOpenaiFast:
 		return m.OldForceOpenaiFast(ctx)
+	case group.FieldForceOpenaiUltrafast:
+		return m.OldForceOpenaiUltrafast(ctx)
 	case group.FieldForceOpenaiServiceTier:
 		return m.OldForceOpenaiServiceTier(ctx)
 	case group.FieldFreeOpenaiFast:
@@ -22285,6 +22328,13 @@ func (m *GroupMutation) SetField(name string, value ent.Value) error {
 			return fmt.Errorf("unexpected type %T for field %s", value, name)
 		}
 		m.SetForceOpenaiFast(v)
+		return nil
+	case group.FieldForceOpenaiUltrafast:
+		v, ok := value.(bool)
+		if !ok {
+			return fmt.Errorf("unexpected type %T for field %s", value, name)
+		}
+		m.SetForceOpenaiUltrafast(v)
 		return nil
 	case group.FieldForceOpenaiServiceTier:
 		v, ok := value.(string)
@@ -23073,6 +23123,9 @@ func (m *GroupMutation) ResetField(name string) error {
 		return nil
 	case group.FieldForceOpenaiFast:
 		m.ResetForceOpenaiFast()
+		return nil
+	case group.FieldForceOpenaiUltrafast:
+		m.ResetForceOpenaiUltrafast()
 		return nil
 	case group.FieldForceOpenaiServiceTier:
 		m.ResetForceOpenaiServiceTier()

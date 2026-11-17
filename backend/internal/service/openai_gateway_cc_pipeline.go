@@ -16,6 +16,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/Wei-Shaw/sub2api/internal/util/responseheaders"
 	"github.com/gin-gonic/gin"
+	"github.com/tidwall/gjson"
 	"go.uber.org/zap"
 )
 
@@ -27,9 +28,8 @@ import (
 //   - forwardAnthropicViaRawChatCompletions（/v1/messages → CC 回退）
 //
 // 以及 messages / chat_completions 两条 Responses 主路径中逐字相同的错误处理块。
-// 所有 helper 都是对既有内联代码的等价提取，不改变任何行为；各路径的差异
-// （GLM effort 归一化、fast policy、Grok 分支、ClientDisconnect 语义等）仍留在
-// 调用方，属于有意保留的行为差异，不在此强行统一。
+// CC 回退路径在此共用流完整性校验；各路径的模型/effort 归一化、fast policy、
+// Grok 分支与客户端协议编码仍留在调用方。
 
 // newUpstreamSSEScanner 构造读取上游 SSE 流的行扫描器，按配置放大单行上限。
 func (s *OpenAIGatewayService) newUpstreamSSEScanner(r io.Reader) *bufio.Scanner {
@@ -270,42 +270,38 @@ type ccStreamScanState struct {
 	// FirstTokenMs 为首个实际输出 chunk（排除 usage-only chunk）的到达时延。
 	FirstTokenMs *int
 	// SawDone 表示上游发出了 [DONE] 哨兵。
-	SawDone bool
-	// Err 为 scanner 读错误（客户端 context 取消不属于此类，会原样带出）。
-	// 非 nil 时调用方必须跳过 finalize 并返回 usage-incomplete 错误，避免
-	// 把上游截断伪装成正常收尾。
+	SawDone         bool
+	SawFinishReason bool
+	SawOutput       bool
+	// ErrorPayload is retained only for the existing sanitized Ops error recorder.
+	ErrorPayload []byte
+	// Err includes read failures, malformed/error events and missing output or
+	// completion. Callers must skip successful finalization when it is non-nil.
 	Err error
 }
 
 // scanCCStream 驱动两条 CC 回退路径共享的 SSE 读循环：提取 data 行、在 [DONE]
 // 哨兵处停止、保留最新 usage、记录首 token 时延，并把每个解析成功的 chunk 交给
-// emit 回调做各自的协议转换与写出。读错误按既有约定过滤 context 取消类噪声后
-// 记入 Warn 日志。
+// emit 回调做各自的协议转换与写出。由调用方在排除客户端断开后记录失败。
 func (s *OpenAIGatewayService) scanCCStream(
 	c *gin.Context,
 	resp *http.Response,
-	logPrefix string,
-	requestID string,
 	startTime time.Time,
 	emit func(*apicompat.ChatCompletionsChunk),
 ) ccStreamScanState {
 	var st ccStreamScanState
 	var protectionFinished, protectionIncomplete bool
-
-	scanner := s.newUpstreamSSEScanner(resp.Body)
-	for scanner.Scan() {
-		line := scanner.Text()
-		payload, ok := extractOpenAISSEDataLine(line)
-		if !ok {
-			continue
-		}
+	var explicitIncomplete bool
+	// Parse complete events so valid multiline JSON keeps its output and usage.
+	// The scanner already bounds both event bytes and line count.
+	processPayload := func(payload, eventType string) bool {
 		payload = strings.TrimSpace(payload)
 		if payload == "" {
-			continue
+			return true
 		}
 		if payload == "[DONE]" {
 			st.SawDone = true
-			break
+			return false
 		}
 		// 观察上游 CC chunk 回显的 model / service_tier；档位仅用于诊断，计费使用出站请求档位。
 		// CC chunk 无 type 字段，按 untyped payload 观察（上游约束：只有终止
@@ -321,35 +317,144 @@ func (s *OpenAIGatewayService) scanCCStream(
 			mergeOpenAICacheUsageEvidence(st.Usage, u)
 			st.Usage = *u
 		}
+		// Error envelopes are valid JSON but not ChatCompletionsChunk values:
+		// unmarshalling alone would silently discard their error fields.
+		if isRawChatCompletionsErrorPayload([]byte(payload)) ||
+			gjson.Get(payload, "type").String() == "response.failed" ||
+			eventType == "error" || eventType == "response.failed" {
+			st.ErrorPayload = []byte(payload)
+			st.Err = errOpenAIUpstreamStreamError
+			return false
+		}
 
 		var chunk apicompat.ChatCompletionsChunk
 		if err := json.Unmarshal([]byte(payload), &chunk); err != nil {
-			logger.L().Warn(logPrefix+": failed to parse chat stream chunk",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-			continue
+			st.Err = fmt.Errorf("%w: %w", errOpenAIUpstreamInvalidStream, err)
+			return false
 		}
-		if st.FirstTokenMs == nil && !isOpenAIChatUsageOnlyStreamChunk(payload) && chatChunkStartsResponsesOutput(&chunk) {
-			ms := int(time.Since(startTime).Milliseconds())
-			st.FirstTokenMs = &ms
+		for _, choice := range chunk.Choices {
+			if choice.FinishReason != nil && strings.TrimSpace(*choice.FinishReason) != "" {
+				st.SawFinishReason = true
+				// Explicit generation limits/filtering keep their existing protocol
+				// semantics, including when no content preceded the finish reason.
+				explicitIncomplete = explicitIncomplete || *choice.FinishReason == "length" || *choice.FinishReason == "content_filter"
+			}
+		}
+		if chatChunkStartsResponsesOutput(&chunk) {
+			st.SawOutput = true
+			if st.FirstTokenMs == nil {
+				ms := int(time.Since(startTime).Milliseconds())
+				st.FirstTokenMs = &ms
+			}
 		}
 		emit(&chunk)
+		return true
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn(logPrefix+": stream read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
+	processFrame := func(frame openAICompatSSEFrame, ok bool) bool {
+		if !ok {
+			return true
 		}
-		st.Err = err
+		if gjson.Valid(frame.Data) || strings.TrimSpace(frame.Data) == "[DONE]" {
+			return processPayload(frame.Data, frame.EventType)
+		}
+		// Preserve compatibility with providers omitting blank separators between
+		// independent JSON data lines, without silently ignoring malformed input.
+		for _, payload := range strings.Split(frame.Data, "\n") {
+			if !processPayload(payload, frame.EventType) {
+				return false
+			}
+		}
+		return true
+	}
+	var parser openAICompatSSEFrameParser
+	scanner := s.newUpstreamSSEScanner(resp.Body)
+	stopped := false
+	for scanner.Scan() {
+		if !processFrame(parser.AddLine(scanner.Text())) {
+			stopped = true
+			break
+		}
+	}
+	if !stopped {
+		processFrame(parser.Finish())
+	}
+
+	if st.Err == nil {
+		st.Err = scanner.Err()
+	}
+	if st.Err == nil {
+		switch {
+		case !st.SawDone && !st.SawFinishReason:
+			// Some providers attach cumulative usage to ordinary chunks; usage
+			// alone must not turn a clean EOF into a successful completion.
+			st.Err = ErrOpenAIUpstreamStreamTruncated
+		case !st.SawOutput && !explicitIncomplete:
+			st.Err = errOpenAIUpstreamEmptyResponse
+		}
 	}
 	if !st.SawDone || st.Err != nil || !protectionFinished || protectionIncomplete {
 		st.Usage.CacheReadKnown = false
 	}
 	return st
+}
+
+// ccStreamFailure preserves partial usage and gives both protocol handlers a
+// typed failure they can terminate explicitly. It does not replay a request
+// whose upstream may already have generated or billed tokens.
+func (s *OpenAIGatewayService) ccStreamFailure(
+	c *gin.Context,
+	account *Account,
+	resp *http.Response,
+	st *ccStreamScanState,
+	clientDisconnected bool,
+	logPrefix, upstreamModel string,
+) (error, bool) {
+	var clientErr error
+	if c != nil && c.Request != nil {
+		clientErr = c.Request.Context().Err()
+	}
+	if clientDisconnected || clientErr != nil {
+		st.Usage.CacheReadKnown = false
+		if clientErr == nil {
+			clientErr = context.Canceled
+		}
+		return fmt.Errorf("stream usage incomplete: %w", clientErr), true
+	}
+	if st.Err == nil {
+		return nil, false
+	}
+	// A read timeout/cancellation while the downstream request is still active
+	// is an upstream failure. Only actual client departure above suppresses it.
+	requestID := resp.Header.Get("x-request-id")
+	message := st.Err.Error()
+	if len(st.ErrorPayload) > 0 {
+		message = extractOpenAISSEErrorMessage(st.ErrorPayload)
+	}
+	message = sanitizeUpstreamErrorMessage(message)
+	if account != nil && len(st.ErrorPayload) > 0 {
+		// Keep terminal credential/rate/billing effects even though this metered
+		// attempt is deliberately not eligible for replay or failover.
+		s.handleOpenAIStreamTerminalAccountSideEffects(c, account, st.ErrorPayload, message, resp.Header, upstreamModel)
+	}
+	s.recordOpenAIStreamUpstreamError(c, account, false, requestID, "http_error", st.ErrorPayload, message)
+	fields := []zap.Field{
+		zap.Error(st.Err),
+		zap.String("upstream_request_id", requestID),
+		zap.String("upstream_model", upstreamModel),
+		zap.Bool("saw_done", st.SawDone),
+		zap.Bool("saw_finish_reason", st.SawFinishReason),
+		zap.Bool("saw_output", st.SawOutput),
+	}
+	if account != nil {
+		fields = append(fields, zap.Int64("account_id", account.ID))
+	}
+	log := logger.L()
+	if c != nil && c.Request != nil {
+		log = logger.FromContext(c.Request.Context())
+	}
+	log.Warn(logPrefix+": upstream stream failed", fields...)
+	return newOpenAIUpstreamStreamReadError(st.Err), false
 }
 
 // logCCStreamMissingDoneSentinel 记录"上游未发 [DONE] 哨兵即结束"的 debug 日志。

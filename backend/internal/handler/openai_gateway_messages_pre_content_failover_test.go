@@ -269,6 +269,7 @@ func TestOpenAIMessagesFailoverExhaustedAppliesFailedFrameRule(t *testing.T) {
 	require.Equal(t, 1, upstream.calls(), "body: %q", body)
 	require.Equal(t, http.StatusTeapot, rec.Code, "body: %q", body)
 	require.Equal(t, "upstream_error", gjson.Get(body, "error.type").String(), "body: %q", body)
+	// Actionable rate-limit messages remain visible under the upstream display policy.
 	require.Equal(t, "Rate limit reached for gpt-5.4", gjson.Get(body, "error.message").String(), "body: %q", body)
 }
 
@@ -281,6 +282,7 @@ func requireFailedFrameRuleJSON(t *testing.T, rec *httptest.ResponseRecorder) {
 	require.Equal(t, http.StatusTeapot, rec.Code, "body: %q", body)
 	require.Contains(t, rec.Header().Get("Content-Type"), "application/json")
 	require.Equal(t, "upstream_error", gjson.Get(body, "error.type").String(), "body: %q", body)
+	// Actionable rate-limit messages remain visible under the upstream display policy.
 	require.Equal(t, "Rate limit reached for gpt-5.4", gjson.Get(body, "error.message").String(), "body: %q", body)
 }
 

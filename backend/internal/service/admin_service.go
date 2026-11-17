@@ -296,6 +296,7 @@ type CreateGroupInput struct {
 	AllowLive                   bool
 	ForceOpenAIFast             bool
 	ForceOpenAIServiceTier      *string // Forced OpenAI tier: empty, priority, or ultrafast.
+	ForceOpenAIUltrafast        bool
 	FreeOpenAIFast              bool
 	DefaultMappedModel          string
 	RequireOAuthOnly            bool
@@ -382,6 +383,7 @@ type UpdateGroupInput struct {
 	AllowLive                   *bool
 	ForceOpenAIFast             *bool
 	ForceOpenAIServiceTier      *string // Forced OpenAI tier: empty, priority, or ultrafast.
+	ForceOpenAIUltrafast        *bool
 	FreeOpenAIFast              *bool
 	DefaultMappedModel          *string
 	RequireOAuthOnly            *bool
