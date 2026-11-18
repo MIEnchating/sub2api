@@ -4594,3 +4594,271 @@ Release 工作流、打包、完整/简易矩阵、版本/提交绑定、校验�
 - 集成标签仓储编译尝试保留，Docker 不可用时 harness 按原代码退出；不把退出 0 描述为真实 PostgreSQL/Redis 集成通过。后端完整构建因本地缓存缺少 jsonschema-go / uritemplate / segmentio/encoding 未完成；govulncheck 与 pnpm 在线审计未完成。不改变仓库 Go 1.27.4 要求；本地验证仅用缓存 Go 1.27.3、独立临时 modfile，以及仅替代缺离线依赖的旧 openai_responses_tool_schema_test.go 的 overlay，本轮新增/受影响断言均保留。
 - 同步自动化 115 项通过（2 项条件跳过）；日志内派发/标签是隔离夹具。再次检查排除规则、真实冲突标记、发布基准到临时候选的 whitespace、354 份 SQL、真实 index 的 SHA-256 / 未合并 stages 和 HEAD 均符合要求。32 条真实未合并索引路径原样保留供外层临时索引核对；工作树源文件没有未解决冲突。
 - 未 fetch、git add、commit、push、打 tag、发布或重启服务。本轮没有发布新版本；服务版本仍为 2026.10.23，第二上游来源版本为 v0.2.22-custom.1。任务开始时间 2026-11-17 16:30:01 UTC；报告时间 2026-11-17 18:00:13 UTC。
+
+
+## 2026-11-18 主上游集中冲突修复
+
+接手 origin/main=8f245bd1d40b200c6eb53cc6c28a20a383f4f3fc；当前合并侧 upstream/main=2af3f1e15c98c893a89255a037f551046883b8c0；第二上游 overdraft/sub2api-custom=6507a98d48ced501ff5a9f31fd043e1b0838ecc3。只修改临时工作树，未 fetch、git add、commit、push、打 tag、发布或重启服务。真实索引 12 条冲突路径的全部 stages 原样保留；工作树文本冲突已逐块解决，外层统一暂存。
+
+### 累计范围与融合
+
+发布基准 v2026.10.23（23fd587350eb02645d5cac41796f837b2fb957a5）以来两上游共有356个去重非合并提交（主上游298、第二上游355），其中336个此前已在HEAD，本轮增加20个。另逐项核对第二上游6507a98d4手工合并的96条变更路径，补齐独立倍率快照、BPS桶与回归，不因没有额外非合并提交而忽略。累计未发布变动还覆盖Gemini 4/Vertex区域与计费、Claude配额/令牌轮换、Grok、工具schema、调度、质量恢复、MCP、范围管理员和摘要密钥、QQ奖励/公告/成长、发票/充值券、Codex 292/332/780、Excel/BPS/Mihomo/SmartWS、固定IPv6/OVH与VM退休。前节累计产品边界仍适用。
+
+- 服务VERSION保留2026.10.23；FORK_VERSION更新v0.2.23-custom.1，仅标明来源，未发布本项目新版本。
+- ClaudeUsage和SSE patch合并缓存证据、aggregate presence、TTL和prompt total状态，保留cache-only更新、部分/零值快照及别名。OpenAIUsage保留图片、可信缓存、30m/12h及新增5m/1h桶。
+- BPS按普通输入计缓存创建时统一清零所有TTL写入桶，日志与实际落账一致，原始usage不改写；扩展原BPS测试矩阵验证5m/1h。
+- Responses终结事件顶层usage保留，避免重复合并；保留响应内usage覆盖顺序、原始TTL与缓存证据。新增CC回归适配现有账号参数及错误副作用。
+- 显式priority/ultrafast维持既有行为；模型门控选项增加GPT-6.2套餐/目录权限与独立Fast回退。双语文案覆盖旧显式选项、套餐、促销日期和渠道倍率。
+- 修复自动合并遗留的pricingAt未定义及调用链遗漏：默认价、统一计算、分组/渠道按请求时点计GPT-6.2倍率；时间无关断点传零时点。自定义倍率及DeepSeek显式价格仍优先。
+- api_key_usage_snapshot.go深拷贝UltrafastMultiplier并补回第二上游回归，延迟结算不受后来分组修改影响。
+- ChannelsView继续共用modelPricingSync填价/拆价及竞态保护，在createPricingEntry加入ultrafast_multiplier:null。内存回归复用限时子进程隔离，移除重复实现的未用import。
+- 新252_channel_pricing_ultrafast_multiplier.sql按完整文件名独立登记，与已有252排序迁移并存；可空、正值约束和幂等DDL保留。
+
+### 排除与数据库兼容
+
+主上游缺失65条路径均为批量专属；第二上游缺失73条路径为68条批量专属、2条共享专属、2条通用面板认证重命名、1条此前删除的不可达780缓存。实际panel_key_auth认证与测试、780探针/反馈、普通账号/代理池、普通生图、异步单图和通用合并扣费均保留，不把同名无关共享配额删掉。
+
+发布基准354份SQL逐字节不变；历史批量SQL和migrations_runner.go校验和兼容记录与接手HEAD一致。不删除表、数据、历史字段或冻结余额，不自动退款。
+
+本轮明确排除的共享账号池专属路径：
+- `backend/migrations/255_retire_shared_account_pool.sql`
+- `backend/migrations/retire_shared_account_pool_integration_test.go`
+
+本轮明确排除的批量专属路径和混合文件内批量代码位置（混合文件其他功能保留；通用面板认证测试仅替换批量测试路由）：
+- `backend/cmd/server/wire.go`
+- `backend/cmd/server/wire_gen.go`
+- `backend/cmd/server/wire_gen_test.go`
+- `backend/ent/batchimageevent.go`
+- `backend/ent/batchimageevent/batchimageevent.go`
+- `backend/ent/batchimageevent/where.go`
+- `backend/ent/batchimageevent_create.go`
+- `backend/ent/batchimageevent_delete.go`
+- `backend/ent/batchimageevent_query.go`
+- `backend/ent/batchimageevent_update.go`
+- `backend/ent/batchimageitem.go`
+- `backend/ent/batchimageitem/batchimageitem.go`
+- `backend/ent/batchimageitem/where.go`
+- `backend/ent/batchimageitem_create.go`
+- `backend/ent/batchimageitem_delete.go`
+- `backend/ent/batchimageitem_query.go`
+- `backend/ent/batchimageitem_update.go`
+- `backend/ent/batchimagejob.go`
+- `backend/ent/batchimagejob/batchimagejob.go`
+- `backend/ent/batchimagejob/where.go`
+- `backend/ent/batchimagejob_create.go`
+- `backend/ent/batchimagejob_delete.go`
+- `backend/ent/batchimagejob_query.go`
+- `backend/ent/batchimagejob_update.go`
+- `backend/ent/client.go`
+- `backend/ent/ent.go`
+- `backend/ent/group.go`
+- `backend/ent/group/group.go`
+- `backend/ent/group/where.go`
+- `backend/ent/group_create.go`
+- `backend/ent/group_update.go`
+- `backend/ent/hook/hook.go`
+- `backend/ent/intercept/intercept.go`
+- `backend/ent/migrate/schema.go`
+- `backend/ent/mutation.go`
+- `backend/ent/predicate/predicate.go`
+- `backend/ent/runtime/runtime.go`
+- `backend/ent/schema/batch_image_event.go`
+- `backend/ent/schema/batch_image_item.go`
+- `backend/ent/schema/batch_image_job.go`
+- `backend/ent/schema/group.go`
+- `backend/ent/tx.go`
+- `backend/internal/config/config.go`
+- `backend/internal/config/config_test.go`
+- `backend/internal/handler/admin/group_handler.go`
+- `backend/internal/handler/admin/group_handler_simple_mode_test.go`
+- `backend/internal/handler/batch_image_error_message_test.go`
+- `backend/internal/handler/batch_image_handler.go`
+- `backend/internal/handler/dto/mappers.go`
+- `backend/internal/handler/dto/types.go`
+- `backend/internal/handler/gateway_model_allowlist_listing_test.go`
+- `backend/internal/handler/handler.go`
+- `backend/internal/handler/security_audit_media_submit_test.go`
+- `backend/internal/handler/security_audit_order_test.go`
+- `backend/internal/handler/wire.go`
+- `backend/internal/repository/api_key_repo.go`
+- `backend/internal/repository/batch_image_download_limiter.go`
+- `backend/internal/repository/batch_image_download_limiter_test.go`
+- `backend/internal/repository/batch_image_queue.go`
+- `backend/internal/repository/batch_image_queue_test.go`
+- `backend/internal/repository/batch_image_repo.go`
+- `backend/internal/repository/batch_image_repo_integration_test.go`
+- `backend/internal/repository/group_repo.go`
+- `backend/internal/repository/usage_billing_repo.go`
+- `backend/internal/repository/usage_billing_repo_unit_test.go`
+- `backend/internal/repository/wire.go`
+- `backend/internal/server/api_contract_test.go`
+- `backend/internal/server/middleware/api_key_auth.go`
+- `backend/internal/server/middleware/group_model_allowlist_test.go`
+- `backend/internal/server/middleware/panel_api_key_auth_test.go`
+- `backend/internal/server/routes/gateway.go`
+- `backend/internal/server/routes/prompt_audit_route_coverage_test.go`
+- `backend/internal/server/routes/user.go`
+- `backend/internal/service/admin_group.go`
+- `backend/internal/service/admin_group_duplicate.go`
+- `backend/internal/service/admin_group_duplicate_test.go`
+- `backend/internal/service/admin_service.go`
+- `backend/internal/service/admin_service_group_test.go`
+- `backend/internal/service/api_key_auth_cache.go`
+- `backend/internal/service/api_key_auth_cache_impl.go`
+- `backend/internal/service/batch_image.go`
+- `backend/internal/service/batch_image_billing_hold.go`
+- `backend/internal/service/batch_image_billing_recovery.go`
+- `backend/internal/service/batch_image_billing_recovery_test.go`
+- `backend/internal/service/batch_image_cleanup.go`
+- `backend/internal/service/batch_image_cleanup_test.go`
+- `backend/internal/service/batch_image_download.go`
+- `backend/internal/service/batch_image_download_test.go`
+- `backend/internal/service/batch_image_error_message_test.go`
+- `backend/internal/service/batch_image_mvp_smoke_test.go`
+- `backend/internal/service/batch_image_processor.go`
+- `backend/internal/service/batch_image_processor_test.go`
+- `backend/internal/service/batch_image_provider.go`
+- `backend/internal/service/batch_image_provider_gemini.go`
+- `backend/internal/service/batch_image_provider_gemini_test.go`
+- `backend/internal/service/batch_image_provider_vertex.go`
+- `backend/internal/service/batch_image_provider_vertex_test.go`
+- `backend/internal/service/batch_image_public.go`
+- `backend/internal/service/batch_image_public_test.go`
+- `backend/internal/service/batch_image_queue.go`
+- `backend/internal/service/batch_image_settlement.go`
+- `backend/internal/service/batch_image_settlement_test.go`
+- `backend/internal/service/batch_image_test.go`
+- `backend/internal/service/batch_image_worker.go`
+- `backend/internal/service/batch_image_worker_runtime.go`
+- `backend/internal/service/batch_image_worker_runtime_redis_test.go`
+- `backend/internal/service/batch_image_worker_runtime_test.go`
+- `backend/internal/service/batch_image_worker_test.go`
+- `backend/internal/service/group.go`
+- `backend/internal/service/group_unavailable_fallback_test.go`
+- `backend/internal/service/usage_billing.go`
+- `backend/internal/service/usage_billing_lane.go`
+- `backend/internal/service/usage_billing_lane_test.go`
+- `backend/internal/service/wire.go`
+- `deploy/EDGE_SECURITY.md`
+- `deploy/docker-compose.dev.yml`
+- `docs/BATCH_IMAGE_MVP.md`
+- `frontend/src/api/__tests__/batchImage.panel.spec.ts`
+- `frontend/src/api/batchImage.ts`
+- `frontend/src/api/index.ts`
+- `frontend/src/components/layout/AppSidebar.vue`
+- `frontend/src/components/user/dashboard/UserDashboardQuickActions.vue`
+- `frontend/src/composables/__tests__/useBatchImageAccess.retry.spec.ts`
+- `frontend/src/composables/useBatchImageAccess.ts`
+- `frontend/src/i18n/locales/en/admin/accounts.ts`
+- `frontend/src/i18n/locales/en/admin/overview.ts`
+- `frontend/src/i18n/locales/en/batchImage.ts`
+- `frontend/src/i18n/locales/en/common.ts`
+- `frontend/src/i18n/locales/en/dashboard.ts`
+- `frontend/src/i18n/locales/en/index.ts`
+- `frontend/src/i18n/locales/en/landing.ts`
+- `frontend/src/i18n/locales/zh/admin/accounts.ts`
+- `frontend/src/i18n/locales/zh/admin/overview.ts`
+- `frontend/src/i18n/locales/zh/batchImage.ts`
+- `frontend/src/i18n/locales/zh/common.ts`
+- `frontend/src/i18n/locales/zh/dashboard.ts`
+- `frontend/src/i18n/locales/zh/index.ts`
+- `frontend/src/i18n/locales/zh/landing.ts`
+- `frontend/src/router/index.ts`
+- `frontend/src/types/index.ts`
+- `frontend/src/views/admin/DashboardView.vue`
+- `frontend/src/views/admin/GroupsView.vue`
+- `frontend/src/views/admin/__tests__/GroupsView.codexManifest.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.duplicate.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.openaiForcedTier.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.openaiServiceTier.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.smartWS.spec.ts`
+- `frontend/src/views/admin/__tests__/GroupsView.strictFailover.spec.ts`
+- `frontend/src/views/user/BatchImageGuideView.vue`
+
+### 验证记录
+
+证据位于 /tmp/nov18-review/，完整结果与限制如下：
+
+- 前端全量一次运行 506 套件、4459 项全部通过；专项 22 套件、232 项通过，TypeScript、ESLint 和 Vite 生产构建通过，构建产物仅写 /tmp。在线依赖审计因 registry DNS 不可达未完成，不将错误响应视作安全通过。
+- 受影响后端 433 个顶层测试逐项独立运行全部通过；直接依赖的缓存证据、延迟结算、上下文与权限回归另 35 个全部通过，无空测试选择，两组去重 462 个顶层测试。受影响五包 Go vet 通过，75 个变动 Go 文件格式通过。
+- 完整 backend unit / integration 已运行并收集全部失败：unit 5080 项含子测试通过、34 项失败；integration 3783 项含子测试通过、30 项失败。失败逐项核对为本地监听、出口发现限制；另外缺少 jsonschema-go、uritemplate、segmentio/encoding、x/tools 的离线模块阻止部分包构建。Docker harness 按条件退出不代表真实数据库集成通过。不声称完整后端测试、后端生产构建、全量 lint 或在线安全扫描通过。
+- 后端验证使用缓存 Go 1.27.3 和 /tmp 中仅调整工具补丁版本的 modfile，仓库 Go 1.27.4 要求及依赖未修改；overlay 仅替代缺少离线模块的旧 openai_responses_tool_schema_test.go，未替代本轮新增或修复断言。全量 lint / govulncheck 已尝试，工具包加载未完成，诊断保存在 backend-lint-complete.log / backend-security-complete.log。
+- 同步自动化共执行 115 项，其中 2 项按条件跳过、其余通过；发布辅助 16 项通过，Shell 语法、Compose 安全/网关/资源/简化模式及 Caddy 检查通过。Apple 容器测试因缺少 macOS plutil 未完成。自动化测试中的派发记录为隔离夹具，没有真实发布操作。
+- 最终仅以临时索引和独立对象目录构造候选，检查实际冲突标记、相对 HEAD 与发布基准的 whitespace、功能排除、354 份已发布 SQL、全部历史批量 SQL 和 checksum 兼容记录。真实索引 SHA-256、12 条冲突路径的全部 stages 及 HEAD 均与接手时一致，保留 :2/:3；工作树文件不存在未解决冲突。临时 frontend/node_modules 链接已移除。
+- 本轮没有发布新版本：用户仅授权工作树修复。未 fetch、git add、commit、push、打 tag、发布或重启服务；VERSION 为 2026.10.23，FORK_VERSION 为 v0.2.23-custom.1。运行开始 2026-11-18 16:30:01 UTC；最终记录时间 2026-11-18 16:55:44 UTC。
+
+## 2026-11-18 第二上游集中冲突修复
+
+本阶段接手 HEAD=35caa3875，合并侧为 overdraft/sub2api-custom=6507a98d4；origin/main=8f245bd1d、upstream/main=2af3f1e15，未更新远程引用。继续以 v2026.10.23（23fd587350eb02645d5cac41796f837b2fb957a5）审查整个未发布窗口：主上游 298、第二上游 355 个非合并提交，去重 356 个，其中 336 个已在 origin/main，本轮新增 20 个。前节累计功能及剩余产品边界继续适用，不将第二上游此次仅有一个合并提交误判为空更新。
+
+### 冲突融合和功能保留
+
+- 逐块核对真实索引的 7 条冲突路径及第二上游手工合并的全部 96 条变动路径。VERSION 保持本项目已发布的 2026.10.23，FORK_VERSION 保留 v0.2.23-custom.1 来源标识。
+- OpenAIUsage 将缓存写入总量、5m/1h 和 30m/12h 放在同一结构中，每个字段只保留一次；保留缓存可信证据、图片输入/输出、缓存图片和 aggregate presence 字段。
+- BPS 普通输入计费选项在 usage 副本上清零全部缓存写入总量及 TTL 桶，再统一推导互斥计费桶；保留原始响应用量和图片证据。测试同时保留无 TTL、半分和四分 TTL、流式/非流式、余额/订阅的交叉矩阵，以及非 BPS 端点的正常缓存计费。
+- 双语 Ultra Fast 说明同时覆盖支持模型、GPT-6.2 OAuth 套餐/目录权限、Fast 回退、促销截止与渠道自定义倍率。显式档位不受新增模型门控替换，全局策略仍生效。
+- 再核对已融合的公共内存隔离 helper、Anthropic prompt total/缓存证据、渠道公共填价/DeepSeek 拆价与竞态保护、UltrafastMultiplier 延迟计费深拷贝及完整文件名登记的新迁移；没有通过恢复旧实现覆盖这些功能。
+- 第二上游的质量保护与恢复、严格分层/fallback、定时检测和视觉评审、Codex 292/332/780、Excel/BPS、Mihomo/SmartWS、固定 IPv6/OVH、QQ 奖励/成长/公告、充值券和发票全部继续保留。主上游的模型、网关、缓存计费、MCP、范围管理员和安全更新完整保留。
+
+### 排除及数据兼容
+
+本阶段重新明确核对前节列出的 149 条批量专属路径/混合文件内批量代码，以及两条共享专属路径 `backend/migrations/255_retire_shared_account_pool.sql` 和 `backend/migrations/retire_shared_account_pool_integration_test.go`；清单和边界不变。两上游分别缺失 65/73 条路径，均逐项归类。第二上游其中两条通用认证文件已由 panel_key_auth.go 及测试承接；无调用方的旧 780 路由缓存不承载实际探针/反馈功能。普通账号池、账号代理池、普通生图和异步单图路由完整保留。
+
+额外逐行核对机器规则允许的共用测试，删除 `frontend/src/views/admin/__tests__/GroupsView.openaiForcedTier.spec.ts` 夹具残留的 allow_batch_image_generation、batch_image_discount_multiplier、batch_image_hold_multiplier 三个字段；只保留证明旧路由/导航不存在的回归断言，不保留批量支持测试。
+
+354 份已发布 SQL 相对发布基准逐字节不变；历史批量 SQL 及 migrations_runner.go 校验兼容记录与 HEAD 一致。没有删除表、记录、历史分组字段或冻结余额，也没有连接数据库、自动退款或处理旧批量队列。
+
+仅修改工作树。原始索引 SHA-256、7 条冲突路径的全部 stages 和 HEAD 保持不变；源码内容已解决，UU 供外层暂存前核对 :2/:3。候选通过独立临时索引/对象库检查实际冲突标记、相对 HEAD 和发布基准的 whitespace、排除规则及历史 SQL。证据目录为 /tmp/nov18-second-review/。本阶段没有 fetch、git add、commit、push、打 tag、发布或重启服务；没有发布新版本。
+
+### 本阶段验证
+
+- 新编译的服务层 unit 测试逐项运行 444 个顶层测试、含子用例 2693 项全部通过，无空测试选择；包含计费、缓存可信证据、TTL、HTTP/WS 档位、倍率快照、普通图片及分组权限相关断言。服务层 Go vet 及四个修改 Go 文件的 gofmt 检查通过。
+- 使用与 package.json/pnpm-lock.yaml 逐字节一致、实际 vue-i18n 11.4.16 的依赖；8 个前端专项套件、40 项测试，TypeScript、相关 ESLint 及生产构建通过。初次误用主工作树旧版依赖的失败保留在 frontend.log，已切换匹配依赖重跑，未修改安全断言或产品配置。构建产物只在 /tmp；测试夹具清理后再次重跑同一专项集合。
+- 排除检查及其 7 项规则回归通过；另逐行检查全部 149 条批量排除路径，避免共用测试豁免掩盖支持字段。前节全量后端/前端和自动化验证记录继续可追溯，不将本阶段专项重跑宣称为新一次全量验证。
+- 后端使用前节的临时 Go 1.27.3 modfile 和仅替代缺少离线依赖的旧工具 schema 测试 overlay，仓库 Go 1.27.4 要求、产品依赖和当前回归断言不变。未将环境执行限制列为产品风险。
+
+## 2026-11-18 最终双上游兼容复核
+
+接手候选 HEAD=e198a0eb8a939cd9e6801befb818dcc55918dc94，真实索引无未合并项，工作树干净。origin/main=8f245bd1d、upstream/main=2af3f1e15 和 overdraft/sub2api-custom=6507a98d4 均已包含在候选历史。本阶段不把前两阶段保留过的 :2/:3 描述为当前仍存在，也不改写真实索引。
+
+累计范围按注解标签 v2026.10.23 解引用后的发布提交 23fd587350eb02645d5cac41796f837b2fb957a5 计算，而非标签对象 31de8723f。完整未发布窗口包含两上游去重 356 个非合并提交，其中 336 个已在 origin/main，本轮增加 20 个；候选原有累计净差异为 2659 个文件、273156 行增加、27402 行删除。重新核对双方提交记录、96 条第二上游手工合并路径及前两阶段冲突融合结果，不以本次增量替代累计审查。
+
+### 语义兼容与本阶段修改
+
+- 核对缓存 aggregate presence、可信证据、Anthropic 5m/1h 和 OpenAI 30m/12h 桶的互斥投影及余量计费；BPS 仅在计费副本清空全部写缓存桶，原始响应、图片证据和非 BPS 计费不变。
+- 核对首输出超时和默认一次换号预算；严格分层模式仍按已有有界层级遍历规则耗尽当前层，保留第二上游严格 fallback 语义。仅 keepalive 可安全重试，已有输出不重放；GPT-6.2 套餐/目录权限、显式档位及 Fast 回退同时保留。
+- 新增 channel_ultrafast_pricing_test.go::TestGPT62ChannelUltrafastPricingUsesRequestTimeAndOverride：两种 GPT-6.2 模型、默认/自定义渠道倍率，复用同一价卡按促销截止前、截止后、再回到截止前结算，独立验证四类 token 成本、总额及价卡不被请求污染。前述生产融合逻辑无需改写。
+- 累计保留 Gemini/Vertex 区域与计费、Claude 配额/令牌轮换、Grok、MCP OAuth、范围管理员权限、摘要密钥、质量规则与恢复、严格分层及 outbox、Codex 292/332/780、Excel/BPS、Mihomo/SmartWS、固定 IPv6/OVH、QQ 公告/成长/金额达标日奖励/持久投递、发票/PDF/充值券和普通账号/代理池。
+
+### 排除与历史数据
+
+关闭 rename 检测逐路径核对：主上游缺少的 65 条路径全部为批量专属；第二上游缺少的 73 条为 68 条批量专属、两条共享专属、两条改名的通用面板认证及一个已有不可达 780 路由缓存。Git 默认重命名检测只显示 63/71 条删除，不能据此认定已恢复退役文件。panel_key_auth.go 与第二上游 panel_api_key_auth.go 内容逐字节一致；普通面板鉴权及回归保留。780 探针仍要求每个候选重新签发并通过原票据续接，跨候选不复用回归及实际探针/反馈保留。
+
+继续明确排除共享专属 backend/migrations/255_retire_shared_account_pool.sql 和 backend/migrations/retire_shared_account_pool_integration_test.go。逐条复核前节批量 ORM/schema、handler/repository/service、前端 API/composable/view/文案/专属测试、docs/BATCH_IMAGE_MVP.md，以及混合用途文件内的批量入口、字段、队列、计费、配置和依赖。通用 panel_api_key_auth 测试改名不计为批量测试排除；只保留旧路由和导航不可用的否定回归。普通账号池、账号代理池、共享配额/缓存预算等无关概念不受排除影响。
+
+354 份已发布 SQL 与发布基准逐字节一致；全部历史批量 SQL 及 migrations_runner.go 的批量校验和兼容记录保持。累计新增 SQL 按完整文件名登记，同编号不同文件名迁移独立保留，252_channel_pricing_ultrafast_multiplier.sql 不覆盖旧迁移。不删除历史批量表、记录或冻结余额，不连接生产数据库或自动退款；普通生图和异步单图路由保留。
+
+### 累计剩余产品边界
+
+- 摘要密钥转换和质量归档/软删除/租约迁移不能仅靠旧镜像回滚；旧进程不识别新档位和部分鉴权快照/槽位 TTL。
+- 历史批量队列不会再执行或结算，升级前需旧版完成/取消并核对冻结余额。
+- VM 退休禁用绑定母/影子账号，恢复须解绑和还原路由；IPv6/OVH 地址段及状态目录不得重叠，高水位回滚可能复用地址。
+- HTML 视觉裁判缺失或失败时成功生成仍默认通过，可恢复调度。
+- EasyPay 非标准回调及充值券迟到付款保留人工对账/审核边界。
+- 代理端 DNS、本地邮箱名单最多 60 秒缓存/首次读库失败空名单及有效期内 BPS 图片 URL 的访问能力保留。
+- 严格票据拒绝不能撤销既有上游费用，有限断连排水后的 usage 和无持久重试的配额补写可能遗漏。
+- 有限通知队列可能丢通知；凭据密钥需跨实例一致；QQ 图片 token 为预算估算，群权限/每日额度及 30 天公告幂等墓碑保留。
+- QQ 日奖励退款不追回、游标前迟到不补奖、删除重建会重算历史资格。
+
+本阶段仅修改测试和审查记录，没有 fetch、git add、commit、push、打 tag、发布或重启服务；没有发布新版本，VERSION 仍为 2026.10.23，FORK_VERSION 为 v0.2.23-custom.1。验证证据写入 /tmp/nov18-final-review/，结果后续补记。之前阶段全量验证的执行范围继续如实保留，不将专项通过等同于完整后端/安全/发布验收。
+
+### 本阶段验证
+
+- 新编译服务层 unit 回归逐项执行 445 个顶层测试、含子用例 2698 项全部通过；另选累计权限、质量规则、邮箱名单及 780 续接回归 50 个顶层测试、含子用例 153 项全部通过。两个集合独立报告，不将重复用例相加计为去重总数。
+- apicompat、openai 和 migrations 三包 unit 测试分别通过 738、174 和 171 项（含子用例），没有跳过项；这不等同于实际 PostgreSQL 数据库集成执行。服务层 go vet 与修改 Go 文件 gofmt 通过。
+- 同步自动化 115 项，其中 2 项按条件跳过，其余通过；发布辅助 16 项通过。测试中的 fetch、提交和派发仅发生在临时隔离夹具，无真实仓库/发布操作。
+- 前端使用与当前 package.json、pnpm-lock.yaml 逐字节匹配的已有依赖，vue-i18n 为 11.4.16。类型检查、全量 ESLint 和 Vite 生产构建通过，构建产物只写 /tmp。全量测试结果另行补记。
+- Go 继续使用缓存 1.27.3 工具链及 /tmp 临时 modfile，仅为可用补丁版本适配；overlay 仅替代离线依赖不足的旧工具 schema 测试，不替代当前回归断言，仓库 Go 1.27.4 及产品依赖未变。完整后端、真实数据库与在线安全检查沿用前阶段已记录结果，不声称本阶段重新全量通过。
+- 逐条验证 148 处批量排除位置：68 条专属文件不存在、80 条混合文件无批量支持代码；两条共享专属路径不存在。迁移运行器的完整 checksum 兼容定义与发布树逐字节一致，docs/deploy/public 额外扫描只发现排除政策和历史审查记录，无退役操作说明或资源入口。
+- 前端全量首次 506 套件、4459 项断言全通过，但退出时写入只读依赖目录的 Vitest 缓存失败，进程非零退出；保留 frontend-all.log。随后使用 --no-cache 重新完整运行，506 套件、4459 项全部通过且退出码 0，结果在 frontend-all-nocache.log；未改变测试断言或产品代码。
+- 最终移除本阶段 frontend/node_modules 临时链接，仅留下 channel_ultrafast_pricing_test.go 与本审查文档的预期变更；独立临时索引/对象目录重新检查冲突标记、相对 HEAD 和发布基准的 whitespace、功能排除、354 份历史 SQL，真实索引 SHA-256、全部 stages 和 HEAD 与接手时相同。决策按指定 schema 严格校验。运行开始 2026-11-18 16:30:01 UTC；本阶段收尾 2026-11-18 17:50 UTC，未发布新版本。

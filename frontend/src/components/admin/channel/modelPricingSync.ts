@@ -46,6 +46,7 @@ export function createPricingEntry(models: string[], pricing?: ModelDefaultPrici
     ...defaultPriceFields(pricing),
     fast_multiplier: null,
     flex_multiplier: null,
+    ultrafast_multiplier: null,
     per_request_price: null,
     intervals: [],
     time_pricing: createDefaultTimePricingForm(),

@@ -32,6 +32,7 @@ export interface PricingFormEntry {
   cache_read_price: number | string | null
   fast_multiplier?: number | string | null
   flex_multiplier?: number | string | null
+  ultrafast_multiplier?: number | string | null
   reasoning_effort_multipliers?: Record<string, number | string> | null
   /** Legacy single effort multiplier retained for form/test compatibility; API writes the map above. */
   max_reasoning_effort_multiplier?: number | string | null

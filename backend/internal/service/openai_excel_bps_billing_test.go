@@ -92,7 +92,7 @@ func TestExcelBPSCacheCreationAsInputBilling(t *testing.T) {
 						if tt.option != nil {
 							extra["openai_excel_bps_cache_creation_as_input"] = tt.option
 						}
-						original := OpenAIUsage{InputTokens: tt.input, CacheCreationInputTokens: tt.creation, CacheReadInputTokens: tt.read, OutputTokens: tt.output}
+						original := OpenAIUsage{InputTokens: tt.input, CacheCreationInputTokens: tt.creation, CacheCreation5mTokens: tt.creation / 2, CacheCreation1hTokens: tt.creation - tt.creation/2, CacheReadInputTokens: tt.read, OutputTokens: tt.output}
 						if withTTL {
 							original.CacheCreation30mInputTokens = tt.creation / ttlDivisor
 							original.CacheCreation12hInputTokens = tt.creation - tt.creation/ttlDivisor
@@ -112,6 +112,8 @@ func TestExcelBPSCacheCreationAsInputBilling(t *testing.T) {
 						log := usageRepo.lastLog
 						require.Equal(t, tt.wantInput, log.InputTokens)
 						require.Equal(t, tt.wantCreation, log.CacheCreationTokens)
+						require.Equal(t, tt.wantCreation/2, log.CacheCreation5mTokens)
+						require.Equal(t, tt.wantCreation-tt.wantCreation/2, log.CacheCreation1hTokens)
 						if withTTL {
 							require.Equal(t, tt.wantCreation/ttlDivisor, log.CacheCreation30mTokens)
 							require.Equal(t, tt.wantCreation-tt.wantCreation/ttlDivisor, log.CacheCreation12hTokens)
@@ -126,8 +128,8 @@ func TestExcelBPSCacheCreationAsInputBilling(t *testing.T) {
 						wantInputCost := float64(tt.wantInput) * 5e-6
 						wantCreationCost := float64(tt.wantCreation) * 6.25e-6
 						if withTTL {
-							// Known 12h writes use the official 2.5x input price;
-							// unknown lifetimes keep the legacy aggregate price.
+							// Catalog TTL prices: 30m writes cost 1.25x input and 12h
+							// writes cost 2.5x; unknown TTLs keep the aggregate price.
 							wantCreationCost = float64(tt.wantCreation/ttlDivisor)*6.25e-6 + float64(tt.wantCreation-tt.wantCreation/ttlDivisor)*12.5e-6
 						}
 						wantReadCost := float64(tt.read) * 0.5e-6
