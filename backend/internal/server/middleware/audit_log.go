@@ -110,9 +110,12 @@ func truncateAuditExtraString(value string, limit int) string {
 	return string(runes[:limit])
 }
 
+const qqRewardReportAuditRoute = "GET /api/v1/admin/qqbot/reports"
+
 // auditSensitiveReads 需要审计的敏感 GET 读取（method+FullPath → 动作名）。
 var auditSensitiveReads = map[string]string{
 	"GET /api/v1/admin/qqbot/records/:kind":          "admin.qqbot.activities.records.read",
+	qqRewardReportAuditRoute:                         "admin.qqbot.reports.read",
 	"GET /api/v1/admin/qqbot/lottery/draws":          "admin.qqbot.lottery.draws.read",
 	"GET /api/v1/admin/qqbot/lottery/users/:user_id": "admin.qqbot.lottery.chances.read",
 	"GET /api/v1/admin/qqbot/bindings":               "admin.qqbot.bindings.read",
@@ -310,8 +313,11 @@ func NewAuditLogMiddleware(auditService *service.AuditLogService) AuditLogMiddle
 			}
 			extra["params"] = params
 		}
-		if q := service.RedactAuditQuery(c.Request.URL.RawQuery); q != "" {
-			extra["query"] = q
+		// Report filters may contain recipient email addresses and other identifiers.
+		if routeKey != qqRewardReportAuditRoute {
+			if q := service.RedactAuditQuery(c.Request.URL.RawQuery); q != "" {
+				extra["query"] = q
+			}
 		}
 		if len(extra) > 0 {
 			entry.Extra = extra

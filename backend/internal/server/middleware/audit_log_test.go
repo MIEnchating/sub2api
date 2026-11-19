@@ -71,6 +71,39 @@ func TestGPTDirectAndQQTransferAuditNeverCapturesCredentials(t *testing.T) {
 	}
 }
 
+func TestQQRewardReportReadIsAuditedWithoutSearchTerms(t *testing.T) {
+	repository := &auditCaptureRepository{}
+	audit := service.NewAuditLogService(repository, nil)
+	audit.Start()
+	defer audit.Stop()
+
+	const path = "/api/v1/admin/qqbot/reports"
+	router := gin.New()
+	router.Use(func(c *gin.Context) {
+		c.Set(string(ContextKeyUser), AuthSubject{UserID: 77})
+		c.Set(string(ContextKeyUserRole), "admin")
+		c.Next()
+	})
+	router.Use(gin.HandlerFunc(NewAuditLogMiddleware(audit)))
+	router.GET(path, func(c *gin.Context) { c.Status(http.StatusOK) })
+
+	w := httptest.NewRecorder()
+	router.ServeHTTP(w, httptest.NewRequest(http.MethodGet, path+"?search=recipient%40example.com", nil))
+	require.Equal(t, http.StatusOK, w.Code)
+	audit.Stop()
+
+	repository.mu.Lock()
+	defer repository.mu.Unlock()
+	require.Len(t, repository.logs, 1)
+	entry := repository.logs[0]
+	require.Equal(t, "admin.qqbot.reports.read", entry.Action)
+	require.Equal(t, path, entry.Path)
+	require.NotNil(t, entry.ActorUserID)
+	require.EqualValues(t, 77, *entry.ActorUserID)
+	require.Empty(t, entry.RequestBody)
+	require.Empty(t, entry.Extra)
+}
+
 type auditCaptureRepository struct {
 	mu   sync.Mutex
 	logs []*service.AuditLog
