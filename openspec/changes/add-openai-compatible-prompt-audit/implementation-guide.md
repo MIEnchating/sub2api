@@ -414,7 +414,6 @@ input_limit, enabled, has_token, token_status
 实施时还必须从 `backend/internal/server/routes/gateway.go` 枚举所有携带用户文本的新增/旁路入口，重点复核：
 
 - `/v1/images/generations/async`、`/v1/images/edits/async`。
-- `/v1/images/batches` 及 batch item 的实际提交入口。
 - Grok video generation/edit/extension。
 - 任何不经过上述公共 Handler 的内部转发、兼容 alias 或后续新增路由。
 

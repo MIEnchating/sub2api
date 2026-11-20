@@ -489,6 +489,7 @@ type OpenAIGatewayService struct {
 	codexHarvestRunMu       sync.RWMutex
 	// openaiCodexTickets: accountID\x00model → *openAICodexTicket，292 长度门票。
 	openaiCodexTickets             sync.Map
+	codex780Routes                 codex780RouteCache
 	openaiCodexTicketStateMu       sync.Mutex
 	openaiCodexTicketCursors       sync.Map // codexHarvestTier -> *atomic.Uint64
 	openaiCodexTicketFlight        singleflight.Group

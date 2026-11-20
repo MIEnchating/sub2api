@@ -111,7 +111,7 @@ func TestImportCodexTicketCookiesAreStrippedBeforePersistence(t *testing.T) {
 		stubAdminService: newStubAdminService(),
 		createService: service.NewAdminService(
 			nil, nil, nil, repo, nil, nil, nil, nil, nil, nil, nil, nil,
-			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
+			nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 		),
 	}
 	h := &AccountHandler{adminService: adminSvc}

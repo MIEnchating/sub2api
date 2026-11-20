@@ -316,7 +316,7 @@ type CreateGroupInput struct {
 	MaxReasoningEffortOverLimit string
 	// ReasoningEffortMappings Anthropic/OpenAI 推理强度映射，可按模型精确名、前缀或后缀限定。
 	ReasoningEffortMappings []ReasoningEffortMapping
-	// 分组利润控制（五个 token 平台分组可启用；margin/buffer 为小数，nil 按 0 处理）
+	// 分组利润控制（margin/buffer 为小数，nil 按 0 处理）
 	ProfitControlEnabled bool
 	ProfitMinMargin      *float64
 	ProfitSafetyBuffer   *float64
@@ -748,6 +748,8 @@ type adminServiceImpl struct {
 	affiliateService       adminRechargeAffiliateAccruer
 	compositeRouteRepo     CompositeModelRouteRepository
 	compositeResolver      *CompositeRouteResolver
+
+	userPlatformQuotaRepo UserPlatformQuotaRepository
 	// 分组平台变更后用来失效渠道缓存；可为 nil（缓存会在 TTL 到期后自然重建）
 	channelCacheInvalidator ChannelCacheInvalidator
 }
@@ -791,6 +793,7 @@ func NewAdminService(
 	compositeRouteRepo CompositeModelRouteRepository,
 	compositeResolver *CompositeRouteResolver,
 	channelCacheInvalidator ChannelCacheInvalidator,
+	userPlatformQuotaRepo UserPlatformQuotaRepository,
 ) AdminService {
 	return &adminServiceImpl{
 		cfg:                  cfg,
@@ -821,6 +824,7 @@ func NewAdminService(
 		compositeResolver:    compositeResolver,
 
 		channelCacheInvalidator: channelCacheInvalidator,
+		userPlatformQuotaRepo:   userPlatformQuotaRepo,
 	}
 }
 

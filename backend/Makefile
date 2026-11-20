@@ -15,7 +15,9 @@ test:
 	golangci-lint run ./...
 
 test-unit:
-	go test -tags=unit ./...
+	# The service suite includes real retry, streaming and heartbeat waits.
+	# Allow the complete package to finish without changing operation deadlines.
+	go test -tags=unit -timeout=30m ./...
 
 test-integration:
 	# The QQ suite rebuilds isolated PostgreSQL schemas for hundreds of cases.

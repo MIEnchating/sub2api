@@ -59,7 +59,8 @@ func RequestModelFields(maxBodySize, textMaxBodySize int64) gin.HandlerFunc {
 			normalized, err = httputil.NormalizeLenientJSONRequestBodyWithContext(c.Request.Context(), body, readLimit)
 			if err == nil {
 				if validationErr := requestmodel.ValidateJSONModelFields(normalized); validationErr != nil {
-					requestModelFieldsError(c, http.StatusBadRequest, validationErr.Error())
+					MarkIngressRejected(c, IngressRejectConflictingRequestFields)
+					writeGatewayInvalidRequest(c, http.StatusBadRequest, validationErr.Error())
 					c.Abort()
 					return
 				}
@@ -68,15 +69,9 @@ func RequestModelFields(maxBodySize, textMaxBodySize int64) gin.HandlerFunc {
 			}
 		}
 
-		if RejectRequestBodyReadError(c, "middleware.request_model_fields", err) {
-			return
+		if !RejectRequestBodyReadError(c, "middleware.request_model_fields", err) {
+			AbortWithRequestBodyReadFailure(c, "middleware.request_model_fields", err)
 		}
-		failure := httputil.DescribeRequestBodyReadFailure(c.Request, err)
-		if failure.Kind != httputil.RequestBodyReadErrorMaxBytes {
-			logRequestBodyReadFailure(c, "middleware.request_model_fields", failure)
-		}
-		requestModelFieldsError(c, failure.Status, failure.Message)
-		c.Abort()
 	}
 }
 
@@ -116,17 +111,4 @@ func requestModelFieldsTextRoute(path string) bool {
 	default:
 		return false
 	}
-}
-
-func requestModelFieldsError(c *gin.Context, status int, message string) {
-	path := c.Request.URL.Path
-	if strings.HasPrefix(path, "/v1beta") || strings.HasPrefix(path, "/antigravity/v1beta") {
-		GoogleErrorWriter(c, status, message)
-		return
-	}
-	errorBody := gin.H{"error": gin.H{"type": "invalid_request_error", "message": message}}
-	if strings.Contains(path, "/messages") {
-		errorBody["type"] = "error"
-	}
-	c.JSON(status, errorBody)
 }

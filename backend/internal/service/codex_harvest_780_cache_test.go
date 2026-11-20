@@ -4,6 +4,7 @@ import (
 	"context"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -55,5 +56,59 @@ func TestCodex780RouteCookieDeletionAndAliases(t *testing.T) {
 		normalizeCodexHarvestControls(&v)
 		require.Equal(t, "unified-88", v.TargetGateway)
 		require.NoError(t, ValidateCodexHarvestControls(v))
+	}
+}
+
+func TestCodex780RouteCacheIsolationAndExpiry(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	account := &Account{ID: 1}
+	key := codex780RouteKey(account, "token", "header", "unified-95", "sse")
+	for _, other := range [][32]byte{
+		codex780RouteKey(&Account{ID: 2}, "token", "header", "unified-95", "sse"),
+		codex780RouteKey(&Account{ID: 1, Credentials: map[string]any{"chatgpt_account_id": "changed-identity"}}, "token", "header", "unified-95", "sse"),
+		codex780RouteKey(account, "rotated-token", "header", "unified-95", "sse"),
+		codex780RouteKey(account, "token", "other-header", "unified-95", "sse"),
+		codex780RouteKey(account, "token", "header", "unified-88", "sse"),
+		codex780RouteKey(account, "token", "header", "unified-95", "websocket"),
+	} {
+		if key == other {
+			t.Fatal("route cache key must isolate account, credential and route identity")
+		}
+	}
+	service := &OpenAIGatewayService{}
+	cache := &service.codex780Routes
+	pair := mint780Pair(now.Add(time.Hour), "unified-95")
+	cache.update(key, "unified-95", nil, codexHarvestProbeResult{Sent: true, Status: http.StatusOK, Cookies: pair}, now)
+	got, ok := cache.get(key, now)
+	if !ok || !slices.Equal(pair, got) {
+		t.Fatal("fresh route was not retained")
+	}
+	got[0] = "mutated"
+	got, _ = cache.get(key, now)
+	if !slices.Equal(pair, got) {
+		t.Fatal("reader mutated cached cookies")
+	}
+	if _, ok := cache.get(key, now.Add(time.Hour)); ok {
+		t.Fatal("expired route must not be reused")
+	}
+}
+
+func TestCodex780RouteCacheLateFailureCannotEvictNewRoute(t *testing.T) {
+	now := time.Unix(1800000000, 0)
+	key := codex780RouteKey(&Account{ID: 1}, "token", "header", "unified-95", "sse")
+	oldPair := mint780Pair(now.Add(time.Hour), "unified-95")
+	newPair := mint780Pair(now.Add(2*time.Hour), "unified-95")
+	cache := &codex780RouteCache{}
+	cache.update(key, "unified-95", nil, codexHarvestProbeResult{Sent: true, Status: http.StatusOK, Cookies: oldPair}, now)
+	cache.update(key, "unified-95", oldPair, codexHarvestProbeResult{Sent: true, Status: http.StatusOK, Cookies: newPair}, now)
+	cache.update(key, "unified-95", oldPair, codexHarvestProbeResult{Sent: true, Status: http.StatusUnauthorized}, now)
+	got, ok := cache.get(key, now)
+	if !ok || !slices.Equal(newPair, got) {
+		t.Fatal("late failure evicted a newer route from another lane")
+	}
+	cache.update(key, "unified-95", newPair, codexHarvestProbeResult{Sent: true, Status: http.StatusUnauthorized}, now)
+	got, ok = cache.get(key, now)
+	if !ok || len(got) != 0 {
+		t.Fatal("rejected route must retain a tombstone until expiry")
 	}
 }

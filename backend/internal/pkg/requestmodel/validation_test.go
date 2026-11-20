@@ -95,3 +95,24 @@ func TestValidateWebSocketModelFields(t *testing.T) {
 		})
 	}
 }
+
+func TestValidateWebSocketRequestFieldsPreservesErrorIdentity(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		body string
+		want error
+	}{
+		{"model", `{"type":"response.create","model":"a","model":"b"}`, ErrDuplicateModelFields},
+		{"session", `{"type":"session.update","session":{},"Session":{}}`, ErrDuplicateSessionFields},
+		{"billing", `{"type":"response.create","reasoning":{"effort":"low","effort":"high"}}`, ErrConflictingWebSocketFields},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if err := ValidateWebSocketRequestFields([]byte(tc.body)); !errors.Is(err, tc.want) {
+				t.Fatalf("got %v, want error identity %v", err, tc.want)
+			}
+		})
+	}
+	if err := ValidateWebSocketRequestFields([]byte(`{"type":"response.create","model":"a","input":"hello"}`)); err != nil {
+		t.Fatalf("valid frame rejected: %v", err)
+	}
+}

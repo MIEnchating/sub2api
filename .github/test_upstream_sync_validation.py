@@ -2,6 +2,7 @@ import importlib.util
 import json
 import os
 import re
+import shlex
 import subprocess
 import tempfile
 import unittest
@@ -16,6 +17,48 @@ spec.loader.exec_module(release_window)
 
 
 class ValidationLogTest(unittest.TestCase):
+    def test_unit_checks_run_complete_suite_with_bounded_package_budget(self):
+        root = Path(__file__).resolve().parents[1]
+        module = root / 'scripts/upstream-sync-validation.sh'
+        with tempfile.TemporaryDirectory(prefix='sync-unit-budget-') as tmp:
+            # Capture the actual validation entry without launching its checks.
+            # No real repository or external service is needed for this test.
+            command = '''source "$VALIDATOR"
+log() { :; }
+record_check() {
+  if [[ "$1" == 后端单元测试 ]]; then
+    shift
+    printf '%s\\n' "$@"
+  fi
+}
+run_validation_checks 1
+'''
+            result = subprocess.run(['bash', '-ec', command], text=True, capture_output=True,
+                                    env=os.environ | {'VALIDATOR': str(module), 'WORKTREE': tmp,
+                                                      'VALIDATION_FAILURES_FILE': str(Path(tmp) / 'failures')})
+            self.assertEqual(result.returncode, 0, result.stderr)
+            self.assertEqual(result.stdout.splitlines(),
+                             ['docker_go', 'go', 'test', '-tags=unit', '-timeout=30m', './...'])
+
+            # CI calls the backend Makefile; deployment also exposes test-unit.
+            # Run their Go recipes with a fake binary, without requiring make
+            # on hosts that run only the automation helper tests.
+            go = Path(tmp) / 'go'
+            go.write_text('#!/bin/sh\nprintf "%s\\n" "$@"\n')
+            go.chmod(0o755)
+            for makefile, extra in (('backend/Makefile', []), ('deploy/Makefile', ['-count=1'])):
+                with self.subTest(makefile=makefile):
+                    recipe = (root / makefile).read_text().split('test-unit:\n', 1)[1].split('\n\n', 1)[0]
+                    commands = [line.strip().lstrip('@') for line in recipe.splitlines()
+                                if line.strip().lstrip('@').startswith('go test ')]
+                    self.assertEqual(len(commands), 1)
+                    result = subprocess.run(shlex.split(commands[0]), cwd=tmp,
+                                            text=True, capture_output=True,
+                                            env=os.environ | {'PATH': tmp + os.pathsep + os.environ['PATH']})
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(),
+                                     ['test', '-tags=unit', '-timeout=30m', './...'] + extra)
+
     def test_frontend_install_regenerates_checkout_local_vue_types(self):
         shell = SCRIPT.with_name('upstream-sync-validation.sh').read_text()
         name = 'check_frontend_install'

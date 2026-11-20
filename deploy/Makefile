@@ -19,7 +19,7 @@ build-embed:
 	@echo "构建完成: bin/server (with embedded frontend)"
 
 test-unit:
-	@go test -tags unit ./... -count=1
+	@go test -tags=unit -timeout=30m ./... -count=1
 
 test-integration:
 	@go test -tags integration ./... -count=1 -race -parallel=8

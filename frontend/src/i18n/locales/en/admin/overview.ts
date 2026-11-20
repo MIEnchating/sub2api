@@ -1146,7 +1146,7 @@ export default {
       },
       profitControl: {
         enable: 'Enable profit control',
-        enabledHint: 'Scheduling only admits accounts whose account multiplier ≤ the request\'s effective downstream multiplier × (1 − min margin − safety buffer). Account multipliers may be maintained manually or synchronized from probes; existing ordering, stickiness and breakers keep working among qualified accounts. Image/video scheduling is not covered yet.',
+        enabledHint: 'For token requests, the scheduler only admits accounts whose account multiplier ≤ the request\'s effective downstream multiplier × (1 − min margin − safety buffer). Account multipliers may be maintained manually or synchronized from probes; existing ordering, stickiness and breakers keep working among qualified accounts. Image/video scheduling is not covered yet.',
         disabledHint: 'When disabled, scheduling does no profit filtering: accounts whose account multiplier exceeds the downstream multiplier can still be selected, which may produce loss-making requests.',
         minMargin: 'Min gross margin (%)',
         minMarginHint: 'Percent input, e.g. 30 means 30%; stored as a decimal on the backend',
@@ -1312,7 +1312,7 @@ export default {
         supportedUltrafast: 'Ultra Fast (supported models only)',
         hint: 'Requests from this group to OpenAI-compatible upstreams use the selected tier. Does not apply to Excel BPS channels. The global Fast/Flex policy and upstream model and account support still apply. New requests update immediately after saving; existing WebSocket sessions must reconnect.',
         forceUltrafast: 'Force Ultra Fast (ultrafast)',
-        ultrafastHint: 'The original Ultrafast selection forces the tier on all models. Supported-model options apply to GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Sol/Astra. GPT-6.2 OAuth access follows plan and catalog grants: Pro 200 includes Sol; Pro 500 includes Sol and Astra; other subscriptions use the Ultra Fast tier explicitly advertised in their account catalog. If unavailable or unsupported, the Fast fallback option uses priority; the supported-only option follows the client. GPT-6.2 defaults to 3x Standard through February 28, 2027 (Pacific time), then 6x; GPT-6 Astra and GPT-6.1 Sol default to 6x. A channel Ultra Fast multiplier can override these defaults. Free Fast excludes Ultra Fast.',
+        ultrafastHint: 'The original Ultrafast selection forces service_tier=ultrafast on all models. Supported-model options apply to GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Sol/Astra. GPT-6.2 OAuth access follows plan and catalog grants: Pro 200 includes Sol; Pro 500 includes Sol and Astra; other subscriptions use the Ultra Fast tier explicitly advertised in their account catalog. If unavailable or unsupported, the Fast fallback option uses priority; the supported-only option follows the client. GPT-6.2 defaults to 3x Standard through February 28, 2027 (Pacific time), then 6x; GPT-6 Astra and GPT-6.1 Sol default to 6x. A channel Ultra Fast multiplier can override these defaults. Free Fast excludes Ultra Fast.',
         free: 'Free Fast',
         freeHint: 'Applies only to Fast (priority): customers are charged the equivalent Standard price. Does not apply to Ultrafast.'
       },

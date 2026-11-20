@@ -697,7 +697,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 	if err := rejectRetiredVMAccount(ctx, s.accountRepo, account); err != nil {
 		return err
 	}
-	if err := requestmodel.ValidateWebSocketModelFields(firstClientMessage); err != nil {
+	if err := requestmodel.ValidateWebSocketRequestFields(firstClientMessage); err != nil {
 		return NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 	}
 	if err := s.rejectExcelBPSWebSocket(ctx, account, openAIWSPassthroughRequestModelForFrame(firstClientMessage), openAIWSPassthroughPolicyModelForFrame(account, firstClientMessage)); err != nil {
@@ -1051,7 +1051,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 			if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 				return payload, nil, nil
 			}
-			if err := requestmodel.ValidateWebSocketModelFields(payload); err != nil {
+			if err := requestmodel.ValidateWebSocketRequestFields(payload); err != nil {
 				return payload, nil, NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 			}
 			// Keep a per-frame semantic snapshot. The first frame has a snapshot
