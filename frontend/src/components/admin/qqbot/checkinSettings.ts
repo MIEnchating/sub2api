@@ -17,6 +17,7 @@ export async function loadCheckinConfig(): Promise<QQCheckinConfig> {
       binding_chances: config.growth?.binding_chances ?? 0,
       first_usage_chances: config.growth?.first_usage_chances ?? 0,
       checkin_30_chances: config.growth?.checkin_30_chances ?? 0,
+      ...(config.growth?.lottery_recharge === undefined ? {} : { lottery_recharge: config.growth.lottery_recharge }),
       periodic_tasks: (config.growth?.periodic_tasks ?? []).map(task => ({ ...task, reward: normalizeGrowthReward(task.reward, task.chances) })),
       tasks: (config.growth?.tasks ?? [
         { id: 'binding', name: '完成账号绑定', kind: 'binding', target: 1, chances: config.growth?.binding_chances ?? 0, enabled: (config.growth?.binding_chances ?? 0) > 0 },
@@ -26,16 +27,19 @@ export async function loadCheckinConfig(): Promise<QQCheckinConfig> {
   }
 }
 
-// Refresh unrelated fields, but always retain the draft's original revision.
-// A missing draft revision must not inherit one from this refresh.
 let pendingSave = Promise.resolve()
+function queueCheckinSave(save: () => Promise<QQCheckinConfig>): Promise<QQCheckinConfig> {
+  const saved = pendingSave.then(save)
+  pendingSave = saved.then(() => undefined, () => undefined)
+  return saved
+}
+
+// Refresh unrelated fields while retaining the draft's original revision.
 function saveConfigPatch(version: string | undefined, section: string, patch: Partial<QQCheckinConfig> | ((current: QQCheckinConfig) => Partial<QQCheckinConfig>)): Promise<QQCheckinConfig> {
-  const saved = pendingSave.then(async () => {
+  return queueCheckinSave(async () => {
     const current = await loadCheckinConfig()
     return qqbotAPI.saveCheckin({ ...current, ...(typeof patch === 'function' ? patch(current) : patch), _version: version, _section: version ? section : undefined })
   })
-  pendingSave = saved.then(() => undefined, () => undefined)
-  return saved
 }
 
 export function saveCheckinSettings(config: QQCheckinConfig): Promise<QQCheckinConfig> {
@@ -66,4 +70,14 @@ export function validCheckinDistribution(distribution: QQCheckinRewardDistributi
 export function saveGrowthSettings(config: QQCheckinConfig, section: 'tasks' | 'periodic_tasks' = 'tasks'): Promise<QQCheckinConfig> {
   const tasks = config.growth[section].map(task => ({ ...task, reward: { ...task.reward }, chances: task.reward.type === 'chances' ? task.reward.quantity : 0 }))
   return saveConfigPatch(config._sections?.[section] || config._version, section, current => ({ growth: { ...current.growth, [section]: tasks } }))
+}
+
+export function saveLotteryRecharge(config: QQCheckinConfig): Promise<QQCheckinConfig> {
+  const rule = config.growth.lottery_recharge
+  const draft = {
+    _section: 'lottery_recharge' as const,
+    _version: config._sections?.lottery_recharge || config._version,
+    growth: { lottery_recharge: rule ? { ...rule } : null }
+  }
+  return queueCheckinSave(() => qqbotAPI.saveCheckin(draft))
 }

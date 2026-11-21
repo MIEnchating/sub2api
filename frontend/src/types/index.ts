@@ -656,6 +656,7 @@ export interface AdminGroup extends Group {
   force_openai_service_tier?: GroupOpenAIServiceTier
   force_openai_ultrafast: boolean
   free_openai_fast: boolean
+  free_openai_ultrafast: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制，profit_min_margin 和 profit_safety_buffer 按小数存储。
   // 仅管理员可见：与 rate_multiplier 相乘即可反推上游成本上限，不得下放到 Group。
@@ -844,6 +845,7 @@ export interface CreateGroupRequest {
   force_openai_service_tier?: GroupOpenAIServiceTier
   force_openai_ultrafast?: boolean
   free_openai_fast?: boolean
+  free_openai_ultrafast?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   image_count_billing?: boolean
@@ -914,6 +916,7 @@ export interface UpdateGroupRequest {
   force_openai_service_tier?: GroupOpenAIServiceTier
   force_openai_ultrafast?: boolean
   free_openai_fast?: boolean
+  free_openai_ultrafast?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
   image_count_billing?: boolean

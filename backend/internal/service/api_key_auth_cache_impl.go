@@ -12,7 +12,7 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 33 // v33: independent model-gated Ultrafast plus forced service tier, privacy and group-scoped RPM.
+const apiKeyAuthSnapshotVersion = 34 // v34: include independent Ultrafast billing alongside existing group tier and access policies.
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -380,6 +380,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		ForceOpenAIServiceTier:          group.ForceOpenAIServiceTier,
 		ForceOpenAIUltrafast:            group.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  group.FreeOpenAIFast,
+		FreeOpenAIUltrafast:             group.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                group.RequireOAuthOnly,
 		RequirePrivacySet:               group.RequirePrivacySet,
 		DefaultMappedModel:              group.DefaultMappedModel,
@@ -454,6 +455,7 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		ForceOpenAIServiceTier:          snapshot.ForceOpenAIServiceTier,
 		ForceOpenAIUltrafast:            snapshot.ForceOpenAIUltrafast,
 		FreeOpenAIFast:                  snapshot.FreeOpenAIFast,
+		FreeOpenAIUltrafast:             snapshot.FreeOpenAIUltrafast,
 		RequireOAuthOnly:                snapshot.RequireOAuthOnly,
 		RequirePrivacySet:               snapshot.RequirePrivacySet,
 		DefaultMappedModel:              snapshot.DefaultMappedModel,
@@ -574,6 +576,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			ForceOpenAIServiceTier:          apiKey.Group.ForceOpenAIServiceTier,
 			ForceOpenAIUltrafast:            apiKey.Group.ForceOpenAIUltrafast,
 			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
+			FreeOpenAIUltrafast:             apiKey.Group.FreeOpenAIUltrafast,
 			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
 			ModelAllowlist:                  apiKey.Group.ModelAllowlist,
@@ -695,6 +698,7 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			ForceOpenAIServiceTier:          snapshot.Group.ForceOpenAIServiceTier,
 			ForceOpenAIUltrafast:            snapshot.Group.ForceOpenAIUltrafast,
 			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
+			FreeOpenAIUltrafast:             snapshot.Group.FreeOpenAIUltrafast,
 			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
 			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
 			ModelAllowlist:                  snapshot.Group.ModelAllowlist,

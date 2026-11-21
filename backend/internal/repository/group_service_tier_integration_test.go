@@ -150,14 +150,16 @@ func TestGroupUpstreamUltrafastPersistenceAndAuthInvalidation(t *testing.T) {
 			require.Empty(t, projected.ForceOpenAIServiceTier)
 		}
 
-		_, err := integrationDB.ExecContext(ctx, "DELETE FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue)
-		require.NoError(t, err)
-		_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET force_openai_ultrafast=NOT force_openai_ultrafast WHERE id=$1", group.ID)
-		require.NoError(t, err)
 		var invalidations int
-		require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT count(*) FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue).Scan(&invalidations))
-		require.Equal(t, 1, invalidations, "direct SQL changes must invalidate both primary and fallback group snapshots")
-		_, err = integrationDB.ExecContext(ctx, "DELETE FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue)
+		for _, field := range []string{"force_openai_ultrafast", "free_openai_ultrafast", "image_count_billing", "require_oauth_only", "require_privacy_set"} {
+			_, err := integrationDB.ExecContext(ctx, "DELETE FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue)
+			require.NoError(t, err)
+			_, err = integrationDB.ExecContext(ctx, fmt.Sprintf("UPDATE groups SET %[1]s=NOT %[1]s WHERE id=$1", field), group.ID)
+			require.NoError(t, err)
+			require.NoError(t, integrationDB.QueryRowContext(ctx, "SELECT count(*) FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue).Scan(&invalidations))
+			require.Equal(t, 1, invalidations, "%s must invalidate primary and fallback group snapshots", field)
+		}
+		_, err := integrationDB.ExecContext(ctx, "DELETE FROM auth_cache_invalidation_outbox WHERE cache_key=api_key_cache_digest($1)", keyValue)
 		require.NoError(t, err)
 		_, err = integrationDB.ExecContext(ctx, "UPDATE groups SET force_openai_ultrafast=force_openai_ultrafast WHERE id=$1", group.ID)
 		require.NoError(t, err)

@@ -35,14 +35,14 @@ func TestTodayRankingsAllAccountsPrivateTopTen(t *testing.T) {
 	db := testDB(t)
 	s := savedBot(t, db)
 	insightsUsageTable(t, db)
-	c, err := s.Config(ctx)
+	bot, err := s.Config(ctx)
 	require.NoError(t, err)
 	now := rankingTime(t, "2026-10-21T12:00:00+08:00")
 	start := beijingDayStart(now)
 	users := make([]int64, 12)
 	for i := range users {
 		users[i] = user(t, db)
-		_, err = db.Exec(`UPDATE users SET email=$2 WHERE id=$1`, users[i], fmt.Sprintf("private-%d@example.com", i))
+		_, err := db.Exec(`UPDATE users SET email=$2 WHERE id=$1`, users[i], fmt.Sprintf("private-%d@example.com", i))
 		require.NoError(t, err)
 		rankingUsage(t, db, users[i], int64(100001+i), fmt.Sprintf("%d.1234567890", 12-i), start.Add(time.Hour))
 	}
@@ -69,7 +69,7 @@ func TestTodayRankingsAllAccountsPrivateTopTen(t *testing.T) {
 	require.Len(t, entries, 20)
 	require.Equal(t, rankingEntry{Kind: "amount", Rank: 1, UserID: users[0], Email: "private-0@example.com"}, entries[0])
 	require.Equal(t, rankingEntry{Kind: "tokens", Rank: 1, UserID: users[11], Email: "private-11@example.com"}, entries[10])
-	text, err := s.todayRankings(ctx, c, now)
+	text, err := s.todayRankings(ctx, bot, now)
 	require.NoError(t, err)
 	require.Contains(t, text, "**Token 消耗榜**")
 	require.Contains(t, text, "**消费金额榜**")
@@ -87,16 +87,9 @@ func TestTodayRankingsAllAccountsPrivateTopTen(t *testing.T) {
 	}
 	require.Contains(t, text, `1. pri\*\*\*\*11@example.com`)
 	require.Contains(t, text, `1. pri\*\*\*\*-0@example.com`)
-	empty, err := s.todayRankings(ctx, c, start)
+	empty, err := s.todayRankings(ctx, bot, start)
 	require.NoError(t, err)
 	require.Equal(t, 2, strings.Count(empty, "暂无上榜账号"))
-	cfg := defaultRankingConfig()
-	cfg.Enabled = false
-	_, err = s.saveRankingConfigAt(ctx, cfg, now)
-	require.NoError(t, err)
-	text, err = s.todayRankings(ctx, c, now)
-	require.NoError(t, err)
-	require.Equal(t, "今日排行榜暂未开启。", text)
 }
 
 func TestRankingSettlementCreatesUnboundEntitlementsAndDeduplicates(t *testing.T) {
@@ -219,6 +212,8 @@ func TestRankingSettlementUsesDatedRulesAndCatchesUp(t *testing.T) {
 	require.Equal(t, 3, count)
 	require.NoError(t, db.QueryRow(`SELECT COUNT(*) FROM qq_bot_ranking_claims`).Scan(&count))
 	require.Equal(t, 2, count)
+	require.NoError(t, db.QueryRow(`SELECT reward_count FROM qq_bot_ranking_settlements WHERE ranking_day='2026-10-21'`).Scan(&count))
+	require.Zero(t, count)
 	require.NoError(t, s.settleDueRankings(ctx, rankingTime(t, "2026-10-22T00:20:00+08:00")))
 	require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, uid).Scan(&balance))
 	require.Equal(t, 15., balance)
@@ -290,6 +285,14 @@ func TestRankingCommandSendsBothBoardsWithoutBindingOrModelCalls(t *testing.T) {
 	s := savedBot(t, db)
 	insightsUsageTable(t, db)
 	bot, err := s.Config(ctx)
+	require.NoError(t, err)
+	// Respect an explicitly disabled query when upgrading an existing installation.
+	_, err = db.Exec(`INSERT INTO settings(key,value) VALUES($1,'{"enabled":false,"rewards_enabled":false}')`, rankingConfigKey+bot.AppID)
+	require.NoError(t, err)
+	disabled, err := s.todayRankings(ctx, bot, time.Now())
+	require.NoError(t, err)
+	require.Equal(t, "今日排行榜暂未开启。", disabled)
+	_, err = s.SaveRankingConfig(ctx, defaultRankingConfig())
 	require.NoError(t, err)
 	for i, email := range []string{"123456789@qq.com", "second_person@example.com"} {
 		uid := user(t, db)

@@ -1142,7 +1142,7 @@ export default {
         peakStart: 'Peak start',
         peakEnd: 'Peak end',
         peakMultiplier: 'Peak multiplier',
-        multiplierHint: 'Applies to token billing multiplier; image tokens in token billing are also affected. 0 means peak token requests are billed at 0x.'
+        multiplierHint: 'Applies to token billing multiplier; image tokens in token billing are also affected. 0 means peak token requests are billed at 0×.'
       },
       profitControl: {
         enable: 'Enable profit control',
@@ -1312,9 +1312,11 @@ export default {
         supportedUltrafast: 'Ultra Fast (supported models only)',
         hint: 'Requests from this group to OpenAI-compatible upstreams use the selected tier. Does not apply to Excel BPS channels. The global Fast/Flex policy and upstream model and account support still apply. New requests update immediately after saving; existing WebSocket sessions must reconnect.',
         forceUltrafast: 'Force Ultra Fast (ultrafast)',
-        ultrafastHint: 'The original Ultrafast selection forces service_tier=ultrafast on all models. Supported-model options apply to GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Sol/Astra. GPT-6.2 OAuth access follows plan and catalog grants: Pro 200 includes Sol; Pro 500 includes Sol and Astra; other subscriptions use the Ultra Fast tier explicitly advertised in their account catalog. If unavailable or unsupported, the Fast fallback option uses priority; the supported-only option follows the client. GPT-6.2 defaults to 3x Standard through February 28, 2027 (Pacific time), then 6x; GPT-6 Astra and GPT-6.1 Sol default to 6x. A channel Ultra Fast multiplier can override these defaults. Free Fast excludes Ultra Fast.',
+        ultrafastHint: 'The original Ultrafast selection forces service_tier=ultrafast on all models. Supported-model options apply to GPT-6 Astra, GPT-6.1 Sol, and GPT-6.2 Sol/Astra. GPT-6.2 OAuth access follows plan and catalog grants: Pro 200 includes Sol; Pro 500 includes Sol and Astra; other subscriptions use the Ultra Fast tier explicitly advertised in their account catalog. If unavailable or unsupported, the Fast fallback option uses priority; the supported-only option follows the client. GPT-6.2 defaults to 3× Standard through February 28, 2027 (Pacific time), then 6×; GPT-6 Astra and GPT-6.1 Sol default to 6×. A channel Ultra Fast multiplier can override these defaults.',
         free: 'Free Fast',
-        freeHint: 'Applies only to Fast (priority): customers are charged the equivalent Standard price. Does not apply to Ultrafast.'
+        freeHint: 'Charge customers the equivalent Standard price for Fast (priority) requests.',
+        freeUltrafast: 'Free Ultra Fast',
+        freeUltrafastHint: 'Charge customers the equivalent Standard price for Ultra Fast (ultrafast) requests. Requests that fall back to Fast use the Free Fast setting.'
       },
       invalidRequestFallback: {
         title: 'Invalid Request Fallback Group',
