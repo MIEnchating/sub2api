@@ -362,6 +362,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	// Retain the outbound tier and its TotalCost for upstream accounting.
 	// When the group waives the tier surcharge, recalculate ActualCost at
 	// the Standard tier using the same channel, peak, and long-context policy.
+	serviceTierSurchargeWaived := false
 	if groupBillsOpenAIFastAtStandard(apiKey, billingAccount, serviceTier) {
 		standardCost, standardErr := s.calculateOpenAIRecordUsageCost(
 			ctx,
@@ -385,6 +386,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		// usage row instead of dropping it on the Standard re-evaluation.
 		if standardErr == nil && cost != nil && standardCost != nil {
 			cost.ActualCost = standardCost.ActualCost
+			serviceTierSurchargeWaived = true
 		}
 	}
 
@@ -580,7 +582,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		quotaPlatform = PlatformFromAPIKey(apiKey)
 	}
 
-	_, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
+	applied, billingErr := applyUsageBilling(ctx, requestID, usageLog, &postUsageBillingParams{
 		Cost:                       cost,
 		User:                       user,
 		APIKey:                     apiKey,
@@ -599,6 +601,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 		return billingErr
 	}
+	usageLog.ServiceTierSurchargeWaived = applied && !simpleModeKeyRateLimitOnly && serviceTierSurchargeWaived
 	writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 
 	return nil

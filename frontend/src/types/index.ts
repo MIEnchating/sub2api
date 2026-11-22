@@ -1945,6 +1945,7 @@ export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
 export interface UsageLog {
+  http_status?: number | null
   id: number
   user_id: number
   api_key_id: number
@@ -1952,6 +1953,7 @@ export interface UsageLog {
   request_id: string
   model: string
   service_tier?: string | null
+  service_tier_surcharge_waived?: boolean
   reasoning_effort?: string | null
   inbound_endpoint?: string | null
   upstream_endpoint?: string | null
