@@ -59,8 +59,8 @@ func TestLockAndMergeAccountPreservesQualityAndManualSchedulingState(t *testing.
 			require.NoError(t, err)
 			mock.ExpectQuery(`(?s)SELECT.*status,.*schedulable,.*FOR NO KEY UPDATE`).
 				WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeOAuth, `{"access_token":"new-token"}`, nil).
-				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata"}).
-					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, extraJSON, tt.currentStatus, !tt.currentPaused, tt.currentError, nil, nil))
+				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata", "group_sync_enabled"}).
+					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, extraJSON, tt.currentStatus, !tt.currentPaused, tt.currentError, nil, nil, nil))
 			account := &service.Account{
 				ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
 				Credentials: map[string]any{"access_token": "new-token"}, Extra: map[string]any{"setting": "edited"},
@@ -70,7 +70,7 @@ func TestLockAndMergeAccountPreservesQualityAndManualSchedulingState(t *testing.
 			if tt.incomingReason != "" {
 				account.Extra["quality_protection_reason"] = tt.incomingReason
 			}
-			extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, nil, nil)
+			extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, service.AccountBillingSettingsUpdate{})
 			require.NoError(t, err)
 			require.Equal(t, tt.wantStatus, account.Status)
 			require.Equal(t, tt.wantSchedulable, account.Schedulable)

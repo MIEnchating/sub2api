@@ -119,7 +119,7 @@ func (s *AccountTestService) GenerateAccountPreview(ctx context.Context, account
 	request.Header.Set("User-Agent", canonical.userAgent)
 	setOpenAIChatGPTAccountHeaders(request.Header, account)
 	enforceCodexIdentityHeadersWithUA(request.Header, account.GetOpenAIUserAgent())
-	account.ApplyHeaderOverrides(request.Header)
+	account.ApplyHeaderOverrides(request.Context(), request.Header)
 	if err := applyIntelligentTestProtection(local, account, request.Header, raw); err != nil {
 		return nil, previewFailure("账号请求保护校验失败，请检查账号配置")
 	}

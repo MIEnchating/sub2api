@@ -76,6 +76,7 @@ func newCapacityRecoveryHandler(t *testing.T, upstreamURL, mode string, passthro
 	h.maxAccountSwitches = 0
 	groupID := int64(9916)
 	apiKey := &service.APIKey{ID: 9917, GroupID: &groupID, User: &service.User{ID: 9918, Status: service.StatusActive}, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive}}
+	apiKey = installWSFixtureKey(t, h, apiKey)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)

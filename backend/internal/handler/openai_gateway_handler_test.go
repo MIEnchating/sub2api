@@ -1990,6 +1990,11 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
+	configureBilling     func(*config.Config) *service.BillingCacheService
+	subscriptionLookup   openAIWSTurnSubscriptionLookup
+	subscription         *service.UserSubscription
+	checkUserConcurrency func(int)
+
 	simpleModeRejectAtRead int64
 	compositeResolver      *service.CompositeRouteResolver
 	accountPlatform        string
@@ -2745,6 +2750,8 @@ func runOpenAIResponsesWebSocketUsageLimitCase(t *testing.T, mode string, follow
 		User:    &service.User{ID: 1702, Status: service.StatusActive},
 		Group:   &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
 	}
+	h.cfg = cfg
+	apiKey = installWSFixtureKey(t, h, apiKey)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
@@ -3167,11 +3174,15 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		keyRepo = &simpleModeWSRateLimitRepo{rejectAt: tc.simpleModeRejectAtRead}
 	}
 	billingCacheSvc := service.NewBillingCacheService(nil, nil, nil, keyRepo, nil, nil, cfg, nil)
+	if tc.configureBilling != nil {
+		billingCacheSvc.Stop()
+		billingCacheSvc = tc.configureBilling(cfg)
+	}
 	t.Cleanup(billingCacheSvc.Stop)
 	gatewaySvc := service.NewOpenAIGatewayService(
 		accountRepo,
 		usageRepo,
-		nil,
+		&wsAdmissionUsageBilling{},
 		nil,
 		nil,
 		nil,
@@ -3195,6 +3206,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 
 	cache := &concurrencyCacheMock{
 		acquireUserSlotFn: func(ctx context.Context, userID int64, maxConcurrency int, requestID string) (bool, error) {
+			if tc.checkUserConcurrency != nil {
+				tc.checkUserConcurrency(maxConcurrency)
+			}
 			return true, nil
 		},
 		acquireAccountSlotFn: func(ctx context.Context, accountID int64, maxConcurrency int, requestID string) (bool, error) {
@@ -3207,12 +3221,13 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 		},
 	}
 	h := &OpenAIGatewayHandler{
-		cfg:                 cfg,
-		compositeResolver:   tc.compositeResolver,
-		gatewayService:      gatewaySvc,
-		billingCacheService: billingCacheSvc,
-		apiKeyService:       &service.APIKeyService{},
-		concurrencyHelper:   NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
+		cfg:                  cfg,
+		compositeResolver:    tc.compositeResolver,
+		gatewayService:       gatewaySvc,
+		billingCacheService:  billingCacheSvc,
+		wsSubscriptionLookup: tc.subscriptionLookup,
+		apiKeyService:        &service.APIKeyService{},
+		concurrencyHelper:    NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Second),
 	}
 
 	apiKey := &service.APIKey{
@@ -3232,8 +3247,14 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	if tc.group != nil {
 		apiKey.Group = tc.group
 	}
+	if tc.apiKeyService == nil {
+		apiKey = installWSFixtureKey(t, h, apiKey)
+	}
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
+		if tc.subscription != nil {
+			c.Set(string(middleware.ContextKeySubscription), tc.subscription)
+		}
 		c.Set(string(middleware.ContextKeyAPIKey), apiKey)
 		c.Set(string(middleware.ContextKeyUser), middleware.AuthSubject{UserID: apiKey.User.ID, Concurrency: 1})
 		if tc.apiKeyService != nil && apiKey.Group != nil {

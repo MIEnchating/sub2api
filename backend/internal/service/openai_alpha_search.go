@@ -290,7 +290,7 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchResponsesWebSearchRequest(c
 	}
 	enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	applyCodexAccountIdentityHeaders(req.Header, codexAccountIdentitySource(c, account), apiKeyID)
-	account.ApplyHeaderOverrides(req.Header)
+	account.ApplyHeaderOverrides(req.Context(), req.Header)
 	return req, nil
 }
 
@@ -433,7 +433,7 @@ func (s *OpenAIGatewayService) buildOpenAIAlphaSearchRequest(ctx context.Context
 		enforceCodexIdentityHeadersWithUA(req.Header, s.codexIdentityOverrideUA(account))
 	}
 
-	account.ApplyHeaderOverrides(req.Header)
+	account.ApplyHeaderOverrides(req.Context(), req.Header)
 	stripOpenAIAlphaSearchResponsesHeaders(req.Header)
 	return req, nil
 }

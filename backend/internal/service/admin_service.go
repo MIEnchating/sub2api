@@ -431,6 +431,7 @@ type CreateAccountInput struct {
 	GroupIDs               []int64
 	ExpiresAt              *int64
 	AutoPauseOnExpired     *bool
+	GroupSyncEnabled       *bool
 	ProbeEnabled           *bool
 	Schedulable            *bool
 	// SkipDefaultGroupBind prevents auto-binding to platform default group when GroupIDs is empty.
@@ -467,6 +468,7 @@ type UpdateAccountInput struct {
 	GroupIDs               *[]int64
 	ExpiresAt              *int64
 	AutoPauseOnExpired     *bool
+	GroupSyncEnabled       *bool
 	ProbeEnabled           *bool
 	RateSyncEnabled        *bool
 	SkipMixedChannelCheck  bool // 跳过混合渠道检查（用户已确认风险）

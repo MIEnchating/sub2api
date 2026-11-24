@@ -99,15 +99,17 @@ type openAIWSAcquireRequest struct {
 }
 
 type openAIWSHandshakeCompatibilityKey struct {
-	codexTicketDigest   [sha256.Size]byte
-	tlsProfile          string
-	betaFeatures        string
-	codexInstallationID string
-	sessionIDHyphen     string
-	sessionIDUnderscore string
-	threadID            string
-	clientRequestID     string
-	codexWindowID       string
+	codexTicketDigest [sha256.Size]byte
+	// Unmanaged handshakes still bind to the client's echoed turn state.
+	codexTurnStateDigest [sha256.Size]byte
+	tlsProfile           string
+	betaFeatures         string
+	codexInstallationID  string
+	sessionIDHyphen      string
+	sessionIDUnderscore  string
+	threadID             string
+	clientRequestID      string
+	codexWindowID        string
 	// Protection strategy and transport are part of connection identity. A
 	// pooled socket opened before an administrator toggles protection must not
 	// be reused for the newly selected outbound fingerprint.
@@ -115,6 +117,9 @@ type openAIWSHandshakeCompatibilityKey struct {
 	protectionTLS       string
 	protectionTransport string
 	conversationID      string
+	// reportedIdentity 是握手头中由请求头覆写变量（{{user_id}} 等）生成的部分。
+	// 握手头建连后不可变，上报身份不同的请求绝不能共用连接，否则用户会被张冠李戴。
+	reportedIdentity string
 }
 
 type openAIWSConnLease struct {
@@ -2568,6 +2573,9 @@ func (req *openAIWSAcquireRequest) refreshCodexTicketHeaders(ctx context.Context
 		// A disabled policy or fail-open miss must not replay expired material.
 		headers.Del(openAICodexTurnStateHeader)
 		headers.Del("Cookie")
+	} else if !managed && headers.Get(openAICodexTurnStateHeader) != req.Headers.Get(openAICodexTurnStateHeader) {
+		// Without a managed ticket, the factory can only pass through or clear the turn state.
+		headers.Del(openAICodexTurnStateHeader)
 	}
 	req.Headers, req.codexTicketManaged = headers, managed
 	return nil
@@ -2631,10 +2639,13 @@ func normalizeOpenAIWSBetaFeatures(headers http.Header) string {
 
 func normalizeOpenAIWSHandshakeCompatibility(account *Account, headers http.Header, managedTicket ...bool) openAIWSHandshakeCompatibilityKey {
 	key := openAIWSHandshakeCompatibilityKey{
-		betaFeatures: normalizeOpenAIWSBetaFeatures(headers),
+		betaFeatures:     normalizeOpenAIWSBetaFeatures(headers),
+		reportedIdentity: account.headerOverrideReportedIdentity(headers),
 	}
 	if len(managedTicket) == 0 || managedTicket[0] {
 		key.codexTicketDigest = sha256.Sum256([]byte(headers.Get(openAICodexTurnStateHeader) + "\x00" + headers.Get("Cookie")))
+	} else if state := normalizeOpenAIWSStableIdentityHeader(headers, openAICodexTurnStateHeader); state != "" {
+		key.codexTurnStateDigest = sha256.Sum256([]byte(state))
 	}
 	if account != nil && account.IdentityProtectionEnabled() {
 		key.protectionMode = string(antiDegradeMode(account))

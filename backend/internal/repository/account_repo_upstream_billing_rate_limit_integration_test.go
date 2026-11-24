@@ -36,7 +36,7 @@ func TestAccountRateLimitPersistsAcrossDisableAndStaleWrites(t *testing.T) {
 	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, stale, &service.UpstreamBillingProbeSnapshot{
 		Status: service.UpstreamBillingProbeStatusOK,
 		Data:   map[string]any{"billing_scope": "token", "resolved_rate_multiplier": 0.8, "peak_rate_enabled": false},
-	}, nil))
+	}, nil, service.BillingGroupInfo{}))
 	stale.Name = "changed-only-name"
 	require.NoError(t, repo.Update(ctx, stale))
 	got, err = repo.GetByID(ctx, account.ID)
@@ -71,7 +71,7 @@ func TestAccountRateLimitPersistsAcrossDisableAndStaleWrites(t *testing.T) {
 
 	got.UpstreamBillingRateLimitChanged = true
 	got.Extra[service.UpstreamBillingRateLimitExtraKey] = nil
-	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, got, probeBoolPtr(false), nil, nil))
+	require.NoError(t, repo.UpdateWithAccountBillingSettings(ctx, got, service.AccountBillingSettingsUpdate{ProbeEnabled: probeBoolPtr(false)}))
 	got, err = repo.GetByID(ctx, account.ID)
 	require.NoError(t, err)
 	require.False(t, got.IsUpstreamBillingRateLimited())

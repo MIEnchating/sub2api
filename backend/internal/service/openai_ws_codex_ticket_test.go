@@ -29,7 +29,7 @@ func newCodexTicketWSTestPool(t *testing.T) (*openAIWSConnPool, *openAIWSCountin
 }
 
 func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
-	for _, changed := range []string{"ticket", "cookie", "unmanaged"} {
+	for _, changed := range []string{"ticket", "cookie", "unmanaged", "client_turn_state"} {
 		t.Run(changed, func(t *testing.T) {
 			pool, dialer := newCodexTicketWSTestPool(t)
 			var generation atomic.Int32
@@ -39,6 +39,9 @@ func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
 				Account: ticketTestAccount(41),
 				WSURL:   "wss://chatgpt.com/backend-api/codex/responses",
 				CodexTicketHeadersFactory: func(_ context.Context, h http.Header) (http.Header, bool, error) {
+					if changed == "client_turn_state" {
+						return h, false, nil
+					}
 					if h == nil {
 						h = make(http.Header)
 					}
@@ -56,6 +59,10 @@ func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
 					return h, changed != "unmanaged", nil
 				},
 			}
+			if changed == "client_turn_state" {
+				req.Headers = make(http.Header)
+				req.Headers.Set(openAICodexTurnStateHeader, initialState)
+			}
 			first, err := pool.Acquire(context.Background(), req)
 			require.NoError(t, err)
 			firstID := first.ConnID()
@@ -66,6 +73,9 @@ func TestOpenAIWSCodexTicketRotationControlsSocketReuse(t *testing.T) {
 			require.Equal(t, firstID, same.ConnID())
 			same.Release()
 			generation.Store(1)
+			if changed == "client_turn_state" {
+				req.Headers.Set(openAICodexTurnStateHeader, rotatedState)
+			}
 			next, err := pool.Acquire(context.Background(), req)
 			require.NoError(t, err)
 			defer next.Release()

@@ -433,7 +433,9 @@ func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage
 // OpsUpstreamErrorEvent describes one upstream error attempt during a single gateway request.
 // It is stored in ops_error_logs.upstream_errors as a JSON array.
 type OpsUpstreamErrorEvent struct {
-	AtUnixMs int64 `json:"at_unix_ms,omitempty"`
+	// Observed token counts for a failed generation, independent of billing.
+	FailedUsage *OpenAIUsage `json:"failed_usage,omitempty"`
+	AtUnixMs    int64        `json:"at_unix_ms,omitempty"`
 
 	// Passthrough 表示本次请求是否命中“原样透传（仅替换认证）”分支。
 	// 该字段用于排障与灰度评估；存入 JSON，不涉及 DB schema 变更。
@@ -477,6 +479,12 @@ type OpsUpstreamErrorEvent struct {
 	Message string `json:"message,omitempty"`
 	Detail  string `json:"detail,omitempty"`
 
+	// ReportedHeaders are the request headers this attempt sent upstream that
+	// were produced by header-override variables ({{user_id}} etc.), keyed by
+	// lowercase header name. Only variable-driven headers are captured: static
+	// override values may hold relay secrets and must never be logged here.
+	ReportedHeaders map[string]string `json:"reported_headers,omitempty"`
+
 	// SkipMonitoring is request-local rule state. It is intentionally excluded
 	// from persisted attempt JSON. The logger consults it only when this event is
 	// the final client-visible failure; recovered attempts remain provider-health
@@ -512,6 +520,9 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	ev.Detail = strings.TrimSpace(ev.Detail)
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
+	}
+	if ev.ReportedHeaders == nil && c.Request != nil {
+		ev.ReportedHeaders = headerOverrideReportedHeaders(c.Request.Context(), ev.AccountID)
 	}
 
 	var existing []*OpsUpstreamErrorEvent

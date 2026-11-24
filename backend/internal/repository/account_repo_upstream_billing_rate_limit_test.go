@@ -41,8 +41,8 @@ func TestLockAndMergeAccountProbeExtraProtectsRateLimit(t *testing.T) {
 			require.NoError(t, err)
 			mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
 				WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"test"}`, nil).
-				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata"}).
-					AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil, false, nil, nil, current, service.StatusActive, true, "", nil, nil))
+				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata", "group_sync_enabled"}).
+					AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil, false, nil, nil, current, service.StatusActive, true, "", nil, nil, []byte(`true`)))
 			account := &service.Account{
 				ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 				Credentials:                     map[string]any{"api_key": "test"},
@@ -50,11 +50,12 @@ func TestLockAndMergeAccountProbeExtraProtectsRateLimit(t *testing.T) {
 				UpstreamBillingRateLimitChanged: tt.explicit,
 			}
 			// The attempted disable must never bypass an active limit.
-			extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, probeBoolPtr(false), nil)
+			extra, err := lockAndMergeAccountProbeExtra(context.Background(), client, account, service.AccountBillingSettingsUpdate{ProbeEnabled: probeBoolPtr(false)})
 			require.NoError(t, err)
 			require.Equal(t, tt.want, extra[service.UpstreamBillingRateLimitExtraKey])
 			require.Equal(t, tt.wantEnabled, extra[service.UpstreamBillingProbeEnabledExtraKey])
 			require.Equal(t, tt.wantEnabled, extra[service.UpstreamBillingRateSyncEnabledExtraKey])
+			require.Equal(t, tt.wantEnabled, extra[service.UpstreamBillingGroupSyncEnabledExtraKey])
 			if tt.wantEnabled {
 				require.Equal(t, map[string]any{"status": "ok"}, extra[service.UpstreamBillingProbeExtraKey])
 			} else {
