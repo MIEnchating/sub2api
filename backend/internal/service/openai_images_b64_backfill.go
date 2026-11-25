@@ -96,11 +96,6 @@ func (s *OpenAIGatewayService) backfillOpenAIImagesB64JSON(
 // 再无条件拒绝回环、私网、链路本地等目的地（含重定向的每一跳），经账户代理下载，
 // 大小上限与 OAuth 路径的单图下载一致，且前 512 字节须嗅探为 png/jpeg/webp/gif。
 func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, account *Account, rawURL string) (string, error) {
-	if s != nil {
-		if err := rejectRetiredVMAccount(ctx, s.accountRepo, account); err != nil {
-			return "", err
-		}
-	}
 	if strings.HasPrefix(strings.ToLower(rawURL), "data:") {
 		if encoded := normalizeOpenAIImageBase64(rawURL); encoded != "" {
 			return encoded, nil
@@ -127,17 +122,6 @@ func (s *OpenAIGatewayService) fetchOpenAIImageURLBase64(ctx context.Context, ac
 	proxyURL := ""
 	if account.ProxyID != nil && account.Proxy != nil {
 		proxyURL = account.Proxy.URL()
-	}
-	if s.openaiIPv6 != nil {
-		if err := s.openaiIPv6.CheckRoute(ctx, account, proxyURL); err != nil {
-			return "", err
-		}
-	}
-	if err := validateOpenAIIPv6Route(account, proxyURL); err != nil {
-		return "", err
-	}
-	if proxyErr := validateManagedAccountProxy(account, account.Proxy); proxyErr != nil {
-		return "", proxyErr
 	}
 	resp, err := s.httpUpstream.Do(req, proxyURL, account.ID, account.Concurrency)
 	if err != nil {

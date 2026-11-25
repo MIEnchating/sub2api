@@ -8,6 +8,10 @@ import (
 // AdminHandlers contains all admin-related HTTP handlers
 type AdminHandlers struct {
 	ChannelQuality         *admin.ChannelQualityHandler
+	RequestCapture         *admin.RequestCaptureHandler
+	AccountOps             *admin.AccountOpsHandler
+	OpenAIRelogin          *admin.OpenAIReloginHandler
+	AccountTokenGuardV2    *admin.AccountTokenGuardV2Handler
 	Dashboard              *admin.DashboardHandler
 	User                   *admin.UserHandler
 	Group                  *admin.GroupHandler
@@ -38,6 +42,8 @@ type AdminHandlers struct {
 	OpenAIIPv6             *admin.OpenAIIPv6Handler
 	APIKey                 *admin.AdminAPIKeyHandler
 	ScheduledTest          *admin.ScheduledTestHandler
+	PelicanGroupTest       *admin.PelicanGroupTestHandler
+	ControlledExperiment   *admin.ControlledExperimentHandler
 	Channel                *admin.ChannelHandler
 	ChannelMonitor         *admin.ChannelMonitorHandler
 	ChannelMonitorTemplate *admin.ChannelMonitorRequestTemplateHandler
@@ -53,16 +59,19 @@ type AdminHandlers struct {
 type Handlers struct {
 	GPTDirect        *GPTDirectHandler
 	QQBot            *QQBotHandler
+	Lottery          *LotteryHandler
 	Auth             *AuthHandler
 	User             *UserHandler
 	MCPOAuth         *MCPOAuthHandler
 	APIKey           *APIKeyHandler
 	Usage            *UsageHandler
+	UsageRecords     *UsageRecordsHandler
 	Redeem           *RedeemHandler
 	Subscription     *SubscriptionHandler
 	Announcement     *AnnouncementHandler
 	ChannelMonitor   *ChannelMonitorUserHandler
 	ChannelMonitorV2 *ChannelMonitorV2Handler
+	ChannelMonitorV3 *ChannelMonitorV3Handler
 	Admin            *AdminHandlers
 	Gateway          *GatewayHandler
 	OpenAIGateway    *OpenAIGatewayHandler
@@ -72,8 +81,11 @@ type Handlers struct {
 	Payment          *PaymentHandler
 	PaymentWebhook   *PaymentWebhookHandler
 	AvailableChannel *AvailableChannelHandler
+	PelicanShowcase  *PelicanShowcaseHandler
+	SupportTicket    *SupportTicketHandler
 	ModelPlaza       *ModelPlazaHandler
 	AsyncImage       *AsyncImageHandler
+	BatchImage       *BatchImageHandler
 }
 
 // BuildInfo contains build-time information

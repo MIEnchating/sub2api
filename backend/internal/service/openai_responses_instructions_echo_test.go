@@ -121,17 +121,17 @@ func TestOpenAIResponsesInstructionsEchoRestoreHelpers(t *testing.T) {
 	require.Equal(t, event, restoreOpenAIResponsesInstructionsEchoInEvent(c, event), "a new attempt clears the previous restore value")
 }
 
-func TestOpenAIGatewayService_OAuthPassthrough_CodexBlankInstructionsForwardedAsIs(t *testing.T) {
+func TestOpenAIGatewayService_OAuthPassthrough_RejectsInvalidCodexInstructions(t *testing.T) {
 	for _, raw := range []string{`""`, `" "`, `{"text":"x"}`} {
 		t.Run(raw, func(t *testing.T) {
 			upstream := instructionsEchoUpstream(raw)
 			result, rec, err := instructionsEchoForward(t, instructionsEchoOAuthAccount(true), upstream,
 				`{"model":"gpt-5.3-codex","stream":true,"instructions":`+raw+`,"input":[{"type":"message","role":"user","content":"Hi"}]}`)
-			require.NoError(t, err)
-			require.NotNil(t, result)
-			require.Equal(t, http.StatusOK, rec.Code)
-			require.JSONEq(t, raw, gjson.GetBytes(upstream.lastBody, "instructions").Raw)
-			require.JSONEq(t, raw, sseResponseInstructions(t, rec.Body.String(), "response.completed").Raw)
+			require.Error(t, err)
+			require.Nil(t, result)
+			require.Equal(t, http.StatusForbidden, rec.Code)
+			require.Equal(t, "forbidden_error", gjson.Get(rec.Body.String(), "error.type").String())
+			require.Empty(t, upstream.requests)
 		})
 	}
 }
@@ -194,7 +194,7 @@ func TestOpenAIGatewayService_OAuthResponses_InjectedInstructionsEchoRestored(t 
 	t.Run("stream", func(t *testing.T) {
 		upstream := instructionsEchoUpstream(`"` + instructionsEchoMarker + `"`)
 		result, rec, err := instructionsEchoForward(t, instructionsEchoOAuthAccount(false), upstream,
-			`{"model":"gpt-6.1-sol","stream":true,"input":[{"type":"message","role":"user","content":"Hi"}]}`)
+			`{"model":"gpt-5.3-codex","stream":true,"input":[{"type":"message","role":"user","content":"Hi"}]}`)
 		require.NoError(t, err)
 		require.NotNil(t, result)
 		require.NotEmpty(t, gjson.GetBytes(upstream.lastBody, "instructions").String())

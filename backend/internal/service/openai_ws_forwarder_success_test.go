@@ -93,7 +93,7 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 	c.Request.Header.Set("User-Agent", "unit-test-agent/1.0")
 	groupID := int64(1001)
-	c.Set("api_key", &APIKey{GroupID: &groupID})
+	c.Set("api_key", &APIKey{GroupID: &groupID, AllowLongContext: true})
 
 	cfg := &config.Config{}
 	cfg.Security.URLAllowlist.Enabled = false
@@ -127,6 +127,8 @@ func TestOpenAIGatewayService_Forward_WSv2_SuccessAndBindSticky(t *testing.T) {
 	}
 
 	account := &Account{
+		GroupIDs: []int64{1001},
+
 		ID:          9,
 		Name:        "openai-ws",
 		Platform:    PlatformOpenAI,
@@ -350,6 +352,8 @@ func TestOpenAIGatewayService_Forward_WSv2_ImageGenerationCountsOutputs(t *testi
 	}
 
 	account := &Account{
+		GroupIDs: []int64{1010},
+
 		ID:          10,
 		Name:        "openai-ws-image",
 		Platform:    PlatformOpenAI,
@@ -556,6 +560,8 @@ func TestOpenAIGatewayService_Forward_WSv2_RewriteModelAndToolCallsOnCompletedEv
 	}
 
 	account := &Account{
+		GroupIDs: []int64{3001},
+
 		ID:          1301,
 		Name:        "openai-rewrite",
 		Platform:    PlatformOpenAI,
@@ -721,6 +727,8 @@ func TestOpenAIGatewayService_Forward_WSv2_PoolReuseNotOneToOne(t *testing.T) {
 		toolCorrector:    NewCodexToolCorrector(),
 	}
 	account := &Account{
+		GroupIDs: []int64{2001},
+
 		ID:          19,
 		Name:        "openai-ws",
 		Platform:    PlatformOpenAI,
@@ -743,7 +751,7 @@ func TestOpenAIGatewayService_Forward_WSv2_PoolReuseNotOneToOne(t *testing.T) {
 		c.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
 		c.Request.Header.Set("User-Agent", "codex_cli_rs/0.98.0")
 		groupID := int64(2001)
-		c.Set("api_key", &APIKey{GroupID: &groupID})
+		c.Set("api_key", &APIKey{GroupID: &groupID, AllowLongContext: true})
 
 		body := []byte(`{"model":"gpt-5.1","stream":false,"previous_response_id":"resp_prev_reuse","input":[{"type":"input_text","text":"hello"}]}`)
 		result, err := svc.Forward(context.Background(), c, account, body)
@@ -875,6 +883,8 @@ func TestOpenAIGatewayService_Forward_WSv2_OAuthSanitizesInvalidNativeToolItemID
 	}
 
 	account := &Account{
+		GroupIDs: []int64{5662},
+
 		ID:          5662,
 		Name:        "openai-oauth-ws-tool-history",
 		Platform:    PlatformOpenAI,
@@ -1776,7 +1786,7 @@ func TestOpenAIGatewayService_Forward_WSv2StoreFalseSessionConnIsolation(t *test
 	require.Equal(t, int64(2), upgradeCount.Load(), "不同 session(store=false) 应隔离连接，避免续链状态互相覆盖")
 }
 
-func TestOpenAIGatewayService_Forward_WSv2StoreFalseDisableForceNewConnAllowsReuse(t *testing.T) {
+func TestOpenAIGatewayService_Forward_WSv2StoreFalseDisableForceNewConnReusesOnlySameSession(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	var upgradeCount atomic.Int64
@@ -1864,6 +1874,15 @@ func TestOpenAIGatewayService_Forward_WSv2StoreFalseDisableForceNewConnAllowsReu
 	require.NotNil(t, result1)
 	require.Equal(t, int64(1), upgradeCount.Load())
 
+	recSame := httptest.NewRecorder()
+	cSame, _ := gin.CreateTestContext(recSame)
+	cSame.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
+	cSame.Request.Header.Set("session_id", "session_store_false_reuse_a")
+	sameResult, err := svc.Forward(context.Background(), cSame, account, body)
+	require.NoError(t, err)
+	require.NotNil(t, sameResult)
+	require.Equal(t, int64(1), upgradeCount.Load(), "same session still reuses its connection when force-new is disabled")
+
 	rec2 := httptest.NewRecorder()
 	c2, _ := gin.CreateTestContext(rec2)
 	c2.Request = httptest.NewRequest(http.MethodPost, "/openai/v1/responses", nil)
@@ -1871,7 +1890,7 @@ func TestOpenAIGatewayService_Forward_WSv2StoreFalseDisableForceNewConnAllowsReu
 	result2, err := svc.Forward(context.Background(), c2, account, body)
 	require.NoError(t, err)
 	require.NotNil(t, result2)
-	require.Equal(t, int64(1), upgradeCount.Load(), "关闭强制新连后，不同 session(store=false) 可复用连接")
+	require.Equal(t, int64(2), upgradeCount.Load(), "disabling force-new must not reuse another session handshake")
 }
 
 func TestOpenAIGatewayService_Forward_WSv2ReadTimeoutAppliesPerRead(t *testing.T) {
@@ -1998,6 +2017,9 @@ func (c *openAIWSCaptureConn) WriteJSON(ctx context.Context, value any) error {
 	defer c.mu.Unlock()
 	if c.closed {
 		return errOpenAIWSConnClosed
+	}
+	if prepared, ok := value.(openAIWSPreparedJSON); ok {
+		value = json.RawMessage(prepared)
 	}
 	switch payload := value.(type) {
 	case map[string]any:

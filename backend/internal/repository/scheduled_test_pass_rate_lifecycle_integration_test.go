@@ -11,6 +11,7 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/migrations"
 	"github.com/stretchr/testify/require"
 )
 
@@ -197,10 +198,13 @@ func TestScheduledTestPassRateLifecycleIntegration(t *testing.T) {
 				f.exec(`ALTER TABLE groups ADD COLUMN updated_at TIMESTAMPTZ DEFAULT NOW();
  CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT,updated_at TIMESTAMPTZ);
  CREATE TABLE composite_model_routes(group_id BIGINT,deleted_at TIMESTAMPTZ);
+CREATE TABLE api_keys(id BIGINT PRIMARY KEY);
  INSERT INTO groups(id,name) VALUES(9,'Second detection group');
  INSERT INTO account_groups VALUES(63,9);`)
+				raw, err := migrations.FS.ReadFile("291_api_key_groups.sql")
+				require.NoError(t, err)
+				f.exec(string(raw))
 				f.plan.GroupIDs = []int64{8, 9}
-				var err error
 				f.plan, err = f.plans.Update(f.ctx, f.plan)
 				require.NoError(t, err)
 				f.exec(`INSERT INTO scheduled_test_pass_rate_states SELECT plan_id,63,test_definition_id,model_key,rule_version,blocked,summary,updated_at FROM scheduled_test_pass_rate_states WHERE account_id=62`)

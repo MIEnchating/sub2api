@@ -2,13 +2,13 @@ package service
 
 import (
 	"context"
-	"go.uber.org/zap"
 	"reflect"
 	"slices"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"go.uber.org/zap"
 )
 
 // Read ticket availability only: probe state never controls scheduling.
@@ -39,6 +39,9 @@ func astraAccountSchedulingReady(settings config.AstraRoutingSettings, snapshot 
 	}
 	if !slices.Contains(settings.CookiePool.TargetAccountIDs, id) {
 		return false
+	}
+	if snapshot.RouteExpiresAt != nil && now.Before(*snapshot.RouteExpiresAt) {
+		return true
 	}
 	for _, row := range snapshot.Targets {
 		if row.AccountID == id && row.State == "ready" && row.ExpiresAt != nil && now.Before(*row.ExpiresAt) {

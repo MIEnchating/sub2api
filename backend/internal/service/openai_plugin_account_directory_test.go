@@ -92,7 +92,7 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// = relational graphs with back-references that would cycle under encoding/json.
 	stripped := map[string]struct{}{
 		"Credentials": {}, "Proxies": {}, "ProxyPoolChanged": {}, "SelectedProxyID": {}, "StatusChanged": {}, "UpstreamBillingRateLimitChanged": {},
-		"Groups": {}, "AccountGroups": {},
+		"Groups": {}, "AccountGroups": {}, "InitialQualityPlan": {}, "InitialAdmissionPlan": {}, "InitialAPIKeyDisposition": {},
 	}
 	// Fields intentionally exposed as readable metadata (incl. Extra and Proxy —
 	// the proxy password is already handed out via ResolveOutboundIdentity's URL).
@@ -100,6 +100,7 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 		"ID": {}, "Name": {}, "Notes": {}, "Platform": {}, "Type": {}, "Extra": {},
 		"Proxy": {}, "ProxyID": {}, "ProxyIDs": {}, "ProxyFallbackOriginID": {}, "ProxyFallbackOriginName": {},
 		"Concurrency": {}, "RateLimit429RetryCount": {}, "Priority": {}, "RateMultiplier": {}, "LoadFactor": {},
+		"AuthConnectionID": {}, "AuthConnectionRevision": {}, "GroupRateMultiplier": {},
 		"Status": {}, "ErrorMessage": {}, "LastUsedAt": {}, "ExpiresAt": {},
 		"AutoPauseOnExpired": {}, "CreatedAt": {}, "UpdatedAt": {}, "Schedulable": {}, "PerformancePaused": {},
 		"RateLimitedAt": {}, "RateLimitResetAt": {}, "OverloadUntil": {},
@@ -125,10 +126,13 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	// The raw Credentials blob must never serialize; Extra and the proxy ARE released.
 	acct := &Account{
 		ID: 1, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive,
-		Credentials: map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
-		Proxy:       &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
-		Proxies:     []*Proxy{{Host: "unused", Port: 2, Password: "LEAK-POOL-PASSWORD"}},
-		ProxyIDs:    []int64{10, 11},
+		Credentials:              map[string]any{"access_token": "AT", "refresh_token": "LEAK-REFRESH"},
+		Proxy:                    &Proxy{Host: "host", Port: 1, Username: "user", Password: "pw-released"},
+		Proxies:                  []*Proxy{{Host: "unused", Port: 2, Password: "LEAK-POOL-PASSWORD"}},
+		ProxyIDs:                 []int64{10, 11},
+		PerformancePaused:        true,
+		InitialAPIKeyDisposition: &OAuthAPIKeyDispositionConfig{AccountIDs: []int64{71}},
+		InitialQualityPlan:       &ScheduledTestPlan{PelicanConfig: &PelicanTestConfig{Prompt: "PRIVATE-INITIAL-QUALITY-PROMPT"}},
 		Extra: map[string]any{
 			"opaque":                        "extra-released",
 			"codex_turn_ticket:gpt-6-astra": map[string]any{"state": "PRIVATE-TICKET"},
@@ -144,6 +148,12 @@ func TestAccountReadableSnapshot_DenylistTripwire(t *testing.T) {
 	assert.Contains(t, string(snap), "extra-released", "Extra is intentionally released")
 	assert.Contains(t, string(snap), "pw-released", "proxy is intentionally released (already exposed via 打票)")
 	assert.Equal(t, []any{float64(10), float64(11)}, m["ProxyIDs"])
+	assert.Equal(t, true, m["PerformancePaused"])
+	assert.NotContains(t, m, "InitialAPIKeyDisposition")
+	assert.NotContains(t, m, "InitialQualityPlan")
+	assert.NotContains(t, string(snap), "PRIVATE-INITIAL-QUALITY-PROMPT")
+	require.Equal(t, []int64{71}, acct.InitialAPIKeyDisposition.AccountIDs)
+	require.Equal(t, "PRIVATE-INITIAL-QUALITY-PROMPT", acct.InitialQualityPlan.PelicanConfig.Prompt)
 	for _, private := range []string{"PRIVATE-TICKET", "PRIVATE-COOKIE", "PRIVATE-POOL-CREDENTIAL"} {
 		assert.NotContains(t, string(snap), private)
 	}

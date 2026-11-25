@@ -38,19 +38,23 @@ func cachedSource(nodeName string) subscriptionCache {
 
 func waitSourceOperation(t *testing.T, m *Manager) Status {
 	t.Helper()
-	completed := false
-	defer func() {
-		if !completed {
-			// Preserve the blocked operation before manager cleanup cancels it.
-			// This distinguishes process/file/controller waits from lock failures.
-			var stacks strings.Builder
-			_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
-			t.Logf("Mihomo source operation did not complete; goroutines:\n%s", stacks.String())
-		}
+	// Wait for the submitted operation itself. Repeated Status snapshots copy
+	// large proxy lists and compete with config generation on busy CI runners.
+	done := make(chan struct{})
+	go func() {
+		m.wg.Wait()
+		close(done)
 	}()
-	require.Eventually(t, func() bool { return !m.Status().Busy }, time.Second*10, time.Millisecond*5)
-	completed = true
-	return m.Status()
+	select {
+	case <-done:
+	case <-time.After(30 * time.Second):
+		var stacks strings.Builder
+		_ = pprof.Lookup("goroutine").WriteTo(&stacks, 2)
+		t.Fatalf("source operation did not complete within 30 seconds:\n%s", stacks.String())
+	}
+	status := m.Status()
+	require.False(t, status.Busy)
+	return status
 }
 
 func TestSourceRemovalPreservesCachedPeersDynamicAndSharedNodes(t *testing.T) {

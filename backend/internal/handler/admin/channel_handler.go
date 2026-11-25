@@ -1,9 +1,12 @@
 package admin
 
 import (
+	"context"
 	"fmt"
+	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -16,9 +19,15 @@ import (
 
 // ChannelHandler handles admin channel management
 type ChannelHandler struct {
-	channelService *service.ChannelService
-	billingService *service.BillingService
-	pricingService *service.PricingService
+	profitJobs        providerProfitJobs
+	profitReports     profitReportCache
+	providerCancel    context.CancelFunc
+	providerWG        sync.WaitGroup
+	providerEncryptor service.SecretEncryptor
+	providerClient    *http.Client
+	channelService    *service.ChannelService
+	billingService    *service.BillingService
+	pricingService    *service.PricingService
 }
 
 // NewChannelHandler creates a new admin channel handler
@@ -60,7 +69,7 @@ type updateChannelRequest struct {
 type channelModelPricingRequest struct {
 	Platform                   string                     `json:"platform" binding:"omitempty,max=50"`
 	Models                     []string                   `json:"models" binding:"required,min=1,max=100"`
-	BillingMode                string                     `json:"billing_mode" binding:"omitempty,oneof=token per_request image"`
+	BillingMode                string                     `json:"billing_mode" binding:"omitempty,oneof=token per_request image video"`
 	InputPrice                 *float64                   `json:"input_price" binding:"omitempty,min=0"`
 	OutputPrice                *float64                   `json:"output_price" binding:"omitempty,min=0"`
 	CacheWritePrice            *float64                   `json:"cache_write_price" binding:"omitempty,min=0"`

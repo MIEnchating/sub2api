@@ -299,7 +299,7 @@ func ContextWithSelectionProfitGate(ctx context.Context, sel *AccountSelectionRe
 	if sel == nil {
 		return ctx
 	}
-	if sel != nil && sel.userAffinity != nil {
+	if sel.userAffinity != nil {
 		ctx = context.WithValue(ctx, openAIUserAffinityContextKey{}, sel.userAffinity)
 	} else if openAIUserAffinityFromContext(ctx) != nil {
 		ctx = context.WithValue(ctx, openAIUserAffinityContextKey{}, (*openAIUserAffinity)(nil))

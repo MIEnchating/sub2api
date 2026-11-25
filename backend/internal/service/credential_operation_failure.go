@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"strings"
 	"time"
 
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
@@ -65,6 +67,27 @@ type CredentialOperationRefreshRecorder interface {
 	RecordRefreshFailure(context.Context, int64, string, time.Time) error
 }
 
+func refreshOperationFailure(err error, at *time.Time) *CredentialOperationFailure {
+	var operationError *CredentialOperationError
+	var networkError interface{ Timeout() bool }
+	code := "unknown"
+	if errors.As(err, &operationError) {
+		code = operationError.Code
+	} else if errors.Is(err, context.DeadlineExceeded) {
+		code = "timeout"
+	} else if errors.As(err, &networkError) {
+		code = "transport_error"
+		if networkError.Timeout() {
+			code = "timeout"
+		}
+	} else if infraerrors.Reason(err) == "OPENAI_OAUTH_REQUEST_FAILED" || infraerrors.Reason(err) == "OPENAI_OAUTH_PROXY_REQUIRED" {
+		code = "transport_error"
+	} else if err != nil {
+		code = credentialOperationText(err.Error())
+	}
+	return credentialOperationFailure(code, "refresh_token", at)
+}
+
 // Keep provider aliases at the input boundary; only canonical codes are stored.
 func credentialOperationCode(code string) string {
 	switch code {
@@ -82,6 +105,8 @@ func credentialOperationCode(code string) string {
 		return "requires_relogin"
 	case "password_rejected", "invalid_password", "incorrect_password":
 		return "password_rejected"
+	case "email_otp_required":
+		return "email_otp_required"
 	case "totp_rejected", "mfa_required", "otp_required", "email_verification_required", "interaction_required":
 		return "mfa_required"
 	case "security_check", "security_check_required", "challenge_required", "session_blocked_by_cyber_policy", "cyber_policy":
@@ -116,8 +141,17 @@ func credentialOperationText(text string) string {
 		return "requires_relogin"
 	case "worker timeout", "password/TOTP protocol timed out":
 		return "timeout"
+	case accountTokenGuardV2PolicyBlocked:
+		return "authorization_denied"
 	}
 	return credentialOperationCode(text)
+}
+
+// Only the top-level error envelope is authoritative. Do not search arbitrary
+// nested input/message/debug fields. A nonempty unknown code blocks text fallback.
+func credentialOperationEnvelope(body []byte) string {
+	_, code := credentialOperationEnvelopeSignal(body)
+	return code
 }
 
 // Select the authoritative structured signal once for both display and refresh
@@ -197,6 +231,8 @@ func credentialOperationFailure(code, stage string, at *time.Time) *CredentialOp
 		action = "update_password"
 	case "mfa_required":
 		action = "complete_verification"
+	case "email_otp_required":
+		action = "complete_email_verification"
 	case "security_check", "authorization_denied":
 		action = "review_authorization"
 	case "rate_limited", "timeout", "transport_error", "service_error":
@@ -211,6 +247,41 @@ func credentialOperationFailure(code, stage string, at *time.Time) *CredentialOp
 // SafeCredentialOperationFailure also protects repository observation writes.
 func SafeCredentialOperationFailure(code, stage string, at *time.Time) *CredentialOperationFailure {
 	return credentialOperationFailure(code, stage, at)
+}
+
+func storedRefreshFailure(record AccountTokenGuardV2Record) *CredentialOperationFailure {
+	if record.LastRefreshFailureAt == nil && record.RefreshFailureCode == "" {
+		return nil
+	}
+	return credentialOperationFailure(record.RefreshFailureCode, "refresh_token", record.LastRefreshFailureAt)
+}
+
+func credentialOperationDetail(code string) string {
+	return "credential_operation_failed stage=inspection code=" + credentialOperationCode(code)
+}
+
+func probeOperationFailure(state, detail string, at *time.Time) *CredentialOperationFailure {
+	if state == AccountTokenGuardV2ProbeOK || state == AccountTokenGuardV2ProbePending || state == "" {
+		return nil
+	}
+	var code string
+	if value, ok := strings.CutPrefix(detail, "credential_operation_failed stage=inspection code="); ok {
+		value, _, _ = strings.Cut(value, ";")
+		code = credentialOperationCode(value)
+	} else {
+		code = credentialOperationText(detail)
+	}
+	return credentialOperationFailure(code, "inspection", at)
+}
+
+func safeProbeOperationDetail(state, detail string) string {
+	if state == AccountTokenGuardV2ProbeOK {
+		return "credential accepted"
+	}
+	if failure := probeOperationFailure(state, detail, nil); failure != nil {
+		return credentialOperationDetail(failure.Code)
+	}
+	return ""
 }
 
 func reauthOperationFailure(record *OpenAIOAuthReauthTaskRecord, diagnostic *ReauthDiagnostic) *CredentialOperationFailure {

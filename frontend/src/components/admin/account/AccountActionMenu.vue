@@ -37,6 +37,10 @@
               <Icon name="clock" size="sm" class="text-orange-500" />
               {{ t('admin.scheduledTests.schedule') }}
             </button>
+            <button @click="$emit('iq-test', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm text-amber-700 hover:bg-amber-50 dark:text-amber-300 dark:hover:bg-amber-900/20">
+              <Icon name="brain" size="sm" class="text-amber-500" />
+              {{ t('admin.accounts.pelicanTest.menu') }}
+            </button>
             <button v-if="canDuplicate" @click="$emit('duplicate', account); $emit('close')" class="flex w-full items-center gap-2 px-4 py-2 text-sm hover:bg-gray-100 dark:hover:bg-dark-700">
               <Icon name="copy" size="sm" class="text-sky-500" />
               {{ t('admin.accounts.duplicateAccount') }}
@@ -94,7 +98,7 @@ const props = defineProps<{
   anchorRect: DOMRect | null
   syncingUpstreamModels?: boolean
 }>()
-const emit = defineEmits(['close', 'test', 'stats', 'tool-diagnostics', 'schedule', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'openai-ipv6', 'sync-models'])
+const emit = defineEmits(['close', 'test', 'stats', 'tool-diagnostics', 'schedule', 'iq-test', 'duplicate', 'reauth', 'refresh-token', 'recover-state', 'reset-quota', 'set-privacy', 'create-spark-shadow', 'openai-ipv6', 'sync-models'])
 const { t } = useI18n()
 const menuRef = ref<HTMLElement | null>(null)
 const { width: viewportWidth, height: viewportHeight } = useWindowSize()

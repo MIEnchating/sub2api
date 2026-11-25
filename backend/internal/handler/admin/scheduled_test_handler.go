@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"strconv"
 
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -154,11 +155,13 @@ func NewScheduledTestHandler(scheduledTestSvc *service.ScheduledTestService) *Sc
 }
 
 type createScheduledTestPlanRequest struct {
+	AccountID          *int64                                `json:"account_id"`
+	PelicanConfig      *service.PelicanTestConfig            `json:"pelican_config"`
 	Name               string                                `json:"name"`
 	SortOrder          *int                                  `json:"sort_order"`
-	GroupIDs           []int64                               `json:"group_ids" binding:"required"`
+	GroupIDs           []int64                               `json:"group_ids"`
 	ExcludedAccountIDs []int64                               `json:"excluded_account_ids"`
-	TestDefinitionIDs  []int64                               `json:"test_definition_ids" binding:"required"`
+	TestDefinitionIDs  []int64                               `json:"test_definition_ids"`
 	ModelID            string                                `json:"model_id"`
 	ModelIDs           []string                              `json:"model_ids"`
 	ReasoningEffort    string                                `json:"reasoning_effort"`
@@ -171,20 +174,22 @@ type createScheduledTestPlanRequest struct {
 }
 
 type updateScheduledTestPlanRequest struct {
-	Name               *string                                `json:"name"`
-	SortOrder          *int                                   `json:"sort_order"`
-	GroupIDs           json.RawMessage                        `json:"group_ids"`
-	ExcludedAccountIDs json.RawMessage                        `json:"excluded_account_ids"`
-	TestDefinitionIDs  json.RawMessage                        `json:"test_definition_ids"`
-	ModelID            string                                 `json:"model_id"`
-	ModelIDs           json.RawMessage                        `json:"model_ids"`
-	ReasoningEffort    json.RawMessage                        `json:"reasoning_effort"`
-	CronExpression     string                                 `json:"cron_expression"`
-	Schedule           json.RawMessage                        `json:"schedule"`
-	Enabled            *bool                                  `json:"enabled"`
-	MaxResults         int                                    `json:"max_results"`
-	AutoRecover        *bool                                  `json:"auto_recover"`
-	Protection         *service.ScheduledTestProtectionConfig `json:"protection"`
+	PelicanConfig        *service.PelicanTestConfig             `json:"pelican_config"`
+	PreserveQualityState bool                                   `json:"preserve_quality_state"`
+	Name                 *string                                `json:"name"`
+	SortOrder            *int                                   `json:"sort_order"`
+	GroupIDs             json.RawMessage                        `json:"group_ids"`
+	ExcludedAccountIDs   json.RawMessage                        `json:"excluded_account_ids"`
+	TestDefinitionIDs    json.RawMessage                        `json:"test_definition_ids"`
+	ModelID              string                                 `json:"model_id"`
+	ModelIDs             json.RawMessage                        `json:"model_ids"`
+	ReasoningEffort      json.RawMessage                        `json:"reasoning_effort"`
+	CronExpression       string                                 `json:"cron_expression"`
+	Schedule             json.RawMessage                        `json:"schedule"`
+	Enabled              *bool                                  `json:"enabled"`
+	MaxResults           int                                    `json:"max_results"`
+	AutoRecover          *bool                                  `json:"auto_recover"`
+	Protection           *service.ScheduledTestProtectionConfig `json:"protection"`
 }
 
 // ListByAccount GET /admin/accounts/:id/scheduled-test-plans
@@ -199,6 +204,15 @@ func (h *ScheduledTestHandler) ListByAccount(c *gin.Context) {
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
+	}
+	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer {
+		ownPlans := make([]*service.ScheduledTestPlan, 0, len(plans))
+		for _, plan := range plans {
+			if plan.TargetAccountID() == accountID {
+				ownPlans = append(ownPlans, plan)
+			}
+		}
+		plans = ownPlans
 	}
 	c.JSON(http.StatusOK, plans)
 }
@@ -235,7 +249,16 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer && (req.AccountID == nil || *req.AccountID <= 0) {
+		response.ErrorFrom(c, service.ErrObserverScope)
+		return
+	}
+	if !qualityJudgeAccess(c, req.PelicanConfig) {
+		return
+	}
 	plan := &service.ScheduledTestPlan{
+		AccountID:          req.AccountID,
+		PelicanConfig:      req.PelicanConfig,
 		Name:               req.Name,
 		GroupIDs:           req.GroupIDs,
 		ExcludedAccountIDs: req.ExcludedAccountIDs,
@@ -265,6 +288,10 @@ func (h *ScheduledTestHandler) Create(c *gin.Context) {
 
 	created, err := h.scheduledTestSvc.CreatePlan(c.Request.Context(), plan)
 	if err != nil {
+		if infraerrors.IsForbidden(err) {
+			response.ErrorFrom(c, err)
+			return
+		}
 		response.BadRequest(c, err.Error())
 		return
 	}
@@ -291,6 +318,14 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 		return
 	}
 
+	if existing.TargetAccountID() > 0 {
+		h.updateAccountPlan(c, existing, req)
+		return
+	}
+	if req.PelicanConfig != nil || req.PreserveQualityState {
+		response.BadRequest(c, "account test settings require an account plan")
+		return
+	}
 	if existing.MigrationNote != "" && (len(req.GroupIDs) == 0 || len(req.TestDefinitionIDs) == 0) {
 		response.BadRequest(c, "migrated strategy requires reviewing and saving group_ids and test_definition_ids before activation")
 		return
@@ -389,6 +424,62 @@ func (h *ScheduledTestHandler) Update(c *gin.Context) {
 	c.JSON(http.StatusOK, updated)
 }
 
+func (h *ScheduledTestHandler) updateAccountPlan(c *gin.Context, existing *service.ScheduledTestPlan, req updateScheduledTestPlanRequest) {
+	if len(req.GroupIDs) != 0 || len(req.TestDefinitionIDs) != 0 || len(req.Schedule) != 0 || req.Protection != nil {
+		response.BadRequest(c, "group strategy settings require a group plan")
+		return
+	}
+	if !qualityJudgeAccess(c, existing.PelicanConfig, req.PelicanConfig) {
+		return
+	}
+	existing.PreserveQualityState = req.PreserveQualityState
+
+	if req.PelicanConfig != nil {
+		if existing.PelicanConfig == nil {
+			response.BadRequest(c, "cannot change test type")
+			return
+		}
+		if (existing.PelicanConfig.Quality == nil) != (req.PelicanConfig.Quality == nil) {
+			response.BadRequest(c, "cannot change quality test type")
+			return
+		}
+		existing.PelicanConfig = req.PelicanConfig
+	}
+	if req.ModelID != "" {
+		if req.PelicanConfig == nil && existing.PelicanConfig != nil {
+			for i, model := range existing.PelicanConfig.ModelIDs {
+				if model == existing.ModelID {
+					existing.PelicanConfig.ModelIDs[i] = req.ModelID
+				}
+			}
+		}
+		existing.ModelID = req.ModelID
+	}
+	if req.CronExpression != "" {
+		existing.CronExpression = req.CronExpression
+	}
+	if req.Enabled != nil {
+		existing.Enabled = *req.Enabled
+	}
+	if req.MaxResults > 0 {
+		existing.MaxResults = req.MaxResults
+	}
+	if req.AutoRecover != nil {
+		existing.AutoRecover = *req.AutoRecover
+	}
+
+	updated, err := h.scheduledTestSvc.UpdatePlan(c.Request.Context(), existing)
+	if err != nil {
+		if infraerrors.Reason(err) == "OBSERVER_SCOPE_FORBIDDEN" || infraerrors.Reason(err) == service.QualityScopeConflictReason || infraerrors.Reason(err) == "QUALITY_MODEL_NOT_ALLOWED" || infraerrors.Reason(err) == "QUALITY_MODEL_CATALOG_UNKNOWN" || infraerrors.Reason(err) == "OPENAI_CODEX_MODELS_CREDENTIALS_INVALID" {
+			response.ErrorFrom(c, err)
+			return
+		}
+		response.BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, updated)
+}
+
 // Delete DELETE /admin/scheduled-test-plans/:id
 func (h *ScheduledTestHandler) Delete(c *gin.Context) {
 	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
@@ -397,7 +488,30 @@ func (h *ScheduledTestHandler) Delete(c *gin.Context) {
 		return
 	}
 
+	if c.Request.ContentLength != 0 {
+		var req service.QualityOwnershipRequest
+		if err := c.ShouldBindJSON(&req); err != nil {
+			response.BadRequest(c, "invalid ownership deletion confirmation")
+			return
+		}
+		// Older clients send an empty JSON object on DELETE. Preserve their
+		// guarded path; only an explicit ownership confirmation selects fencing.
+		if req.Fence != "" || req.Confirm {
+			req.Delete = true
+			if _, err := h.scheduledTestSvc.QualityOwnership(c.Request.Context(), planID, &req); err != nil {
+				response.ErrorFrom(c, err)
+				return
+			}
+			c.JSON(http.StatusOK, gin.H{"message": "deleted"})
+			return
+		}
+	}
+
 	if err := h.scheduledTestSvc.DeletePlan(c.Request.Context(), planID); err != nil {
+		if infraerrors.Reason(err) == "OBSERVER_SCOPE_FORBIDDEN" || infraerrors.Reason(err) == service.QualityScopeConflictReason {
+			response.ErrorFrom(c, err)
+			return
+		}
 		response.InternalError(c, err.Error())
 		return
 	}
@@ -417,7 +531,17 @@ func (h *ScheduledTestHandler) ListResults(c *gin.Context) {
 		limit = l
 	}
 
-	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit)
+	plan, err := h.scheduledTestSvc.GetPlan(c.Request.Context(), planID)
+	if err != nil {
+		response.NotFound(c, "plan not found")
+		return
+	}
+	var includeContent []bool
+	if plan.TargetAccountID() > 0 {
+		limit = min(limit, 100)
+		includeContent = []bool{c.Query("include_content") != "false"}
+	}
+	results, err := h.scheduledTestSvc.ListResults(c.Request.Context(), planID, limit, includeContent...)
 	if err != nil {
 		response.InternalError(c, err.Error())
 		return
@@ -476,4 +600,131 @@ func (h *ScheduledTestHandler) RetryResult(c *gin.Context) {
 		return
 	}
 	c.JSON(http.StatusAccepted, result)
+}
+
+// Observers may manage scoped connectivity tests, but cannot opt accounts into
+// shared audit credentials or enable a saved Jev rule through that older API.
+func qualityJudgeAccess(c *gin.Context, configs ...*service.PelicanTestConfig) bool {
+	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer {
+		for _, cfg := range configs {
+			if cfg != nil && cfg.Quality != nil && cfg.Quality.Judge != nil && cfg.Quality.Judge.Kind == "jev" {
+				response.ErrorFrom(c, service.ErrObserverScope)
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func (h *ScheduledTestHandler) GetResult(c *gin.Context) {
+	planID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	resultID, err := strconv.ParseInt(c.Param("resultID"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "invalid result id")
+		return
+	}
+	result, err := h.scheduledTestSvc.GetResult(c.Request.Context(), planID, resultID)
+	if err != nil {
+		response.NotFound(c, "result not found or expired")
+		return
+	}
+	c.JSON(http.StatusOK, result)
+}
+
+// ListPelicanHistory returns account-independent summaries for the record dashboard.
+// Optional account_id narrows them to one account for the IQ test's records window.
+func (h *ScheduledTestHandler) ListPelicanHistory(c *gin.Context) {
+	beforeID, err := strconv.ParseInt(c.DefaultQuery("before_id", "0"), 10, 64)
+	if err != nil || beforeID < 0 {
+		response.BadRequest(c, "invalid before_id")
+		return
+	}
+	accountID, err := strconv.ParseInt(c.DefaultQuery("account_id", "0"), 10, 64)
+	if err != nil || accountID < 0 {
+		response.BadRequest(c, "invalid account_id")
+		return
+	}
+	page, err := h.scheduledTestSvc.ListPelicanHistory(c.Request.Context(), beforeID, 100, accountID)
+	if err != nil {
+		response.InternalError(c, "Failed to load pelican history")
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
+
+func (h *ScheduledTestHandler) ListQualityPlans(c *gin.Context) {
+	plans, err := h.scheduledTestSvc.ListQualityPlans(c.Request.Context())
+	if err != nil {
+		response.InternalError(c, "Failed to load quality plans")
+		return
+	}
+	if plans == nil {
+		plans = []*service.ScheduledTestPlan{}
+	}
+	c.JSON(http.StatusOK, plans)
+}
+func (h *ScheduledTestHandler) TriggerQuality(c *gin.Context) {
+	id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil || id <= 0 {
+		response.BadRequest(c, "invalid plan id")
+		return
+	}
+	if err = h.scheduledTestSvc.TriggerQuality(c.Request.Context(), id); err != nil {
+		response.BadRequest(c, err.Error())
+		return
+	}
+	c.JSON(http.StatusOK, gin.H{"message": "queued"})
+}
+
+func (h *ScheduledTestHandler) ListQualityHistory(c *gin.Context) {
+	beforeID, err := strconv.ParseInt(c.DefaultQuery("before_id", "0"), 10, 64)
+	if err != nil || beforeID < 0 {
+		response.BadRequest(c, "invalid before_id")
+		return
+	}
+	page, err := h.scheduledTestSvc.ListQualityHistory(c.Request.Context(), beforeID)
+	if err != nil {
+		response.InternalError(c, "Failed to load quality operation history")
+		return
+	}
+	c.JSON(http.StatusOK, page)
+}
+
+// ObserverGuard resolves plan IDs to accounts before any plan/result operation.
+func (h *ScheduledTestHandler) ObserverGuard(accounts *AccountHandler) gin.HandlerFunc {
+	return func(c *gin.Context) {
+		ctx := c.Request.Context()
+		if _, scoped := service.ObserverGroupIDs(ctx); !scoped {
+			c.Next()
+			return
+		}
+		if c.Param("id") == "" {
+			// The common account middleware checked the body account ID.
+			c.Next()
+			return
+		}
+		id, err := strconv.ParseInt(c.Param("id"), 10, 64)
+		if err != nil || id <= 0 {
+			response.BadRequest(c, "invalid plan id")
+			c.Abort()
+			return
+		}
+		plan, err := h.scheduledTestSvc.GetPlan(ctx, id)
+		if err != nil || plan == nil || plan.TargetAccountID() <= 0 {
+			response.ErrorFrom(c, service.ErrObserverScope)
+			c.Abort()
+			return
+		}
+		account, err := accounts.adminService.GetAccount(ctx, plan.TargetAccountID())
+		if err != nil || !service.ObserverCanManageAccount(ctx, account) {
+			response.ErrorFrom(c, service.ErrObserverScope)
+			c.Abort()
+			return
+		}
+		c.Next()
+	}
 }

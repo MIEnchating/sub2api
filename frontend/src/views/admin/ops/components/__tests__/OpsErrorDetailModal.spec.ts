@@ -1,13 +1,16 @@
 import { flushPromises, shallowMount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import OpsErrorDetailModal from '../OpsErrorDetailModal.vue'
+import { observerUsageContext } from '@/components/admin/usage/observerUsageContext'
 
 const mocks = vi.hoisted(() => ({
   copyToClipboard: vi.fn(),
   getRequestErrorDetail: vi.fn(),
+  own: vi.fn(),
   listRequestErrorUpstreamErrors: vi.fn()
 }))
 
+vi.mock('@/api/observerUsage', () => ({ observerUsageAPI: { getErrorDetail: mocks.own } }))
 vi.mock('@/api/admin/ops', () => ({
   opsAPI: {
     getRequestErrorDetail: mocks.getRequestErrorDetail,
@@ -117,4 +120,75 @@ describe('OpsErrorDetailModal', () => {
       'admin.ops.errorDetail.reportedHeaders.copied'
     )
   })
+})
+
+it('loads only the owned observer error and never requests correlated admin details', async () => {
+  vi.clearAllMocks()
+  mocks.own.mockResolvedValue({ id: 42, status_code: 502, message: 'own error' })
+  const wrapper = shallowMount(OpsErrorDetailModal, {
+    props: { show: true, errorId: 42, errorType: 'request' },
+    global: { provide: { [observerUsageContext as symbol]: true } },
+  })
+  await flushPromises()
+  expect(mocks.own).toHaveBeenCalledWith(42)
+  expect(mocks.getRequestErrorDetail).not.toHaveBeenCalled()
+  expect(mocks.listRequestErrorUpstreamErrors).not.toHaveBeenCalled()
+  wrapper.unmount()
+})
+
+it.each(['user', 'upstream'])('explains %s balance failures and preserves diagnostics', async source => {
+  vi.clearAllMocks()
+  mocks.listRequestErrorUpstreamErrors.mockResolvedValue({ items: [] })
+  mocks.getRequestErrorDetail.mockResolvedValue({
+    id: 1, status_code: 403, phase: 'request',
+    error_owner: source === 'user' ? 'client' : 'provider',
+    error_source: source === 'user' ? 'client_request' : 'upstream_http',
+    user_id: 7, account_id: source === 'upstream' ? 9 : null,
+    message: 'insufficient balance', error_body: '{"error":{"message":"insufficient balance"}}',
+  })
+  const wrapper = shallowMount(OpsErrorDetailModal, {
+    props: { show: true, errorId: 1, errorType: 'request' },
+    global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } },
+  })
+  await flushPromises()
+  expect(wrapper.get('[data-testid="balance-source"]').text()).toContain(`admin.ops.balanceError.${source}Hint`)
+  expect(wrapper.find('pre').text()).toContain('insufficient balance')
+  wrapper.unmount()
+})
+
+it('labels HTTP 200 as wire status when the stream failed', async () => {
+  vi.clearAllMocks()
+  mocks.listRequestErrorUpstreamErrors.mockResolvedValue({ items: [] })
+  mocks.getRequestErrorDetail.mockResolvedValue({
+    id: 1, status_code: 200, phase: 'network', type: 'transport_error',
+    message: 'Upstream connection reset', upstream_status_code: null,
+  })
+  const wrapper = shallowMount(OpsErrorDetailModal, {
+    props: { show: true, errorId: 1, errorType: 'request' },
+    global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } },
+  })
+  await flushPromises()
+  expect(wrapper.text()).toContain('usage.errors.detail.clientHttpStatus')
+  expect(wrapper.text()).toContain('usage.errors.detail.streamFailedAfterHeaders')
+  expect(wrapper.text()).toContain('200')
+  wrapper.unmount()
+})
+
+it('shows value-free encrypted-history control diagnostics from the error body', async () => {
+  vi.clearAllMocks()
+  mocks.listRequestErrorUpstreamErrors.mockResolvedValue({ items: [] })
+  mocks.getRequestErrorDetail.mockResolvedValue({
+    id: 1, status_code: 409, phase: 'request', type: 'invalid_request_error',
+    message: 'Encrypted history recovery refused',
+    error_body: JSON.stringify({ error: { code: 'encrypted_agent_recovery_wire_changed', controls: { snapshot: 'oauth_replay', tools: 'changed', tool_choice: 'match', previous_response_id_present: false } } }),
+  })
+  const wrapper = shallowMount(OpsErrorDetailModal, {
+    props: { show: true, errorId: 1, errorType: 'request' },
+    global: { stubs: { BaseDialog: { template: '<div><slot /></div>' }, Icon: true } },
+  })
+  await flushPromises()
+  expect(wrapper.text()).toContain('"snapshot": "oauth_replay"')
+  expect(wrapper.text()).toContain('"tools": "changed"')
+  expect(wrapper.text()).toContain('"previous_response_id_present": false')
+  wrapper.unmount()
 })

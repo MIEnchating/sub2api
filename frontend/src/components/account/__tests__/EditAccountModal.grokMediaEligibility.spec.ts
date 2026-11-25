@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent } from 'vue'
+import { createPinia, setActivePinia } from 'pinia'
 import { mount } from '@vue/test-utils'
 
 const {
@@ -23,6 +24,7 @@ vi.mock('@/stores/auth', () => ({ useAuthStore: () => ({ get isSimpleMode() { re
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getManagementCapabilities: vi.fn().mockResolvedValue({ web_search_enabled: false, account_quota_notify_enabled: false }),
       update: updateAccountMock,
       getGrokMediaEligibility: getEligibilityMock,
       updateGrokMediaEligibility: updateEligibilityMock,
@@ -57,9 +59,11 @@ const account = (platform = 'grok', type = 'oauth', extra: Record<string, unknow
 })
 
 function mountModal(value = account()) {
+  const pinia = createPinia()
+  setActivePinia(pinia)
   return mount(EditAccountModal, {
     props: { show: true, account: value, proxies: [], groups: [] },
-    global: { stubs: {
+    global: { plugins: [pinia], stubs: {
       BaseDialog: BaseDialogStub, Select: true, Icon: true, ProxySelector: true,
       GroupSelector: true, ModelWhitelistSelector: true
     } }

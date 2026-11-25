@@ -58,7 +58,7 @@ func EvaluateAccountSchedulingThreshold(account *Account, thresholds map[string]
 		winner = pickLatestResetSchedulingCandidate(anthropicThresholdCandidates(account), threshold, now)
 	case PlatformGrok:
 		winner = pickLatestResetSchedulingCandidate(grokThresholdCandidates(account), threshold, now)
-	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode:
+	case PlatformKimi, PlatformZhipu, PlatformMiniMax, PlatformOpenCodeGo, PlatformCommandCode, PlatformMistral:
 		winner = pickLatestResetSchedulingCandidate(cnProviderThresholdCandidates(account, decision.Platform), threshold, now)
 	default:
 		return decision
@@ -353,7 +353,7 @@ func grokThresholdCandidates(account *Account) []*accountSchedulingThresholdCand
 	}
 }
 
-// cnProviderThresholdCandidates 读取国产供应商 Coding Plan、OpenCode Go 与 Command Code
+// cnProviderThresholdCandidates 读取国产供应商 Coding Plan、OpenCode Go、Command Code 与 Mistral
 // 账号的 5h / weekly（及月度）窗口用量快照（由 CNProviderQuotaService 写入 account.Extra，
 // 键形如 <provider>_5h_used_percent / <provider>_weekly_reset_at）。payg 账号无此快照，
 // 候选为空 → 不触发阈值停调（余额型走余额检测）。与 openai 的快照驱动停调一致：
@@ -363,6 +363,9 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 		return nil
 	}
 	if provider == PlatformCommandCode && !commandCodeWindowsBinding(account.Extra) {
+		return nil
+	}
+	if provider == PlatformMistral && !mistralWindowsBinding(account.Extra) {
 		return nil
 	}
 	candidates := []*accountSchedulingThresholdCandidate{
@@ -376,10 +379,10 @@ func cnProviderThresholdCandidates(account *Account, provider string) []*account
 }
 
 // cnQuotaHasMonthlyWindow 报告供应商的额度快照是否含月度窗口（OpenCode Go、
-// Command Code 与 Kimi 新套餐）。
+// Command Code、Kimi 新套餐与 Mistral）。
 func cnQuotaHasMonthlyWindow(provider string) bool {
 	switch provider {
-	case PlatformOpenCodeGo, PlatformCommandCode, PlatformKimi:
+	case PlatformOpenCodeGo, PlatformCommandCode, PlatformKimi, PlatformMistral:
 		return true
 	default:
 		return false

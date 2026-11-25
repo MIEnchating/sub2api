@@ -226,6 +226,14 @@ export default {
       "label": "读取全站支付订单与报表",
       "category": "财务"
     },
+    "lottery_dread": {
+      "label": "读取抽奖奖池与记录",
+      "category": "财务"
+    },
+    "lottery_dwrite": {
+      "label": "管理抽奖奖池与奖品",
+      "category": "财务"
+    },
     "payment_dcancel": {
       "label": "取消支付订单",
       "category": "财务"

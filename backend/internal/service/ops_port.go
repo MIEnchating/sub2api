@@ -19,6 +19,8 @@ type OpsRepository interface {
 
 	UpdateErrorResolution(ctx context.Context, errorID int64, resolved bool, resolvedByUserID *int64, resolvedAt *time.Time) error
 
+	GetAlertPlatformStats(ctx context.Context, filter OpsDashboardFilter) ([]OpsAlertPlatformStats, error)
+
 	// Lightweight window stats (for realtime WS / quick sampling).
 	GetWindowStats(ctx context.Context, filter *OpsDashboardFilter) (*OpsWindowStats, error)
 	// Lightweight realtime traffic summary (for the Ops dashboard header card).
@@ -112,6 +114,8 @@ type OpsInsertErrorLogInput struct {
 	// It is set by OpsService.RecordError before persisting.
 	UpstreamErrorsJSON *string
 
+	// DurationMs is measured before enqueueing, excluding async logging time.
+	DurationMs         *int64
 	AuthLatencyMs      *int64
 	RoutingLatencyMs   *int64
 	UpstreamLatencyMs  *int64
@@ -308,7 +312,10 @@ type OpsWindowStats struct {
 	StartTime time.Time `json:"start_time"`
 	EndTime   time.Time `json:"end_time"`
 
-	SuccessCount    int64 `json:"success_count"`
-	ErrorCountTotal int64 `json:"error_count_total"`
-	TokenConsumed   int64 `json:"token_consumed"`
+	SuccessCount    int64   `json:"success_count"`
+	ErrorCountTotal int64   `json:"error_count_total"`
+	TokenConsumed   int64   `json:"token_consumed"`
+	ErrorCountSLA   int64   `json:"error_count_sla"`
+	RequestCountSLA int64   `json:"request_count_sla"`
+	SLA             float64 `json:"sla"`
 }

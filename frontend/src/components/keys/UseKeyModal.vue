@@ -274,15 +274,18 @@ import { saveAs } from 'file-saver'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { useClipboard } from '@/composables/useClipboard'
-import { buildCodexModelCatalogUrl, fetchCodexModelsManifest } from '@/api/codex'
+import { buildCodexModelCatalogUrl, fetchCodexModelsManifest, OPENAI_CODEX_CATALOG_CLIENT_VERSION } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
 import { buildCodexApiKeyAuthConfig } from '@/utils/codexAuthConfig'
 import {
+  OPENAI_CODEX_MODEL,
   findCodexCatalogModel,
   formatCodexReasoningEffortTomlLine,
   parseCodexCatalogModels,
-  selectCodexConfigReasoningEffort
+  selectCodexConfigReasoningEffort,
+  selectOpenAICodexModel
 } from '@/utils/codexCatalogConfig'
+import { escapeTomlBasicString, normalizeCodexBaseUrl, resolveSiteProviderName } from '@/utils/codexQuickConfig'
 
 interface Props {
   show: boolean
@@ -290,6 +293,7 @@ interface Props {
   baseUrl: string
   platform: GroupPlatform | null
   claudeCodeOnly?: boolean
+  siteName?: string
   allowMessagesDispatch?: boolean
 }
 
@@ -676,7 +680,12 @@ async function loadCodexModelManifest() {
   codexModelManifestState.value = 'loading'
 
   try {
-    const result = await fetchCodexModelsManifest(props.baseUrl, props.apiKey, controller.signal)
+    const result = await fetchCodexModelsManifest(
+      props.baseUrl,
+      props.apiKey,
+      controller.signal,
+      props.platform === 'openai' ? OPENAI_CODEX_CATALOG_CLIENT_VERSION : undefined
+    )
     if (requestID !== codexModelManifestRequestID) return
     codexModelManifestContent.value = result.content
     codexModelManifestModelCount.value = result.modelCount
@@ -709,8 +718,9 @@ const codexCatalogModelSlugs = computed(() =>
 )
 
 function selectCodexCatalogModel(preferredModel: string): string {
-  if (codexCatalogModelSlugs.value.includes(preferredModel)) return preferredModel
-  return codexCatalogModelSlugs.value[0] || preferredModel
+  return codexCatalogModelSlugs.value.includes(preferredModel)
+    ? preferredModel
+    : codexCatalogModelSlugs.value[0] || preferredModel
 }
 
 function codexReasoningEffortTomlLine(modelSlug: string): string {
@@ -738,8 +748,8 @@ const comment = (value: string) => wrapToken('text-slate-500', value)
 // Syntax highlighting helpers
 // Generate file configs based on platform and active tab
 const currentFiles = computed((): FileConfig[] => {
-  const baseUrl = props.baseUrl || window.location.origin
-  const apiKey = props.apiKey || "YOUR_API_KEY"
+  const baseUrl = props.baseUrl.trim() || window.location.origin
+  const apiKey = props.apiKey || 'YOUR_API_KEY'
   const baseRoot = baseUrl.replace(/\/v1\/?$/, '').replace(/\/+$/, '')
   const ensureV1 = (value: string) => {
     const trimmed = value.replace(/\/+$/, '')
@@ -784,11 +794,8 @@ const currentFiles = computed((): FileConfig[] => {
         // Anthropic clients append /v1/messages themselves.
         return generateAnthropicFiles(baseRoot, apiKey)
       }
-      if (activeClientTab.value === 'codex-ws') {
-        return generateOpenAIWsFiles(apiBase, apiKey)
-      }
       // Codex appends /responses directly and does not add /v1.
-      return generateOpenAIFiles(apiBase, apiKey)
+      return generateOpenAIFiles(normalizeCodexBaseUrl(baseUrl), apiKey)
     case 'gemini':
       if (activeClientTab.value === 'codex') {
         return generateRoutedCodexFiles(apiBase, apiKey, 'gemini')
@@ -1029,26 +1036,30 @@ function generateOpenAIFiles(baseUrl: string, apiKey: string): FileConfig[] {
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
 
-  const model = selectCodexCatalogModel('gpt-6.1-sol')
+  const model = selectOpenAICodexModel(codexCatalogModelSlugs.value)
+  const modelToml = escapeTomlBasicString(model)
   const reasoningEffortLine = codexReasoningEffortTomlLine(model)
+  const supportsWebsockets = activeClientTab.value === 'codex-ws'
+  const remoteCatalog = codexModelCatalogMode.value === 'remote'
+  const providerName = escapeTomlBasicString(resolveSiteProviderName(props.siteName))
 
-  // config.toml content
   const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
+model = "${modelToml}"
+review_model = "${modelToml}"
+service_tier = "fast"
 web_search = "live"
 ${reasoningEffortLine}disable_response_storage = true
 ${codexLocalCatalogToml.value}network_access = "enabled"
 windows_wsl_setup_acknowledged = true
 
 [model_providers.OpenAI]
-name = "OpenAI"
-base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}wire_api = "responses"
-${generateCodexProviderAuthConfig(apiKey)}
+name = "${providerName}"
+base_url = "${escapeTomlBasicString(baseUrl)}"
+${remoteCatalog ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}wire_api = "responses"
+${supportsWebsockets ? 'supports_websockets = true\n' : ''}${generateCodexProviderAuthConfig(apiKey)}
 
 [features]
-${codexModelCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}${codexAuthMode.value === 'api-key' ? 'image_generation = true\n' : ''}goals = true`
+${remoteCatalog ? 'api_key_model_discovery = true\n' : ''}${supportsWebsockets ? 'responses_websockets_v2 = true\n' : ''}${codexAuthMode.value === 'api-key' ? 'image_generation = true\n' : ''}goals = true`
 
   return buildOpenAICodexFileConfigs(configDir, configContent, apiKey)
 }
@@ -1087,10 +1098,6 @@ function buildOpenAICodexFileConfigs(
 function joinConfigPath(dir: string, file: string, windows: boolean): string {
   if (!windows) return `${dir}/${file}`
   return `${dir}\\${file}`
-}
-
-function escapeTomlBasicString(value: string): string {
-  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"')
 }
 
 function generateGrokFiles(baseUrl: string, apiKey: string): FileConfig[] {
@@ -1260,6 +1267,7 @@ function generateGrokCodexFiles(baseUrl: string, apiKey: string): FileConfig[] {
       envContent = `export SUB2API_API_KEY="${apiKey}"`
   }
 
+  const providerName = escapeTomlBasicString(resolveSiteProviderName(props.siteName))
   const configContent = `# Codex CLI → Sub2API Grok group
 # Docs: Codex config reference (model_providers.*, wire_api = "responses")
 #
@@ -1272,12 +1280,9 @@ ${codexLocalCatalogToml.value}# Optional:
 # review_model = "${model}"
 # model_reasoning_effort = "medium"
 # model_context_window = 500000
-# disable_response_storage = true
-# network_access = "enabled"
-# windows_wsl_setup_acknowledged = true
 
 [model_providers.sub2api]
-name = "Sub2API Grok"
+name = "${providerName}"
 base_url = "${baseUrl}"
 ${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}# Prefer env_key (variable NAME). Do not combine with experimental_bearer_token.
 env_key = "SUB2API_API_KEY"
@@ -1310,7 +1315,7 @@ function generateRoutedCodexFiles(
   const isWindows = activeTab.value === 'windows'
   const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
   const preferredModels: Partial<Record<GroupPlatform, string>> = {
-    openai: 'gpt-6.1-sol',
+    openai: OPENAI_CODEX_MODEL,
     anthropic: 'claude-sonnet-4-6',
     gemini: 'gemini-2.5-pro',
     antigravity: 'claude-sonnet-4-6',
@@ -1320,7 +1325,7 @@ function generateRoutedCodexFiles(
     deepseek: 'deepseek-v4-pro',
     minimax: 'MiniMax-M3',
     opencode_go: 'glm-5.3',
-    composite: 'gpt-6.1-sol'
+    composite: OPENAI_CODEX_MODEL
   }
   const preferredModel = preferredModels[platform] || ''
   const model = selectCodexCatalogModel(preferredModel)
@@ -1338,6 +1343,7 @@ function generateRoutedCodexFiles(
     typesafe: 'TypeSafe / Jev',
     command_code: 'Command Code',
     cline: 'Cline',
+    mistral: 'Mistral',
     composite: 'Composite'
   }
   const label = labels[platform]
@@ -1345,6 +1351,7 @@ function generateRoutedCodexFiles(
     ? `$env:SUB2API_API_KEY="${apiKey}"`
     : `export SUB2API_API_KEY="${apiKey}"`
 
+  const providerName = escapeTomlBasicString(resolveSiteProviderName(props.siteName))
   const configContent = `# Codex CLI -> Sub2API ${label} group
 model_provider = "sub2api"
 model = "${model}"
@@ -1352,7 +1359,7 @@ review_model = "${model}"
 disable_response_storage = true
 ${codexLocalCatalogToml.value}
 [model_providers.sub2api]
-name = "Sub2API ${label}"
+name = "${providerName}"
 base_url = "${baseUrl}"
 ${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}env_key = "SUB2API_API_KEY"
 wire_api = "responses"
@@ -1371,35 +1378,6 @@ supports_websockets = false${codexModelCatalogMode.value === 'remote' ? '\n\n[fe
       )
     }
   ]
-}
-
-function generateOpenAIWsFiles(baseUrl: string, apiKey: string): FileConfig[] {
-  const isWindows = activeTab.value === 'windows'
-  const configDir = isWindows ? '%userprofile%\\.codex' : '~/.codex'
-  const model = selectCodexCatalogModel('gpt-6.1-sol')
-  const reasoningEffortLine = codexReasoningEffortTomlLine(model)
-
-  // config.toml content with WebSocket v2
-  const configContent = `model_provider = "OpenAI"
-model = "${model}"
-review_model = "${model}"
-web_search = "live"
-${reasoningEffortLine}disable_response_storage = true
-${codexLocalCatalogToml.value}network_access = "enabled"
-windows_wsl_setup_acknowledged = true
-
-[model_providers.OpenAI]
-name = "OpenAI"
-base_url = "${baseUrl}"
-${codexModelCatalogMode.value === 'remote' ? `model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(baseUrl))}"\n` : ''}wire_api = "responses"
-supports_websockets = true
-${generateCodexProviderAuthConfig(apiKey)}
-
-[features]
-${codexModelCatalogMode.value === 'remote' ? 'api_key_model_discovery = true\n' : ''}${codexAuthMode.value === 'api-key' ? 'image_generation = true\n' : ''}responses_websockets_v2 = true
-goals = true`
-
-  return buildOpenAICodexFileConfigs(configDir, configContent, apiKey)
 }
 
 function generateOpenCodeConfig(platform: string, baseUrl: string, apiKey: string, pathLabel?: string): FileConfig {

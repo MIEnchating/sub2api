@@ -87,7 +87,7 @@ interface Props {
 
 const props = defineProps<Props>()
 
-const platformLabel = computed(() => sharedPlatformLabel(props.platform))
+const platformLabel = computed(() => props.platform === 'gateway' ? 'Sub2API / New API' : sharedPlatformLabel(props.platform))
 
 const normalizedAuthMode = computed(() =>
   (props.authMode || '').trim().toLowerCase().replace(/[\s_-]+/g, '')
@@ -103,6 +103,7 @@ const typeLabel = computed(() => {
       return 'OAuth'
     case 'setup-token':
       return 'Token'
+    case 'gateway':
     case 'apikey':
       return 'Key'
     case 'bedrock':
@@ -116,7 +117,11 @@ const typeLabel = computed(() => {
 
 const normalizedPlanType = computed(() => normalizePlanType(props.planType))
 
+// API keys can proxy another account's errors; legacy plan metadata is not their subscription.
+const isOpenAIAPIKey = computed(() => props.platform === 'openai' && props.type === 'apikey')
+
 const planLabel = computed(() => {
+  if (isOpenAIAPIKey.value) return ''
   if (!normalizedPlanType.value) return ''
   // ChatGPT 档位命名（Pro 100 / Pro 200 / Pro 500、Business / Business Premium）只适用于
   // OpenAI：Antigravity 与 Grok 各自的 pro/team 沿用下面的通用标签。
@@ -176,7 +181,7 @@ const planIconName = computed<'bolt' | null>(() => {
 })
 
 const platformClass = computed(() => {
-  if (props.platform === 'anthropic') {
+  if (props.platform === 'anthropic' || props.platform === 'mistral') {
     return 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
   }
   if (props.platform === 'openai') {
@@ -204,7 +209,7 @@ const platformClass = computed(() => {
 })
 
 const typeClass = computed(() => {
-  if (props.platform === 'anthropic') {
+  if (props.platform === 'anthropic' || props.platform === 'mistral') {
     return 'bg-orange-100 text-orange-600 dark:bg-orange-900/30 dark:text-orange-400'
   }
   if (props.platform === 'openai') {
@@ -276,6 +281,7 @@ const planBadgeClass = computed(() => {
 
 // Subscription expiration label (non-free only)
 const expiresLabel = computed(() => {
+  if (isOpenAIAPIKey.value) return ''
   if (!props.subscriptionExpiresAt || !props.planType) return ''
   if (
     normalizedPlanType.value === 'free' ||

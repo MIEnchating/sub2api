@@ -11,7 +11,6 @@ import (
 	"time"
 
 	"github.com/DATA-DOG/go-sqlmock"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
 	"github.com/stretchr/testify/require"
 )
@@ -120,9 +119,10 @@ func publishRows(closedBefore, buildingUntil string, dirtyFrom any) *sqlmock.Row
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsNoopsWithoutLockingAtCurrentDate(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 
 	expectGroupRollupPrecheck(mock, "2026-08-14", "Asia/Shanghai", true)
@@ -132,9 +132,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsNoopsWithoutLockingA
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsSkipsWhenAnotherBuildHoldsLock(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 
 	expectGroupRollupPrecheck(mock, "2026-08-13", "Asia/Shanghai", true)
@@ -145,9 +146,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsSkipsWhenAnotherBuil
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsBuildsAndPublishesInSeparateTransactions(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 	rebuildStart := time.Date(2026, 8, 12, 16, 0, 0, 0, time.UTC)
@@ -170,9 +172,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsBuildsAndPublishesIn
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsRebuildsDirtyRangeBeforeFullPublish(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 
@@ -205,9 +208,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsRebuildsDirtyRangeBe
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsStopsAfterMaxRoundsWithoutOverPublishing(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 
@@ -231,9 +235,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsStopsAfterMaxRoundsW
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsPublishKeepsUnmarkedInvalidation(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 
@@ -265,9 +270,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsPublishKeepsUnmarked
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsRebuildsWhenTimezoneChanges(t *testing.T) {
-	useGroupUsageRepositoryTestTimezone(t, "America/New_York")
+	tz := useGroupUsageRepositoryTestTimezone(t, "America/New_York")
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 3, 9, 4, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 3, 1, 5, 0, 0, 0, time.UTC)
 
@@ -289,9 +295,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsRebuildsWhenTimezone
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsFullRebuildExcludesExpiredRows(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	// 保留下界不在 Asia/Shanghai 的日界上（例如在其他时区下推进）：重建只计入下界之后的记录。
 	expiredBefore := time.Date(2026, 5, 1, 18, 0, 0, 0, time.UTC)
@@ -315,9 +322,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsFullRebuildExcludesE
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsKeepsRetainedFromAtExpiredFloor(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	staleRetainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 	expiredBefore := time.Date(2026, 5, 14, 16, 0, 0, 0, time.UTC)
@@ -341,9 +349,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsKeepsRetainedFromAtE
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsClearsStaleBuildMarkWhenPublished(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 
 	expectGroupRollupPrecheck(mock, "2026-08-14", "Asia/Shanghai", false)
@@ -361,9 +370,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsClearsStaleBuildMark
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsRejectsFutureWatermark(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 
 	expectGroupRollupPrecheck(mock, "2026-08-15", "Asia/Shanghai", true)
@@ -380,9 +390,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsRejectsFutureWaterma
 }
 
 func TestDashboardAggregationRepositorySyncGroupUsageRollupsAbortsWhenBuildMarkReplaced(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	todayStart := time.Date(2026, 8, 13, 16, 0, 0, 0, time.UTC)
 	retainedFrom := time.Date(2026, 5, 1, 3, 0, 0, 0, time.UTC)
 
@@ -405,9 +416,10 @@ func TestDashboardAggregationRepositorySyncGroupUsageRollupsAbortsWhenBuildMarkR
 }
 
 func TestDashboardAggregationRepositoryRecomputeRangeInvalidatesGroupRollupsBeforeDashboardRebuild(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	start := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 
@@ -425,9 +437,10 @@ func TestDashboardAggregationRepositoryRecomputeRangeInvalidatesGroupRollupsBefo
 }
 
 func TestDashboardAggregationRepositoryRecomputeRangeLeavesGroupRollupRebuildToSync(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	start := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
 	end := start.Add(time.Hour)
 
@@ -454,9 +467,10 @@ func TestDashboardAggregationRepositoryRecomputeRangeLeavesGroupRollupRebuildToS
 }
 
 func TestDashboardAggregationRepositoryRecomputeRangeStopsWhenInvalidationFails(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	start := time.Date(2026, 8, 1, 3, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(groupRollupInvalidateSQL).
@@ -469,9 +483,10 @@ func TestDashboardAggregationRepositoryRecomputeRangeStopsWhenInvalidationFails(
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsExpiresWholeDaysBeforeDeleting(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	// 2026-07-01 13:00 +08 对齐到 2026-07-01 00:00 +08。
 	cutoff := time.Date(2026, 7, 1, 5, 0, 0, 0, time.UTC)
 	alignedCutoff := time.Date(2026, 6, 30, 16, 0, 0, 0, time.UTC)
@@ -489,16 +504,17 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsExpiresWholeDaysBeforeDel
 	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 		WithArgs(alignedCutoff, usageLogsCleanupBatchSize).
 		WillReturnResult(sqlmock.NewResult(0, 3))
-	expectGroupRollupPrecheck(mock, service.GroupUsageDate(service.GroupUsageTodayStart(fixedNow)), "Asia/Shanghai", true)
+	expectGroupRollupPrecheck(mock, tz.groupUsageDate(tz.groupUsageTodayStart(fixedNow)), "Asia/Shanghai", true)
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedInvalidatesRetainedRowsAfterDrop(t *testing.T) {
-	useGroupUsageRepositoryTestTimezone(t, "UTC")
+	tz := useGroupUsageRepositoryTestTimezone(t, "UTC")
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	cutoff := time.Date(2026, 7, 1, 0, 0, 0, 0, time.UTC)
 	fixedNow := time.Date(2026, 9, 29, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
@@ -527,6 +543,7 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedInvalidatesRet
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(nil))
 	mock.ExpectExec(`DROP TABLE IF EXISTS "usage_logs_202604"`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO account_usage_financial_pending`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectCommit()
 	// 6 月分区含保留下界之后的记录：删除后按其中最早时刻失效。
 	mock.ExpectBegin()
@@ -538,6 +555,7 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedInvalidatesRet
 		WillReturnRows(sqlmock.NewRows([]string{"min"}).AddRow(retainedInJunePartition))
 	mock.ExpectExec(`DROP TABLE IF EXISTS "usage_logs_202606"`).
 		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec(`INSERT INTO account_usage_financial_pending`).WillReturnResult(sqlmock.NewResult(0, 1))
 	mock.ExpectExec(groupRollupInvalidateSQL).
 		WithArgs(retainedInJunePartition, "UTC").
 		WillReturnResult(sqlmock.NewResult(0, 0))
@@ -546,16 +564,17 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionedInvalidatesRet
 	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*WHERE created_at < \$1.*WHERE \(tableoid, ctid\) IN`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
 		WillReturnResult(sqlmock.NewResult(0, 1))
-	expectGroupRollupPrecheck(mock, service.GroupUsageDate(service.GroupUsageTodayStart(fixedNow)), "UTC", true)
+	expectGroupRollupPrecheck(mock, tz.groupUsageDate(tz.groupUsageTodayStart(fixedNow)), "UTC", true)
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsStopsWhenExpireFails(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	cutoff := time.Date(2026, 6, 30, 16, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(groupRollupExpireExec).
@@ -568,9 +587,10 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsStopsWhenExpireFails(t *t
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsBatchFailureStopsWithoutSync(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	cutoff := time.Date(2026, 6, 30, 16, 0, 0, 0, time.UTC)
 
 	mock.ExpectExec(groupRollupExpireExec).
@@ -588,9 +608,10 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsBatchFailureStopsWithoutS
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsSkipsPartitionWhenDropLockTimesOut(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	cutoff := time.Date(2026, 7, 17, 16, 0, 0, 0, time.UTC)
 	fixedNow := time.Date(2026, 8, 14, 8, 0, 0, 0, time.UTC)
 	repo.clock = func() time.Time { return fixedNow }
@@ -615,16 +636,17 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsSkipsPartitionWhenDropLoc
 	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
 		WithArgs(cutoff, usageLogsCleanupBatchSize).
 		WillReturnResult(sqlmock.NewResult(0, 5))
-	expectGroupRollupPrecheck(mock, service.GroupUsageDate(service.GroupUsageTodayStart(fixedNow)), "Asia/Shanghai", true)
+	expectGroupRollupPrecheck(mock, tz.groupUsageDate(tz.groupUsageTodayStart(fixedNow)), "Asia/Shanghai", true)
 
 	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
 func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionFailureRollsBackAndStops(t *testing.T) {
-	setGroupUsageRollupTestTimezone(t)
+	tz := setGroupUsageRollupTestTimezone(t)
 	db, mock := newSQLMock(t)
 	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = tz
 	cutoff := time.Date(2026, 7, 17, 16, 0, 0, 0, time.UTC)
 	dropErr := errors.New("drop partition failed")
 
@@ -652,7 +674,24 @@ func TestDashboardAggregationRepositoryCleanupUsageLogsPartitionFailureRollsBack
 	require.NoError(t, mock.ExpectationsWereMet())
 }
 
-func setGroupUsageRollupTestTimezone(t *testing.T) {
+func setGroupUsageRollupTestTimezone(t *testing.T) configuredTimezone {
 	t.Helper()
-	useGroupUsageRepositoryTestTimezone(t, "Asia/Shanghai")
+	return useGroupUsageRepositoryTestTimezone(t, "Asia/Shanghai")
+}
+
+func TestDashboardAggregationRepositoryCleanupUsageLogsMidnightDSTGap(t *testing.T) {
+	db, mock := newSQLMock(t)
+	repo := newDashboardAggregationRepositoryWithSQL(db)
+	repo.configuredTimezone = useGroupUsageRepositoryTestTimezone(t, "America/Santiago")
+	// Local 00:00 is skipped: September 6 starts at 01:00 -03, not September 5 23:00 -04.
+	cutoff := time.Date(2026, 9, 6, 12, 0, 0, 0, time.UTC)
+	alignedCutoff := time.Date(2026, 9, 6, 4, 0, 0, 0, time.UTC)
+	repo.clock = func() time.Time { return time.Date(2026, 9, 8, 12, 0, 0, 0, time.UTC) }
+	mock.ExpectExec(groupRollupExpireExec).WithArgs(alignedCutoff).WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectQuery(`SELECT EXISTS`).WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(false))
+	mock.ExpectExec(`(?s)SELECT tableoid, ctid.*DELETE FROM usage_logs`).
+		WithArgs(alignedCutoff, usageLogsCleanupBatchSize).WillReturnResult(sqlmock.NewResult(0, 1))
+	expectGroupRollupPrecheck(mock, "2026-09-08", "America/Santiago", true)
+	require.NoError(t, repo.CleanupUsageLogs(context.Background(), cutoff))
+	require.NoError(t, mock.ExpectationsWereMet())
 }

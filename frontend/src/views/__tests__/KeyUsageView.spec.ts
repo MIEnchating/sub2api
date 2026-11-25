@@ -7,7 +7,7 @@ import KeyUsageView from '../KeyUsageView.vue'
 enableAutoUnmount(afterEach)
 
 function mockAnimationFrames() {
-  vi.stubGlobal('requestAnimationFrame', (cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16))
+  vi.stubGlobal('requestAnimationFrame', vi.fn((cb: FrameRequestCallback) => window.setTimeout(() => cb(performance.now()), 16)))
   vi.stubGlobal('cancelAnimationFrame', (id: number) => window.clearTimeout(id))
 }
 
@@ -263,8 +263,10 @@ describe('KeyUsageView daily detail', () => {
     // The reset interval and one animation callback are pending.
     expect(vi.getTimerCount()).toBe(2)
     wrapper.unmount()
+    const scheduledFrames = vi.mocked(requestAnimationFrame).mock.calls.length
     expect(vi.getTimerCount()).toBe(0)
     await vi.advanceTimersByTimeAsync(1200)
+    expect(requestAnimationFrame).toHaveBeenCalledTimes(scheduledFrames)
     expect(vi.getTimerCount()).toBe(0)
   })
 

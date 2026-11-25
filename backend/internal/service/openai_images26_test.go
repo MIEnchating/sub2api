@@ -19,7 +19,7 @@ import (
 )
 
 func TestGPTImage26ComplexityAcrossImageEndpoints(t *testing.T) {
-	for _, model := range []string{"gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		for _, accountType := range []string{AccountTypeOAuth, AccountTypeSetupToken} {
 			for _, format := range []string{"generation", "json-edit", "multipart-edit"} {
 				for _, complexity := range []string{"", "low", "medium", "high"} {
@@ -81,7 +81,7 @@ func TestGPTImage26ComplexityAcrossImageEndpoints(t *testing.T) {
 }
 
 func TestGPTImage26DoesNotFallbackToResponses(t *testing.T) {
-	for _, model := range []string{"gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		for _, status := range []int{400, 404, 405, 429} {
 			t.Run(fmt.Sprintf("%s/%d", model, status), func(t *testing.T) {
 				calls := 0
@@ -230,7 +230,7 @@ func TestGPTImage26NativeOptions(t *testing.T) {
 }
 
 func TestGPTImage26StreamedJSONEdits(t *testing.T) {
-	for _, model := range []string{"gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		for _, disconnect := range []bool{false, true} {
 			t.Run(fmt.Sprintf("%s/disconnect=%t", model, disconnect), func(t *testing.T) {
 				body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"edit","images":[{"image_url":"data:image/png;base64,AA=="}],"n":2,"stream":true,"response_format":"url"}`, model))

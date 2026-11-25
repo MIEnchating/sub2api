@@ -671,6 +671,7 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_CodexImageBridge
 	}
 	account := &Account{
 		ID:          31,
+		GroupIDs:    []int64{groupID},
 		Name:        "openai-codex-image-ws",
 		Platform:    PlatformOpenAI,
 		Type:        AccountTypeOAuth,
@@ -4463,19 +4464,10 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClientDisconnect
 	cfg.Gateway.OpenAIWS.ReadTimeoutSeconds = 3
 	cfg.Gateway.OpenAIWS.WriteTimeoutSeconds = 3
 
-	// 多个上游事件：前几个为非 terminal 事件，最后一个为 terminal。
-	// 第一个事件延迟 250ms 让客户端 RST 有时间传播，使 writeClientMessage 可靠失败。
-	captureConn := &openAIWSCaptureConn{
-		readDelays: []time.Duration{250 * time.Millisecond, 0, 0},
-		events: [][]byte{
-			[]byte(`{"type":"response.created","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1"}}`),
-			[]byte(`{"type":"response.output_item.added","response":{"id":"resp_ingress_disconnect"}}`),
-			[]byte(`{"type":"response.completed","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1","usage":{"input_tokens":2,"output_tokens":1}}}`),
-		},
-	}
-	captureDialer := &openAIWSCaptureDialer{conn: captureConn}
+	upstream := newStagedPassthroughConn()
 	pool := newOpenAIWSConnPool(cfg)
-	pool.setClientDialerForTest(captureDialer)
+	defer pool.Close()
+	pool.setClientDialerForTest(&stagedPassthroughDialer{conn: &ingressDrainTestConn{upstream}})
 
 	svc := &OpenAIGatewayService{
 		cfg:              cfg,
@@ -4553,13 +4545,18 @@ func TestOpenAIGatewayService_ProxyResponsesWebSocketFromClient_ClientDisconnect
 	clientConn, _, err := coderws.Dial(dialCtx, "ws"+strings.TrimPrefix(wsServer.URL, "http"), nil)
 	cancelDial()
 	require.NoError(t, err)
+	defer func() { _ = clientConn.CloseNow() }()
 
 	writeCtx, cancelWrite := context.WithTimeout(context.Background(), 3*time.Second)
 	err = clientConn.Write(writeCtx, coderws.MessageText, []byte(`{"type":"response.create","model":"custom-original-model","stream":false,"service_tier":"flex"}`))
 	cancelWrite()
 	require.NoError(t, err)
-	// 立即关闭客户端，模拟客户端在 relay 期间断连。
+	// Disconnect only after the upstream accepted the request.
+	requirePassthroughUpstreamWrite(t, upstream, 3*time.Second)
 	require.NoError(t, clientConn.CloseNow(), "模拟 ingress 客户端提前断连")
+	upstream.Send(`{"type":"response.created","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1"}}`)
+	upstream.Send(`{"type":"response.output_item.added","response":{"id":"resp_ingress_disconnect"}}`)
+	upstream.Send(`{"type":"response.completed","response":{"id":"resp_ingress_disconnect","model":"gpt-5.1","usage":{"input_tokens":2,"output_tokens":1}}}`)
 
 	select {
 	case serverErr := <-serverErrCh:

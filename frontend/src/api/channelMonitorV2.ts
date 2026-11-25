@@ -34,6 +34,7 @@ export interface LatencyMetric {
 }
 
 export interface MonitorMetric {
+  has_samples?: boolean
   success_requests: number
   error_requests: number
   request_count: number
@@ -102,11 +103,18 @@ export interface MonitorCoverage {
 }
 
 export interface MonitorConfig {
+  candy_probes?: MonitorCandyProbe[]
+  /** Recent checks shown per model. 15–100; omitted values use 100. */
+  candy_history_limit?: number
   version: number
   enabled: boolean
   refresh_interval_seconds: 60 | 300
+  /** Operator choice for card bars. Omitted values use time windows. */
+  card_timeline_mode?: 'windows' | 'samples'
   platforms: Array<{ platform: string; enabled: boolean; models: string[] }>
   group_ids: number[]
+  /** Operator display order inside each platform. Empty means name, then id. */
+  group_order?: number[]
   health_thresholds: {
     minimum_sample: number
     warning_error_rate: number
@@ -162,6 +170,10 @@ export interface MonitorMatrixBucket {
 }
 
 export interface MonitorMatrixRow {
+  /** First enabled probe, kept for older payloads. */
+  candy?: MonitorCandyHistory
+  /** Every enabled probe for this group. Preferred over candy when present. */
+  candy_checks?: MonitorCandyHistory[]
   platform: string
   group_id?: number
   group_name?: string
@@ -174,6 +186,30 @@ export interface MonitorMatrixRow {
   metrics: MonitorMetric
   health: MonitorHealth
   buckets: MonitorMatrixBucket[]
+  /** Newest sampled buckets, independent of the selected range. Absent on older payloads. */
+  sample_buckets?: MonitorMatrixBucket[]
+}
+
+export interface MonitorCandyProbe {
+  group_id: number
+  enabled: boolean
+  model: string
+  reasoning_effort: string
+  interval_minutes: number
+}
+export interface MonitorCandyResult {
+  checked_at: string
+  verdict: 'correct' | 'incorrect' | 'error'
+  latency_ms: number
+  answer_preview?: string
+  reason?: string
+}
+export interface MonitorCandyHistory {
+  model: string
+  reasoning_effort: string
+  interval_minutes: number
+  history_limit?: number
+  results: MonitorCandyResult[]
 }
 
 export interface MonitorRecentRequest {
@@ -273,8 +309,20 @@ export async function getSnapshot(filter: MonitorFilter, admin = false, signal?:
   const { data } = await apiClient.get<MonitorSnapshot>(`${base(admin)}/snapshot`, requestConfig(filter, signal))
   return data
 }
-export async function getMatrix(filter: MonitorFilter, groupBy: MonitorMatrixGroupBy, admin = false, signal?: AbortSignal, includeRecentRequests = false) {
-  const { data } = await apiClient.get<MonitorMatrixResponse>(`${base(admin)}/matrix`, requestConfig(filter, signal, { group_by: groupBy, ...(includeRecentRequests ? { include_recent_requests: true } : {}) }))
+export async function getMatrix(
+  filter: MonitorFilter,
+  groupBy: MonitorMatrixGroupBy,
+  admin = false,
+  signal?: AbortSignal,
+  options?: boolean | { recentSamples?: boolean }
+) {
+  const includeRecentRequests = options === true
+  const recentSamples = typeof options === 'object' && options.recentSamples
+  const { data } = await apiClient.get<MonitorMatrixResponse>(`${base(admin)}/matrix`, requestConfig(filter, signal, {
+    group_by: groupBy,
+    ...(includeRecentRequests ? { include_recent_requests: true } : {}),
+    ...(recentSamples ? { recent_samples: 1 } : {})
+  }))
   return data
 }
 

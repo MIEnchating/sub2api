@@ -90,6 +90,13 @@ func TestTodayRankingsAllAccountsPrivateTopTen(t *testing.T) {
 	empty, err := s.todayRankings(ctx, bot, start)
 	require.NoError(t, err)
 	require.Equal(t, 2, strings.Count(empty, "暂无上榜账号"))
+	cfg := defaultRankingConfig()
+	cfg.Enabled = false
+	_, err = s.saveRankingConfigAt(ctx, cfg, now)
+	require.NoError(t, err)
+	text, err = s.todayRankings(ctx, bot, now)
+	require.NoError(t, err)
+	require.Equal(t, "今日排行榜暂未开启。", text)
 }
 
 func TestRankingSettlementCreatesUnboundEntitlementsAndDeduplicates(t *testing.T) {

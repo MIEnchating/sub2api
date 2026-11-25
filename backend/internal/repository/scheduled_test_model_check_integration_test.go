@@ -61,6 +61,7 @@ INSERT INTO accounts(id,name) VALUES(62,'Private upstream account name');
 INSERT INTO groups(id,name) VALUES(8,'Source tier'),(10,'Higher tier'),(11,'Unrelated membership');`)
 	for _, name := range []string{
 		"066_add_scheduled_test_tables.sql", "070_add_scheduled_test_auto_recover.sql",
+		"243_pelican_scheduled_tests.sql", "247_account_quality_ops.sql", "248_account_quality_judgment.sql",
 		"247_generalized_scheduled_tests.sql", "248_scheduled_test_reasoning_effort.sql", "249_scheduled_test_result_reasoning_effort.sql",
 		"250_allow_group_account_scheduled_test_targets.sql", "251_scheduled_test_target_modes.sql", "252_scheduled_test_definition_sort_order.sql",
 		"253_scheduled_test_plan_sort_order.sql", "256_scheduled_test_multiple_definitions.sql", "257_scheduled_test_hourly_statistics.sql",

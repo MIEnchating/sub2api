@@ -147,7 +147,7 @@ func (s *Service) Enqueue(ctx context.Context, c Config, p Payload) (err error) 
 	}
 	// Disabled/unapproved ambient streams do not touch storage. Enabled groups
 	// record their bounded shared context below without creating model jobs.
-	if e.Author.Bot || (p.Type == groupMessageCreate && !shouldQueueGroupMessage(p.Type, e, c.CustomCommands...) && (!c.Enabled || !c.allows(e.GroupID) || (c.HistoryMessages == 0 && !c.autonomousGroup(e.GroupID) && !c.ImageEnabled))) {
+	if e.Author.Bot || (p.Type == groupMessageCreate && !shouldQueueGroupMessage(p.Type, e, c.CustomCommands...) && (!c.Enabled || !c.allows(e.GroupID) || (c.HistoryMessages == 0 && !c.autonomousGroup(e.GroupID) && !c.RememberQuotedImages))) {
 		outcome, reason = "ignored", "bot_or_ambient_message"
 		return nil
 	}
@@ -348,11 +348,10 @@ var (
 // Explicit chat may retry transient failures inside siteChatTurn; those retries
 // do not reserve an additional member quota.
 func (s *Service) reserveUsage(ctx context.Context, c Config, j Job, kind string) error {
-	minimum := minimumModelBudget
-	if kind == "image" {
-		minimum = minimumImageBudget
+	if kind != "chat" {
+		return errFeatureUnavailable
 	}
-	if err := checkModelBudget(ctx, minimum); err != nil {
+	if err := checkModelBudget(ctx, minimumModelBudget); err != nil {
 		return err
 	}
 	tx, err := s.db.BeginTx(ctx, nil)
@@ -372,14 +371,6 @@ func (s *Service) reserveUsage(ctx context.Context, c Config, j Job, kind string
 		return errFeatureUnavailable
 	}
 	per, total := c.DailyChatLimit, c.TotalDailyChatLimit
-	if kind == "image" {
-		if !c.ImageEnabled {
-			return errFeatureUnavailable
-		}
-		per, total = c.DailyImageLimit, c.TotalDailyImageLimit
-	} else if kind != "chat" {
-		return errFeatureUnavailable
-	}
 	if per == 0 || total == 0 || c.groupLimit(j.GroupID, kind) == 0 {
 		return errFeatureUnavailable
 	}

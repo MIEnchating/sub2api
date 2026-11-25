@@ -1,5 +1,6 @@
 <template>
   <div ref="rootRef" v-if="showUsageWindows" :aria-busy="loading || activeQueryLoading">
+    <ExcelBPSCredentialStatus :state="account.excel_bps_credential_state" />
     <!-- Anthropic OAuth and Setup Token accounts: fetch real usage data -->
     <template
       v-if="
@@ -40,6 +41,7 @@
         <div v-if="usageInfo.error" class="text-xs text-amber-600 dark:text-amber-400 truncate max-w-[200px]" :title="usageInfo.error">
           {{ usageInfo.error }}
         </div>
+        <NewFeatureBadge v-if="noticeUserId != null && (estimateWindowTotalCost(usageInfo.five_hour) != null || estimateWindowTotalCost(usageInfo.seven_day) != null)" :notice-id="NEW_FEATURE_NOTICES.claudeWindowCost" :user-id="noticeUserId" />
         <!-- 5h Window -->
         <UsageProgressBar
           v-if="usageInfo.five_hour"
@@ -143,7 +145,7 @@
         </div>
       </div>
       <div
-        v-if="account.type === 'oauth' && (error || usageInfo?.error || usageInfo?.error_code)"
+        v-if="error || usageInfo?.error || usageInfo?.error_code"
         role="alert"
         class="mb-1 text-[10px] text-amber-700 dark:text-amber-300"
       >
@@ -249,27 +251,22 @@
           {{ antigravityTierLabel }}
         </span>
         <!-- 不合格账户警告图标 -->
-        <span
-          v-if="hasIneligibleTiers"
-          class="group relative cursor-help"
-        >
-          <svg
-            class="h-3.5 w-3.5 text-red-500"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          <span
-            class="pointer-events-none absolute left-0 top-full z-50 mt-1 w-80 whitespace-normal break-words rounded bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-          >
-            {{ t('admin.accounts.ineligibleWarning') }}
-          </span>
-        </span>
+        <HelpTooltip v-if="hasIneligibleTiers" class="!ml-0" width-class="w-80">
+          <template #trigger>
+            <svg
+              class="h-3.5 w-3.5 text-red-500"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7 4a1 1 0 11-2 0 1 1 0 012 0zm-1-9a1 1 0 00-1 1v4a1 1 0 102 0V6a1 1 0 00-1-1z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </template>
+          {{ t('admin.accounts.ineligibleWarning') }}
+        </HelpTooltip>
       </div>
 
       <!-- Forbidden state (403) -->
@@ -424,6 +421,7 @@
           </svg>
           {{ t('admin.accounts.usageWindow.activeQuery') }}
         </button>
+        <NewFeatureBadge v-if="noticeUserId != null" :notice-id="NEW_FEATURE_NOTICES.antigravityUsageQuery" :user-id="noticeUserId" />
       </div>
     </template>
 
@@ -548,6 +546,11 @@
         @updated="handleOpenCodeGoUsageUpdated"
       />
       <div v-else class="space-y-1">
+        <NewFeatureBadge
+          v-if="account.platform === 'mistral' && (cnQuotaCellVisible || cnBalanceCellVisible) && noticeUserId != null"
+          :notice-id="NEW_FEATURE_NOTICES.mistralBudgetUsage"
+          :user-id="noticeUserId"
+        />
         <!-- 子单元格各自按 模式×平台 判定可见；两者都不可见时（智谱 payg 无公开
              余额端点、coding 探测也不适用）才回落到占位符。 -->
         <div
@@ -555,8 +558,8 @@
           class="text-xs text-gray-400"
           :title="t('admin.accounts.cnProviders.noBalanceEndpoint')"
         >-</div>
-        <CNProviderQuotaCell :account="account" />
-        <CNProviderBalanceCell :account="account" />
+        <CNProviderQuotaCell :account="account" @probed="handleCNQuotaProbed" />
+        <CNProviderBalanceCell :account="account" :probed-balance="cnProbedBalance" />
       </div>
     </template>
 
@@ -573,37 +576,32 @@
           {{ geminiAuthTypeLabel }}
         </span>
         <!-- Help icon -->
-        <span
-          v-if="showGeminiQuotaPolicy"
-          class="group relative cursor-help"
-        >
-          <svg
-            class="h-3.5 w-3.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
-            fill="currentColor"
-            viewBox="0 0 20 20"
-          >
-            <path
-              fill-rule="evenodd"
-              d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z"
-              clip-rule="evenodd"
-            />
-          </svg>
-          <span
-            class="pointer-events-none absolute left-0 top-full z-50 mt-1 w-80 whitespace-normal break-words rounded bg-gray-900 px-3 py-2 text-xs leading-relaxed text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 dark:bg-gray-700"
-          >
-            <div class="font-semibold mb-1">{{ t('admin.accounts.gemini.quotaPolicy.title') }}</div>
-            <div class="mb-2 text-gray-300">{{ t('admin.accounts.gemini.quotaPolicy.note') }}</div>
-            <div class="space-y-1">
-              <div><strong>{{ geminiQuotaPolicyChannel }}:</strong></div>
-              <div class="pl-2">• {{ geminiQuotaPolicyLimits }}</div>
-              <div class="mt-2">
-                <a :href="geminiQuotaPolicyDocsUrl" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">
-                  {{ t('admin.accounts.gemini.quotaPolicy.columns.docs') }} →
-                </a>
-              </div>
+        <HelpTooltip v-if="showGeminiQuotaPolicy" class="!ml-0" width-class="w-80">
+          <template #trigger>
+            <svg
+              class="h-3.5 w-3.5 text-gray-400 hover:text-gray-600 dark:text-gray-500 dark:hover:text-gray-300"
+              fill="currentColor"
+              viewBox="0 0 20 20"
+            >
+              <path
+                fill-rule="evenodd"
+                d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-8-3a1 1 0 00-.867.5 1 1 0 11-1.731-1A3 3 0 0113 8a3.001 3.001 0 01-2 2.83V11a1 1 0 11-2 0v-1a1 1 0 011-1 1 1 0 100-2zm0 8a1 1 0 100-2 1 1 0 000 2z"
+                clip-rule="evenodd"
+              />
+            </svg>
+          </template>
+          <div class="font-semibold mb-1">{{ t('admin.accounts.gemini.quotaPolicy.title') }}</div>
+          <div class="mb-2 text-gray-300">{{ t('admin.accounts.gemini.quotaPolicy.note') }}</div>
+          <div class="space-y-1">
+            <div><strong>{{ geminiQuotaPolicyChannel }}:</strong></div>
+            <div class="pl-2">• {{ geminiQuotaPolicyLimits }}</div>
+            <div class="mt-2">
+              <a :href="geminiQuotaPolicyDocsUrl" target="_blank" rel="noopener noreferrer" class="text-blue-400 hover:text-blue-300 underline">
+                {{ t('admin.accounts.gemini.quotaPolicy.columns.docs') }} →
+              </a>
             </div>
-          </span>
-        </span>
+          </div>
+        </HelpTooltip>
       </div>
 
       <!-- Usage data or unlimited flow -->
@@ -784,7 +782,11 @@
 </template>
 
 <script setup lang="ts">
+import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
 import { ref, computed, onMounted, onBeforeUnmount, onUnmounted, watch } from 'vue'
+import HelpTooltip from '@/components/common/HelpTooltip.vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
 import type { Account, AccountUsageInfo, GeminiCredentials, WindowStats } from '@/types'
@@ -816,6 +818,7 @@ const USAGE_CACHE_TTL = 5 * 60 * 1000 // 5 minutes
 const props = withDefaults(
   defineProps<{
     account: Account
+    noticeUserId?: number | null
     todayStats?: WindowStats | null
     todayStatsLoading?: boolean
     manualRefreshToken?: number
@@ -826,6 +829,7 @@ const props = withDefaults(
   }>(),
   {
     todayStats: null,
+    noticeUserId: null,
     todayStatsLoading: false,
     manualRefreshToken: 0,
     batchedUsage: null,
@@ -912,6 +916,18 @@ const shouldFetchUsage = computed(() => {
 // credentialsBuilder 的单一实现）：都不可见时显示 `-` 占位符。
 const cnQuotaCellVisible = computed(() => cnQuotaCellVisibleFn(props.account))
 const cnBalanceCellVisible = computed(() => cnBalanceCellVisibleFn(props.account))
+const cnProbedBalance = ref<import('@/api/admin/cnProviders').CNProviderBalanceResult | null>(null)
+const handleCNQuotaProbed = (result: import('@/api/admin/cnProviders').CNProviderQuotaProbeResult) => {
+  if (result.balance?.success) {
+    cnProbedBalance.value = result.balance
+  }
+}
+watch(
+  () => props.account.id,
+  () => {
+    cnProbedBalance.value = null
+  }
+)
 
 const isBatchManaged = computed(() => typeof props.requestBatchedUsage === 'function')
 
@@ -950,7 +966,6 @@ function formatCodexTicketRemaining(seconds: number) {
   const s = total % 60
   return `${m}m${String(s).padStart(2, '0')}s`
 }
-
 const hasOpenAIQuotaObservation = computed(() => {
   const windows = [usageInfo.value?.five_hour, usageInfo.value?.seven_day]
   return windows.some(window => window && !window.utilization_unknown)

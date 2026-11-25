@@ -37,12 +37,12 @@ func TestLockAndMergeAccountProbeExtraProtectsRateLimit(t *testing.T) {
 			t.Cleanup(func() { _ = db.Close() })
 			client := dbent.NewClient(dbent.Driver(entsql.OpenDB(dialect.Postgres, db)))
 			t.Cleanup(func() { _ = client.Close() })
-			current, err := json.Marshal(map[string]any{service.UpstreamBillingRateLimitExtraKey: tt.current})
+			current, err := json.Marshal(map[string]any{service.UpstreamBillingRateLimitExtraKey: tt.current, service.UpstreamBillingGroupSyncEnabledExtraKey: true})
 			require.NoError(t, err)
 			mock.ExpectQuery(`(?s)SELECT.*FOR NO KEY UPDATE`).
 				WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeAPIKey, `{"api_key":"test"}`, nil).
-				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_group_unchanged", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata", "group_sync_enabled"}).
-					AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil, false, nil, nil, current, service.StatusActive, true, "", nil, nil, []byte(`true`)))
+				WillReturnRows(sqlmock.NewRows(openCodeGoMergeMockColumns()).
+					AddRow(true, false, true, []byte(`true`), []byte(`true`), []byte(`{"status":"ok"}`), nil, nil, nil, false, nil, nil, current, 3, service.StatusActive, true, ""))
 			account := &service.Account{
 				ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
 				Credentials:                     map[string]any{"api_key": "test"},

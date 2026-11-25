@@ -87,7 +87,28 @@ func newBare429TestContext() *gin.Context {
 }
 
 func bare429Account(id int64) *Account {
-	return &Account{ID: id, Name: "acc", Platform: PlatformAntigravity, Schedulable: true, Status: StatusActive, Concurrency: 1}
+	// These cases exercise cooldown selection after transport retries.
+	noTransportRetries := 0
+	return &Account{ID: id, Name: "acc", Platform: PlatformAntigravity, Schedulable: true, Status: StatusActive, Concurrency: 1, RateLimit429RetryCount: &noTransportRetries}
+}
+
+func TestAntigravityRetryLoopSharesTransportBudget(t *testing.T) {
+	setupBare429Test(t)
+	account := bare429Account(1)
+	retries := 1
+	account.RateLimit429RetryCount = &retries
+	upstream := &fixed429Upstream{body: bareAntigravity429Body}
+	result, err := (&AntigravityGatewayService{}).antigravityRetryLoop(antigravityRetryLoopParams{
+		ctx: context.Background(), c: newBare429TestContext(), account: account,
+		accessToken: "token", action: "streamGenerateContent", body: []byte(`{"input":"test"}`), httpUpstream: upstream,
+		handleError: func(context.Context, string, *Account, int, http.Header, []byte, string, int64, string, bool) *handleModelRateLimitResult {
+			return nil
+		},
+	})
+	require.NoError(t, err)
+	defer func() { _ = result.resp.Body.Close() }()
+	require.Equal(t, http.StatusTooManyRequests, result.resp.StatusCode)
+	require.Equal(t, antigravityMaxRetries+retries, upstream.calls)
 }
 
 // One request that gets a bare 429 on every account it reaches must not cool

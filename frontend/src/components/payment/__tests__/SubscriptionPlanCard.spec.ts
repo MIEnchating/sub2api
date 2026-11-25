@@ -68,8 +68,7 @@ describe("SubscriptionPlanCard", () => {
     expect(text).toContain("Imagen");
   });
 
-  // #4607：管理端保存的单位是复数（months/weeks），此前用户侧只匹配单数
-  // 'month'，「1 个月」的套餐卡片被显示成「1天」。使用与生产一致的消息编译断言显示单位。
+  // #4607: admin settings store plural units; display the translated matching period.
   it("renders plural admin-form validity units instead of mislabeled days (#4607)", () => {
     expect(mountPlanCard("openai", { validity_days: 1, validity_unit: "months" }).text()).toContain("/ month");
     expect(mountPlanCard("openai", { validity_days: 3, validity_unit: "months" }).text()).toContain("/ 3months");

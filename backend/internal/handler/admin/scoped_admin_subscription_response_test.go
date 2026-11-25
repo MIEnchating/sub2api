@@ -5,12 +5,13 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
@@ -73,7 +74,7 @@ func (r *scopedSubscriptionRepo) ExtendExpiry(context.Context, int64, time.Time)
 	return nil
 }
 
-func TestScopedAdminSubscriptionExtendReplayRejectsChangedAuthorization(t *testing.T) {
+func TestScopedAdminSubscriptionExtendReplayRespectsReadPermission(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	previous := service.DefaultIdempotencyCoordinator()
 	t.Cleanup(func() { service.SetDefaultIdempotencyCoordinator(previous) })
@@ -89,41 +90,57 @@ func TestScopedAdminSubscriptionExtendReplayRejectsChangedAuthorization(t *testi
 			if c.GetHeader("X-Test-Mode") == "read" {
 				permissions = append(permissions, "subscriptions.read")
 			}
-			c.Request = c.Request.WithContext(adminaccess.WithPrincipal(c.Request.Context(), &adminaccess.Principal{Policy: adminaccess.Policy{GlobalPermissions: permissions}}))
+			c.Request = c.Request.WithContext(adminaccess.WithPrincipal(c.Request.Context(), &adminaccess.Principal{KeyID: "scoped-key", Policy: adminaccess.Policy{GlobalPermissions: permissions}}))
 		}
 	})
 	r.POST("/subscriptions/:id/extend", h.Extend)
-	for i, mode := range []string{"admin", "write", "read"} {
+	for _, tc := range []struct {
+		mode, key string
+		conflict  bool
+		replayed  bool
+	}{
+		{mode: "admin", key: "admin-extension"},
+		{mode: "write", key: "admin-extension", conflict: true},
+		{mode: "write", key: "write-extension"},
+		{mode: "read", key: "write-extension", conflict: true},
+		{mode: "write", key: "write-extension", replayed: true},
+		{mode: "read", key: "read-extension"},
+		{mode: "read", key: "read-extension", replayed: true},
+	} {
 		req := httptest.NewRequest("POST", "/subscriptions/1/extend", strings.NewReader(`{"days":1}`))
 		req.Header.Set("Content-Type", "application/json")
-		req.Header.Set("Idempotency-Key", "same-extension")
-		req.Header.Set("X-Test-Mode", mode)
+		req.Header.Set("Idempotency-Key", tc.key)
+		req.Header.Set("X-Test-Mode", tc.mode)
 		w := httptest.NewRecorder()
 		r.ServeHTTP(w, req)
-		if i > 0 {
-			require.Equal(t, 409, w.Code, w.Body.String())
-			require.NotContains(t, w.Body.String(), "private-user")
+		if tc.conflict {
+			require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+			require.Contains(t, w.Body.String(), service.ErrIdempotencyKeyConflict.Reason)
+			require.NotContains(t, w.Body.String(), "private-user@example.com")
 			continue
 		}
-		require.Equal(t, 200, w.Code, w.Body.String())
+		require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+		if tc.replayed {
+			require.Equal(t, "true", w.Header().Get("X-Idempotency-Replayed"))
+		}
 		var result struct {
 			Data map[string]json.RawMessage `json:"data"`
 		}
 		require.NoError(t, json.Unmarshal(w.Body.Bytes(), &result))
-		if mode == "admin" {
+		if tc.mode == "admin" {
 			require.Contains(t, result.Data, "user")
 		} else {
 			require.NotContains(t, result.Data, "user")
 			require.NotContains(t, result.Data, "group")
 			require.NotContains(t, result.Data, "assigned_by_user")
-			if mode == "write" {
+			if tc.mode == "write" {
 				require.Len(t, result.Data, 1)
 			} else {
 				require.Contains(t, result.Data, "daily_usage_usd")
 			}
 		}
 	}
-	require.Equal(t, 1, repo.writes)
+	require.Equal(t, 3, repo.writes)
 }
 
 func TestScopedAdminSubscriptionBulkProjectionPreservesIDs(t *testing.T) {

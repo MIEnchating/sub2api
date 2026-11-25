@@ -29,8 +29,7 @@ func TestQQChatPreviewIdentityAndNoMutations(t *testing.T) {
 				_, _ = w.Write(siteQueryTestResponse(t, protocol, `{"kind":"model_price","model":"model-test","activity":"","page":1}`, false))
 			}))
 			defer server.Close()
-			c.BaseURL, c.ChatProtocol, c.ImageEnabled = server.URL, protocol, true
-			c.ImageModel = "test-image-model"
+			c.BaseURL, c.ChatProtocol, c.RememberQuotedImages = server.URL, protocol, true
 			_, err = s.SaveConfig(ctx, c)
 			require.NoError(t, err)
 			var receivedUser int64

@@ -3,6 +3,7 @@ import { DOMWrapper, flushPromises, mount } from '@vue/test-utils'
 import { defineComponent } from 'vue'
 
 import AccountsView from '../AccountsView.vue'
+import UpstreamBillingRateCell from '@/components/account/UpstreamBillingRateCell.vue'
 import AccountActionMenu from '@/components/admin/account/AccountActionMenu.vue'
 import CapacityBadge from '@/components/account/CapacityBadge.vue'
 
@@ -12,8 +13,11 @@ const {
   getById,
   getPerformance,
   getBatchTodayStats,
+  getManagementCapabilities,
   getBatchUsage,
   getUpstreamBillingProbeSettings,
+  getUpstreamBillingRatesWithEtag,
+  probeUpstreamBilling,
   getAllProxies,
   getAllGroups,
   refreshCredentials,
@@ -30,8 +34,11 @@ const {
   getById: vi.fn(),
   getPerformance: vi.fn(),
   getBatchTodayStats: vi.fn(),
+  getManagementCapabilities: vi.fn(),
   getBatchUsage: vi.fn(),
   getUpstreamBillingProbeSettings: vi.fn(),
+  getUpstreamBillingRatesWithEtag: vi.fn(),
+  probeUpstreamBilling: vi.fn(),
   getAllProxies: vi.fn(),
   getAllGroups: vi.fn(),
   refreshCredentials: vi.fn(),
@@ -44,11 +51,19 @@ const {
   showInfo: vi.fn()
 }))
 
+vi.mock('@/components/account/CreateAccountModal.vue', () => ({ default: { name: 'CreateAccountModal', template: '<div />' } }))
+vi.mock('@/components/account/EditAccountModal.vue', () => ({ default: { name: 'EditAccountModal', template: '<div />' } }))
+
+vi.mock('@/api/admin/ops', () => ({
+  opsAPI: { listSystemLogs: vi.fn().mockResolvedValue({ items: [] }) }
+}))
+
 vi.mock('@/api/admin/channelQuality', () => ({ channelQualityAPI: { scores: async () => ({}) } }))
 
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getManagementCapabilities,
       list: listAccounts,
       getById,
       getPerformance,
@@ -56,6 +71,8 @@ vi.mock('@/api/admin', () => ({
       getBatchTodayStats,
       getBatchUsage,
       getUpstreamBillingProbeSettings,
+      getUpstreamBillingRatesWithEtag,
+      probeUpstreamBilling,
       delete: vi.fn(),
       batchClearError: vi.fn(),
       batchRefresh: vi.fn(),
@@ -66,7 +83,12 @@ vi.mock('@/api/admin', () => ({
       update: updateAccount
     },
     proxies: { getAll: getAllProxies },
-    groups: { getAll: getAllGroups }
+    groups: { getAll: getAllGroups },
+    ops: {
+      getMetricThresholds: vi.fn().mockResolvedValue({}),
+      getAccountRequestStatsBatch: vi.fn().mockResolvedValue({ stats: {} }),
+      listRequestDetails: vi.fn().mockResolvedValue({ items: [] })
+    }
   }
 }))
 
@@ -84,14 +106,16 @@ vi.mock('vue-i18n', async () => {
 })
 
 const DataTableStub = defineComponent({
-  props: { data: { type: Array, default: () => [] }, loading: Boolean },
+  props: { data: { type: Array, default: () => [] }, loading: Boolean, columns: { type: Array, default: () => [] } },
+  emits: ['sort'],
   template: `
     <div>
       <template v-if="!loading"><div v-for="row in data" :key="row.id" :data-account-name="row.name">
-        <slot name="cell-capacity" :row="row" />
         <slot name="cell-name" :row="row" :value="row.name" />
         <slot name="cell-groups" :row="row" />
+        <slot name="cell-capacity" :row="row" />
         <slot name="cell-performance" :row="row" />
+        <slot name="cell-upstream_billing_rate" :row="row" />
         <slot name="cell-usage" :row="row" />
         <slot name="cell-actions" :row="row" />
       </div></template>
@@ -146,6 +170,8 @@ function mountView(stubActionMenu = true, realUsageCell = false) {
         EditAccountModal: EditAccountModalStub,
         BulkEditAccountModal: true,
         PlatformTypeBadge: true,
+        AccountCapacityCell: false,
+        AccountPerformanceCell: true,
         AccountStatusIndicator: true,
         AccountTodayStatsCell: true,
         AccountGroupsCell: AccountGroupsCellStub,
@@ -169,7 +195,7 @@ const listRow = {
   concurrency: 2,
   priority: 1,
   group_ids: [7],
-  extra: {},
+  extra: { auto_config_concurrency: { concurrency: 2, successes: 1, required: 20, maximum: 100, step: 1 } },
   credentials: {}
 }
 
@@ -189,10 +215,15 @@ describe('admin AccountsView lite account list', () => {
     getById.mockReset().mockResolvedValue(fullAccount)
     getPerformance.mockReset().mockResolvedValue({})
     getBatchTodayStats.mockReset().mockResolvedValue({ stats: {} })
+    getManagementCapabilities.mockReset().mockResolvedValue({ concurrency_upgrade_enabled: false })
     getBatchUsage.mockReset().mockResolvedValue({ usage: { '42': { five_hour: { utilization: 21 }, seven_day: { utilization: 31 } } }, errors: {} })
     getUpstreamBillingProbeSettings.mockReset().mockResolvedValue({ enabled: true })
     getAllProxies.mockReset().mockResolvedValue([])
     getAllGroups.mockReset().mockResolvedValue([{ id: 7, name: 'codex', platform: 'openai' }])
+    getUpstreamBillingRatesWithEtag.mockReset().mockResolvedValue({ notModified: true, data: null })
+    probeUpstreamBilling.mockReset()
+    previewUpstreamGroup.mockReset()
+    updateAccount.mockReset()
     refreshCredentials.mockReset()
     syncUpstreamModels.mockReset()
     showError.mockReset()
@@ -204,6 +235,24 @@ describe('admin AccountsView lite account list', () => {
   afterEach(() => {
     vi.useRealTimers()
     vi.restoreAllMocks()
+  })
+
+  it('refreshes the saved cost after probing even with unchanged snapshot and default sorting', async () => {
+    const snapshot = { status: 'ok', data: { effective_rate_multiplier: 0.14 } }
+    const row = { ...listRow, type: 'apikey', extra: { cost_multiplier: 0.1, upstream_billing_probe: snapshot } }
+    listAccounts.mockResolvedValue({ items: [row], total: 1, page: 1, page_size: 20, pages: 1 })
+    probeUpstreamBilling.mockResolvedValue({ account_id: row.id, snapshot })
+    getUpstreamBillingRatesWithEtag.mockResolvedValue({ notModified: false, data: {
+      items: [{ account_id: row.id, snapshot, cost_multiplier: 0.14 }], total: 1, page: 1, page_size: 20
+    } })
+    const wrapper = mountView()
+    await flushPromises()
+    wrapper.findComponent(UpstreamBillingRateCell).vm.$emit('probe')
+    await flushPromises()
+    expect(probeUpstreamBilling).toHaveBeenCalledWith(row.id)
+    expect(getUpstreamBillingRatesWithEtag).toHaveBeenCalled()
+    expect(wrapper.findComponent(UpstreamBillingRateCell).props('account').extra?.cost_multiplier).toBe(0.14)
+    wrapper.unmount()
   })
 
   it('refreshes performance evidence every 30 seconds independently of unchanged list ETags', async () => {
@@ -222,7 +271,8 @@ describe('admin AccountsView lite account list', () => {
   it('syncs the selected row without clearing notes missing from the upstream', async () => {
     const account = { ...listRow, type: 'apikey', notes: 'local notes' }
     listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
-    previewUpstreamGroup.mockResolvedValueOnce({}).mockResolvedValueOnce({ name: 'New group' })
+    const guard = { source: 'synthetic-source', name: account.name, notes: account.notes }
+    previewUpstreamGroup.mockResolvedValueOnce({}).mockResolvedValueOnce({ name: 'New group', upstream_group_guard: guard })
     updateAccount.mockReset().mockResolvedValue({ ...account, name: 'New group' })
     const wrapper = mountView()
     await flushPromises()
@@ -233,9 +283,75 @@ describe('admin AccountsView lite account list', () => {
     await sync.trigger('click')
     await flushPromises()
     expect(previewUpstreamGroup).toHaveBeenLastCalledWith({ account_id: account.id })
-    expect(updateAccount).toHaveBeenCalledWith(account.id, { name: 'New group' })
+    expect(updateAccount).toHaveBeenCalledWith(account.id, { name: 'New group', upstream_group_guard: guard })
     expect(wrapper.find('[data-account-name="New group"]').exists()).toBe(true)
     wrapper.unmount()
+  })
+
+  it.each([
+    { label: 'name', edit: { name: 'Manual name' }, expected: { notes: 'Remote notes' } },
+    { label: 'notes', edit: { notes: 'Manual notes' }, expected: { name: 'Remote name' } },
+    { label: 'both text fields', edit: { name: 'Manual name', notes: 'Manual notes' }, expected: null },
+    { label: 'credentials', edit: { credentials: { api_key: 'synthetic-replacement' } }, expected: null },
+    { label: 'URL', edit: { credentials: { base_url: 'https://different.example/v1' } }, expected: null },
+    { label: 'protocol URL', edit: { credentials: { api_base_urls: { chat_completions: 'https://different.example/v1' } } }, expected: null },
+    { label: 'proxy', edit: { proxy_id: 9 }, expected: null },
+    { label: 'platform', edit: { platform: 'gemini' }, expected: null },
+    { label: 'unrelated priority', edit: { priority: 8 }, expected: { name: 'Remote name', notes: 'Remote notes' } },
+    { label: 'unchanged', edit: {}, expected: { name: 'Remote name', notes: 'Remote notes' } }
+  ])('protects a completed $label edit from a delayed group preview', async ({ edit, expected }) => {
+    const account = { ...listRow, type: 'apikey', notes: 'Local notes' }
+    const guard = { source: 'synthetic-source', name: account.name, notes: account.notes }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+    let resolvePreview!: (fields: Record<string, unknown>) => void
+    previewUpstreamGroup.mockReturnValue(new Promise(resolve => { resolvePreview = resolve }))
+    const current = { ...account, ...edit }
+    updateAccount.mockImplementation(async (_id, fields) => ({ ...current, ...fields }))
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('button[aria-label="admin.accounts.upstreamBilling.saveGroup"]').trigger('click')
+    // The real view's editor event replaces the list row, reproducing the stale reference.
+    wrapper.findComponent(EditAccountModalStub).vm.$emit('updated', current)
+    await flushPromises()
+    resolvePreview({ name: 'Remote name', notes: 'Remote notes', upstream_group_guard: guard })
+    await flushPromises()
+    if (expected) {
+      expect(updateAccount).toHaveBeenCalledTimes(1)
+      expect(updateAccount).toHaveBeenCalledWith(account.id, { ...expected, upstream_group_guard: guard })
+    } else {
+      expect(updateAccount).not.toHaveBeenCalled()
+    }
+    const displayed = wrapper.findComponent(UpstreamBillingRateCell).props('account')
+    expect(displayed.name).toBe(expected?.name ?? current.name)
+    expect(displayed.notes).toBe(expected?.notes ?? current.notes)
+    expect(displayed.priority).toBe(current.priority)
+    wrapper.unmount()
+  })
+
+  it.each(['preview failure', 'patch conflict', 'missing guard', 'unmounted'])('keeps local text on %s', async (scenario) => {
+    const account = { ...listRow, type: 'apikey', notes: 'Local notes' }
+    listAccounts.mockResolvedValue({ items: [account], total: 1, page: 1, page_size: 20, pages: 1 })
+    let resolvePreview!: (fields: Record<string, unknown>) => void
+    let rejectPreview!: (error: Error) => void
+    previewUpstreamGroup.mockReturnValue(new Promise((resolve, reject) => { resolvePreview = resolve; rejectPreview = reject }))
+    updateAccount.mockRejectedValue({ response: { status: 409, data: { message: 'Account changed' } } })
+    const wrapper = mountView()
+    await flushPromises()
+    await wrapper.get('button[aria-label="admin.accounts.upstreamBilling.saveGroup"]').trigger('click')
+    if (scenario === 'unmounted') wrapper.unmount()
+    if (scenario === 'preview failure') rejectPreview(new Error('Preview failed'))
+    else resolvePreview({ name: 'Remote name', ...(scenario === 'missing guard' ? {} : {
+      upstream_group_guard: { source: 'synthetic-source', name: account.name, notes: account.notes }
+    }) })
+    await flushPromises()
+    if (scenario === 'patch conflict') expect(updateAccount).toHaveBeenCalledTimes(1)
+    else expect(updateAccount).not.toHaveBeenCalled()
+    if (scenario !== 'unmounted') {
+      expect(wrapper.findComponent(UpstreamBillingRateCell).props('account').name).toBe(account.name)
+      expect(showError).toHaveBeenCalled()
+      expect(wrapper.get('button[aria-label="admin.accounts.upstreamBilling.saveGroup"]').attributes('disabled')).toBeUndefined()
+      wrapper.unmount()
+    }
   })
 
   it.each([
@@ -303,6 +419,141 @@ describe('admin AccountsView lite account list', () => {
     } finally {
       wrapper.unmount()
     }
+  })
+
+  it('sorts capacity by current concurrency and resets the page while retaining filters', async () => {
+    localStorage.setItem('account-filter-values', JSON.stringify({ platform: 'openai', status: 'active' }))
+    listAccounts.mockResolvedValue({ items: [listRow], total: 60, page: 1, page_size: 20, pages: 3 })
+    const wrapper = mountView()
+    await flushPromises()
+    const table = wrapper.getComponent(DataTableStub)
+    expect(table.props('columns')).toContainEqual(expect.objectContaining({ key: 'capacity', sortable: true }))
+
+    wrapper.getComponent({ name: 'Pagination' }).vm.$emit('update:page', 2)
+    await flushPromises()
+    expect(listAccounts.mock.lastCall?.[0]).toBe(2)
+    table.vm.$emit('sort', 'capacity', 'desc')
+    await flushPromises()
+    expect(listAccounts).toHaveBeenLastCalledWith(1, 20, expect.objectContaining({
+      sort_by: 'current_concurrency', sort_order: 'desc', platform: 'openai', status: 'active', lite: '1'
+    }), expect.objectContaining({ signal: expect.any(AbortSignal) }))
+    table.vm.$emit('sort', 'capacity', 'asc')
+    await flushPromises()
+    expect(listAccounts.mock.lastCall?.[2]).toMatchObject({ sort_by: 'current_concurrency', sort_order: 'asc' })
+    wrapper.unmount()
+  })
+
+  it('refreshes concurrency counts together with order after a billing probe', async () => {
+    localStorage.setItem('account-table-sort', JSON.stringify({ key: 'capacity', order: 'desc' }))
+    const leader = { ...listRow, id: 99, current_concurrency: 9, concurrency: 100 }
+    const follower = { ...listRow, current_concurrency: 2 }
+    listAccounts.mockResolvedValue({ items: [leader, follower], total: 2, page: 1, page_size: 20, pages: 1 })
+    const wrapper = mountView()
+    await flushPromises()
+    const refreshed = [{ ...follower, current_concurrency: 10 }, { ...leader, current_concurrency: 1 }]
+    listAccounts.mockResolvedValue({ items: refreshed, total: 2, page: 1, page_size: 20, pages: 1 })
+    getUpstreamBillingRatesWithEtag.mockResolvedValue({ notModified: false, data: {
+      items: [{ account_id: 42, snapshot: null }, { account_id: 99, snapshot: null }],
+      total: 2, page: 1, page_size: 20
+    } })
+    probeUpstreamBilling.mockResolvedValue({ account_id: 42, snapshot: { status: 'ok', data: { effective_rate_multiplier: 0.14 } } })
+    wrapper.findAllComponents(UpstreamBillingRateCell)[1].vm.$emit('probe')
+    await flushPromises()
+    expect(listAccounts).toHaveBeenCalledTimes(2)
+    expect(wrapper.getComponent(DataTableStub).props('data')).toEqual(refreshed)
+    wrapper.unmount()
+  })
+
+  it('restores capacity sorting and uses server order on automatic refresh across page boundaries', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-table-sort', JSON.stringify({ key: 'capacity', order: 'desc' }))
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    const refreshed = { ...listRow, id: 99, name: 'refreshed leader', current_concurrency: 9, concurrency: 100 }
+    listWithEtag.mockResolvedValue({ notModified: false, etag: 'fresh-concurrency', data: {
+      items: [refreshed], total: 1, page: 1, page_size: 20, pages: 1
+    } })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(listAccounts.mock.lastCall?.[2]).toMatchObject({ sort_by: 'current_concurrency', sort_order: 'desc' })
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+    expect(listWithEtag).toHaveBeenCalledWith(1, 20, expect.objectContaining({
+      sort_by: 'current_concurrency', sort_order: 'desc', lite: '1'
+    }), expect.objectContaining({ etag: null }))
+    expect(wrapper.getComponent(DataTableStub).props('data')).toEqual([refreshed])
+    wrapper.unmount()
+  })
+
+  it('ignores an older automatic refresh after capacity sort changes', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    let completeRefresh!: (value: unknown) => void
+    listWithEtag.mockImplementation(() => new Promise(resolve => { completeRefresh = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    await vi.advanceTimersByTimeAsync(6000)
+    const sortedRow = { ...listRow, id: 99, name: 'new sort leader' }
+    listAccounts.mockResolvedValue({ items: [sortedRow], total: 1, page: 1, page_size: 20, pages: 1 })
+    wrapper.getComponent(DataTableStub).vm.$emit('sort', 'capacity', 'desc')
+    await flushPromises()
+    completeRefresh({ notModified: false, etag: 'old-sort', data: {
+      items: [listRow], total: 1, page: 1, page_size: 20, pages: 1
+    } })
+    await flushPromises()
+    expect(wrapper.getComponent(DataTableStub).props('data')).toEqual([sortedRow])
+    wrapper.unmount()
+  })
+
+  it('hides stored upgrade progress until the global switch is enabled', async () => {
+    let resolveCapabilities!: (value: { concurrency_upgrade_enabled: boolean }) => void
+    getManagementCapabilities.mockReturnValueOnce(new Promise(resolve => { resolveCapabilities = resolve }))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('progress').exists()).toBe(false)
+
+    resolveCapabilities({ concurrency_upgrade_enabled: true })
+    await flushPromises()
+    expect(wrapper.get('progress').attributes()).toMatchObject({ value: '1', max: '20' })
+    wrapper.unmount()
+  })
+
+  it.each([false, undefined])('hides historical progress when the upgrade flag is %s', async enabled => {
+    getManagementCapabilities.mockResolvedValue({ concurrency_upgrade_enabled: enabled })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('progress').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('autoConfig.tier')
+    expect(wrapper.text()).not.toContain('autoConfig.progress')
+    wrapper.unmount()
+  })
+
+  it('hides upgrade progress after disabling even when the account ETag is unchanged', async () => {
+    vi.useFakeTimers()
+    vi.spyOn(document, 'hidden', 'get').mockReturnValue(false)
+    localStorage.setItem('account-auto-refresh', JSON.stringify({ enabled: true, interval_seconds: 5 }))
+    getManagementCapabilities.mockResolvedValue({ concurrency_upgrade_enabled: true })
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('progress').exists()).toBe(true)
+
+    getManagementCapabilities.mockResolvedValue({ concurrency_upgrade_enabled: false })
+    await vi.advanceTimersByTimeAsync(6000)
+    await flushPromises()
+    expect(listWithEtag).toHaveBeenCalled()
+    expect(wrapper.find('progress').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('autoConfig.tier')
+    wrapper.unmount()
+  })
+
+  it('hides upgrade progress if the switch cannot be read', async () => {
+    getManagementCapabilities.mockRejectedValue(new Error('settings unavailable'))
+    const wrapper = mountView()
+    await flushPromises()
+    expect(wrapper.find('[data-account-name]').exists()).toBe(true)
+    expect(wrapper.find('progress').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   it('keeps existing rows mounted and busy while a manual list refresh is pending', async () => {

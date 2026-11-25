@@ -134,42 +134,52 @@ func (r *userPlatformQuotaRepository) BulkInsertInitial(ctx context.Context, rec
 	return err
 }
 
-// GetByUserPlatform 通过 ent 查询单条配额（排除软删除）。未找到返回 (nil, nil)。
-func (r *userPlatformQuotaRepository) GetByUserPlatform(ctx context.Context, userID int64, platform string) (*UserPlatformQuotaRecord, error) {
+// Read the legacy baseline plus the independent, transactionally applied new
+// request deltas. Old flusher snapshots cannot overwrite the new projection.
+const effectivePlatformQuotaColumns = `user_id,platform,daily_limit_usd,weekly_limit_usd,monthly_limit_usd,
+ daily_usage_usd,weekly_usage_usd,monthly_usage_usd,daily_window_start,weekly_window_start,monthly_window_start`
+
+func (r *userPlatformQuotaRepository) readEffective(ctx context.Context, userID int64, platform string) ([]UserPlatformQuotaRecord, error) {
 	client := clientFromContext(ctx, r.client)
-	entity, err := client.UserPlatformQuota.Query().
-		Where(
-			userplatformquota.UserIDEQ(userID),
-			userplatformquota.PlatformEQ(platform),
-			userplatformquota.DeletedAtIsNil(),
-		).
-		Only(ctx)
-	if dbent.IsNotFound(err) {
-		return nil, nil
+	query := "SELECT " + effectivePlatformQuotaColumns + " FROM usage_platform_quota_effective WHERE user_id=$1 AND deleted_at IS NULL"
+	args := []any{userID}
+	if platform != "" {
+		query += " AND platform=$2"
+		args = append(args, platform)
 	}
+	rows, err := client.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	return entQuotaToRecord(entity), nil
+	defer func() { _ = rows.Close() }()
+	out := make([]UserPlatformQuotaRecord, 0)
+	for rows.Next() {
+		var rec UserPlatformQuotaRecord
+		if err := rows.Scan(&rec.UserID, &rec.Platform, &rec.DailyLimitUSD, &rec.WeeklyLimitUSD, &rec.MonthlyLimitUSD,
+			&rec.DailyUsageUSD, &rec.WeeklyUsageUSD, &rec.MonthlyUsageUSD, &rec.DailyWindowStart, &rec.WeeklyWindowStart, &rec.MonthlyWindowStart); err != nil {
+			return nil, err
+		}
+		out = append(out, rec)
+	}
+	return out, rows.Err()
 }
 
-// ListByUser 查询用户的所有平台配额记录（排除软删除）。
-func (r *userPlatformQuotaRepository) ListByUser(ctx context.Context, userID int64) ([]UserPlatformQuotaRecord, error) {
-	client := clientFromContext(ctx, r.client)
-	rows, err := client.UserPlatformQuota.Query().
-		Where(
-			userplatformquota.UserIDEQ(userID),
-			userplatformquota.DeletedAtIsNil(),
-		).
-		All(ctx)
+func (r *userPlatformQuotaRepository) GetByUserPlatform(ctx context.Context, userID int64, platform string) (*UserPlatformQuotaRecord, error) {
+	if platform == "" {
+		return nil, nil
+	}
+	rows, err := r.readEffective(ctx, userID, platform)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]UserPlatformQuotaRecord, 0, len(rows))
-	for _, e := range rows {
-		out = append(out, *entQuotaToRecord(e))
+	if len(rows) == 0 {
+		return nil, nil
 	}
-	return out, nil
+	return &rows[0], nil
+}
+
+func (r *userPlatformQuotaRepository) ListByUser(ctx context.Context, userID int64) ([]UserPlatformQuotaRecord, error) {
+	return r.readEffective(ctx, userID, "")
 }
 
 // IncrementUsageWithReset 原子累加 cost 到 (user, platform) 三个窗口的 *_usage_usd。
@@ -226,31 +236,33 @@ func (r *userPlatformQuotaRepository) IncrementUsageWithReset(ctx context.Contex
 //
 // 未命中活跃记录时返回 ErrUserPlatformQuotaNotFound。
 func (r *userPlatformQuotaRepository) ResetExpiredWindow(ctx context.Context, userID int64, platform string, window string, newStart time.Time) error {
-	client := clientFromContext(ctx, r.client)
-	upd := client.UserPlatformQuota.Update().
-		Where(
-			userplatformquota.UserIDEQ(userID),
-			userplatformquota.PlatformEQ(platform),
-			userplatformquota.DeletedAtIsNil(),
-		)
 	switch window {
-	case "daily":
-		upd = upd.SetDailyUsageUsd(0).SetDailyWindowStart(newStart)
-	case "weekly":
-		upd = upd.SetWeeklyUsageUsd(0).SetWeeklyWindowStart(newStart)
-	case "monthly":
-		upd = upd.SetMonthlyUsageUsd(0).SetMonthlyWindowStart(newStart)
+	case "daily", "weekly", "monthly":
 	default:
 		return fmt.Errorf("unknown window %q", window)
 	}
-	n, err := upd.Save(ctx)
-	if err != nil {
+	return r.withTx(ctx, func(txCtx context.Context, client *dbent.Client) error {
+		rows, err := client.QueryContext(txCtx, "UPDATE user_platform_quotas SET "+window+"_usage_usd=0,"+window+"_window_start=$3 WHERE user_id=$1 AND platform=$2 AND deleted_at IS NULL RETURNING id", userID, platform, newStart)
+		if err != nil {
+			return err
+		}
+		var id int64
+		if !rows.Next() {
+			rowErr := rows.Err()
+			_ = rows.Close()
+			if rowErr != nil {
+				return rowErr
+			}
+			return ErrUserPlatformQuotaNotFound
+		}
+		err = rows.Scan(&id)
+		_ = rows.Close()
+		if err != nil {
+			return err
+		}
+		_, err = client.ExecContext(txCtx, "UPDATE usage_platform_quota_totals SET "+window+"_usage_usd=0,"+window+"_window_start=$2 WHERE quota_id=$1", id, newStart)
 		return err
-	}
-	if n == 0 {
-		return ErrUserPlatformQuotaNotFound
-	}
-	return nil
+	})
 }
 
 // withTx 在事务中执行 fn，若 ctx 中已有事务则复用。
@@ -276,24 +288,6 @@ func (r *userPlatformQuotaRepository) withTx(ctx context.Context, fn func(txCtx 
 	return nil
 }
 
-// entQuotaToRecord 将 ent entity 映射为 repository record。
-// 注意 ent 生成字段名为 DailyLimitUsd（非 DailyLimitUSD）。
-func entQuotaToRecord(e *dbent.UserPlatformQuota) *UserPlatformQuotaRecord {
-	return &UserPlatformQuotaRecord{
-		UserID:             e.UserID,
-		Platform:           e.Platform,
-		DailyLimitUSD:      e.DailyLimitUsd,
-		WeeklyLimitUSD:     e.WeeklyLimitUsd,
-		MonthlyLimitUSD:    e.MonthlyLimitUsd,
-		DailyUsageUSD:      e.DailyUsageUsd,
-		WeeklyUsageUSD:     e.WeeklyUsageUsd,
-		MonthlyUsageUSD:    e.MonthlyUsageUsd,
-		DailyWindowStart:   e.DailyWindowStart,
-		WeeklyWindowStart:  e.WeeklyWindowStart,
-		MonthlyWindowStart: e.MonthlyWindowStart,
-	}
-}
-
 // maybeReset 判断是否需要重置窗口用量：
 // - 若 prevStart 为 nil 或与 currStart 不同，表示窗口已过期，返回 cost（重置）
 // - 否则返回 prevUsage + cost（累加）
@@ -314,6 +308,8 @@ func monthlyMaybeReset(prevUsage float64, prevStart *time.Time, cost float64, no
 	return prevUsage + cost, *prevStart
 }
 
+const lockActivePlatformQuotasSQL = `SELECT id FROM user_platform_quotas WHERE user_id=$1 AND deleted_at IS NULL ORDER BY id FOR UPDATE`
+
 // UpsertForUser 全量替换该用户的所有平台限额（事务内）：
 //  1. 软删除未在 records 中出现、或在 records 中但三档全空的所有 active 行
 //  2. 对每条至少配置了一档限额的 record 尝试 UPDATE active 行；UPDATE 行数为 0 时 INSERT 新行
@@ -326,6 +322,9 @@ func (r *userPlatformQuotaRepository) UpsertForUser(ctx context.Context, userID 
 		return err
 	}
 	return r.withTx(ctx, func(txCtx context.Context, txClient *dbent.Client) error {
+		if _, err := txClient.ExecContext(txCtx, lockActivePlatformQuotasSQL, userID); err != nil {
+			return err
+		}
 		platforms := make([]string, 0, len(records))
 		for _, rec := range records {
 			platforms = append(platforms, rec.Platform)
@@ -492,7 +491,7 @@ func (r *userPlatformQuotaRepository) BatchSnapshotUsage(ctx context.Context, sn
 }
 
 // validateQuotaPlatforms 在原生 SQL 写入前校验平台须为平台清单中的具体平台，
-// 取代迁移 242 删除的 user_platform_quotas_platform_check 约束（原生 SQL 不经过 ent Validate）。
+// 原生 SQL 不经过 ent Validate。
 func validateQuotaPlatforms(records []UserPlatformQuotaRecord) error {
 	for _, rec := range records {
 		if !domain.IsConcretePlatform(rec.Platform) {

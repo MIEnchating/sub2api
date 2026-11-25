@@ -36,7 +36,7 @@ func TestExcelBPSInlineImageForwardAndFetch(t *testing.T) {
 				router.GET(basispoints.ImageRelayPath+":token", svc.ServeExcelBPSImage)
 				server := httptest.NewTLSServer(router)
 				defer server.Close()
-				svc.settingService = NewSettingService(&excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageBaseURL: server.URL}}, svc.cfg)
+				svc.settingService = NewSettingService(&excelBPSImageSettingsRepo{values: map[string]string{SettingKeyExcelBPSImageMode: ExcelBPSImageModeRelay, SettingKeyExcelBPSImageRelayEnabled: "true", SettingKeyExcelBPSImageBaseURL: server.URL}}, svc.cfg)
 				body := []byte(fmt.Sprintf(`{"model":"gpt-6-astra","stream":%v,"input":[{"role":"user","content":[{"type":"input_text","text":"describe"},{"type":"input_image","image_url":%q,"detail":"high"}]}]}`, stream, dataURL))
 				rec := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(rec)
@@ -104,7 +104,7 @@ func TestExcelBPSImageCapabilityRedactedFromUpstreamError(t *testing.T) {
 	require.Contains(t, out, "/api/bps-images/[redacted]")
 }
 
-func TestExcelBPS429ImageAndCompactKeepCodexSchedulable(t *testing.T) {
+func TestExcelBPS429ImageAndCompactFailOverWithoutCodexState(t *testing.T) {
 	t.Setenv("DATA_DIR", t.TempDir())
 	var pngBytes bytes.Buffer
 	require.NoError(t, png.Encode(&pngBytes, image.NewRGBA(image.Rect(0, 0, 2, 3))))
@@ -128,13 +128,13 @@ func TestExcelBPS429ImageAndCompactKeepCodexSchedulable(t *testing.T) {
 
 				_, err := svc.Forward(context.Background(), c, account, body)
 
-				require.EqualError(t, err, "excel BPS: basispoints_rate_limited")
-				require.Equal(t, http.StatusTooManyRequests, rec.Code)
+				requireExcelBPSRateLimitFailover(t, err, c)
 				require.Len(t, upstream.requests, 1)
 				require.NotContains(t, string(upstream.lastBody), "data:image")
 				require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
 				requireNoExcelBPSQuotaWrite(t, repo)
 				require.False(t, svc.isOpenAIAccountRuntimeBlocked(account))
+				require.True(t, svc.isExcelBPSCoolingDown(account, "gpt-6-astra"))
 				require.True(t, account.IsSchedulable())
 			})
 		}

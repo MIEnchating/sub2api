@@ -24,9 +24,9 @@ const model = defineModel<QQGroupPolicy[]>({ required: true })
 defineProps<{ groups: string[]; names?: Record<string, string> }>()
 const { t } = useI18n()
 const switches = ['disable_chat', 'disable_images', 'disable_activities', 'disable_notifications', 'disable_autonomous', 'disable_moderation'] as const
-const quotas = ['chat_daily_limit', 'image_daily_limit'] as const
-function policy(group: string): QQGroupPolicy { return model.value.find(p => p.group_id === group) || { group_id: group, label: '', disable_chat: false, disable_images: false, disable_activities: false, disable_notifications: false, chat_daily_limit: null, image_daily_limit: null } }
+const quotas = ['chat_daily_limit'] as const
+function policy(group: string): QQGroupPolicy { return model.value.find(p => p.group_id === group) || { group_id: group, label: '', disable_chat: false, disable_images: false, disable_activities: false, disable_notifications: false, chat_daily_limit: null } }
 function update(group: string, patch: Partial<QQGroupPolicy>) { const next = { ...policy(group), ...patch }; model.value = [...model.value.filter(p => p.group_id !== group), next] }
 function hasOverrides(group: string) { const p = policy(group); return switches.some(key => p[key]) || quotas.some(key => p[key] != null) }
-function restore(group: string) { update(group, { disable_chat: false, disable_images: false, disable_activities: false, disable_notifications: false, disable_autonomous: false, disable_moderation: false, chat_daily_limit: null, image_daily_limit: null }) }
+function restore(group: string) { update(group, { disable_chat: false, disable_images: false, disable_activities: false, disable_notifications: false, disable_autonomous: false, disable_moderation: false, chat_daily_limit: null }) }
 </script>

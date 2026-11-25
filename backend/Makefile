@@ -1,4 +1,4 @@
-.PHONY: build generate test test-unit test-integration test-e2e
+.PHONY: build build-linux build-windows build-darwin generate test test-unit test-unit-packages test-collection test-integration test-e2e
 
 VERSION ?= $(shell ./scripts/resolve-version.sh)
 LDFLAGS ?= -s -w -X main.Version=$(VERSION)
@@ -6,23 +6,43 @@ LDFLAGS ?= -s -w -X main.Version=$(VERSION)
 build:
 	CGO_ENABLED=0 go build -ldflags="$(LDFLAGS)" -trimpath -o bin/server ./cmd/server
 
+build-linux:
+	CGO_ENABLED=0 GOOS=linux GOARCH=amd64 go build -tags embed -ldflags="$(LDFLAGS)" -trimpath -o sub2api ./cmd/server
+
+build-windows:
+	CGO_ENABLED=0 GOOS=windows GOARCH=amd64 go build -tags embed -ldflags="$(LDFLAGS)" -trimpath -o sub2api ./cmd/server
+
+build-darwin:
+	CGO_ENABLED=0 GOOS=darwin GOARCH=amd64 go build -tags embed -ldflags="$(LDFLAGS)" -trimpath -o sub2api ./cmd/server
+
 generate:
 	go generate ./ent
 	go generate ./cmd/server
 
-test:
+test: test-collection
 	go test ./...
 	golangci-lint run ./...
 
+# Defaults preserve the local full-suite behavior. CI adds JSON output and packages.
+TEST_FLAGS ?= -timeout=30m
+TEST_PACKAGES ?= ./...
+
 test-unit:
-	# The service suite includes real retry, streaming and heartbeat waits.
-	# Allow the complete package to finish without changing operation deadlines.
+	$(MAKE) test-collection
 	go test -tags=unit -timeout=30m ./...
 
+test-unit-packages:
+	go test $(TEST_FLAGS) -tags=unit $(TEST_PACKAGES)
+
+# The embedded collection engine is a nested module, outside ./... .
+test-collection:
+	go test $(TEST_FLAGS) github.com/v03413/bepusdt/app/conf github.com/v03413/bepusdt/app/task github.com/v03413/bepusdt/app/task/notify
+
 test-integration:
-	# The QQ suite rebuilds isolated PostgreSQL schemas for hundreds of cases.
-	# This is the package budget; individual operation deadlines stay unchanged.
-	go test -count=1 -tags=integration -timeout=30m ./...
+	go test -count=1 -tags=integration -timeout=60m ./...
+
+test-integration-timing:
+	go test -count=1 -tags=integration -timeout=60m -json ./...
 
 test-e2e:
 	./scripts/e2e-test.sh

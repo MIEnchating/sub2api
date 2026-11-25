@@ -37,9 +37,10 @@ func TestAstraAccountSchedulingIgnoresProbeState(t *testing.T) {
 			cfg.SetAstraRoutingLoader(func(context.Context) config.AstraRoutingSettings { return settings })
 			target := &Account{ID: 300, Schedulable: true, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Status: StatusActive}
 			repo := &astraModeRepo{astraSchedulingRepo: astraSchedulingRepo{accounts: map[int64]*Account{300: target}}}
-			svc := &AccountTestService{cfg: cfg, accountRepo: repo}
-			for range []string{"target_not_verified", "source_probe_cooldown", "target_probe_failed", "target_probe_degraded", "route_expired", "target_probe_passed"} {
-
+			upstream := &astraSetupUpstream{}
+			svc := &AccountTestService{cfg: cfg, accountRepo: repo, httpUpstream: upstream}
+			for _, reason := range []string{"target_not_verified", "source_probe_cooldown", "target_probe_failed", "target_probe_degraded", "route_expired", "target_probe_passed"} {
+				upstream.snapshot = AstraGatewayRuntime{Revision: "one", Targets: []AstraRouteStatus{{AccountID: 300, Reason: reason}}}
 				svc.syncAstraAccountScheduling(t.Context())
 				require.True(t, target.Schedulable)
 				target.Schedulable = false
@@ -54,7 +55,7 @@ func TestAstraAccountSchedulingIgnoresProbeState(t *testing.T) {
 }
 
 func TestAstraSchedulingTogglePreservesRevisionAndSkipsPreparation(t *testing.T) {
-	repo := &codexPolicyMigrationRepoStub{values: map[string]string{}}
+	repo := &astraSettingsRepo{codexPolicyMigrationRepoStub: &codexPolicyMigrationRepoStub{values: map[string]string{}}}
 	cfg := &config.Config{}
 	svc := NewSettingService(repo, cfg)
 	settings, err := svc.SetAstraRouting(t.Context(), config.AstraRoutingSettings{CookiePool: config.CodexGatewayPinConfig{Enabled: true, SourceAccountIDs: []int64{299}, TargetAccountIDs: []int64{300}}})
@@ -138,12 +139,12 @@ func TestTicketPoolSchedulingSelfAndReuseWithoutCookiePool(t *testing.T) {
 				svc := &AccountTestService{cfg: gateway.cfg, accountRepo: repo, openaiGatewayService: gateway}
 				svc.syncAstraAccountScheduling(t.Context())
 				require.Equal(t, []bool{true}, repo.ready)
-
+				require.NoError(t, gateway.checkAstraSchedulingRoute(t.Context(), a))
 				ticket.ExpiresAt = time.Now().Add(-time.Second)
 				gateway.openaiCodexTickets.Store(openAICodexTicketKey(1, "gpt-6-astra"), &ticket)
 				svc.syncAstraAccountScheduling(t.Context())
 				require.Equal(t, []bool{true, false}, repo.ready)
-
+				require.NoError(t, gateway.checkAstraSchedulingRoute(t.Context(), a), "expired tickets must not synthesize a route 503")
 				settings.TicketPoolScheduling = false
 				svc.syncAstraAccountScheduling(t.Context())
 				require.Len(t, repo.ready, 2, "disabling ticket scheduling preserves account state")

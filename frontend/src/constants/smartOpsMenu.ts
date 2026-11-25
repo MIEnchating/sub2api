@@ -1,0 +1,22 @@
+export const SMART_OPS_MENU_ITEMS = [
+  { path: '/admin/lottery', label: 'lottery.adminTitle' },
+  { path: '/admin/auto-config', label: 'autoConfig.title' },
+  { path: '/admin/priority-scheduling', label: 'priorityScheduling.title' },
+  { path: '/admin/qqbot/overview', label: 'qqbot.title' },
+  { path: '/admin/channel-config', label: 'channelConfig.title' },
+  { path: '/admin/account-quality', label: 'qualityOps.title' },
+  { path: '/admin/controlled-experiments', label: 'controlledExperiments.title' },
+  { path: '/admin/token-guard-v2', label: 'tokenGuardV2.title' },
+  { path: '/admin/pelican-tests', label: 'pelicanTests.title' },
+  { path: '/admin/group-cache-tests', label: 'admin.groupCacheTest.title' },
+  { path: '/admin/request-captures', label: 'admin.requestCapture.title' },
+] as const
+
+// Used only when no visibility preferences are saved; an explicit [] shows all entries.
+export const DEFAULT_SMART_OPS_HIDDEN_MENU_ITEMS: readonly string[] = [
+  '/admin/lottery',
+  '/admin/qqbot/overview',
+  '/admin/controlled-experiments',
+  '/admin/group-cache-tests',
+  '/admin/request-captures',
+]

@@ -27,6 +27,7 @@ var errUsageBillingLaneBatchOutcomeMismatch = errors.New("usage billing batch ou
 // 并拿到自己那条命令的结果。ApplyBatch 返回 error 时整批逐条 Apply。
 // 每次结算（单条、整批、整批回退后的逐条）的超时从开始结算时计算，排队时间不计入。
 //
+// 批量生图的冻结/结算/释放直接调用底层仓储。
 // 通道只在本进程内合并同一用户的计费；结算的原子性与幂等性由底层仓储的事务提供。
 type UsageBillingLaneCombiner struct {
 	repo     UsageBillingBatchRepository
@@ -103,6 +104,18 @@ func (c *UsageBillingLaneCombiner) Apply(ctx context.Context, cmd *UsageBillingC
 	// 入队后命令可能已在执行中的事务里，必须等到结果，不能以单条 Apply 另行结算。
 	out := <-req.done
 	return out.Result, out.Err
+}
+
+func (c *UsageBillingLaneCombiner) ReserveBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return c.repo.ReserveBatchImageBalance(ctx, cmd)
+}
+
+func (c *UsageBillingLaneCombiner) CaptureBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return c.repo.CaptureBatchImageBalance(ctx, cmd)
+}
+
+func (c *UsageBillingLaneCombiner) ReleaseBatchImageBalance(ctx context.Context, cmd *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return c.repo.ReleaseBatchImageBalance(ctx, cmd)
 }
 
 // Stop 拒收新命令（之后的 Apply 直接调用底层仓储），并等待所有通道结算完已排队的命令。可重复调用。

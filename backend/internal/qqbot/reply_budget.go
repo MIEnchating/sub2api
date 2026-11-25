@@ -10,7 +10,6 @@ const (
 	passiveReplyWindow   = 280 * time.Second
 	replyDeliveryReserve = 25 * time.Second
 	minimumModelBudget   = 15 * time.Second
-	minimumImageBudget   = 45 * time.Second
 )
 
 var errReplyWindow = errors.New("剩余回复时间不足，请重新发送")

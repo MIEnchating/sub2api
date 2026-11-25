@@ -2,9 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/stretchr/testify/require"
 )
 
@@ -48,6 +50,35 @@ func TestAccountPerformanceEvaluationResumesAfterCanceledAttempt(t *testing.T) {
 	require.Len(t, r.attempts, 7)
 }
 
+type performanceExportRepo struct {
+	performanceAccountRepoStub
+	accounts []Account
+}
+
+func (r *performanceExportRepo) ListModelAvailabilityCandidates(context.Context, *int64, []string, bool) ([]Account, error) {
+	return r.accounts, nil
+}
+
+func TestAccountPerformanceRegionalExportChecksPauseAndFailsClosed(t *testing.T) {
+	r := &performanceExportRepo{
+		performanceAccountRepoStub: performanceAccountRepoStub{paused: map[int64]bool{1: true}},
+		accounts:                   []Account{{ID: 1, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}, {ID: 2, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true}},
+	}
+	s := NewSchedulerSnapshotService(nil, nil, r, nil, nil)
+	buckets := []SchedulerBucket{{Platform: PlatformOpenAI, Mode: SchedulerModeSingle}}
+	payload, err := s.ExportRegionalScheduler(context.Background(), buckets, []int64{1, 2})
+	require.NoError(t, err)
+	doc, err := decodeRegionalScheduler(payload)
+	require.NoError(t, err)
+	require.Len(t, doc.Buckets[0].Accounts, 1)
+	require.Equal(t, int64(2), doc.Buckets[0].Accounts[0].ID)
+	require.Equal(t, 1, r.calls)
+	r.err = errors.New("pause authority unavailable")
+	payload, err = s.ExportRegionalScheduler(context.Background(), buckets, []int64{1, 2})
+	require.Error(t, err)
+	require.Nil(t, payload, "failed authority must never refresh regional permission")
+}
+
 func TestAccountPerformanceSnapshotPauseCannotBeClearedByEmptyAuthority(t *testing.T) {
 	r := &performanceAccountRepoStub{paused: map[int64]bool{}}
 	s := NewSchedulerSnapshotService(nil, nil, r, nil, nil)
@@ -60,6 +91,30 @@ func TestAccountPerformanceSnapshotPauseCannotBeClearedByEmptyAuthority(t *testi
 	require.Empty(t, filtered)
 }
 
+func TestAccountPerformanceRegionalSlotUsesLocalAuthority(t *testing.T) {
+	r := &performanceAccountRepoStub{err: errors.New("primary must not be queried")}
+	a := &Account{ID: 1, Status: StatusActive, Schedulable: true}
+	snapshot := NewSchedulerSnapshotService(nil, nil, r, nil, snapshotReaderConfig())
+	snapshot.SetLocalSnapshotReader(performanceLocalReader{account: a})
+	s := ProvideConcurrencyService(nil, r, snapshotReaderConfig(), snapshot)
+	defer s.StopAPIKeyQueue()
+	got, err := s.AcquireAccountSlot(context.Background(), 1, 0)
+	require.NoError(t, err)
+	require.True(t, got.Acquired)
+	got, err = s.AcquireAccountSlot(context.Background(), 2, 0)
+	require.NoError(t, err)
+	require.False(t, got.Acquired, "removed accounts cannot reuse old grants")
+	a.PerformancePaused = true
+	got, err = s.AcquireAccountSlot(context.Background(), 1, 0)
+	require.NoError(t, err)
+	require.False(t, got.Acquired)
+	require.Zero(t, r.calls)
+	s.performancePauses = localPerformancePauseReader{reader: NewLocalSchedulerSnapshotStore(nil)}
+	got, err = s.AcquireAccountSlot(context.Background(), 1, 0)
+	require.ErrorIs(t, err, ErrLocalSchedulerSnapshotUnavailable)
+	require.Nil(t, got)
+}
+
 type performanceStartupRepo struct {
 	AccountPerformanceRepository
 	called chan struct{}
@@ -70,9 +125,21 @@ func (r *performanceStartupRepo) EnabledIDs(context.Context) ([]int64, error) {
 	return nil, nil
 }
 
+func TestAccountPerformancePublisherStillEvaluates(t *testing.T) {
+	r := &performanceStartupRepo{called: make(chan struct{}, 1)}
+	cfg := &config.Config{Runtime: config.RuntimeConfig{Role: config.RuntimeRoleFull, RegionalSchedulerFile: "publisher-config"}}
+	s := ProvideAccountPerformanceService(r, nil, cfg)
+	defer s.Stop()
+	select {
+	case <-r.called:
+	case <-time.After(time.Second):
+		t.Fatal("regional publisher must retain the control-plane evaluator")
+	}
+}
+
 func TestAccountPerformanceStartsEvaluation(t *testing.T) {
 	r := &performanceStartupRepo{called: make(chan struct{}, 1)}
-	s := ProvideAccountPerformanceService(r, nil)
+	s := ProvideAccountPerformanceService(r, nil, nil)
 	defer s.Stop()
 	select {
 	case <-r.called:

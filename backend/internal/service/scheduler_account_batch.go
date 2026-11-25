@@ -22,6 +22,13 @@ func (s *SchedulerSnapshotService) GetAccounts(ctx context.Context, accountIDs [
 			result, resultErr = s.markPerformanceAccounts(ctx, result)
 		}
 	}()
+	if s.localSnapshotReader != nil {
+		reader, ok := s.localSnapshotReader.(LocalSchedulerDetailReader)
+		if !ok {
+			return nil, ErrLocalSchedulerSnapshotUnavailable
+		}
+		return reader.GetLocalAccounts(ctx, accountIDs)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}

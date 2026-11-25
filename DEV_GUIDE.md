@@ -34,8 +34,8 @@
 ### 开发工具
 
 ```bash
-# golangci-lint（CI 用 v2.13，本地建议装同一版以免版本差异带来的噪音）
-go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.13
+# golangci-lint（CI 用 v2.14.0，本地建议装同一版以免版本差异带来的噪音）
+go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
 
 # pnpm (前端包管理)
 npm install -g pnpm
@@ -47,7 +47,7 @@ npm install -g pnpm
 
 | Workflow | 触发条件 | 检查内容 |
 |----------|----------|----------|
-| **backend-ci.yml** | push, pull_request | 单元测试 + 集成测试 + golangci-lint v2.13 |
+| **backend-ci.yml** | push, pull_request | 单元测试 + 集成测试 + golangci-lint v2.14.0 |
 | **security-scan.yml** | push, pull_request, 每周一 | govulncheck + gosec + pnpm audit |
 | **release.yml** | tag `v*` | 构建发布（PR 不触发） |
 
@@ -242,6 +242,19 @@ git add ent/       # 生成的文件也要提交
 - [ ] `pnpm-lock.yaml` 已同步（如果改了 package.json）
 - [ ] 所有 test stub 补全新接口方法（如果改了 interface）
 - [ ] Ent 生成的代码已提交（如果改了 schema）
+
+### 新功能提示专项检查
+
+以下是贡献和审查要求，完整权威规则见[贡献指南：新功能提示登记与接入](CONTRIBUTING.md#新功能提示登记与接入)。按改动填写 PR 模板，非适用项逐项写“不适用 + 原因”：
+
+- [ ] 新增管理员可见功能、菜单、页签或设置项时，已在同一 PR 的 `frontend/src/constants/newFeatureNotices.ts` 登记稳定且唯一的新 ID，并在对应位置接入 `NewFeatureBadge`。
+- [ ] 同一功能多入口共用 ID，点击任一标签后相关入口同步隐藏；不同新功能使用不同 ID。
+- [ ] 普通修复、文案调整、重复发版沿用旧 ID；确需重新通知同一功能时，已明确作为新公告登记新 ID 并说明原因。
+- [ ] PR 已说明提示 ID、所有展示位置、关闭行为，并在同一 PR 补必要回归和证据，未留到 Release 发布后补录。
+- [ ] 已核对 A 已关闭后升级 B，新 ID 的 B 仍可见；B 任一入口的标签关闭后，所有相关入口同步隐藏。
+- [ ] 已核对同一浏览器同一管理员刷新/重新登录后 B 仍隐藏（本地存储可用且未清除）；后续 C 新 ID 正常显示，普通升级不复活 A/B。
+
+以上清单沿用当前浏览器、当前管理员 `localStorage` 的现有边界，不自动解析 Release，不承诺跨浏览器或服务端同步；这里只建立规范，不新增运行时功能。
 
 ## 五、常用命令速查
 

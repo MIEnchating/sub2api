@@ -27,7 +27,9 @@ func TestAnthropicPassthroughMultilineEventPreservesBillingAndPublicModel(t *tes
 		}
 		t.Run(name, func(t *testing.T) {
 			start := "event: message_start\nid: start-1\ndata: {\ndata: \"type\":\"message_start\",\ndata: \"message\":{\"model\":\"actual-model\",\"usage\":{\ndata: \"input_tokens\":13,\"cache_creation_input_tokens\":7,\"cache_read_input_tokens\":5,\ndata: \"cache_creation\":{\"ephemeral_5m_input_tokens\":3,\"ephemeral_1h_input_tokens\":4}}}}\n\n"
-			tool := `event: content_block_delta` + "\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"actual-model"}}` + "\n\n"
+			tool := "event: content_block_start\n" + `data: {"type":"content_block_start","index":0,"content_block":{"type":"tool_use","id":"toolu_fixture","name":"lookup","input":{}}}` + "\n\n" +
+				"event: content_block_delta\n" + `data: {"type":"content_block_delta","index":0,"delta":{"type":"input_json_delta","partial_json":"{\"model\":\"actual-model\"}"}}` + "\n\n" +
+				"event: content_block_stop\n" + `data: {"type":"content_block_stop","index":0}` + "\n\n"
 			delta := "event: message_delta\ndata: {\ndata: \"type\":\"message_delta\",\ndata: \"usage\":{\"output_tokens\":11}}\n\n"
 			// A data-only, multiline terminal frame is valid SSE too.
 			stop := "data: {\ndata: \"type\":\"message_stop\"}\n\n"

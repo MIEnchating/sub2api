@@ -122,3 +122,24 @@ describe('OpsErrorLogTable i18n keys exist in the errorLog namespace', () => {
     })
   }
 })
+
+it('labels historical balance failures by source while preserving the raw message', () => {
+  const user = mountTable({ phase: 'request', error_source: 'client_request', error_owner: 'client', status_code: 403, message: 'insufficient balance' })
+  expect(user.get('[data-testid="balance-source"]').text()).toBe('admin.ops.balanceError.user')
+  expect(user.text()).toContain('insufficient balance')
+  user.unmount()
+  const upstream = mountTable({ status_code: 403, message: 'insufficient balance', account_id: 9 })
+  expect(upstream.get('[data-testid="balance-source"]').text()).toBe('admin.ops.balanceError.upstream')
+  upstream.unmount()
+})
+
+it('keeps HTTP 200 transport failures distinct from recovered upstream attempts', () => {
+  const failed = mountTable({ status_code: 200, type: 'transport_error', phase: 'network' })
+  expect(failed.text()).toContain('usage.errors.categories.transport_error')
+  expect(failed.text()).toContain('usage.errors.detail.streamFailedAfterHeaders')
+  expect(failed.text()).toContain('200')
+  failed.unmount()
+  const recovered = mountTable({ status_code: 200, type: 'upstream_error', phase: 'upstream' })
+  expect(recovered.text()).not.toContain('usage.errors.detail.streamFailedAfterHeaders')
+  recovered.unmount()
+})

@@ -39,8 +39,16 @@ type anthropicCompatStream struct {
 
 	clientDisconnected bool
 	sawMessageStart    bool
-	// sawTerminal 表示上游已发出 message_stop、带 stop_reason 的 message_delta 或 [DONE]。
-	sawTerminal bool
+	// sawTerminal requires message_stop; stop_reason and [DONE] are not sufficient.
+	sawTerminal     bool
+	frame           anthropicSSEFrameAssembler
+	frameCount      int
+	contentBytes    int
+	semanticContent bool
+	inputUsageSeen  bool
+	outputUsageSeen bool
+	usageSeen       bool
+	protocolFailure string
 	// upstreamErr* 记录上游流内的 error 事件；收到后调用方结束读取。
 	upstreamErrType    string
 	upstreamErrMessage string
@@ -57,6 +65,10 @@ type anthropicCompatStreamFailure struct {
 	message string
 }
 
+func (s *GatewayService) newAnthropicCompatStream(c *gin.Context, resp *http.Response, logPrefix, requestID string) *anthropicCompatStream {
+	return newAnthropicCompatStreamWithInterval(s.cfg, c, resp, logPrefix, requestID, s.gatewayStreamDataIntervalTimeout())
+}
+
 // newAnthropicCompatStreamWithInterval 启动上游行泵；调用方 defer stop()。
 func newAnthropicCompatStreamWithInterval(cfg *config.Config, c *gin.Context, resp *http.Response, logPrefix, requestID string, interval time.Duration) *anthropicCompatStream {
 	scanner := bufio.NewScanner(resp.Body)
@@ -65,7 +77,7 @@ func newAnthropicCompatStreamWithInterval(cfg *config.Config, c *gin.Context, re
 		maxLineSize = cfg.Gateway.MaxLineSize
 	}
 	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-	scanner.Split(newBoundedSSESplit(cfg, maxLineSize, nil))
+	scanner.Split(newBoundedSSESplit(cfg, maxLineSize, anthropicSSELineSplit()))
 	stream := &anthropicCompatStream{
 		pump:        newAnthropicNativeLinePump(scanner, interval, cfg),
 		body:        resp.Body,
@@ -73,19 +85,15 @@ func newAnthropicCompatStreamWithInterval(cfg *config.Config, c *gin.Context, re
 		logPrefix:   logPrefix,
 		requestID:   requestID,
 	}
-	if c.Request != nil {
+	if c != nil && c.Request != nil {
 		stream.clientGone = c.Request.Context().Done()
 	}
 	return stream
 }
 
 func (st *anthropicCompatStream) stop() {
+	_ = st.body.Close()
 	st.pump.stop()
-}
-
-// newAnthropicCompatStream applies the live runtime policy before reading upstream.
-func (s *GatewayService) newAnthropicCompatStream(c *gin.Context, resp *http.Response, logPrefix, requestID string) *anthropicCompatStream {
-	return newAnthropicCompatStreamWithInterval(s.cfg, c, resp, logPrefix, requestID, s.gatewayStreamDataIntervalTimeout())
 }
 
 // markClientDisconnected 标记客户端已断开，此后调用方不再向下游写入；读间隔上限
@@ -107,11 +115,15 @@ func (st *anthropicCompatStream) markClientDisconnected() {
 // 上游流结束时请求 ctx 已取消的，按客户端已断开收尾。
 func (st *anthropicCompatStream) nextLine() (string, bool) {
 	for {
+		if st.clientGone != nil {
+			select {
+			case <-st.clientGone:
+				st.markClientDisconnected()
+			default:
+			}
+		}
 		line, err := st.pump.nextOrClientGone(st.clientGone)
 		if err == nil {
-			if payload, ok := extractOpenAISSEDataLine(line); ok && strings.TrimSpace(payload) == "[DONE]" {
-				st.sawTerminal = true
-			}
 			return line, true
 		}
 		if errors.Is(err, errAnthropicNativeClientGone) {
@@ -139,7 +151,7 @@ func (st *anthropicCompatStream) nextLine() (string, bool) {
 			// 正常收流或取消：不记日志。
 		default:
 			logger.L().Warn(st.logPrefix+" stream: read error",
-				zap.Error(err),
+				zap.String("status", "read_error"),
 				zap.String("request_id", st.requestID),
 			)
 		}
@@ -150,15 +162,52 @@ func (st *anthropicCompatStream) nextLine() (string, bool) {
 // observe 记录决定收尾方式的上游事件。收到上游 error 事件时关闭上游 body，
 // 调用方不再处理该事件并结束读取。
 func (st *anthropicCompatStream) observe(event *apicompat.AnthropicStreamEvent, payload string) {
+	// Inspect field presence before converters normalize zero-valued structs.
+	usagePath := ""
+	if event.Type == "message_start" {
+		usagePath = "message.usage"
+	}
+	if event.Type == "message_delta" {
+		usagePath = "usage"
+	}
+	if usagePath != "" {
+		u := gjson.Get(payload, usagePath)
+		st.usageSeen = st.usageSeen || anthropicUsageFieldsObserved(u)
+		for _, key := range []string{"input_tokens", "prompt_tokens", "output_tokens"} {
+			value := u.Get(key)
+			if !value.Exists() || value.Type == gjson.Null {
+				continue
+			}
+			if value.Type != gjson.Number || value.Float() < 0 || value.Float() != float64(value.Int()) {
+				st.protocolFailure = "invalid Anthropic usage counter"
+				continue
+			}
+			if key == "output_tokens" {
+				st.outputUsageSeen = true
+			} else {
+				st.inputUsageSeen = true
+			}
+		}
+	}
+	if event.ContentBlock != nil {
+		st.observeContent(*event.ContentBlock)
+	}
+	if event.Message != nil {
+		for _, block := range event.Message.Content {
+			st.observeContent(block)
+		}
+	}
+	if event.Type == "content_block_delta" && event.Delta != nil {
+		n := len(event.Delta.Text) + len(event.Delta.Thinking)
+		st.contentBytes += n
+		st.semanticContent = st.semanticContent || n > 0
+	}
+
 	switch event.Type {
 	case "message_start":
 		st.sawMessageStart = true
 	case "message_stop":
 		st.sawTerminal = true
-	case "message_delta":
-		if event.Delta != nil && event.Delta.StopReason != "" {
-			st.sawTerminal = true
-		}
 	case "error":
 		st.upstreamErrPayload = payload
 		st.upstreamErrType = firstNonEmpty(gjson.Get(payload, "error.type").String(), "upstream_error")
@@ -166,22 +215,39 @@ func (st *anthropicCompatStream) observe(event *apicompat.AnthropicStreamEvent, 
 		_ = st.body.Close()
 		logger.L().Warn(st.logPrefix+" stream: upstream error event",
 			zap.String("request_id", st.requestID),
-			zap.String("error_type", st.upstreamErrType),
-			zap.String("error_message", st.upstreamErrMessage),
+			zap.String("status", "upstream_error"),
+			zap.Int("frame_count", st.frameCount),
+			zap.Bool("input_usage_seen", st.inputUsageSeen),
+			zap.Bool("output_usage_seen", st.outputUsageSeen),
+			zap.Bool("terminal_seen", st.sawTerminal),
+			zap.Int("content_bytes", st.contentBytes),
 			zap.Bool("client_disconnected", st.clientDisconnected),
 		)
 	}
 }
 
-// failure 返回客户端在线、上游未发出结束事件即中断时的失败原因：上游流内
-// error 事件、读间隔超时、读错误，或 message_start 之后正常关闭。此时调用方不补发
-// 完成事件，而是写出协议内的终止错误。上游已发出结束事件、客户端已断开，或上游
-// 未发出 message_start 即正常关闭时返回 nil，调用方按已累计的 usage 正常收尾。
-// 读间隔超时时 err 为 errAnthropicNativeStreamIdle。
-func (st *anthropicCompatStream) failure() *anthropicCompatStreamFailure {
-	if st.clientDisconnected || st.sawTerminal {
-		return nil
+// Availability is independent of completeness and value. Explicit zero and
+// cache-only partial measurements are known usage and must remain billable.
+func anthropicUsageFieldsObserved(u gjson.Result) bool {
+	for _, path := range []string{"input_tokens", "prompt_tokens", "output_tokens", "cache_read_input_tokens", "cached_tokens", "prompt_tokens_details.cached_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens", "cache_creation_input_tokens", "cache_creation.ephemeral_5m_input_tokens", "cache_creation.ephemeral_1h_input_tokens"} {
+		v := u.Get(path)
+		if v.Type == gjson.Number && v.Float() >= 0 && v.Float() == float64(v.Int()) {
+			return true
+		}
 	}
+	return false
+}
+
+func (st *anthropicCompatStream) observeContent(block apicompat.AnthropicContentBlock) {
+	n := len(block.Text) + len(block.Thinking) + len(block.Data)
+	st.contentBytes += n
+	st.semanticContent = st.semanticContent || n > 0 ||
+		((block.Type == "tool_use" || block.Type == "server_tool_use") && block.ID != "" && block.Name != "")
+}
+
+// failure never treats a terminal or disconnect as proof of success. Known
+// usage remains available to billing on all failures, without fabricating zero.
+func (st *anthropicCompatStream) failure() *anthropicCompatStreamFailure {
 	switch {
 	case st.upstreamErrType != "":
 		errType, message := st.upstreamErrType, st.upstreamErrMessage
@@ -193,56 +259,75 @@ func (st *anthropicCompatStream) failure() *anthropicCompatStreamFailure {
 			errType: errType,
 			message: message,
 		}
+	case st.clientDisconnected:
+		return &anthropicCompatStreamFailure{err: fmt.Errorf("stream usage incomplete: client disconnected: %w", context.Canceled), errType: "client_disconnected", message: "client disconnected"}
 	case errors.Is(st.readErr, errAnthropicNativeStreamIdle):
 		return &anthropicCompatStreamFailure{
 			err:     errAnthropicNativeStreamIdle,
 			errType: "stream_timeout",
 			message: fmt.Sprintf("upstream stream idle for %s", st.pump.interval),
 		}
-	case errors.Is(st.readErr, bufio.ErrTooLong):
+	case errors.Is(st.readErr, bufio.ErrTooLong), errors.Is(st.readErr, errAnthropicSSEFrameTooLarge):
 		return &anthropicCompatStreamFailure{
 			err:     fmt.Errorf("stream usage incomplete: %w", st.readErr),
 			errType: "response_too_large",
-			message: fmt.Sprintf("upstream SSE line exceeded %d bytes", st.maxLineSize),
+			message: fmt.Sprintf("upstream SSE frame exceeded %d bytes", st.maxLineSize),
 		}
 	case st.readErr != nil && !errors.Is(st.readErr, io.EOF):
 		return &anthropicCompatStreamFailure{
-			err:     fmt.Errorf("stream usage incomplete: %w", st.readErr),
+			err:     fmt.Errorf("stream usage incomplete: stream read error: %w", st.readErr),
 			errType: "stream_read_error",
 			message: "upstream stream disconnected: " + sanitizeStreamError(st.readErr),
 		}
-	case st.sawMessageStart:
+	case st.protocolFailure != "":
+		return &anthropicCompatStreamFailure{err: errors.New("stream usage incomplete: " + st.protocolFailure), errType: "stream_protocol_error", message: st.protocolFailure}
+	case !st.sawTerminal:
 		return &anthropicCompatStreamFailure{
 			err:     errors.New("stream usage incomplete: missing terminal event"),
 			errType: "stream_incomplete",
 			message: "upstream stream ended without a terminal event",
 		}
+	case !st.sawMessageStart || !st.semanticContent:
+		return &anthropicCompatStreamFailure{err: errors.New("stream usage incomplete: missing semantic content"), errType: "stream_protocol_error", message: "upstream stream ended without semantic content"}
+	case !st.inputUsageSeen || !st.outputUsageSeen:
+		return &anthropicCompatStreamFailure{err: errors.New("stream usage incomplete: missing usage fields"), errType: "usage_incomplete", message: "upstream stream ended without complete usage"}
 	default:
 		return nil
 	}
 }
 
-// finishAnthropicCompatStreamFailure 按失败原因收尾，返回交给调用方的结果与错误。
-// 上游流内 error 事件与 /v1/messages 一致；输出后的计费错误保留用量，返回 sseStreamErrorEventError
-// 由调用方转为 UpstreamFailoverError；尚未向客户端写出内容时不写终止错误，由
-// handler 换号重试。其余失败写出终止错误，并带上已观测到的 usage；未观测到任何
-// usage 时结果为 nil。
+// Preserve partial usage on failure. Only the existing pre-output upstream
+// rejection policy may fail over; incomplete/protocol errors never replay.
 func finishAnthropicCompatStreamFailure(c *gin.Context, writerSizeBeforeStream int, failure *anthropicCompatStreamFailure, result *ForwardResult, writeFailure func()) (*ForwardResult, error) {
 	var sseErr *sseStreamErrorEventError
-	if errors.As(failure.err, &sseErr) {
-		if c.Writer.Size() != writerSizeBeforeStream {
-			writeFailure()
-			if upstreamBillingStatusCode(http.StatusOK, []byte(sseErr.RawData)) != 0 && result.Usage.hasObservedTokens() {
-				return result, failure.err
-			}
-		}
-		return nil, failure.err
+	isSSEError := errors.As(failure.err, &sseErr)
+	clientDisconnected := result.ClientDisconnect
+	wroteFailure := false
+	if !clientDisconnected && (!isSSEError || c.Writer.Size() != writerSizeBeforeStream || result.Usage.hasObservedTokens()) {
+		writeFailure()
+		wroteFailure = true
 	}
-	writeFailure()
 	if !result.Usage.hasObservedTokens() {
-		return nil, failure.err
+		result = nil
+	}
+	if isAnthropicCompatSafetyRejection([]byte(extractCompatFailurePayload(failure.err))) {
+		if !clientDisconnected && !wroteFailure {
+			writeFailure()
+		}
+		return result, fmt.Errorf("upstream safety rejection: %s", failure.message)
 	}
 	return result, failure.err
+}
+
+// Gin records buffered render/write failures in c.Errors instead of returning
+// them. Forwarders must propagate those failures while keeping measured usage.
+func anthropicBufferedWriteFailure(c *gin.Context, stream *anthropicCompatStream, errorsBefore int) error {
+	if len(c.Errors) <= errorsBefore {
+		return nil
+	}
+	stream.markClientDisconnected()
+	MarkResponseCommitted(c)
+	return fmt.Errorf("stream usage incomplete: buffered response delivery failed: %w", c.Errors.Last().Err)
 }
 
 // writeAnthropicCompatCCStreamFailure 向 Chat Completions 流写出终止错误帧，
@@ -301,4 +386,23 @@ func commitAnthropicCompatStreamFailure(c *gin.Context, failure *anthropicCompat
 		return
 	}
 	c.Writer.Flush()
+}
+
+func extractCompatFailurePayload(err error) string {
+	var sseErr *sseStreamErrorEventError
+	if errors.As(err, &sseErr) {
+		return sseErr.RawData
+	}
+	return ""
+}
+
+func isAnthropicCompatSafetyRejection(body []byte) bool {
+	for _, key := range []string{"error.code", "error.type"} {
+		switch strings.ToLower(strings.TrimSpace(gjson.GetBytes(body, key).String())) {
+		case "cyber_policy", "content_policy_violation", "content_policy_error", "safety_error", "safety_violation":
+			return true
+		}
+	}
+	message := strings.ToLower(gjson.GetBytes(body, "error.message").String())
+	return strings.Contains(message, "this request was blocked by safe guard policy") || strings.Contains(message, "this request was blocked by safeguard policy")
 }

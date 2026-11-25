@@ -42,11 +42,14 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
-		if handleRequestBodyReadError(c, reqLog, err) {
+		if middleware2.RejectRequestBodyReadError(c, "handler.openai_gateway_count_tokens", err) {
 			return
 		}
-		status, message := requestBodyReadFailure(reqLog, c.Request, err)
-		h.errorResponse(c, status, "invalid_request_error", message)
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.errorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
 	if len(body) == 0 || !gjson.ValidBytes(body) {
@@ -96,6 +99,12 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	requestPlatform := openAICompatibleRequestPlatform(c.Request.Context(), apiKey)
 	sessionHash := h.gatewayService.GenerateSessionHash(c, body)
 	requestStart := time.Now()
+	keyRelease, keyErr := h.concurrencyHelper.AcquireAPIKeySlot(c.Request.Context(), apiKey.ID, apiKey.ConcurrencyLimit)
+	if keyErr != nil {
+		h.handleConcurrencyError(c, keyErr, "API key", false)
+		return
+	}
+	defer keyRelease()
 	account, err := h.gatewayService.SelectAccountForTokenCount(
 		c.Request.Context(),
 		apiKey.GroupID,
@@ -127,6 +136,9 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 	}
 
 	setOpsSelectedAccount(c, account.ID, account.Platform)
+	if err := service.CheckUpstreamModeration(c.Request.Context(), c, account); err != nil {
+		return
+	}
 	if err := h.gatewayService.ForwardResponsesInputTokens(c.Request.Context(), c, account, forwardBody); err != nil {
 		reqLog.Error("openai_input_tokens.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 	}
@@ -138,12 +150,14 @@ func (h *OpenAIGatewayHandler) ResponsesInputTokens(c *gin.Context) {
 func (h *OpenAIGatewayHandler) GrokCountTokens(c *gin.Context) {
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
-		bodyLog := requestLogger(c, "handler.openai_gateway.grok_count_tokens")
-		if handleRequestBodyReadError(c, bodyLog, err) {
+		if middleware2.RejectRequestBodyReadError(c, "handler.openai_gateway_count_tokens", err) {
 			return
 		}
-		status, message := requestBodyReadFailure(bodyLog, c.Request, err)
-		h.anthropicErrorResponse(c, status, "invalid_request_error", message)
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.anthropicErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
 	if len(body) == 0 {
@@ -202,6 +216,7 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 			"This group does not allow /v1/messages dispatch")
 		return
 	}
+	requireMessagesDispatchQueueCapability(c, apiKey)
 
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
@@ -209,11 +224,14 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
 	if err != nil {
-		if handleRequestBodyReadError(c, reqLog, err) {
+		if middleware2.RejectRequestBodyReadError(c, "handler.openai_gateway_count_tokens", err) {
 			return
 		}
-		status, message := requestBodyReadFailure(reqLog, c.Request, err)
-		h.anthropicErrorResponse(c, status, "invalid_request_error", message)
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			h.anthropicErrorResponse(c, http.StatusRequestEntityTooLarge, "invalid_request_error", buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Failed to read request body")
 		return
 	}
 	if len(body) == 0 {
@@ -272,6 +290,13 @@ func (h *OpenAIGatewayHandler) CountTokens(c *gin.Context) {
 	if preferredMappedModel != "" {
 		currentRoutingModel = preferredMappedModel
 	}
+	keyRelease, keyErr := h.concurrencyHelper.AcquireAPIKeySlot(c.Request.Context(), apiKey.ID, apiKey.ConcurrencyLimit)
+	if keyErr != nil {
+		status, errType, _, message := concurrencyErrorResponse(keyErr, "API key")
+		h.anthropicErrorResponse(c, status, errType, message)
+		return
+	}
+	defer keyRelease()
 	account, err := h.gatewayService.SelectAccountForTokenCount(
 		c.Request.Context(),
 		apiKey.GroupID,

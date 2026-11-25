@@ -1,11 +1,15 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
 import ImportDataModal from '../ImportDataModal.vue'
 
 const { importData, showError } = vi.hoisted(() => ({ importData: vi.fn(), showError: vi.fn() }))
 vi.mock('@/api/admin', () => ({ adminAPI: { accounts: { importData }, proxies: { getAllWithCount: vi.fn().mockResolvedValue([]) } } }))
 vi.mock('@/stores/app', () => ({ useAppStore: () => ({ showError, showSuccess: vi.fn(), showWarning: vi.fn() }) }))
-vi.mock('vue-i18n', () => ({ useI18n: () => ({ t: (key: string) => key }) }))
+vi.mock('vue-i18n', async (importOriginal) => ({
+  ...await importOriginal<typeof import('vue-i18n')>(),
+  useI18n: () => ({ t: (key: string) => key })
+}))
 enableAutoUnmount(afterEach)
 beforeEach(() => {
   vi.clearAllMocks()
@@ -13,7 +17,7 @@ beforeEach(() => {
 })
 
 async function open() {
-  const wrapper = mount(ImportDataModal, { props: { show: true }, global: { stubs: {
+  const wrapper = mount(ImportDataModal, { props: { show: true }, global: { plugins: [createPinia()], stubs: {
     BaseDialog: { template: '<div><slot /><slot name="footer" /></div>' }, Icon: true
   } } })
   const file = new File([JSON.stringify({ proxies: [], accounts: [{ name: 'one', proxy_key: 'file-proxy' }, { name: 'two' }] })], 'accounts.json', { type: 'application/json' })

@@ -4,17 +4,20 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net/http"
 	"reflect"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
@@ -45,10 +48,16 @@ type UpdateSettingsRequest struct {
 	ExcelBPSImageStorageEntries          *int                             `json:"excel_bps_image_storage_entries"`
 	ExcelBPSImageTTLMinutes              *int                             `json:"excel_bps_image_ttl_minutes"`
 
+	PrismBrowserEnabled bool   `json:"prism_browser_enabled"`
+	PrismBrowserBaseURL string `json:"prism_browser_base_url"`
+	PrismBrowserAPIKey  string `json:"prism_browser_api_key"`
 	// 注册设置
 	RegistrationEnabled                 bool                         `json:"registration_enabled"`
+	LoginRateLimitEnabled               *bool                        `json:"login_rate_limit_enabled"`      // 省略=保持现值
+	RegistrationIPLimitEnabled          *bool                        `json:"registration_ip_limit_enabled"` // 省略=保持现值
 	EmailVerifyEnabled                  bool                         `json:"email_verify_enabled"`
 	RegistrationEmailSuffixWhitelist    []string                     `json:"registration_email_suffix_whitelist"`
+	RegistrationEmailAliasBlockEnabled  *bool                        `json:"registration_email_alias_block_enabled"`  // 省略时保留现值
 	RegistrationEmailDomainQuotaEnabled *bool                        `json:"registration_email_domain_quota_enabled"` // 非白名单域名限量注册开关（省略=保持现值）
 	PromoCodeEnabled                    bool                         `json:"promo_code_enabled"`
 	PasswordResetEnabled                bool                         `json:"password_reset_enabled"`
@@ -295,6 +304,8 @@ type UpdateSettingsRequest struct {
 	OpenAICodexVersionAutoSyncEnabled      *bool   `json:"openai_codex_version_auto_sync_enabled"`
 	ClaudeCodeClientVersion                *string `json:"claude_code_client_version"`
 	ClaudeCodeVersionAutoSyncEnabled       *bool   `json:"claude_code_version_auto_sync_enabled"`
+	OpenAIRequestTimezoneEnabled           *bool   `json:"openai_request_timezone_enabled"`
+	OpenAIRequestTimezoneAuto              *bool   `json:"openai_request_timezone_auto"`
 
 	// codex_cli_only 加固（global-only）
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -379,9 +390,12 @@ type UpdateSettingsRequest struct {
 	ChannelMonitorHideUserRanking        *bool   `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy
-	GrokDefaultTextModel           *string `json:"grok_default_text_model"`
-	GrokCrossClientModelMapEnabled *bool   `json:"grok_cross_client_model_map_enabled"`
-	GrokDefaultBaseURLMode         *string `json:"grok_default_base_url_mode"`
+	GrokDefaultTextModel                 *string `json:"grok_default_text_model"`
+	GrokCrossClientModelMapEnabled       *bool   `json:"grok_cross_client_model_map_enabled"`
+	GrokDefaultBaseURLMode               *string `json:"grok_default_base_url_mode"`
+	GrokVideoSourceURLEnabled            *bool   `json:"grok_video_source_url_enabled"`
+	OpenAI409OmitEncryptedHistoryEnabled *bool   `json:"openai_409_omit_encrypted_history_enabled"`
+	OpenAI400OmitEncryptedHistoryEnabled *bool   `json:"openai_400_omit_encrypted_history_enabled"`
 
 	// Available Channels feature switch (user-facing)
 	AvailableChannelsEnabled *bool `json:"available_channels_enabled"`
@@ -389,18 +403,30 @@ type UpdateSettingsRequest struct {
 	// Sidebar navigation item visibility. A nil map means the caller omitted
 	// this field and the existing value should be preserved by omitted-key
 	// handling; an empty map is an explicit reset.
-	NavigationItemVisibility map[string]bool `json:"navigation_item_visibility"`
+	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
+	UserSubscriptionsPageEnabled  *bool           `json:"user_subscriptions_page_enabled"`
+	AdminSubscriptionsPageEnabled *bool           `json:"admin_subscriptions_page_enabled"`
+
+	// Pelican showcase switch + gallery limits (user-facing)
+	PelicanShowcaseEnabled *bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        *service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
 
 	// Subscription feature switch (user-facing subscription surface; see SettingKeySubscriptionEnabled)
 	SubscriptionEnabled *bool `json:"subscription_enabled"`
 
 	// Model Plaza feature switches + description
-	ModelPlazaEnabled     *bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth *bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription *string `json:"model_plaza_description"`
+	ModelPlazaEnabled      *bool                               `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth  *bool                               `json:"model_plaza_require_auth"`
+	ModelPlazaDescription  *string                             `json:"model_plaza_description"`
+	ModelPlazaUSDToCNYRate *float64                            `json:"model_plaza_usd_to_cny_rate" binding:"omitempty,gt=0"`
+	ModelPlazaCurrency     *service.ModelPlazaCurrencySettings `json:"model_plaza_currency"`
 
 	// Plugin management menu visibility switch; plugin runtime is unaffected.
 	PluginManagementEnabled *bool `json:"plugin_management_enabled"`
+
+	// Support tickets switch + form config
+	SupportTicketEnabled *bool                        `json:"support_ticket_enabled"`
+	SupportTicket        *service.SupportTicketConfig `json:"support_ticket_config"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled *bool `json:"affiliate_enabled"`
@@ -409,9 +435,10 @@ type UpdateSettingsRequest struct {
 	RiskControlEnabled *bool `json:"risk_control_enabled"`
 
 	// cyber 会话屏蔽开关 + TTL
-	CyberSessionBlockEnabled    *bool   `json:"cyber_session_block_enabled"`
-	CyberPolicyUserAllowlist    *string `json:"cyber_policy_user_allowlist"`
-	CyberSessionBlockTTLSeconds *int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionBlockEnabled          *bool   `json:"cyber_session_block_enabled"`
+	CyberPolicyUserAllowlist          *string `json:"cyber_policy_user_allowlist"`
+	CyberSessionBlockTTLSeconds       *int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionIdentityStrictEnabled *bool   `json:"cyber_session_identity_strict_enabled"`
 
 	// OpenAI fast/flex policy (optional, only updated when provided)
 	OpenAIFastPolicySettings *dto.OpenAIFastPolicySettings `json:"openai_fast_policy_settings,omitempty"`
@@ -431,7 +458,19 @@ type UpdateSettingsRequest struct {
 	AuthSourceGooglePlatformQuotas   map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_google_platform_quotas"`
 	AuthSourceDingTalkPlatformQuotas map[string]*service.DefaultPlatformQuotaSetting `json:"auth_source_default_dingtalk_platform_quotas"`
 
-	AllowUserViewErrorRequests *bool `json:"allow_user_view_error_requests"`
+	AllowUserViewErrorRequests            *bool   `json:"allow_user_view_error_requests"`
+	UsageShowLongContextBadge             *bool   `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate                    *bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers             *bool   `json:"usage_show_cache_rate_to_users"`
+	UsageShowUpstreamResponseModelToUsers *bool   `json:"usage_show_upstream_response_model_to_users"`
+	RequestCaptureEnabled                 *bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB                *int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays           *int    `json:"request_capture_retention_days"`
+	ExcelBPSImageLimitPolicy              *string `json:"excel_bps_image_limit_policy"`
+	ExcelBPSImageWarningRemaining         *int    `json:"excel_bps_image_warning_remaining"`
+	ExcelBPSImageCompactReserve           *int    `json:"excel_bps_image_compact_reserve"`
+
+	SmartOpsHiddenMenuItems []string `json:"smart_ops_hidden_menu_items" binding:"max=100,dive,max=128"`
 }
 
 // UpdateSettings 更新系统设置
@@ -546,49 +585,52 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.BadRequest(c, "harvest scope mode is required")
 		return
 	}
-
-	if req.ExcelBPSImageBodyLimitMiB != nil && (*req.ExcelBPSImageBodyLimitMiB < 1 || *req.ExcelBPSImageBodyLimitMiB > 128) {
-		response.BadRequest(c, "Invalid BPS image BodyLimitMiB")
+	if req.RequestCaptureQuotaMiB != nil && (*req.RequestCaptureQuotaMiB < 1 || *req.RequestCaptureQuotaMiB > (1<<63-1)/(1<<20)) {
+		response.BadRequest(c, "Capture quota must be positive MiB within int64 range")
 		return
 	}
-
-	if req.ExcelBPSImageBudgetMiB != nil && (*req.ExcelBPSImageBudgetMiB < 512 || *req.ExcelBPSImageBudgetMiB > 2048) {
-		response.BadRequest(c, "Invalid BPS image BudgetMiB")
+	if req.RequestCaptureRetentionDays != nil && (*req.RequestCaptureRetentionDays < 1 || *req.RequestCaptureRetentionDays > 30) {
+		response.BadRequest(c, "Capture retention must be 1-30 days")
 		return
 	}
-
-	if req.ExcelBPSImageMaxRequests != nil && (*req.ExcelBPSImageMaxRequests < 1 || *req.ExcelBPSImageMaxRequests > 512) {
-		response.BadRequest(c, "Invalid BPS image MaxRequests")
+	if req.ExcelBPSImageMaxImageMiB != nil && (*req.ExcelBPSImageMaxImageMiB < 1 || *req.ExcelBPSImageMaxImageMiB > basispoints.MaxRelayImageMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_image_mib must be 1-%d", basispoints.MaxRelayImageMiB))
 		return
 	}
-
-	if req.ExcelBPSImageMaxImageMiB != nil && (*req.ExcelBPSImageMaxImageMiB < 1 || *req.ExcelBPSImageMaxImageMiB > 128) {
-		response.BadRequest(c, "Invalid BPS image MaxImageMiB")
+	if (req.ExcelBPSImageWarningRemaining != nil && (*req.ExcelBPSImageWarningRemaining < 1 || *req.ExcelBPSImageWarningRemaining > basispoints.MaxRelayImages)) || (req.ExcelBPSImageCompactReserve != nil && (*req.ExcelBPSImageCompactReserve < 1 || *req.ExcelBPSImageCompactReserve > basispoints.MaxRelayImages)) {
+		response.BadRequest(c, fmt.Sprintf("Image policy margins must be 1-%d", basispoints.MaxRelayImages))
 		return
 	}
-
-	if req.ExcelBPSImageMaxImages != nil && (*req.ExcelBPSImageMaxImages < 1 || *req.ExcelBPSImageMaxImages > 4096) {
-		response.BadRequest(c, "Invalid BPS image MaxImages")
+	if req.ExcelBPSImageMaxImages != nil && (*req.ExcelBPSImageMaxImages < 1 || *req.ExcelBPSImageMaxImages > basispoints.MaxRelayImages) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_images must be 1-%d", basispoints.MaxRelayImages))
 		return
 	}
-
-	if req.ExcelBPSImageMaxTotalMiB != nil && (*req.ExcelBPSImageMaxTotalMiB < 1 || *req.ExcelBPSImageMaxTotalMiB > 128) {
-		response.BadRequest(c, "Invalid BPS image MaxTotalMiB")
+	if req.ExcelBPSImageMaxTotalMiB != nil && (*req.ExcelBPSImageMaxTotalMiB < 1 || *req.ExcelBPSImageMaxTotalMiB > basispoints.MaxRelayRequestMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay max_total_mib must be 1-%d", basispoints.MaxRelayRequestMiB))
 		return
 	}
-
-	if req.ExcelBPSImageStorageMiB != nil && (*req.ExcelBPSImageStorageMiB < 1 || *req.ExcelBPSImageStorageMiB > 16384) {
-		response.BadRequest(c, "Invalid BPS image StorageMiB")
+	if req.ExcelBPSImageStorageMiB != nil && (*req.ExcelBPSImageStorageMiB < 1 || *req.ExcelBPSImageStorageMiB > basispoints.MaxRelayStorageMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image relay storage_mib must be 1-%d", basispoints.MaxRelayStorageMiB))
 		return
 	}
-
-	if req.ExcelBPSImageStorageEntries != nil && (*req.ExcelBPSImageStorageEntries < 1 || *req.ExcelBPSImageStorageEntries > 65536) {
-		response.BadRequest(c, "Invalid BPS image StorageEntries")
+	if req.ExcelBPSImageStorageEntries != nil && (*req.ExcelBPSImageStorageEntries < 1 || *req.ExcelBPSImageStorageEntries > basispoints.MaxRelayStorageEntries) {
+		response.BadRequest(c, fmt.Sprintf("Image relay storage_entries must be 1-%d", basispoints.MaxRelayStorageEntries))
 		return
 	}
-
-	if req.ExcelBPSImageTTLMinutes != nil && (*req.ExcelBPSImageTTLMinutes < 1 || *req.ExcelBPSImageTTLMinutes > 1440) {
-		response.BadRequest(c, "Invalid BPS image TTLMinutes")
+	if req.ExcelBPSImageTTLMinutes != nil && (*req.ExcelBPSImageTTLMinutes < 1 || *req.ExcelBPSImageTTLMinutes > basispoints.MaxRelayTTLMinutes) {
+		response.BadRequest(c, fmt.Sprintf("Image relay ttl_minutes must be 1-%d", basispoints.MaxRelayTTLMinutes))
+		return
+	}
+	if req.ExcelBPSImageBodyLimitMiB != nil && (*req.ExcelBPSImageBodyLimitMiB < 1 || *req.ExcelBPSImageBodyLimitMiB > basispoints.MaxImageBodyMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image request body limit must be 1-%d MiB", basispoints.MaxImageBodyMiB))
+		return
+	}
+	if req.ExcelBPSImageBudgetMiB != nil && (*req.ExcelBPSImageBudgetMiB < basispoints.MinImageBudgetMiB || *req.ExcelBPSImageBudgetMiB > basispoints.MaxImageBudgetMiB) {
+		response.BadRequest(c, fmt.Sprintf("Image request budget must be %d-%d MiB", basispoints.MinImageBudgetMiB, basispoints.MaxImageBudgetMiB))
+		return
+	}
+	if req.ExcelBPSImageMaxRequests != nil && (*req.ExcelBPSImageMaxRequests < 1 || *req.ExcelBPSImageMaxRequests > basispoints.MaxImageRequests) {
+		response.BadRequest(c, fmt.Sprintf("Image concurrent requests must be 1-%d", basispoints.MaxImageRequests))
 		return
 	}
 	auditReq := settingsAuditRequest(req)
@@ -608,13 +650,38 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
+	_, prismEnabledSent := sentFields["prism_browser_enabled"]
+	_, prismBaseURLSent := sentFields["prism_browser_base_url"]
+	_, prismKeySent := sentFields["prism_browser_api_key"]
+	prismEnabled := previousSettings.PrismBrowserEnabled
+	if prismEnabledSent {
+		prismEnabled = req.PrismBrowserEnabled
+	}
+	prismBaseURL := previousSettings.PrismBrowserBaseURL
+	if prismBaseURLSent {
+		prismBaseURL = req.PrismBrowserBaseURL
+	}
+	if prismEnabled && (prismEnabledSent || prismBaseURLSent || prismKeySent) {
+		if strings.TrimSpace(prismBaseURL) == "" {
+			response.BadRequest(c, "prism browser base URL is required when enabled")
+			return
+		}
+		key := strings.TrimSpace(req.PrismBrowserAPIKey)
+		if key == "" {
+			key = strings.TrimSpace(previousSettings.PrismBrowserAPIKey)
+		}
+		if len(key) < 32 {
+			response.BadRequest(c, "configure a Prism browser API key with at least 32 characters before enabling")
+			return
+		}
+	}
 	previousAuthSourceDefaults, err := h.settingService.GetAuthSourceDefaultSettings(c.Request.Context())
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
-	// 两个安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
+	// 安全开关的请求字段为指针：省略字段=保持现值，避免旧客户端/脚本
 	// 用不含新字段的全量 payload 保存设置时把安全开关静默重置。
 	mainlandWebBlockEnabled := previousSettings.MainlandWebBlockEnabled
 	if req.MainlandWebBlockEnabled != nil {
@@ -628,9 +695,21 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 	if req.StepUpEnabled != nil {
 		stepUpEnabled = *req.StepUpEnabled
 	}
+	loginRateLimitEnabled := previousSettings.LoginRateLimitEnabled
+	if req.LoginRateLimitEnabled != nil {
+		loginRateLimitEnabled = *req.LoginRateLimitEnabled
+	}
+	registrationIPLimitEnabled := previousSettings.RegistrationIPLimitEnabled
+	if req.RegistrationIPLimitEnabled != nil {
+		registrationIPLimitEnabled = *req.RegistrationIPLimitEnabled
+	}
 	passkeyEnabled := previousSettings.PasskeyEnabled
 	if req.PasskeyEnabled != nil {
 		passkeyEnabled = *req.PasskeyEnabled
+	}
+	registrationEmailAliasBlockEnabled := previousSettings.RegistrationEmailAliasBlockEnabled
+	if req.RegistrationEmailAliasBlockEnabled != nil {
+		registrationEmailAliasBlockEnabled = *req.RegistrationEmailAliasBlockEnabled
 	}
 	registrationEmailDomainQuotaEnabled := previousSettings.RegistrationEmailDomainQuotaEnabled
 	if req.RegistrationEmailDomainQuotaEnabled != nil {
@@ -1385,13 +1464,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			return
 		}
 		for i, item := range items {
-			if strings.TrimSpace(item.Label) == "" {
+			items[i].Label = strings.TrimSpace(item.Label)
+			items[i].LabelZh = strings.TrimSpace(item.LabelZh)
+			items[i].LabelEn = strings.TrimSpace(item.LabelEn)
+			if items[i].Label == "" && items[i].LabelZh == "" && items[i].LabelEn == "" {
 				response.BadRequest(c, "Custom menu item label is required")
 				return
 			}
-			if len(item.Label) > maxMenuItemLabelLen {
+			if utf8.RuneCountInString(items[i].Label) > maxMenuItemLabelLen ||
+				utf8.RuneCountInString(items[i].LabelZh) > maxMenuItemLabelLen ||
+				utf8.RuneCountInString(items[i].LabelEn) > maxMenuItemLabelLen {
 				response.BadRequest(c, "Custom menu item label is too long (max 50 characters)")
 				return
+			}
+			if items[i].Label == "" {
+				items[i].Label = items[i].LabelZh
+				if items[i].Label == "" {
+					items[i].Label = items[i].LabelEn
+				}
 			}
 			urlTrimmed := strings.TrimSpace(item.URL)
 			if strings.HasPrefix(urlTrimmed, "md:") {
@@ -1767,8 +1857,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		AccountSchedulingThresholds: req.AccountSchedulingThresholds,
 
 		RegistrationEnabled:                 req.RegistrationEnabled,
+		LoginRateLimitEnabled:               loginRateLimitEnabled,
+		RegistrationIPLimitEnabled:          registrationIPLimitEnabled,
+		PrismBrowserEnabled:                 prismEnabled,
+		PrismBrowserBaseURL:                 prismBaseURL,
+		PrismBrowserAPIKey:                  req.PrismBrowserAPIKey,
 		EmailVerifyEnabled:                  req.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:    req.RegistrationEmailSuffixWhitelist,
+		RegistrationEmailAliasBlockEnabled:  registrationEmailAliasBlockEnabled,
 		RegistrationEmailDomainQuotaEnabled: registrationEmailDomainQuotaEnabled,
 		PromoCodeEnabled:                    req.PromoCodeEnabled,
 		PasswordResetEnabled:                req.PasswordResetEnabled,
@@ -1916,11 +2012,77 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                   req.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:            req.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                     req.BackendModeEnabled,
+		SmartOpsHiddenMenuItems: func() []string {
+			if _, sent := sentFields["smart_ops_hidden_menu_items"]; sent {
+				return req.SmartOpsHiddenMenuItems
+			}
+			return previousSettings.SmartOpsHiddenMenuItems
+		}(),
+		RequestCaptureEnabled: func() bool {
+			if req.RequestCaptureEnabled != nil {
+				return *req.RequestCaptureEnabled
+			}
+			return previousSettings.RequestCaptureEnabled
+		}(),
+		RequestCaptureQuotaMiB: func() int64 {
+			if req.RequestCaptureQuotaMiB != nil {
+				return *req.RequestCaptureQuotaMiB
+			}
+			return previousSettings.RequestCaptureQuotaMiB
+		}(),
+		RequestCaptureRetentionDays: func() int {
+			if req.RequestCaptureRetentionDays != nil {
+				return *req.RequestCaptureRetentionDays
+			}
+			return previousSettings.RequestCaptureRetentionDays
+		}(),
+		ExcelBPSImageLimitPolicy: func() string {
+			if req.ExcelBPSImageLimitPolicy != nil {
+				return *req.ExcelBPSImageLimitPolicy
+			}
+			return previousSettings.ExcelBPSImageLimitPolicy
+		}(),
+		ExcelBPSImageWarningRemaining: func() int {
+			if req.ExcelBPSImageWarningRemaining != nil {
+				return *req.ExcelBPSImageWarningRemaining
+			}
+			return previousSettings.ExcelBPSImageWarningRemaining
+		}(),
+		ExcelBPSImageCompactReserve: func() int {
+			if req.ExcelBPSImageCompactReserve != nil {
+				return *req.ExcelBPSImageCompactReserve
+			}
+			return previousSettings.ExcelBPSImageCompactReserve
+		}(),
 		AllowUserViewErrorRequests: func() bool {
 			if req.AllowUserViewErrorRequests != nil {
 				return *req.AllowUserViewErrorRequests
 			}
 			return previousSettings.AllowUserViewErrorRequests
+		}(),
+		UsageShowLongContextBadge: func() bool {
+			if req.UsageShowLongContextBadge != nil {
+				return *req.UsageShowLongContextBadge
+			}
+			return previousSettings.UsageShowLongContextBadge
+		}(),
+		UsageShowCacheRate: func() bool {
+			if req.UsageShowCacheRate != nil {
+				return *req.UsageShowCacheRate
+			}
+			return previousSettings.UsageShowCacheRate
+		}(),
+		UsageShowCacheRateToUsers: func() bool {
+			if req.UsageShowCacheRateToUsers != nil {
+				return *req.UsageShowCacheRateToUsers
+			}
+			return previousSettings.UsageShowCacheRateToUsers
+		}(),
+		UsageShowUpstreamResponseModelToUsers: func() bool {
+			if req.UsageShowUpstreamResponseModelToUsers != nil {
+				return *req.UsageShowUpstreamResponseModelToUsers
+			}
+			return previousSettings.UsageShowUpstreamResponseModelToUsers
 		}(),
 		OpsMonitoringEnabled: func() bool {
 			if req.OpsMonitoringEnabled != nil {
@@ -2052,6 +2214,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.OpenAICodexVersionAutoSyncEnabled
 			}
 			return previousSettings.OpenAICodexVersionAutoSyncEnabled
+		}(),
+		OpenAIRequestTimezoneEnabled: func() bool {
+			if req.OpenAIRequestTimezoneEnabled != nil {
+				return *req.OpenAIRequestTimezoneEnabled
+			}
+			return previousSettings.OpenAIRequestTimezoneEnabled
+		}(),
+		OpenAIRequestTimezoneAuto: func() bool {
+			if req.OpenAIRequestTimezoneAuto != nil {
+				return *req.OpenAIRequestTimezoneAuto
+			}
+			return previousSettings.OpenAIRequestTimezoneAuto
 		}(),
 		ClaudeCodeClientVersion: func() string {
 			if req.ClaudeCodeClientVersion != nil {
@@ -2234,6 +2408,24 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.GrokDefaultBaseURLMode
 		}(),
+		GrokVideoSourceURLEnabled: func() bool {
+			if req.GrokVideoSourceURLEnabled != nil {
+				return *req.GrokVideoSourceURLEnabled
+			}
+			return previousSettings.GrokVideoSourceURLEnabled
+		}(),
+		OpenAI409OmitEncryptedHistoryEnabled: func() bool {
+			if req.OpenAI409OmitEncryptedHistoryEnabled != nil {
+				return *req.OpenAI409OmitEncryptedHistoryEnabled
+			}
+			return previousSettings.OpenAI409OmitEncryptedHistoryEnabled
+		}(),
+		OpenAI400OmitEncryptedHistoryEnabled: func() bool {
+			if req.OpenAI400OmitEncryptedHistoryEnabled != nil {
+				return *req.OpenAI400OmitEncryptedHistoryEnabled
+			}
+			return previousSettings.OpenAI400OmitEncryptedHistoryEnabled
+		}(),
 		AvailableChannelsEnabled: func() bool {
 			if req.AvailableChannelsEnabled != nil {
 				return *req.AvailableChannelsEnabled
@@ -2245,6 +2437,30 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return req.NavigationItemVisibility
 			}
 			return previousSettings.NavigationItemVisibility
+		}(),
+		UserSubscriptionsPageEnabled: func() bool {
+			if req.UserSubscriptionsPageEnabled != nil {
+				return *req.UserSubscriptionsPageEnabled
+			}
+			return previousSettings.UserSubscriptionsPageEnabled
+		}(),
+		AdminSubscriptionsPageEnabled: func() bool {
+			if req.AdminSubscriptionsPageEnabled != nil {
+				return *req.AdminSubscriptionsPageEnabled
+			}
+			return previousSettings.AdminSubscriptionsPageEnabled
+		}(),
+		PelicanShowcaseEnabled: func() bool {
+			if req.PelicanShowcaseEnabled != nil {
+				return *req.PelicanShowcaseEnabled
+			}
+			return previousSettings.PelicanShowcaseEnabled
+		}(),
+		PelicanShowcase: func() service.PelicanShowcaseConfig {
+			if req.PelicanShowcase != nil {
+				return *req.PelicanShowcase
+			}
+			return previousSettings.PelicanShowcase
 		}(),
 		SubscriptionEnabled: func() bool {
 			if req.SubscriptionEnabled != nil {
@@ -2264,6 +2480,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 			}
 			return previousSettings.ModelPlazaRequireAuth
 		}(),
+		ModelPlazaCurrency: func() service.ModelPlazaCurrencySettings {
+			if req.ModelPlazaCurrency != nil {
+				return *req.ModelPlazaCurrency
+			}
+			return previousSettings.ModelPlazaCurrency
+		}(),
+		ModelPlazaUSDToCNYRate: func() float64 {
+			if req.ModelPlazaUSDToCNYRate != nil {
+				return *req.ModelPlazaUSDToCNYRate
+			}
+			return previousSettings.ModelPlazaUSDToCNYRate
+		}(),
 		ModelPlazaDescription: func() string {
 			if req.ModelPlazaDescription != nil {
 				return *req.ModelPlazaDescription
@@ -2275,6 +2503,18 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.PluginManagementEnabled
 			}
 			return previousSettings.PluginManagementEnabled
+		}(),
+		SupportTicketEnabled: func() bool {
+			if req.SupportTicketEnabled != nil {
+				return *req.SupportTicketEnabled
+			}
+			return previousSettings.SupportTicketEnabled
+		}(),
+		SupportTicket: func() service.SupportTicketConfig {
+			if req.SupportTicket != nil {
+				return *req.SupportTicket
+			}
+			return previousSettings.SupportTicket
 		}(),
 		AffiliateEnabled: func() bool {
 			if req.AffiliateEnabled != nil {
@@ -2305,6 +2545,12 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 				return *req.CyberSessionBlockTTLSeconds
 			}
 			return previousSettings.CyberSessionBlockTTLSeconds
+		}(),
+		CyberSessionIdentityStrictEnabled: func() bool {
+			if req.CyberSessionIdentityStrictEnabled != nil {
+				return *req.CyberSessionIdentityStrictEnabled
+			}
+			return previousSettings.CyberSessionIdentityStrictEnabled
 		}(),
 	}
 
@@ -2481,8 +2727,14 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ExcelBPSImageMaxRequests:                updatedSettings.ExcelBPSImageMaxRequests,
 
 		RegistrationEnabled:                                    updatedSettings.RegistrationEnabled,
+		LoginRateLimitEnabled:                                  updatedSettings.LoginRateLimitEnabled,
+		RegistrationIPLimitEnabled:                             updatedSettings.RegistrationIPLimitEnabled,
+		PrismBrowserEnabled:                                    updatedSettings.PrismBrowserEnabled,
+		PrismBrowserBaseURL:                                    updatedSettings.PrismBrowserBaseURL,
+		PrismBrowserAPIKeyConfigured:                           updatedSettings.PrismBrowserAPIKeyConfigured,
 		EmailVerifyEnabled:                                     updatedSettings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       updatedSettings.RegistrationEmailSuffixWhitelist,
+		RegistrationEmailAliasBlockEnabled:                     updatedSettings.RegistrationEmailAliasBlockEnabled,
 		RegistrationEmailDomainQuotaEnabled:                    updatedSettings.RegistrationEmailDomainQuotaEnabled,
 		PromoCodeEnabled:                                       updatedSettings.PromoCodeEnabled,
 		PasswordResetEnabled:                                   updatedSettings.PasswordResetEnabled,
@@ -2632,6 +2884,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		MaxClaudeCodeVersion:                                   updatedSettings.MaxClaudeCodeVersion,
 		AllowUngroupedKeyScheduling:                            updatedSettings.AllowUngroupedKeyScheduling,
 		BackendModeEnabled:                                     updatedSettings.BackendModeEnabled,
+		OpenAITTFTMode:                                         updatedSettings.OpenAITTFTMode,
 		EnableFingerprintUnification:                           updatedSettings.EnableFingerprintUnification,
 		GatewayStreamDataIntervalTimeoutSeconds:                updatedSettings.GatewayStreamDataIntervalTimeoutSeconds,
 		OpenAIFirstOutputTimeoutSeconds:                        updatedSettings.OpenAIFirstOutputTimeoutSeconds,
@@ -2639,6 +2892,7 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		OpenAIStickyEscapeEnabled:                              updatedSettings.OpenAIStickyEscapeEnabled,
 		OpenAIStickyEscapeTTFTMs:                               updatedSettings.OpenAIStickyEscapeTTFTMs,
 		OpenAIStickyEscapeErrorRate:                            updatedSettings.OpenAIStickyEscapeErrorRate,
+		WebSearchEmulationEnabled:                              updatedSettings.WebSearchEmulationEnabled,
 		GatewayPlatformEnabled:                                 updatedSettings.GatewayPlatformEnabled,
 		UpstreamErrorRetry:                                     updatedSettings.UpstreamErrorRetry,
 		UpstreamErrorMessage:                                   updatedSettings.UpstreamErrorMessage,
@@ -2659,6 +2913,8 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		ClaudeCodeClientVersion:                                updatedSettings.ClaudeCodeClientVersion,
 		ClaudeCodeClientVersionSynced:                          updatedSettings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       updatedSettings.ClaudeCodeVersionAutoSyncEnabled,
+		OpenAIRequestTimezoneEnabled:                           updatedSettings.OpenAIRequestTimezoneEnabled,
+		OpenAIRequestTimezoneAuto:                              updatedSettings.OpenAIRequestTimezoneAuto,
 		MinCodexVersion:                                        updatedSettings.MinCodexVersion,
 		MaxCodexVersion:                                        updatedSettings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  updatedSettings.CodexCLIOnlyBlacklist,
@@ -2730,32 +2986,59 @@ func (h *SettingHandler) UpdateSettings(c *gin.Context) {
 		PaymentAlipayMobilePrecreateDeepLink:                   updatedPaymentCfg.AlipayMobilePrecreateDeepLink,
 
 		ChannelMonitorEnabled:                updatedSettings.ChannelMonitorEnabled,
+		ExcelBPSEnabled:                      updatedSettings.ExcelBPSEnabled,
 		ChannelMonitorMode:                   updatedSettings.ChannelMonitorMode,
 		ChannelMonitorDefaultIntervalSeconds: updatedSettings.ChannelMonitorDefaultIntervalSeconds,
 		ChannelMonitorHideThroughput:         updatedSettings.ChannelMonitorHideThroughput,
 		ChannelMonitorShowQuota:              updatedSettings.ChannelMonitorShowQuota,
 		ChannelMonitorHideUserRanking:        updatedSettings.ChannelMonitorHideUserRanking,
 
-		GrokDefaultTextModel:           updatedSettings.GrokDefaultTextModel,
-		GrokCrossClientModelMapEnabled: updatedSettings.GrokCrossClientModelMapEnabled,
-		GrokDefaultBaseURLMode:         updatedSettings.GrokDefaultBaseURLMode,
+		GrokDefaultTextModel:                 updatedSettings.GrokDefaultTextModel,
+		GrokCrossClientModelMapEnabled:       updatedSettings.GrokCrossClientModelMapEnabled,
+		GrokDefaultBaseURLMode:               updatedSettings.GrokDefaultBaseURLMode,
+		GrokVideoSourceURLEnabled:            updatedSettings.GrokVideoSourceURLEnabled,
+		OpenAI409OmitEncryptedHistoryEnabled: updatedSettings.OpenAI409OmitEncryptedHistoryEnabled,
+		OpenAI400OmitEncryptedHistoryEnabled: updatedSettings.OpenAI400OmitEncryptedHistoryEnabled,
 
-		AvailableChannelsEnabled: updatedSettings.AvailableChannelsEnabled,
-		SubscriptionEnabled:      updatedSettings.SubscriptionEnabled,
+		AvailableChannelsEnabled:      updatedSettings.AvailableChannelsEnabled,
+		NavigationItemVisibility:      updatedSettings.NavigationItemVisibility,
+		UserSubscriptionsPageEnabled:  updatedSettings.UserSubscriptionsPageEnabled,
+		AdminSubscriptionsPageEnabled: updatedSettings.AdminSubscriptionsPageEnabled,
+		PelicanShowcaseEnabled:        updatedSettings.PelicanShowcaseEnabled,
+		PelicanShowcase:               updatedSettings.PelicanShowcase,
+		SubscriptionEnabled:           updatedSettings.SubscriptionEnabled,
 
 		ModelPlazaEnabled:       updatedSettings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   updatedSettings.ModelPlazaRequireAuth,
 		ModelPlazaDescription:   updatedSettings.ModelPlazaDescription,
+		ModelPlazaUSDToCNYRate:  updatedSettings.ModelPlazaUSDToCNYRate,
+		ModelPlazaCurrency:      updatedSettings.ModelPlazaCurrency,
 		PluginManagementEnabled: updatedSettings.PluginManagementEnabled,
+
+		SupportTicketEnabled: updatedSettings.SupportTicketEnabled,
+		SupportTicket:        updatedSettings.SupportTicket,
 
 		AffiliateEnabled: updatedSettings.AffiliateEnabled,
 
-		RiskControlEnabled:          updatedSettings.RiskControlEnabled,
-		CyberSessionBlockEnabled:    updatedSettings.CyberSessionBlockEnabled,
-		CyberPolicyUserAllowlist:    updatedSettings.CyberPolicyUserAllowlist,
-		CyberSessionBlockTTLSeconds: updatedSettings.CyberSessionBlockTTLSeconds,
-		AccountSchedulingThresholds: updatedSettings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:  updatedSettings.AllowUserViewErrorRequests,
+		RiskControlEnabled:                    updatedSettings.RiskControlEnabled,
+		CyberSessionBlockEnabled:              updatedSettings.CyberSessionBlockEnabled,
+		CyberSessionBlockTTLSeconds:           updatedSettings.CyberSessionBlockTTLSeconds,
+		CyberSessionIdentityStrictEnabled:     updatedSettings.CyberSessionIdentityStrictEnabled,
+		AccountSchedulingThresholds:           updatedSettings.AccountSchedulingThresholds,
+		AllowUserViewErrorRequests:            updatedSettings.AllowUserViewErrorRequests,
+		UsageShowLongContextBadge:             updatedSettings.UsageShowLongContextBadge,
+		UsageShowCacheRate:                    updatedSettings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:             updatedSettings.UsageShowCacheRateToUsers,
+		UsageShowUpstreamResponseModelToUsers: updatedSettings.UsageShowUpstreamResponseModelToUsers,
+		SmartOpsHiddenMenuItems:               updatedSettings.SmartOpsHiddenMenuItems,
+		RequestCaptureEnabled:                 updatedSettings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:                updatedSettings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays:           updatedSettings.RequestCaptureRetentionDays,
+		ExcelBPSImageLimitPolicy:              updatedSettings.ExcelBPSImageLimitPolicy,
+		ExcelBPSImageWarningRemaining:         updatedSettings.ExcelBPSImageWarningRemaining,
+		ExcelBPSImageCompactReserve:           updatedSettings.ExcelBPSImageCompactReserve,
+
+		CyberPolicyUserAllowlist: updatedSettings.CyberPolicyUserAllowlist,
 	}
 	if fastPolicy, err := h.settingService.GetOpenAIFastPolicySettings(c.Request.Context()); err != nil {
 		slog.Error("openai_fast_policy_settings_get_failed", "error", err)

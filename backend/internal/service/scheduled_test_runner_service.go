@@ -33,6 +33,22 @@ var ErrScheduledTestResultNotFailed = errors.New("test result is no longer faile
 
 // ScheduledTestRunnerService periodically scans due test plans and executes them.
 type ScheduledTestRunnerService struct {
+	oauth429Repo   OAuth429Repository
+	oauth429Slots  qualityJudgeSlots
+	oauth429Cancel context.CancelFunc
+	oauth429WG     sync.WaitGroup
+	oauth429Start  sync.Once
+
+	judgeQuality   func(context.Context, int64, *PelicanTestConfig, string) *QualityJudgment
+	runPelican     func(context.Context, int64, string, *PelicanTestConfig) (*ScheduledTestResult, error)
+	groupTests     *PelicanGroupTestService
+	candyMonitor   *ChannelMonitorV2CandyService
+	qualityTrigger *quality5xxTrigger
+	triggerCancel  context.CancelFunc
+	triggerWG      sync.WaitGroup
+	planSlots      chan struct{}
+	extrasMu       sync.Mutex
+
 	planRepo       ScheduledTestPlanRepository
 	scheduledSvc   *ScheduledTestService
 	accountTestSvc *AccountTestService
@@ -87,6 +103,8 @@ func NewScheduledTestRunnerService(
 ) *ScheduledTestRunnerService {
 	return &ScheduledTestRunnerService{
 		planRepo:       planRepo,
+		planSlots:      make(chan struct{}, scheduledTestDefaultMaxWorkers),
+		runPelican:     accountTestSvc.RunPelicanBackground,
 		scheduledSvc:   scheduledSvc,
 		accountTestSvc: accountTestSvc,
 		accountRepo:    accountRepo,
@@ -118,6 +136,8 @@ func (s *ScheduledTestRunnerService) Start() {
 			return
 		}
 		s.cron = c
+		s.startQualityTriggers()
+		s.StartOAuth429Worker()
 		s.cron.Start()
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] started (tick=every minute)")
 	})
@@ -136,6 +156,12 @@ func (s *ScheduledTestRunnerService) Stop() {
 			s.lifecycleCancel()
 		}
 		s.lifecycleMu.Unlock()
+		if s.oauth429Cancel != nil {
+			s.oauth429Cancel()
+		}
+		if s.triggerCancel != nil {
+			s.triggerCancel()
+		}
 		cronDone := context.Background()
 		if s.cron != nil {
 			cronDone = s.cron.Stop()
@@ -146,6 +172,11 @@ func (s *ScheduledTestRunnerService) Stop() {
 				<-cronDone.Done()
 			}
 			s.activeRuns.Wait()
+			s.triggerWG.Wait()
+			s.oauth429WG.Wait()
+			if s.qualityTrigger != nil && s.qualityTrigger.queue != nil {
+				_ = s.qualityTrigger.queue.Close()
+			}
 			close(done)
 		}()
 		select {
@@ -205,7 +236,41 @@ func (s *ScheduledTestRunnerService) runScheduled() {
 	case <-ctx.Done():
 		return
 	}
+	s.startScheduledExtras()
 	s.runDuePlans(ctx)
+}
+
+func (s *ScheduledTestRunnerService) startScheduledExtras() {
+	if !s.extrasMu.TryLock() {
+		return
+	}
+	ctx, finish, err := s.beginRunContext(context.Background())
+	if err != nil {
+		s.extrasMu.Unlock()
+		return
+	}
+	go func() {
+		defer s.extrasMu.Unlock()
+		defer finish()
+		ctx, cancel := context.WithTimeout(ctx, 12*time.Minute)
+		defer cancel()
+		now := time.Now()
+		s.finalizeQualityBatches(ctx)
+		if s.scheduledSvc != nil {
+			if err := s.scheduledSvc.resultRepo.PruneExpiredPelican(ctx, now.Add(-7*24*time.Hour)); err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "pelican history cleanup failed: %v", err)
+			}
+			if _, err := s.scheduledSvc.SyncQualityTemplates(ctx); err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "quality template sync failed: %v", err)
+			}
+		}
+		s.groupTests.Cleanup(ctx, now)
+		var jobs sync.WaitGroup
+		jobs.Go(func() { s.runDomesticRouteProbes(ctx) })
+		jobs.Go(func() { s.candyMonitor.RunDue(ctx, now) })
+		jobs.Go(func() { s.groupTests.RunDue(ctx, now) })
+		jobs.Wait()
+	}()
 }
 
 func (s *ScheduledTestRunnerService) runDuePlans(ctx context.Context) {
@@ -227,6 +292,16 @@ func (s *ScheduledTestRunnerService) runDuePlansAt(ctx context.Context, now time
 
 	logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] found %d due plans", len(plans))
 
+	runParent := context.WithValue(context.Background(), scheduledTestAutomaticRunKey{}, true)
+	for _, plan := range plans {
+		if plan.PelicanConfig == nil || plan.PelicanConfig.QuestionKind != QualityRandomQuestionKind {
+			continue
+		}
+		if batch, err := newQualitySharedBatch(now); err == nil {
+			runParent = context.WithValue(runParent, qualitySharedBatchContextKey{}, batch)
+		}
+		break
+	}
 	for _, plan := range plans {
 		if ctx.Err() != nil {
 			return
@@ -254,13 +329,13 @@ func (s *ScheduledTestRunnerService) runDuePlansAt(ctx context.Context, now time
 		// goroutines for the same rule, and shutdown waits for admitted work.
 		// The scan context ends when discovery returns; executions instead
 		// inherit cancellation from the runner lifecycle.
-		runCtx, finish, admitted := s.preparePlanRun(context.WithValue(context.Background(), scheduledTestAutomaticRunKey{}, true), plan)
+		runCtx, finish, admitted := s.preparePlanRun(runParent, plan)
 		if !admitted {
 			continue
 		}
 		go func() {
 			defer finish()
-			s.executePlan(context.WithValue(runCtx, scheduledTestAutomaticRunKey{}, true), plan)
+			s.executePlan(runCtx, plan)
 		}()
 	}
 }
@@ -293,16 +368,105 @@ func (s *ScheduledTestRunnerService) preparePlanRun(ctx context.Context, plan *S
 	}, true
 }
 
-func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) {
+func (s *ScheduledTestRunnerService) runOnePlan(ctx context.Context, plan *ScheduledTestPlan) bool {
 	ctx, finish, admitted := s.preparePlanRun(ctx, plan)
 	if !admitted {
-		return
+		return false
 	}
 	defer finish()
-	s.executePlan(ctx, plan)
+	return s.executePlan(ctx, plan)
 }
 
-func (s *ScheduledTestRunnerService) executePlan(ctx context.Context, plan *ScheduledTestPlan) {
+func (s *ScheduledTestRunnerService) executePlan(ctx context.Context, plan *ScheduledTestPlan) (completed bool) {
+	hasDefinitionPlan := plan.PelicanConfig == nil &&
+		(plan.TestDefinitionID != nil || len(plan.TestDefinitionIDs) > 0 || len(plan.ModelIDs) > 1 || plan.Protection.Enabled)
+	if plan.TargetAccountID() <= 0 || hasDefinitionPlan {
+		s.executeGroupPlan(ctx, plan)
+		return true
+	}
+	if s.planSlots != nil {
+		select {
+		case s.planSlots <- struct{}{}:
+			defer func() { <-s.planSlots }()
+		case <-ctx.Done():
+			return false
+		}
+	}
+	defer func() {
+		if recover() != nil {
+			completed = false
+			logger.LegacyPrintf("service.scheduled_test_runner", "scheduled plan=%d account=%d panicked", plan.ID, plan.TargetAccountID())
+		}
+	}()
+	ctx = context.WithValue(ctx, qualityProbeContextKey{}, true)
+	if plan.PelicanConfig == nil {
+		return s.executeAccountPlan(ctx, plan)
+	}
+	// Scheduled sweeps finalize shared questions after collection releases its
+	// plan slots. Grading while a collector holds a slot can publish a partial round.
+	return s.runPelicanPlan(ctx, plan)
+}
+
+// An explicitly targeted legacy probe can test an account in error so a
+// successful probe can restore it. Group account eligibility does not apply.
+func (s *ScheduledTestRunnerService) executeAccountPlan(ctx context.Context, plan *ScheduledTestPlan) bool {
+	if ctx.Err() != nil {
+		return false
+	}
+	accountID := plan.TargetAccountID()
+	persistCtx, cancel := scheduledTestPersistenceContext()
+	if valid, err := s.executionLeaseCurrent(persistCtx, plan); err != nil || !valid {
+		cancel()
+		return false
+	}
+	pending, err := s.startAccountResult(persistCtx, plan, accountID, "text")
+	cancel()
+	if err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d StartResult error: %v", plan.ID, err)
+		return false
+	}
+
+	var result *ScheduledTestResult
+	switch {
+	case ctx.Err() != nil:
+		err = ctx.Err()
+	case s.accountTestSvc == nil:
+		err = fmt.Errorf("account test service unavailable")
+	default:
+		result, err = s.accountTestSvc.RunTestBackgroundWithPromptAndReasoning(ctx, accountID, plan.ModelID, "", plan.ReasoningEffort)
+	}
+	if err == nil && result == nil {
+		err = fmt.Errorf("account test returned no result")
+	}
+	if err != nil {
+		result = scheduledTestFailedAttempt(pending.StartedAt, err)
+	}
+	result.ID, result.PlanID = pending.ID, pending.PlanID
+	result.AccountID, result.TargetMode = pending.AccountID, pending.TargetMode
+	result.ModelID, result.ReasoningEffort = pending.ModelID, pending.ReasoningEffort
+	result.StartedAt, result.CreatedAt, result.OutputKind = pending.StartedAt, pending.CreatedAt, pending.OutputKind
+	result.ExecutionLeaseOwner, result.ExecutionLeaseScope = plan.ExecutionLeaseOwner, plan.ExecutionLeaseScope
+
+	persistCtx, cancel = scheduledTestPersistenceContext()
+	saved, err := s.scheduledSvc.completeResult(persistCtx, plan.MaxResults, result)
+	cancel()
+	if err != nil {
+		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d CompleteResult error: %v", plan.ID, err)
+	}
+	if !saved {
+		return false
+	}
+	if result.Status == "success" && ctx.Err() == nil {
+		result.grokRecovery.complete(ctx, s.accountTestSvc.accountRepo)
+		if plan.AutoRecover {
+			s.tryRecoverAccount(ctx, accountID, plan.ID, result.grokRecovery)
+		}
+	}
+	s.advancePlan(ctx, plan)
+	return true
+}
+
+func (s *ScheduledTestRunnerService) executeGroupPlan(ctx context.Context, plan *ScheduledTestPlan) {
 	defer s.advancePlan(ctx, plan)
 	if s.scheduledSvc != nil {
 		if repo, ok := s.scheduledSvc.resultRepo.(ScheduledTestRunRepository); ok {
@@ -721,6 +885,9 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	// Shutdown/cancellation is not an account-quality observation.
 	if ctx.Err() == nil {
 		if valid, err := s.executionLeaseCurrent(persistCtx, plan); err == nil && valid {
+			if result.Status == "success" && result.grokRecovery != nil && s.accountTestSvc != nil {
+				result.grokRecovery.complete(persistCtx, s.accountTestSvc.accountRepo)
+			}
 			s.completeResultProtection(persistCtx, plan, result)
 		}
 	}
@@ -733,7 +900,7 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 		// A configuration edit while the upstream was answering invalidates
 		// automatic recovery just as it invalidates protection actions.
 		if eligible, err := s.runAccountEligible(recoveryCtx, plan, result, accountID); err == nil && eligible {
-			s.tryRecoverAccount(recoveryCtx, accountID, plan.ID)
+			s.tryRecoverAccount(recoveryCtx, accountID, plan.ID, result.grokRecovery)
 		}
 		cancelRecovery()
 	}
@@ -1287,12 +1454,17 @@ func (s *ScheduledTestRunnerService) releaseWorker() {
 }
 
 // tryRecoverAccount attempts to recover an account from recoverable runtime state.
-func (s *ScheduledTestRunnerService) tryRecoverAccount(ctx context.Context, accountID int64, planID int64) {
+func (s *ScheduledTestRunnerService) tryRecoverAccount(ctx context.Context, accountID int64, planID int64, grokRecovery ...*grokTestRecovery) {
 	if s.rateLimitSvc == nil {
 		return
 	}
 
-	recovery, err := s.rateLimitSvc.RecoverAccountAfterSuccessfulTest(ctx, accountID)
+	// Grok's observer owns the generation-fenced recovery. Broad recovery here
+	// would clear a newer 429 or an exhausted-200 observation after saving.
+	recovery, err := s.rateLimitSvc.RecoverAccountState(ctx, accountID, AccountRecoveryOptions{
+		preserveGrokScopedBlocks: true,
+		preserveGrokRuntimeState: len(grokRecovery) > 0 && grokRecovery[0] != nil && grokRecovery[0].observed,
+	})
 	if err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d auto-recover failed: %v", planID, err)
 		return

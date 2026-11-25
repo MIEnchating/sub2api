@@ -3,17 +3,16 @@ package service
 import (
 	"bytes"
 	"context"
-	"io"
-	"net/http"
-	"net/http/httptest"
-	"strings"
-	"testing"
-
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/model"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 	"github.com/tidwall/gjson"
+	"io"
+	"net/http"
+	"net/http/httptest"
+	"strings"
+	"testing"
 )
 
 func TestOpenAIGatewayService_APIKeyPassthrough_InvalidEncryptedContentPreservesStructured400(t *testing.T) {
@@ -71,7 +70,7 @@ func TestOpenAIGatewayService_APIKeyPassthrough_InvalidEncryptedContentPreserves
 	require.Equal(t, "invalid_request_error", gjson.Get(body, "error.type").String())
 	require.Equal(t, "invalid_encrypted_content", gjson.Get(body, "error.code").String())
 	require.Equal(t, "input", gjson.Get(body, "error.param").String())
-	require.Contains(t, gjson.Get(body, "error.message").String(), "Encrypted content could not be decrypted or parsed.")
+	require.Equal(t, openAIEncryptedErrorRedacted, gjson.Get(body, "error.message").String())
 	require.NotContains(t, body, "sk-upstream-secret")
 	require.NotContains(t, body, "secret-upstream.example")
 	require.False(t, gjson.Get(body, "debug").Exists())
@@ -113,8 +112,7 @@ func TestOpenAIGatewayService_APIKeyPassthrough_InvalidEncryptedContentRedactsUp
 		require.NotContains(t, body, "secret-upstream.example")
 		require.NotContains(t, body, "secret123")
 		require.NotContains(t, body, "sk-test-secret-key")
-		require.Contains(t, gjson.Get(body, "error.message").String(), "[upstream]")
-		require.Contains(t, gjson.Get(body, "error.message").String(), "[redacted]")
+		require.Equal(t, openAIEncryptedErrorRedacted, gjson.Get(body, "error.message").String())
 	})
 
 	t.Run("non-400 status with invalid_encrypted_content stays sanitized", func(t *testing.T) {
@@ -329,7 +327,7 @@ func TestOpenAIGatewayService_APIKeyPassthrough_ContextWindowPreservesCodeAndCom
 		events := parseCompactBridgeSSE(t, stripKeepaliveComments(rec.Body.String()))
 		require.Len(t, events, 1)
 		require.Equal(t, "response.failed", events[0][0])
-		require.Contains(t, gjson.Get(events[0][1], "response.error.message").String(), "could not be verified")
+		require.Equal(t, openAIEncryptedErrorRedacted, gjson.Get(events[0][1], "response.error.message").String())
 		// 心跳已提交时 error.code 也必须保留，否则 compact 流上客户端仍无法识别该错误。
 		require.Equal(t, "invalid_encrypted_content", gjson.Get(events[0][1], "response.error.code").String())
 	})

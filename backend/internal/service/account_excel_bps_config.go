@@ -8,7 +8,7 @@ import (
 // IsExcelBPSEnabled routes an existing ChatGPT OAuth account to the Excel gateway.
 // The independent Excel grant must be ready before the switch changes routing.
 func (a *Account) IsExcelBPSEnabled() bool {
-	if !ExcelBPSAuthorizationEligible(a) {
+	if !ExcelBPSAuthorizationEligible(a) || a.IsSIWCEnabled() {
 		return false
 	}
 	enabled, _ := a.Extra["openai_excel_bps"].(bool)

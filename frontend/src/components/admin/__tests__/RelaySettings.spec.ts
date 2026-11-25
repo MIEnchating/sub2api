@@ -87,7 +87,7 @@ describe('independently saved relay settings', () => {
   })
 
   it('requires a credential-free HTTPS origin for relay mode and validates resource budgets', async () => {
-    getSettings.mockResolvedValue({ excel_bps_image_relay_enabled: true, excel_bps_image_base_url: 'https://relay.example' })
+    getSettings.mockResolvedValue({ excel_bps_image_relay_enabled: true, excel_bps_image_mode: 'relay', excel_bps_image_base_url: 'https://relay.example' })
     const wrapper = mount(ExcelBPSImageSettings, options); wrappers.push(wrapper)
     await flushPromises()
     await wrapper.get('#excel-bps-image-base-url').setValue('https://user:pass@relay.example')

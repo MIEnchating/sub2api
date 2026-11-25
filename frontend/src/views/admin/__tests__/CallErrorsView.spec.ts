@@ -147,7 +147,7 @@ describe('admin CallErrorsView', () => {
     const wrapper = mountPage({ realSelect: true })
     await flushPromises()
     const labels = () => wrapper.findAll('.select-value').map((item) => item.text())
-    const expected = ['admin.usage.allTypes', 'usage.errors.allCategories', 'usage.errors.allStatuses', 'admin.usage.allGroups']
+    const expected = ['admin.usage.allPlatforms', 'admin.usage.allTypes', 'usage.errors.allCategories', 'usage.errors.allStatuses', 'admin.usage.allGroups']
     expect(labels()).toEqual(expected)
     wrapper.findComponent(UsageFilters).props('modelValue').group_id = 3
     await flushPromises()

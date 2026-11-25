@@ -4,18 +4,24 @@ import "time"
 
 // APIKeyAuthSnapshot API Key 认证缓存快照（仅包含认证所需字段）
 type APIKeyAuthSnapshot struct {
-	Version         int                      `json:"version"`
-	APIKeyID        int64                    `json:"api_key_id"`
-	UserID          int64                    `json:"user_id"`
-	GroupID         *int64                   `json:"group_id,omitempty"`
-	FallbackGroupID *int64                   `json:"fallback_group_id,omitempty"`
-	Name            string                   `json:"name"`
-	Status          string                   `json:"status"`
-	IPWhitelist     []string                 `json:"ip_whitelist,omitempty"`
-	IPBlacklist     []string                 `json:"ip_blacklist,omitempty"`
-	User            APIKeyAuthUserSnapshot   `json:"user"`
-	Group           *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
-	FallbackGroup   *APIKeyAuthGroupSnapshot `json:"fallback_group,omitempty"`
+	Version           int                      `json:"version"`
+	APIKeyID          int64                    `json:"api_key_id"`
+	UserID            int64                    `json:"user_id"`
+	GroupID           *int64                   `json:"group_id,omitempty"`
+	FallbackGroupID   *int64                   `json:"fallback_group_id,omitempty"`
+	Name              string                   `json:"name"`
+	Status            string                   `json:"status"`
+	IPWhitelist       []string                 `json:"ip_whitelist,omitempty"`
+	IPBlacklist       []string                 `json:"ip_blacklist,omitempty"`
+	User              APIKeyAuthUserSnapshot   `json:"user"`
+	Group             *APIKeyAuthGroupSnapshot `json:"group,omitempty"`
+	FallbackGroup     *APIKeyAuthGroupSnapshot `json:"fallback_group,omitempty"`
+	ConcurrencyLimit  int                      `json:"concurrency_limit"`
+	GroupIDs          []int64                  `json:"group_ids,omitempty"`
+	ModelMapping      map[string]string        `json:"model_mapping,omitempty"`
+	ReasoningEffort   string                   `json:"reasoning_effort,omitempty"`
+	ContextTokenLimit int                      `json:"context_token_limit"`
+	AllowLongContext  bool                     `json:"allow_long_context"`
 
 	// Quota fields for API Key independent quota feature
 	Quota     float64 `json:"quota"`      // Quota limit in USD (0 = unlimited)
@@ -58,6 +64,9 @@ type APIKeyAuthUserSnapshot struct {
 	// UserGroupRPMOverrideGroupID 是成功查询 override 的分组（0 = 未查询或查询失败），
 	// 让 checkRPM 区分"该分组确认无 override"与"需要回源"。
 	UserGroupRPMOverrideGroupID int64 `json:"user_group_rpm_override_group_id,omitempty"`
+
+	// UserGroupDeniedModels 该 API Key 对应的 (user, group) 禁用模型；准入与模型列表据此拒绝 / 过滤。
+	UserGroupDeniedModels []string `json:"user_group_denied_models,omitempty"`
 }
 
 // APIKeyAuthGroupSnapshot 分组快照
@@ -75,6 +84,7 @@ type APIKeyAuthGroupSnapshot struct {
 	MonthlyLimitUSD                 *float64                      `json:"monthly_limit_usd,omitempty"`
 	DefaultValidityDays             int                           `json:"default_validity_days"`
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
+	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
 	ImageCountBilling               bool                          `json:"image_count_billing"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
 	ImageRateMultiplier             float64                       `json:"image_rate_multiplier"`
@@ -98,6 +108,9 @@ type APIKeyAuthGroupSnapshot struct {
 	FallbackGroupID                 *int64                        `json:"fallback_group_id,omitempty"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request,omitempty"`
 	FallbackGroupIDOnUnavailable    *int64                        `json:"fallback_group_id_on_unavailable,omitempty"`
+	StreamOnly                      bool                          `json:"stream_only"`
+	CodexCLIOnly                    bool                          `json:"codex_cli_only"`
+	BlockSubagents                  bool                          `json:"block_subagents"`
 
 	// Model routing is used by gateway account selection, so it must be part of auth cache snapshot.
 	// Only anthropic groups use these fields; others may leave them empty.

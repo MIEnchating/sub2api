@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <QQCommunityNav />
     <div class="mx-auto max-w-7xl space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div><h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.records') }}</h1><p class="mt-2 text-sm text-gray-500">{{ t('qqbot.recordsHelp') }}</p></div>
@@ -100,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'

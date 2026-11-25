@@ -299,6 +299,7 @@ func (s *AntigravityGatewayService) handleSmartRetry(p antigravityRetryLoopParam
 			}
 
 			retryResp, retryErr := doAccountHTTPUpstream(p.httpUpstream, retryReq, p.proxyURL, p.account)
+			s.rateLimitService.observeQualityResponse(retryReq.Context(), p.account, retryResp, retryErr)
 			if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 				log.Printf("%s status=%d smart_retry_success attempt=%d/%d", p.prefix, retryResp.StatusCode, attempt, maxAttempts)
 				// 重试成功，清除 MODEL_CAPACITY_EXHAUSTED cooldown
@@ -423,6 +424,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 		}
 
 		retryResp, retryErr := doAccountHTTPUpstream(p.httpUpstream, retryReq, p.proxyURL, p.account)
+		s.rateLimitService.observeQualityResponse(retryReq.Context(), p.account, retryResp, retryErr)
 		if retryErr == nil && retryResp != nil && retryResp.StatusCode != http.StatusTooManyRequests && retryResp.StatusCode != http.StatusServiceUnavailable {
 			logger.LegacyPrintf("service.antigravity_gateway", "%s status=%d single_account_503_retry_success attempt=%d/%d total_waited=%v",
 				p.prefix, retryResp.StatusCode, attempt, antigravitySingleAccountSmartRetryMaxAttempts, totalWaited)
@@ -483,6 +485,7 @@ func (s *AntigravityGatewayService) handleSingleAccountRetryInPlace(
 
 // antigravityRetryLoop 执行带 URL fallback 的重试循环
 func (s *AntigravityGatewayService) antigravityRetryLoop(p antigravityRetryLoopParams) (*antigravityRetryLoopResult, error) {
+	p.ctx = WithAccount429RetryScope(p.ctx)
 	// 预检查：模型限流 + overages 启用 + 积分未耗尽 → 直接注入 AI Credits
 	overagesInjected := false
 	if p.requestedModel != "" && p.account.Platform == PlatformAntigravity &&
@@ -559,9 +562,12 @@ urlFallbackLoop:
 				return nil, err
 			}
 
+			if err := checkAPIKeyLongContextBeforeForward(p.ctx, p.c, nil, p.body, extractOpenAICodexTicketModel(p.body)); err != nil {
+				return nil, err
+			}
 			if p.ctx.Value(accountTestUsageKey{}) != nil {
 				resp, err = executeQualityTestHTTP(upstreamReq, p.account.ID, func(req *http.Request) (*http.Response, error) {
-					return p.httpUpstream.Do(req, p.proxyURL, p.account.ID, p.account.Mode1EffectiveConcurrency())
+					return doAccountHTTPUpstream(p.httpUpstream, req, p.proxyURL, p.account)
 				})
 				if err != nil {
 					return nil, err
@@ -569,6 +575,7 @@ urlFallbackLoop:
 				return &antigravityRetryLoopResult{resp: resp}, nil
 			}
 			resp, err = doAccountHTTPUpstream(p.httpUpstream, upstreamReq, p.proxyURL, p.account)
+			s.rateLimitService.observeQualityResponse(upstreamReq.Context(), p.account, resp, err)
 			if err == nil && resp == nil {
 				err = errors.New("upstream returned nil response")
 			}

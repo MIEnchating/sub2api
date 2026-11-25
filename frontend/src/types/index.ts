@@ -85,12 +85,13 @@ export interface User {
   linuxdo_bound?: boolean
   oidc_bound?: boolean
   wechat_bound?: boolean
-  role: 'admin' | 'user' // User role for authorization
+  role: 'admin' | 'user' | 'observer' // User role for authorization
   balance: number // User balance for API usage
   frozen_balance?: number // Historical held balance retained for account reconciliation
   concurrency: number // Allowed concurrent requests
-  rpm_limit?: number // User-level RPM cap (0 = unlimited); effective as fallback when group has no rpm_limit
+  rpm_limit?: number // User-level RPM cap (0 = unlimited, still counted); enforced alongside group limits
   status: 'active' | 'disabled' // Account status
+  observer_group_ids?: number[] | null
   allowed_groups: number[] | null // Allowed group IDs (null = all non-exclusive groups)
   balance_notify_enabled: boolean
   balance_notify_threshold: number | null
@@ -103,6 +104,7 @@ export interface User {
 }
 
 export interface AdminUser extends User {
+  auto_credit_outstanding?: string
   // 管理员备注（普通用户接口不返回）
   notes: string
   last_used_at?: string | null
@@ -112,7 +114,9 @@ export interface AdminUser extends User {
   // 管理侧权限开关，普通用户接口不返回。
   restrict_public_groups?: boolean
   // 当前并发数（仅管理员列表接口返回）
+  current_rpm?: number | null
   current_concurrency?: number
+  concurrency_available?: boolean // false means the legacy numeric field is not a measurement
 }
 
 export interface LoginRequest {
@@ -189,6 +193,8 @@ export interface SendVerifyCodeResponse {
 export interface CustomMenuItem {
   id: string
   label: string
+  label_zh?: string
+  label_en?: string
   icon_svg: string
   url: string
   page_slug?: string
@@ -213,6 +219,7 @@ export interface PublicSettings {
   excel_bps_enabled?: boolean
   openai_codex_ticket_enabled?: boolean
   gpt_direct_enabled?: boolean
+  prism_browser_enabled?: boolean
   registration_enabled: boolean
   email_verify_enabled: boolean
   force_email_on_third_party_signup: boolean
@@ -272,7 +279,7 @@ export interface PublicSettings {
   balance_low_notify_threshold: number
   channel_monitor_enabled: boolean
   /** Exclusive mode: v1 active probes or v2 passive aggregation. Default v2. */
-  channel_monitor_mode?: 'v1' | 'v2'
+  channel_monitor_mode?: 'v1' | 'v2' | 'v3'
   channel_monitor_default_interval_seconds: number
   /** When true, user monitor hides RPM/TPM so scale cannot be reverse-estimated. */
   channel_monitor_hide_throughput?: boolean
@@ -284,8 +291,9 @@ export interface PublicSettings {
   navigation_item_visibility: Record<string, boolean>
   /** @deprecated Compatibility with public-settings payloads from older servers. */
   user_subscriptions_page_enabled?: boolean
-  /** @deprecated Compatibility with public-settings payloads from older servers. */
   admin_subscriptions_page_enabled?: boolean
+  /** Opt-in user gallery of scheduled Pelican HTML results (sidebar「鹈鹕测智」). */
+  pelican_showcase_enabled?: boolean
   /** When false, the whole user-facing subscription surface is hidden. Default true. */
   subscription_enabled: boolean
   /** Mirrors payment config BALANCE_PAYMENT_DISABLED; true = balance top-up closed (subscription-only site). */
@@ -293,11 +301,22 @@ export interface PublicSettings {
   model_plaza_enabled: boolean
   model_plaza_require_auth: boolean
   plugin_management_enabled: boolean
+  /** Opt-in support tickets (sidebar「网站工单」for users and admins). */
+  support_ticket_enabled?: boolean
+  lottery_enabled?: boolean
   service_quota_enabled: boolean
   affiliate_enabled: boolean
   allow_user_view_error_requests?: boolean
   /** True when the deployment configures MCP_PUBLIC_URL; MCP is disabled otherwise. */
   mcp_enabled?: boolean
+  /** Usage 表中长上下文计费 x2 徽标的展示开关（后端默认开启，缺失时按开启处理） */
+  usage_show_long_context_badge?: boolean
+  /** 使用记录单条缓存率。缺失时按开启处理。 */
+  usage_show_cache_rate?: boolean
+  /** 是否向终端用户展示单条缓存率。缺失时按关闭处理。 */
+  usage_show_cache_rate_to_users?: boolean
+  /** 是否向终端用户展示上游响应里声明的实际模型。缺失时按关闭处理。 */
+  usage_show_upstream_response_model_to_users?: boolean
 }
 
 export interface AuthResponse {
@@ -348,7 +367,7 @@ export interface UpdateSubscriptionRequest {
 export type AnnouncementStatus = 'draft' | 'active' | 'archived'
 export type AnnouncementNotifyMode = 'silent' | 'popup'
 
-export type AnnouncementConditionType = 'subscription' | 'balance'
+export type AnnouncementConditionType = 'subscription' | 'balance' | 'user'
 
 export type AnnouncementOperator = 'in' | 'gt' | 'gte' | 'lt' | 'lte' | 'eq'
 
@@ -356,6 +375,7 @@ export interface AnnouncementCondition {
   type: AnnouncementConditionType
   operator: AnnouncementOperator
   group_ids?: number[]
+  user_ids?: number[]
   value?: number
 }
 
@@ -605,12 +625,15 @@ export interface Group {
   long_context_pricing_enabled: boolean
   // 图片生成计费配置
   allow_image_generation: boolean
+  allow_batch_image_generation: boolean
   image_count_billing: boolean
   image_rate_independent: boolean
   image_rate_multiplier: number
   image_price_1k: number | null
   image_price_2k: number | null
   image_price_4k: number | null
+  batch_image_discount_multiplier: number
+  batch_image_hold_multiplier: number
   video_rate_independent: boolean
   video_rate_multiplier: number
   video_price_480p: number | null
@@ -657,6 +680,10 @@ export interface AdminGroup extends Group {
   force_openai_ultrafast: boolean
   free_openai_fast: boolean
   free_openai_ultrafast: boolean
+  // 仅允许流式请求（管理端请求策略，用户侧分组不返回）
+  stream_only: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing: import('@/api/admin/channels').ChannelModelPricing[]
   // 分组利润控制，profit_min_margin 和 profit_safety_buffer 按小数存储。
   // 仅管理员可见：与 rate_multiplier 相乘即可反推上游成本上限，不得下放到 Group。
@@ -783,6 +810,7 @@ export interface ApiKey {
   created_at: string
   updated_at: string
   current_concurrency: number
+  concurrency_limit: number // 0 = no additional key limit
   group?: Group
   fallback_group?: Group
   rate_limit_5h: number
@@ -797,10 +825,28 @@ export interface ApiKey {
   reset_5h_at: string | null
   reset_1d_at: string | null
   reset_7d_at: string | null
+  group_ids?: number[]
+  model_mapping?: Record<string, string>
+  reasoning_effort?: string
+  allow_long_context?: boolean
+  context_token_limit?: number
+}
+
+export interface ApiKeyConcurrencySnapshot {
+  queue_policy: {
+    max_waiting: number
+    timeout_seconds: number
+  }
+  items: Array<{
+    id: number
+    current_concurrency: number
+    current_waiting: number
+  }>
 }
 
 export interface CreateApiKeyRequest {
   name: string
+  concurrency_limit?: number // 0 = no additional key limit
   group_id?: number | null
   fallback_group_id?: number | null
   custom_key?: string // Optional custom API Key
@@ -811,10 +857,12 @@ export interface CreateApiKeyRequest {
   rate_limit_5h?: number
   rate_limit_1d?: number
   rate_limit_7d?: number
+  group_ids?: number[]
 }
 
 export interface UpdateApiKeyRequest {
   name?: string
+  concurrency_limit?: number // Omitted = no change, 0 = no additional key limit
   group_id?: number | null
   fallback_group_id?: number | null
   status?: 'active' | 'inactive'
@@ -827,6 +875,7 @@ export interface UpdateApiKeyRequest {
   rate_limit_1d?: number
   rate_limit_7d?: number
   reset_rate_limit_usage?: boolean
+  group_ids?: number[]
 }
 
 export interface CreateGroupRequest {
@@ -846,14 +895,20 @@ export interface CreateGroupRequest {
   force_openai_ultrafast?: boolean
   free_openai_fast?: boolean
   free_openai_ultrafast?: boolean
+  stream_only?: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
+  allow_batch_image_generation?: boolean
   image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  batch_image_discount_multiplier?: number
+  batch_image_hold_multiplier?: number
   video_rate_independent?: boolean
   video_rate_multiplier?: number
   video_price_480p?: number | null
@@ -917,14 +972,20 @@ export interface UpdateGroupRequest {
   force_openai_ultrafast?: boolean
   free_openai_fast?: boolean
   free_openai_ultrafast?: boolean
+  stream_only?: boolean
+  codex_cli_only?: boolean
+  block_subagents?: boolean
   model_pricing?: import('@/api/admin/channels').ChannelModelPricing[]
   allow_image_generation?: boolean
+  allow_batch_image_generation?: boolean
   image_count_billing?: boolean
   image_rate_independent?: boolean
   image_rate_multiplier?: number
   image_price_1k?: number | null
   image_price_2k?: number | null
   image_price_4k?: number | null
+  batch_image_discount_multiplier?: number
+  batch_image_hold_multiplier?: number
   video_rate_independent?: boolean
   video_rate_multiplier?: number
   video_price_480p?: number | null
@@ -972,13 +1033,13 @@ export interface UpdateGroupRequest {
 // ==================== Account & Proxy Types ====================
 
 /** 前端内置专属界面（图标、配色、表单等）的平台。 */
-export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'command_code' | 'cline'
+export type KnownAccountPlatform = 'anthropic' | 'openai' | 'gemini' | 'antigravity' | 'grok' | 'kimi' | 'zhipu' | 'deepseek' | 'minimax' | 'opencode_go' | 'typesafe' | 'command_code' | 'cline' | 'mistral'
 /**
  * 账号平台：内置平台，或后端平台清单中新登记的平台（任意字符串）。
  * `string & {}` 保留内置平台的字面量补全。
  */
 export type AccountPlatform = KnownAccountPlatform | (string & {})
-export type AccountType = 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
+export type AccountType = 'gateway' | 'oauth' | 'setup-token' | 'apikey' | 'upstream' | 'bedrock' | 'service_account'
 export type OAuthAddMethod = 'oauth' | 'setup-token'
 export type ProxyProtocol = 'http' | 'https' | 'socks5' | 'socks5h'
 
@@ -988,17 +1049,19 @@ export interface ClaudeModel {
   type: string
   display_name: string
   created_at: string
+  supported_reasoning_levels?: string[]
+  default_reasoning_level?: string
 }
 
 export interface Proxy {
   managed_ipv6?: string
   managed_ipv6_state?: 'reserved' | 'bound' | 'retiring'
-  mihomo_node_id?: string
   id: number
   name: string
   protocol: ProxyProtocol
   host: string
   port: number
+  mihomo_node_id?: string
   username: string | null
   password?: string | null
   status: 'active' | 'inactive' | 'expired'
@@ -1089,6 +1152,11 @@ export interface GeminiCredentials {
 
 export type TempUnschedulableScope = 'account' | 'model'
 
+// before_stream：仅流开始前的 HTTP 错误。
+// after_stream：流开始前和流开始后都可以，包括中途 502。
+// 省略时后端保持旧行为：中途 401/403/429/503/529 仍可触发，中途 502 不触发。
+export type TempUnschedulableStreamTiming = 'before_stream' | 'after_stream'
+
 export interface TempUnschedulableRule {
   error_code: number
   keywords: string[]
@@ -1096,6 +1164,13 @@ export interface TempUnschedulableRule {
   description: string
   // 作用范围：account 暂停整个账号，model 只冷却本次请求的模型；缺省时 401 按 account、其余按 model 处理。
   scope?: TempUnschedulableScope
+  // credentials JSON 键 stream_timing。
+  stream_timing?: TempUnschedulableStreamTiming
+  // credentials JSON 键 trigger_count。省略或小于 1 时按 1 次处理。
+  trigger_count?: number
+  // credentials JSON 键 trigger_window_minutes。从第一次匹配起累计次数的时间窗口。
+  // 与 duration_minutes 相互独立。省略或小于 1 时按 1 分钟处理。
+  trigger_window_minutes?: number
 }
 
 export interface TempUnschedulableState {
@@ -1118,23 +1193,77 @@ export interface TempUnschedulableStatus {
 }
 
 export interface UpstreamBillingData {
-  object: 'sub2api.key_billing'
-  schema_version: 1
-  billing_scope: 'token'
-  group_rate_multiplier: number
+  object: 'sub2api.key_billing' | 'new_api.group_billing'
+  schema_version: 1 | 2
+  billing_scope: 'token' | 'group'
+  provider?: 'new_api'
+  group?: string
+  token_id?: number
+  group_rate_multiplier?: number
   user_rate_multiplier?: number
-  resolved_rate_multiplier: number
-  peak_rate_enabled: boolean
+  resolved_rate_multiplier?: number
+  peak_rate_enabled?: boolean
   peak_start?: string
   peak_end?: string
   peak_rate_multiplier?: number
   applied_peak_multiplier?: number
-  effective_rate_multiplier: number
+  effective_rate_multiplier?: number
   timezone?: string
   observed_at: string
+  billing_mode?: 'multi_group'
+  min_rate_multiplier?: number
+  max_rate_multiplier?: number
+  groups?: Array<UpstreamBillingData & {
+    group_id: number
+    group_name: string
+    platform: string
+    status: 'active' | 'inactive'
+  }>
 }
 
 export type UpstreamBillingProbeStatus = 'ok' | 'unsupported' | 'failed'
+
+// A spending window reported by the upstream /v1/usage endpoint: subscription
+// limits use daily/weekly/monthly, key rate limits use 5h/1d/7d.
+export interface UpstreamBalanceWindow {
+  window: string
+  limit: number
+  used?: number
+  reset_at?: string
+}
+
+// Sanitized balance fields of the upstream /v1/usage response.
+export interface UpstreamBalanceData {
+  source?: 'new_api'
+  is_valid: boolean
+  mode?: 'unrestricted' | 'quota_limited'
+  key_status?: string
+  plan_name?: string
+  unit?: string
+  // Wallet balance, the smallest subscription headroom, or the key quota
+  // headroom, depending on how the upstream bills the key.
+  remaining?: number
+  wallet_balance?: number
+  raw_wallet_balance?: number
+  raw_unit?: 'USD'
+  display_exchange_rate?: number
+  // Subscription without any spending limit.
+  unlimited?: boolean
+  quota_limit?: number
+  quota_used?: number
+  expires_at?: string
+  windows?: UpstreamBalanceWindow[]
+}
+
+export interface UpstreamBalanceSnapshot {
+  status: UpstreamBillingProbeStatus
+  data?: UpstreamBalanceData
+  received_at?: string
+  fresh_until?: string
+  last_attempt_at: string
+  http_status?: number
+  last_error?: string
+}
 
 export interface UpstreamBillingProbeSnapshot {
   status: UpstreamBillingProbeStatus
@@ -1149,6 +1278,47 @@ export interface UpstreamBillingProbeSnapshot {
   // Value this probe wrote into the account rate multiplier; absent when the
   // probe did not sync a rate.
   synced_rate_multiplier?: number
+  // Upstream balance read by the same probe; its status is independent of the
+  // rate status above.
+  balance?: UpstreamBalanceSnapshot
+}
+
+export interface NewAPIUpstreamConfig {
+  account_id: number
+  site_url: string
+  configured: boolean
+  user_id?: number
+  encryption_key_configured: boolean
+  accounts: Array<{ account_id: number; name: string; configured_user_id?: number; cost_multiplier_scale?: number; cn_provider?: boolean; cost_auto_sync_enabled?: boolean; apply_usd_rate?: boolean }>
+}
+
+export interface NewAPIUpstreamConfigRequest {
+  user_id: number
+  access_token?: string
+  account_ids: number[]
+  token_selections?: Record<string, number>
+  apply_usd_rate?: Record<string, boolean>
+}
+
+export interface NewAPIUpstreamPreview {
+  site_url: string
+  user_id: number
+  wallet: { amount: number; unit: string }
+  accounts: Array<{
+    account_id: number
+    name: string
+    matched: boolean
+    token_id?: number
+    group?: string
+    rate?: number
+    cost_multiplier_scale?: number
+    cn_provider?: boolean
+    cost_auto_sync_enabled?: boolean
+    apply_usd_rate?: boolean
+    cost_multiplier?: number
+    error?: string
+    token_options: Array<{ token_id: number; name: string; group: string; masked_key: string }>
+  }>
 }
 
 export interface UpstreamBillingProbeSettings {
@@ -1163,6 +1333,7 @@ export interface UpstreamBillingProbeResult {
 }
 
 export interface UpstreamBillingRateSnapshotItem {
+  cost_multiplier?: number
   account_id: number
   snapshot?: UpstreamBillingProbeSnapshot | null
   upstream_billing_rate_limited?: boolean
@@ -1228,6 +1399,8 @@ export interface OllamaCloudUsageSettings {
 export type CodexTicketProxySource = 'account' | 'direct' | 'pool'
 
 export interface CodexTurnTicketStatus {
+  probe?: { result: string; http_status?: number; checked_at: string; next_probe_at?: string }
+  standby_expires_at?: string
   model: string
   length?: number
   target_length: number
@@ -1355,7 +1528,9 @@ export interface ExcelBPSCredentialState {
 }
 
 export interface Account {
-  excel_bps_credential_state?: ExcelBPSCredentialState
+  moderation_scope_eligible?: boolean
+  upstream_channel_binding?: import('@/api/admin/upstreamChannels').ChannelBinding
+ excel_bps_credential_state?: ExcelBPSCredentialState
   id: number
   name: string
   notes?: string | null
@@ -1383,6 +1558,8 @@ export interface Account {
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
+    upstream_billing_provider?: 'new_api'
+    new_api_apply_usd_rate?: boolean
     upstream_billing_probe_enabled?: boolean
     upstream_billing_group_sync_enabled?: boolean
     upstream_billing_rate_sync_enabled?: boolean
@@ -1429,6 +1606,7 @@ export interface Account {
   scheduler_scores?: AccountSchedulerGroupScore[] | null
   priority: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  group_rate_multiplier?: number // Account-level multiplier applied to group billing
 
   status: 'active' | 'inactive' | 'error' | 'quality_paused'
   error_message: string | null
@@ -1440,6 +1618,7 @@ export interface Account {
   proxy?: Proxy
   group_ids?: number[] // Groups this account belongs to
   groups?: Group[] // Preloaded group objects
+  account_groups?: AccountGroupBinding[] // Per-group binding settings (detail responses only)
 
   // Rate limit & scheduling fields
   schedulable: boolean
@@ -1506,6 +1685,8 @@ export interface Account {
   current_window_cost?: number | null // 当前窗口费用
   active_sessions?: number | null // 当前活跃会话数
   current_rpm?: number | null // 当前分钟 RPM 计数
+  rpm_paused?: boolean
+  rpm_reset_at?: number | null
 
   // 影子账号关系（spark 维度影子）
   parent_account_id?: number | null
@@ -1541,6 +1722,8 @@ export interface WindowStats {
   cost: number // Account cost (account multiplier)
   standard_cost?: number
   user_cost?: number
+  lifetime_tokens?: number // All-time totals (no time filter)
+  lifetime_cost?: number
 }
 
 export interface UsageProgress {
@@ -1697,7 +1880,7 @@ export interface CodexUsageSnapshot {
 
 export type OpenAICompactMode = 'auto' | 'force_on' | 'force_off'
 export type OpenAIResponsesMode = 'auto' | 'force_responses' | 'force_chat_completions'
-export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'seedance'
+export type OpenAIEndpointCapability = 'chat_completions' | 'embeddings' | 'seedance' | 'videos'
 
 export interface OpenAICompactState {
   openai_compact_mode?: OpenAICompactMode
@@ -1716,6 +1899,10 @@ export type AccountProxyMode = '' | 'direct' | 'specified' | 'random' | 'least_u
 
 export interface CreateAccountRequest {
   proxy_mode?: AccountProxyMode
+  provider_id?: number
+  provider_key_id?: string
+  upstream_channel_id?: number
+  confirm_upstream_channel_binding?: boolean
   name: string
   notes?: string | null
   platform: AccountPlatform
@@ -1729,6 +1916,7 @@ export interface CreateAccountRequest {
   load_factor?: number | null
   priority?: number
   rate_multiplier?: number // Account billing multiplier (>=0, 0 means free)
+  group_rate_multiplier?: number
   group_ids?: number[]
   expires_at?: number | null
   auto_pause_on_expired?: boolean
@@ -1737,8 +1925,26 @@ export interface CreateAccountRequest {
   confirm_mixed_channel_risk?: boolean
 }
 
+// AccountGroupBinding is one account-to-group binding and its per-group settings.
+export interface AccountGroupBinding {
+  account_id: number
+  group_id: number
+  priority: number
+  // Models the account may serve in this group; omitted means no limit.
+  allowed_models?: string[]
+  created_at: string
+}
+
+export interface UpstreamGroupSyncGuard {
+  source: string
+  name: string
+  notes: string | null
+}
+
 export interface UpdateAccountRequest {
   proxy_mode?: AccountProxyMode
+  upstream_group_guard?: UpstreamGroupSyncGuard
+	platform?: AccountPlatform
   name?: string
   notes?: string | null
   type?: AccountType
@@ -1754,6 +1960,8 @@ export interface UpdateAccountRequest {
   schedulable?: boolean
   status?: 'active' | 'inactive' | 'error' | 'quality_paused'
   group_ids?: number[]
+  // Replaces the per-group model limits; groups not listed become unrestricted.
+  group_allowed_models?: Record<number, string[]>
   expires_at?: number | null
   auto_pause_on_expired?: boolean
   upstream_billing_probe_enabled?: boolean
@@ -1873,6 +2081,9 @@ export interface AdminDataImportResult {
 
 export interface CodexSessionImportRequest {
   proxy_mode?: AccountProxyMode
+  initialize_openai_two_fa?: boolean
+  /** Skip matching accounts without replacing their credentials or settings. */
+  skip_existing?: boolean
   content?: string
   contents?: string[]
   name?: string
@@ -1947,8 +2158,34 @@ export type UsageRequestType = 'unknown' | 'sync' | 'stream' | 'ws_v2' | 'cyber'
 export type ImageSizeSource = 'output' | 'input' | 'default' | 'legacy'
 export type ImageSizeBreakdown = Record<string, number>
 
+// Immutable display evidence from the Standard calculation that set actual_cost.
+export type CustomerCacheCostKind = 'read' | 'read_image' | 'write' | 'write_5m' | 'write_1h' | 'write_30m' | 'write_12h'
+export interface CustomerCacheCostDetail {
+  kind: CustomerCacheCostKind
+  tokens: number
+  unit_price: number
+}
+
+export interface CustomerCostDetails {
+  cache_cost_details?: CustomerCacheCostDetail[]
+  probe_penalty?: { minimum_charge: number; adjustment: number; actual_cost: number; original_output_tokens: number; billing_output_tokens: number; output_token_price: number }
+  version: number
+  free_fast: boolean
+  free_ultrafast?: boolean
+  input_cost: number
+  output_cost: number
+  image_input_cost: number
+  image_output_cost: number
+  cache_creation_cost: number
+  cache_read_cost: number
+  total_cost: number
+  actual_cost: number
+  multiplier: number
+}
+
 export interface UsageLog {
   http_status?: number | null
+  customer_cost_details?: CustomerCostDetails | null
   id: number
   user_id: number
   api_key_id: number
@@ -1989,6 +2226,17 @@ export interface UsageLog {
   native_compaction_v2: boolean
   duration_ms: number | null
   first_token_ms: number | null
+  queue_wait_ms?: number | null
+  queue_timing?: {
+    status: string; source: string; scope: string; queue_clamped: boolean
+    server_first_token_ms: number | null; server_duration_ms: number
+    forward_first_token_ms: number | null; forward_duration_ms: number
+  } | null
+  content_timing?: {
+    sse_event_first_ms?: number | null; semantic_first_ms?: number | null
+    reasoning_first_ms: number | null; visible_text_first_ms: number | null; response_byte_first_ms: number | null
+    status: string; source: string; scope: string; reasoning_streaming_capability: string; capability_source: string
+  }
 
   // 图片生成字段
   image_count: number
@@ -2011,6 +2259,9 @@ export interface UsageLog {
 
   // 计费模式
   billing_mode?: string | null
+
+  // 上游响应声明的实际模型。仅在管理员打开对用户可见时由用户接口返回。
+  upstream_response_model?: string | null
 
   created_at: string
 
@@ -2289,18 +2540,28 @@ export interface ApiKeyUsageTrendPoint {
 
 // ==================== Admin User Management ====================
 
+export interface ObserverSetupOptions {
+  create_dedicated_group: boolean
+  revoke_public_groups: boolean
+  grant_resources: boolean
+}
+
 export interface UpdateUserRequest {
+  /** Optional operation reason recorded by the admin audit middleware, not user notes. */
+  reason?: string
   email?: string
   password?: string
   username?: string
   notes?: string
-  role?: 'admin' | 'user'
+  role?: 'admin' | 'user' | 'observer'
   balance?: number
   concurrency?: number
   rpm_limit?: number
   status?: 'active' | 'disabled'
+  observer_group_ids?: number[] | null
   allowed_groups?: number[] | null
   restrict_public_groups?: boolean
+  observer_setup?: ObserverSetupOptions
   // 用户专属分组倍率配置 (group_id -> rate_multiplier | null)
   // null 表示删除该分组的专属倍率
   group_rates?: Record<number, number | null>
@@ -2394,6 +2655,7 @@ export interface UserErrorRequest {
 }
 
 export interface UserErrorRequestDetail extends UserErrorRequest {
+  reset_reason?: string
   error_body: string
   upstream_status_code?: number
 }
@@ -2655,7 +2917,127 @@ export interface TotpLogin2FARequest {
 
 // ==================== Scheduled Test Types ====================
 
+export interface QualityJudgeConfig {
+  kind?: 'llm' | 'jev'
+  group_id: number
+  model_id: string
+  prompt: string
+}
+export interface QualityJudgment {
+  kind?: 'llm' | 'jev' | 'ciallo'
+  rules_version?: string
+  latency_ms?: number
+  verdict: 'correct' | 'incorrect' | 'unknown'
+  reason: string
+  account_id?: number
+  group_id?: number
+  model_id?: string
+}
+// 「降智开 BPS」规则：何时开（连续降智次数 / 用量百分比，0 = 不按该条件）和开成什么样（与账号 BPS 选项一一对应）。
+export interface QualityBPSPolicy {
+  failure_threshold: number
+  usage_percent: number
+  require_all: boolean
+  all_models: boolean
+  models: string[]
+  omit_unsupported_tools: boolean
+  ignore_encrypted_content: boolean
+  web_search?: boolean
+  web_search_auto?: boolean
+  auto_disable_on_403: boolean
+  auto_recover_on_403?: boolean
+  recovery_interval_minutes?: number
+  auto_move_on_403: boolean
+  target_group_id: number
+  session_proxy: boolean
+  proxy_source: 'mihomo' | 'ip_pool' | ''
+  cache_creation_as_input: boolean
+  // 规则开了 auto_restore 时：连续满血几轮才关 BPS；按用量开启时用量仍高是否先不关。
+  pass_threshold: number
+  hold_on_usage: boolean
+}
+export interface QualityPolicy {
+  trigger_on_upstream_5xx?: boolean
+  // OAuth quality rules only: 0 or missing disables automatic rule cleanup.
+  oauth_401_max_rounds?: number
+  admission?: import('@/utils/openaiTwoFAAdmission').OpenAITwoFAAdmissionConfig
+  judge?: QualityJudgeConfig
+  expected_answer: string
+  action: 'openai_two_fa_admission' | 'isolate_models' | 'remove_groups' | 'remove_models' | 'disable_scheduling' | 'enable_bps' | 'observe_only'
+  remove_group_ids: number[]
+  remove_models?: string[]
+  recovery_concurrency?: number
+  retest_rest_minutes?: number
+  auto_restore: boolean
+  bps?: QualityBPSPolicy
+}
+
+export interface QualityRestoreDiagnostic {
+  reason: string
+  disposition: 'manual_required' | 'external_membership_present'
+  scope: string
+  ownership_retained: boolean
+  groups?: { group_id: number; group_exists: boolean; membership_present: boolean }[]
+  models?: string[]
+  changed_fields?: string[]
+  account_status?: string
+  schedulable?: boolean
+  account_version?: string
+  owned_account_version?: string
+  expected_concurrency?: number
+  current_concurrency?: number
+}
+
+export interface PelicanQuestion {
+  id: string
+  version: string
+  round_id: string
+  source: string
+  prompt: string
+  criteria: string[]
+}
+
+export interface PelicanTestConfig {
+  prompt_mode?: 'custom' | 'random'
+  pelican_question?: PelicanQuestion
+  actual_prompt?: string
+  // Optional display name, persisted with the rule's editable configuration.
+  rule_name?: string
+  quality_restore_diagnostic?: QualityRestoreDiagnostic
+  quality_model_outcomes?: Record<string, 'passed' | 'failed' | 'inconclusive' | 'skipped'>
+  quality_model_actions?: Record<string, string>
+  trigger_source?: string
+  quality?: QualityPolicy
+  question_kind?: 'candy' | 'pelican' | 'state_probe' | 'random_reasoning' | 'ciallo'
+  ciallo?: { template_version: string; judge_version: string; protocol?: string }
+  // Result-only identity of a runtime-generated question.
+  random_question?: { id: string; family: 'paths' | 'weighted_xor'; version: string }
+  quality_batch?: {
+    route: string
+    mapped_model: string
+    id: string
+    started_at: string
+    start_deadline: string
+    closes_at: string
+    comparison_key: string
+    decision: string
+    peer_accounts: number
+    peer_passed: number
+    peer_failed: number
+    peer_inconclusive: number
+  }
+  test_channel?: 'account' | 'bps'
+  prompt: string
+  reasoning_effort: string
+  parallel_count: number
+  model_id?: string
+  model_ids?: string[]
+}
+
 export interface ScheduledTestPlan {
+  account_name?: string
+  pelican_config?: PelicanTestConfig
+  running_until?: string | null
   id: number
   account_id: number
   model_id: string
@@ -2708,6 +3090,10 @@ export interface TestExecutionInfo extends TestTokenUsage {
 
 export interface ScheduledTestResult {
   execution_info?: TestExecutionInfo | null
+  quality_judgment?: QualityJudgment
+  quality_round_id?: string
+  quality_action?: string
+  pelican_config?: PelicanTestConfig
   id: number
   plan_id: number
   status: string
@@ -2720,6 +3106,7 @@ export interface ScheduledTestResult {
 }
 
 export interface CreateScheduledTestPlanRequest {
+  pelican_config?: PelicanTestConfig
   account_id: number
   model_id: string
   cron_expression: string
@@ -2729,6 +3116,9 @@ export interface CreateScheduledTestPlanRequest {
 }
 
 export interface UpdateScheduledTestPlanRequest {
+  // Configuration reuse must not implicitly restore or discard target ownership.
+  preserve_quality_state?: boolean
+  pelican_config?: PelicanTestConfig
   model_id?: string
   cron_expression?: string
   enabled?: boolean

@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"compress/zlib"
 	"context"
+	"encoding/binary"
 	"errors"
 	"fmt"
 	"io"
@@ -12,6 +13,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/requestcapture"
 	"github.com/klauspost/compress/zstd"
 )
 
@@ -85,7 +87,12 @@ func (b *requestBodyBuffer) release(ctx context.Context) {
 	releaseRequestBodyMemory(ctx, charged)
 }
 
-func readRequestBodyWithBudget(req *http.Request) (requestBodyBuffer, error) {
+func readRequestBodyWithBudget(req *http.Request) (body requestBodyBuffer, err error) {
+	defer func() {
+		if err == nil && req != nil {
+			requestcapture.FromContext(req.Context()).ClientRequest(body.data, req.Header.Get("Content-Type"), req.Header)
+		}
+	}()
 	if req == nil || req.Body == nil {
 		return requestBodyBuffer{}, nil
 	}
@@ -307,6 +314,10 @@ func normalizeLenientJSONRequestBody(ctx context.Context, body []byte, maxNormal
 		return requestBodyBuffer{}, &http.MaxBytesError{Limit: maxNormalizedBytes}
 	}
 
+	if len(body) >= 64<<10 && !hasJSONControlBytes(body) {
+		return requestBodyBuffer{data: body}, nil
+	}
+
 	normalizedSize := int64(len(body))
 	inString := false
 	escaped := false
@@ -379,4 +390,24 @@ func isJSONControlByte(b byte) bool {
 func appendJSONUnicodeEscape(dst []byte, b byte) []byte {
 	const hex = "0123456789abcdef"
 	return append(dst, '\\', 'u', '0', '0', hex[b>>4], hex[b&0x0f])
+}
+
+func hasJSONControlBytes(body []byte) bool {
+	const ones, high = uint64(0x0101010101010101), uint64(0x8080808080808080)
+	for len(body) >= 8 {
+		word := binary.LittleEndian.Uint64(body)
+		// A zero byte identifies either a value below 0x20 or the DEL byte.
+		low := word & 0xe0e0e0e0e0e0e0e0
+		del := word ^ 0x7f7f7f7f7f7f7f7f
+		if (low-ones)&^low&high != 0 || (del-ones)&^del&high != 0 {
+			return true
+		}
+		body = body[8:]
+	}
+	for _, b := range body {
+		if isJSONControlByte(b) {
+			return true
+		}
+	}
+	return false
 }

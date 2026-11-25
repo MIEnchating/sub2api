@@ -3,9 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"github.com/stretchr/testify/require"
 	"math"
 	"testing"
+
+	"github.com/stretchr/testify/require"
 )
 
 func TestAccountPerformanceBounds(t *testing.T) {
@@ -52,8 +53,8 @@ func TestAccountPerformanceSnapshotRejectsStaleCacheAndFailsClosed(t *testing.T)
 	ctx := context.Background()
 	cached := &Account{ID: 1, Status: StatusActive, Schedulable: true}
 	repo := &performanceAccountRepoStub{paused: map[int64]bool{1: true}}
-	cache := &performanceSnapshotCache{account: cached}
-	s := NewSchedulerSnapshotService(cache, nil, repo, nil, nil)
+	cache := &snapshotReaderCache{accounts: []*Account{cached}, hit: true}
+	s := NewSchedulerSnapshotService(cache, nil, repo, nil, snapshotReaderConfig())
 	rows, _, err := s.ListSchedulableAccounts(ctx, nil, PlatformOpenAI, false)
 	require.NoError(t, err)
 	require.Empty(t, rows)
@@ -90,17 +91,25 @@ func TestAccountPerformanceSlotRejectsPauseBeforeUnlimitedOrCache(t *testing.T) 
 	require.Nil(t, r)
 }
 
-type performanceSnapshotCache struct {
-	SchedulerCache
-	account *Account
-}
+type performanceLocalReader struct{ account *Account }
 
-func (c *performanceSnapshotCache) GetSnapshot(context.Context, SchedulerBucket) ([]*Account, bool, error) {
-	return []*Account{c.account}, true, nil
+func (r performanceLocalReader) GetLocalSnapshot(context.Context, SchedulerBucket) ([]*Account, bool, error) {
+	return []*Account{r.account}, true, nil
 }
-func (c *performanceSnapshotCache) GetAccount(context.Context, int64) (*Account, error) {
-	return c.account, nil
+func (r performanceLocalReader) GetLocalAccounts(context.Context, []int64) (map[int64]*Account, error) {
+	return map[int64]*Account{r.account.ID: r.account}, nil
 }
-func (c *performanceSnapshotCache) GetAccounts(context.Context, []int64) (map[int64]*Account, error) {
-	return map[int64]*Account{c.account.ID: c.account}, nil
+func (r performanceLocalReader) GetLocalGroup(context.Context, int64) (*Group, error) {
+	return nil, nil
+}
+func TestAccountPerformanceRegionalHydrationUsesLocalAuthority(t *testing.T) {
+	repo := &performanceAccountRepoStub{paused: map[int64]bool{1: true}}
+	account := &Account{ID: 1, Status: StatusActive, Schedulable: true, PerformancePaused: true}
+	s := NewSchedulerSnapshotService(nil, nil, repo, nil, snapshotReaderConfig())
+	s.SetLocalSnapshotReader(performanceLocalReader{account: account})
+	got, err := s.GetAccount(context.Background(), 1)
+	require.NoError(t, err)
+	require.False(t, got.IsSchedulable())
+	require.Zero(t, repo.calls, "regional request must never consult a separate database authority")
+	require.True(t, account.PerformancePaused, "regional snapshot stays immutable")
 }

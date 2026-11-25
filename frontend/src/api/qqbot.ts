@@ -54,7 +54,7 @@ export function defaultHealthNotificationConfig(): QQHealthNotificationConfig {
 }
 export interface QQGroupPolicy {
   disable_autonomous?: boolean; disable_moderation?: boolean; group_id: string; label: string; disable_chat: boolean; disable_images: boolean
-  disable_activities: boolean; disable_notifications: boolean; chat_daily_limit: number | null; image_daily_limit: number | null
+  disable_activities: boolean; disable_notifications: boolean; chat_daily_limit: number | null
 }
 export interface QQBotConfig {
   setup_warning?: string
@@ -66,8 +66,6 @@ export interface QQBotConfig {
   reward_budget_daily?: number | null
   ai_connection?: 'site' | 'external' | ''
   site_api_key_id?: number; site_group_id?: number; site_owner_id?: number
-  image_ai_connection?: '' | 'reuse_chat' | 'external' | 'site'
-  image_site_api_key_id?: number; image_site_group_id?: number; image_site_owner_id?: number
   reward_alert_daily?: number
   moderation?: QQModerationConfig
   health_notifications?: QQHealthNotificationConfig
@@ -79,14 +77,13 @@ export interface QQBotConfig {
   group_admins?: QQGroupAdmin[]
   price_notifications?: { enabled: boolean; scheduled: boolean; mention_all?: boolean; groups: string[] }
   chat_model: string; chat_protocol: 'chat_completions' | 'responses'
-  image_enabled: boolean; image_base_url: string; image_api_key: string; image_api_key_set: boolean
-  image_model: string; image_size: string; system_prompt: string; max_output_tokens: number
-  image_output_format?: '' | 'png' | 'jpeg' | 'webp' | 'gif'
-  history_messages: number; daily_chat_limit: number; daily_image_limit: number
-  total_daily_chat_limit: number; total_daily_image_limit: number; cooldown_seconds: number
+  remember_quoted_images: boolean
+  system_prompt: string; max_output_tokens: number
+  history_messages: number; daily_chat_limit: number
+  total_daily_chat_limit: number; cooldown_seconds: number
   checkin_reward: number; invite_enabled: boolean; invite_reward: number; invite_daily_limit: number
   invite_min_recharge_total?: number; invite_min_recharge_30d?: number; invite_recharge_window_days?: number
-  clear_app_secret?: boolean; clear_api_key?: boolean; clear_image_api_key?: boolean
+  clear_app_secret?: boolean; clear_api_key?: boolean
 }
 export interface QQAnnouncementRequest {
   app_id: string; sandbox: boolean; groups: string[]; text: string; mention_all: boolean; request_id: string
@@ -243,7 +240,7 @@ export interface QQRewardCodesPage { items: QQRewardCode[]; total: number; page:
 export interface QQDiagnosticCheck { code: string; ok: boolean; message: string }
 export interface QQOverview {
   day: string; last_event: string | null; queued: number; running: number; failed: number
-  chat_used: number; image_used: number; chat_remaining: number; image_remaining: number
+  chat_used: number; image_used: number; chat_remaining: number
   reward_amount: number; pending_rewards: number; reward_alert: boolean; checks: QQDiagnosticCheck[]
 }
 export interface QQJobPage { items: QQBotRuntime['jobs']; total: number; page: number; page_size: number }
@@ -282,15 +279,13 @@ export interface QQRewardReport {
 export interface QQGroupInfo { app_id: string; sandbox: boolean; group_id: string; name: string; status: 'available' | 'permission_required' | 'unavailable' | 'unconfigured' | 'rate_limited'; retry_after_seconds?: number }
 export interface QQSetupOptions {
   groups: { id: number; name: string; models: string[]; platform?: string; chat_protocols?: ('chat_completions' | 'responses')[] }[]
-  image_groups?: QQSetupOptions['groups']
-  current_image_quota?: number; current_image_used?: number
   frontend_url: string; email_configured: boolean; current_quota: number; current_used: number
 }
 export interface QQSetupCheck { code: string; status: 'ready' | 'blocked' | 'warning' | 'pending'; message: string; action: string }
 export interface QQSetupReadiness { checks: QQSetupCheck[]; ready: boolean; version: string }
 export interface QQSetupProbe { kind: string; status: 'ready' | 'blocked'; message: string; at: string }
 export interface QQActivityBundle { version: string; checkin: QQCheckinConfig; lottery: QQLotteryConfig; invite: QQInviteConfig; ranking: QQRankingConfig; budget: number | null }
-export interface QQSetupRequest { config: QQBotConfig; versions: Record<string, string>; sections: string[]; site_quota: number; regenerate_site_key?: boolean; image_site_quota?: number; regenerate_image_site_key?: boolean }
+export interface QQSetupRequest { config: QQBotConfig; versions: Record<string, string>; sections: string[]; site_quota: number; regenerate_site_key?: boolean }
 export const qqbotAPI = {
   reports: async (params: QQRewardReportFilter) => (await apiClient.get<QQRewardReport>('/admin/qqbot/reports', { params })).data,
   sendAnnouncement: async (request: QQAnnouncementRequest) => (await apiClient.post<QQAnnouncementResult>('/admin/qqbot/announcements', request)).data,
@@ -334,7 +329,7 @@ export const qqbotAPI = {
   deleteDiscoveredGroup: async (groupID: string) => (await apiClient.delete('/admin/qqbot/groups', { data: { group_id: groupID } })).data,
   bindings: async (search: string, page: number) => (await apiClient.get<QQAdminBindingsPage>('/admin/qqbot/bindings', { params: { search, page, page_size: 20 } })).data,
   unbind: async (binding: QQAdminBinding) => (await apiClient.delete(`/admin/qqbot/bindings/${binding.user_id}`, { data: { app_id: binding.app_id, member_id: binding.member_id, created_at: binding.created_at } })).data,
-  probe: async (kind: 'qq' | 'chat' | 'image' | 'vision' | 'tools' | 'image_edit') => (await apiClient.post<{message: string}>(`/admin/qqbot/test/${kind}`, {}, { timeout: 230000 })).data,
+  probe: async (kind: 'qq' | 'chat' | 'vision' | 'tools') => (await apiClient.post<{message: string}>(`/admin/qqbot/test/${kind}`, {}, { timeout: 230000 })).data,
   binding: async () => (await apiClient.get<QQBindingState>('/user/qqbot/binding')).data,
   createCode: async () => (await apiClient.post<QQBindingRequest>('/user/qqbot/binding-code')).data,
   confirm: async (member_id: string) => (await apiClient.post('/user/qqbot/binding-confirm', { member_id })).data,

@@ -1,5 +1,8 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import AccountUsageCell from '../AccountUsageCell.vue'
 import type { Account, AccountUsageInfo } from '@/types'
 
@@ -226,6 +229,26 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('codexTurnTicket')
     expect(wrapper.text()).not.toContain('42m00s')
     expect(wrapper.find('[data-testid="codex-ticket-diagnostics"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps cached Claude quota visible while a replacement batch is loading', async () => {
+    const requestBatchedUsage = vi.fn()
+    const wrapper = mount(AccountUsageCell, {
+      props: { account: makeAccount({ id: 98101, platform: 'anthropic', type: 'oauth' }), requestBatchedUsage,
+        batchedUsage: { five_hour: { utilization: 21 } }, batchedUsageLoading: false },
+      global: { stubs: { UsageProgressBar: { props: ['utilization'], template: '<div data-test="quota">{{ utilization }}</div>' }, AccountQuotaInfo: true } }
+    })
+    await flushPromises()
+    const quota = wrapper.get('[data-test="quota"]').element
+    await wrapper.setProps({ batchedUsageLoading: true })
+    expect(wrapper.get('[data-test="quota"]').text()).toBe('21')
+    expect(wrapper.get('[data-test="quota"]').element).toBe(quota)
+    expect(wrapper.find('.animate-pulse').exists()).toBe(false)
+    expect(wrapper.attributes('aria-busy')).toBe('true')
+    await wrapper.setProps({ batchedUsage: { five_hour: { utilization: 44 } }, batchedUsageLoading: false })
+    expect(wrapper.get('[data-test="quota"]').text()).toBe('44')
+    expect(wrapper.get('[data-test="quota"]').element).toBe(quota)
     wrapper.unmount()
   })
 
@@ -526,6 +549,70 @@ describe('AccountUsageCell', () => {
     expect(wrapper.text()).not.toContain('-')
   })
 
+  it('Mistral 官方端点账号渲染月度预算窗口与剩余额度单元格，自定义中转显示占位符', async () => {
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9106,
+          platform: 'mistral',
+          type: 'apikey',
+          credentials: { api_key: 'mstrl_test', base_url: 'https://api.mistral.ai/v1' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(wrapper.find('[data-test="cn-quota-cell"]').exists()).toBe(true)
+    expect(wrapper.find('[data-test="cn-balance-cell"]').exists()).toBe(true)
+    expect(wrapper.text()).not.toContain('-')
+
+    const relayWrapper = mount(AccountUsageCell, {
+      props: {
+        account: makeAccount({
+          id: 9107,
+          platform: 'mistral',
+          type: 'apikey',
+          credentials: { api_key: 'mstrl_test', base_url: 'https://relay.example.com/v1' }
+        })
+      },
+      global: {
+        stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true }
+      }
+    })
+
+    await flushPromises()
+
+    expect(relayWrapper.find('div[title="admin.accounts.cnProviders.noBalanceEndpoint"]').exists()).toBe(true)
+  })
+
+  it('shares the Mistral announcement across the real usage cell and another entry', async () => {
+    localStorage.removeItem('sub2api:new-feature-notices:v1:41')
+    const pinia = createPinia()
+    const wrapper = mount(AccountUsageCell, {
+      props: {
+        noticeUserId: 41,
+        account: makeAccount({ id: 9108, platform: 'mistral', type: 'apikey', credentials: { base_url: 'https://api.mistral.ai/v1' } })
+      },
+      global: { plugins: [pinia], stubs: { ...cnUsageCellStubs, UsageProgressBar: true, AccountQuotaInfo: true } }
+    })
+    const otherEntry = mount(NewFeatureBadge, {
+      props: { userId: 41, noticeId: NEW_FEATURE_NOTICES.mistralBudgetUsage },
+      global: { plugins: [pinia] }
+    })
+    await flushPromises()
+    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
+    await otherEntry.get('[data-testid="new-feature-badge"]').trigger('click')
+    await flushPromises()
+    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
+    wrapper.unmount()
+    otherEntry.unmount()
+    localStorage.removeItem('sub2api:new-feature-notices:v1:41')
+  })
+
   it('Antigravity 图片用量会聚合新旧 image 模型', async () => {
     getUsage.mockResolvedValue({
       antigravity_quota: {
@@ -668,6 +755,38 @@ describe('AccountUsageCell', () => {
     // An active query that bypasses the cache (an upgrade or reset shows at once).
     expect(getUsage).toHaveBeenLastCalledWith(1006, 'active', true)
     expect(wrapper.find('.usage-bar').text()).toContain('|0|2026-11-14T21:22:49Z')
+  })
+
+  it.each([
+    { id: 9801, reset: '', initial: null, reopened: null },
+    { id: 9802, reset: '2026-10-18T11:00:00Z', initial: '3h 0m', reopened: '2h 0m' }
+  ])('Antigravity 重新进入页面不生成满额倒计时，保留不足 1% 用量的真实时间 ($id)', async ({ id, reset, initial, reopened }) => {
+    vi.useFakeTimers()
+    vi.setSystemTime(new Date('2026-10-18T08:00:00Z'))
+    getUsage.mockResolvedValue({
+      antigravity_quota: { 'gemini-3-flash': { utilization: 0, reset_time: reset } }
+    })
+    const open = () => mount(AccountUsageCell, {
+      props: { account: makeAccount({ id }) },
+      global: { stubs: { AccountQuotaInfo: true } }
+    })
+    let wrapper = open()
+    try {
+      await flushPromises()
+      expect(wrapper.text()).toContain('0%')
+      if (initial) expect(wrapper.text()).toContain(initial)
+      else expect(wrapper.text()).not.toMatch(/\d+h \d+m/)
+      wrapper.unmount()
+      vi.setSystemTime(new Date('2026-10-18T09:00:00Z'))
+      wrapper = open()
+      await flushPromises()
+      expect(getUsage).toHaveBeenCalledTimes(2)
+      if (reopened) expect(wrapper.text()).toContain(reopened)
+      else expect(wrapper.text()).not.toMatch(/\d+h \d+m/)
+    } finally {
+      wrapper.unmount()
+      vi.useRealTimers()
+    }
   })
 
   it('Antigravity 会显示 AI Credits 余额信息', async () => {
@@ -2255,7 +2374,7 @@ describe('AccountUsageCell', () => {
 
     const text = wrapper.text()
     expect(text).toContain('ai studio paid')
-    expect(text).toContain('admin.accounts.gemini.quotaPolicy.title')
+    expect(wrapper.findComponent({ name: 'HelpTooltip' }).exists()).toBe(true)
     expect(text).toContain('admin.accounts.gemini.quotaPolicy.simulatedNote')
     expect(getUsage).toHaveBeenCalledWith(4003)
   })

@@ -510,6 +510,30 @@ func (s *AccountRepoSuite) TestListWithFilters() {
 			},
 		},
 		{
+			// 质量运维按「正常+限流中」一起筛：逗号分隔的多个状态任一命中即可。
+			name: "filter_by_status_comma_matches_any_of_active_and_rate_limited",
+			setup: func(client *dbent.Client) {
+				mustCreateAccount(s.T(), client, &service.Account{Name: "active-normal", Status: service.StatusActive})
+				rateLimited := mustCreateAccount(s.T(), client, &service.Account{Name: "active-rate-limited", Status: service.StatusActive})
+				err := client.Account.UpdateOneID(rateLimited.ID).
+					SetRateLimitResetAt(time.Now().Add(10 * time.Minute)).
+					Exec(context.Background())
+				s.Require().NoError(err)
+				tempUnsched := mustCreateAccount(s.T(), client, &service.Account{Name: "active-temp-unsched", Status: service.StatusActive})
+				err = client.Account.UpdateOneID(tempUnsched.ID).
+					SetTempUnschedulableUntil(time.Now().Add(15 * time.Minute)).
+					Exec(context.Background())
+				s.Require().NoError(err)
+				mustCreateAccount(s.T(), client, &service.Account{Name: "s2", Status: service.StatusDisabled})
+			},
+			status:    "active, rate_limited",
+			wantCount: 2,
+			validate: func(accounts []service.Account) {
+				names := []string{accounts[0].Name, accounts[1].Name}
+				s.Require().ElementsMatch([]string{"active-normal", "active-rate-limited"}, names)
+			},
+		},
+		{
 			name: "filter_by_status_rate_limited_excludes_temp_unschedulable",
 			setup: func(client *dbent.Client) {
 				rateLimited := mustCreateAccount(s.T(), client, &service.Account{Name: "active-rate-limited", Status: service.StatusActive})
@@ -881,12 +905,17 @@ func (s *AccountRepoSuite) TestSetRateLimitedIfLaterDoesNotShortenReset() {
 	s.repo.schedulerCache = cacheRecorder
 
 	s.Require().NoError(s.repo.SetRateLimitedIfLater(s.ctx, account.ID, later))
+	before, err := s.repo.GetByID(s.ctx, account.ID)
+	s.Require().NoError(err)
+	s.Require().NotNil(before.RateLimitedAt)
 	s.Require().NoError(s.repo.SetRateLimitedIfLater(s.ctx, account.ID, earlier))
 
 	got, err := s.repo.GetByID(s.ctx, account.ID)
 	s.Require().NoError(err)
 	s.Require().NotNil(got.RateLimitResetAt)
 	s.Require().WithinDuration(later, *got.RateLimitResetAt, time.Second)
+	s.Require().NotNil(got.RateLimitedAt)
+	s.Require().True(before.RateLimitedAt.Equal(*got.RateLimitedAt), "non-Grok shorter observations retain the existing no-op behavior")
 	s.Require().Len(cacheRecorder.setAccounts, 2)
 	s.Require().NotNil(cacheRecorder.setAccounts[1].RateLimitResetAt)
 	s.Require().WithinDuration(later, *cacheRecorder.setAccounts[1].RateLimitResetAt, time.Second)
@@ -940,6 +969,76 @@ func (s *AccountRepoSuite) TestClearRateLimitIfObservedProtectsRearmed429Generat
 	s.Require().NotNil(retyped.RateLimitedAt)
 	s.Require().NotNil(retyped.RateLimitResetAt)
 	s.Require().WithinDuration(rearmedReset, *retyped.RateLimitResetAt, time.Second)
+}
+
+func (s *AccountRepoSuite) TestGrokNegativeObservationAdvancesGenerationWithoutShorteningReset() {
+	account := mustCreateAccount(s.T(), s.client, &service.Account{
+		Name: "grok-negative-generation", Platform: service.PlatformGrok, Type: service.AccountTypeOAuth,
+	})
+	reset := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+	// A future observed timestamp forces strict advancement independent of
+	// clock precision/skew. Two repository instances share only the database.
+	observed := time.Now().Add(time.Minute).UTC().Truncate(time.Microsecond)
+	_, err := s.client.Account.UpdateOneID(account.ID).SetRateLimitedAt(observed).SetRateLimitResetAt(reset).Save(s.ctx)
+	s.Require().NoError(err)
+	other := newAccountRepositoryWithSQL(s.client, s.repo.sql, nil)
+	for _, candidate := range []time.Time{reset.Add(-time.Minute), reset} {
+		s.Require().NoError(other.SetRateLimitedIfLater(s.ctx, account.ID, candidate))
+		current, err := s.repo.GetByID(s.ctx, account.ID)
+		s.Require().NoError(err)
+		s.Require().NotNil(current.RateLimitedAt)
+		s.Require().NotNil(current.RateLimitResetAt)
+		s.Require().True(current.RateLimitedAt.After(observed), "Grok negative must advance even with equal/shorter reset and a future prior clock")
+		s.Require().True(reset.Equal(*current.RateLimitResetAt))
+		cleared, err := s.repo.ClearRateLimitIfObserved(s.ctx, account.ID, observed, reset)
+		s.Require().NoError(err)
+		s.Require().False(cleared)
+		observed = *current.RateLimitedAt
+	}
+}
+
+func (s *AccountRepoSuite) TestGrokConfigurationEditRuntimeBoundary() {
+	for _, tc := range []struct {
+		name     string
+		platform string
+		kind     string
+	}{
+		{name: "grok_oauth", platform: service.PlatformGrok, kind: service.AccountTypeOAuth},
+		{name: "grok_apikey", platform: service.PlatformGrok, kind: service.AccountTypeAPIKey},
+		{name: "other_oauth", platform: service.PlatformAnthropic, kind: service.AccountTypeOAuth},
+	} {
+		s.Run(tc.name, func() {
+			account := mustCreateAccount(s.T(), s.client, &service.Account{Name: tc.name, Platform: tc.platform, Type: tc.kind})
+			account, err := s.repo.GetByID(s.ctx, account.ID)
+			s.Require().NoError(err)
+			reset := time.Now().Add(time.Hour).UTC().Truncate(time.Microsecond)
+			s.Require().NoError(s.repo.SetRateLimited(s.ctx, account.ID, reset))
+			current, err := s.repo.GetByID(s.ctx, account.ID)
+			s.Require().NoError(err)
+			account.Name = "configuration only"
+			s.Require().NoError(s.repo.Update(s.ctx, account))
+			stored, err := s.repo.GetByID(s.ctx, account.ID)
+			s.Require().NoError(err)
+			if tc.platform == service.PlatformGrok && tc.kind == service.AccountTypeOAuth {
+				s.Require().NotNil(stored.RateLimitedAt)
+				s.Require().True(current.RateLimitedAt.Equal(*stored.RateLimitedAt))
+				s.Require().True(reset.Equal(*stored.RateLimitResetAt))
+				// An explicitly validated platform transition retains its caller
+				// write semantics rather than inheriting the old Grok runtime.
+				stored.Platform = service.PlatformAnthropic
+				stored.Type = service.AccountTypeAPIKey
+				stored.RateLimitedAt, stored.RateLimitResetAt = nil, nil
+				s.Require().NoError(s.repo.Update(service.WithAccountPlatformChange(s.ctx), stored))
+				stored, err = s.repo.GetByID(s.ctx, account.ID)
+				s.Require().NoError(err)
+				s.Require().Nil(stored.RateLimitedAt)
+				s.Require().Nil(stored.RateLimitResetAt)
+			} else {
+				s.Require().Nil(stored.RateLimitedAt, "non-Grok OAuth edit semantics remain unchanged")
+				s.Require().Nil(stored.RateLimitResetAt)
+			}
+		})
+	}
 }
 
 func (s *AccountRepoSuite) TestClearRateLimit() {
@@ -1739,6 +1838,56 @@ func (s *AccountRepoSuite) TestBulkUpdate_MergeExtra() {
 	got, _ := s.repo.GetByID(s.ctx, a1.ID)
 	s.Require().Equal("val", got.Extra["existing"])
 	s.Require().Equal("new_val", got.Extra["new_key"])
+}
+
+func (s *AccountRepoSuite) TestBulkUpdate_ExcelBPSModelScope() {
+	ids := make([]int64, 0, 2)
+	for _, name := range []string{"bulk-bps-one", "bulk-bps-two"} {
+		account := mustCreateAccount(s.T(), s.client, &service.Account{
+			Name: name, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth,
+			Credentials: map[string]any{"model_mapping": map[string]any{"alias": "gpt-6-astra"}},
+			Extra: map[string]any{
+				"openai_excel_bps":                          true,
+				"openai_excel_bps_models":                   []string{"gpt-6-astra"},
+				"openai_excel_bps_cache_creation_as_input":  true,
+				"openai_passthrough":                        true,
+				"openai_oauth_responses_websockets_v2_mode": "context_pool",
+			},
+		})
+		ids = append(ids, account.ID)
+	}
+	steps := []struct {
+		extra               map[string]any
+		astra, sol, billing bool
+		scopePresent        bool
+	}{
+		{map[string]any{"openai_excel_bps_models": nil, "openai_excel_bps_cache_creation_as_input": false}, true, true, false, false},
+		{map[string]any{"openai_excel_bps_models": []string{}}, false, false, false, true},
+		{map[string]any{"openai_excel_bps_models": []string{"gpt-6-astra"}, "openai_excel_bps_cache_creation_as_input": true}, true, false, true, true},
+		{map[string]any{"unrelated": "preserved"}, true, false, true, true},
+		{map[string]any{"openai_excel_bps": false}, false, false, false, false},
+	}
+	for _, step := range steps {
+		affected, err := s.repo.BulkUpdate(s.ctx, ids, service.AccountBulkUpdate{Extra: step.extra})
+		s.Require().NoError(err)
+		s.Require().Equal(int64(2), affected)
+		for _, id := range ids {
+			got, err := s.repo.GetByID(s.ctx, id)
+			s.Require().NoError(err)
+			s.Require().Equal(step.astra, got.IsExcelBPSEnabledForModel("alias"))
+			s.Require().Equal(step.sol, got.IsExcelBPSEnabledForModel("gpt-6-sol"))
+			s.Require().Equal(step.billing, got.IsExcelBPSCacheCreationAsInputEnabled())
+			_, scopePresent := got.Extra["openai_excel_bps_models"]
+			s.Require().Equal(step.scopePresent, scopePresent)
+			s.Require().Equal(true, got.Extra["openai_passthrough"])
+			s.Require().Equal("context_pool", got.Extra["openai_oauth_responses_websockets_v2_mode"])
+			s.Require().Equal("gpt-6-astra", got.GetMappedModel("alias"))
+			if !got.IsExcelBPSEnabled() {
+				s.Require().NotContains(got.Extra, "openai_excel_bps")
+				s.Require().NotContains(got.Extra, "openai_excel_bps_cache_creation_as_input")
+			}
+		}
+	}
 }
 
 func (s *AccountRepoSuite) TestBulkUpdate_EmptyIDs() {

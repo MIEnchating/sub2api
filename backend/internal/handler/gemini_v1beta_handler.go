@@ -39,6 +39,10 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
+	if !GeminiInboundUsesNativeUpstream(c) {
+		h.writeBridgedGeminiModelList(c, apiKey)
+		return
+	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组（composite 分组允许路由到 antigravity）
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
@@ -48,14 +52,16 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
-	// 分组级模型白名单开启时过滤 models[].name（名字形如 models/xxx）。
+	// 分组级模型白名单开启、或用户在分组内有禁用模型时过滤 models[].name（名字形如 models/xxx）。
 	filterGeminiModels := func(models []gemini.Model) []gemini.Model {
-		if apiKey.Group == nil || !apiKey.Group.ModelAllowlistEnabled() {
+		allowlistEnabled := apiKey.Group != nil && apiKey.Group.ModelAllowlistEnabled()
+		denied := apiKey.DeniedModelsInGroup()
+		if !allowlistEnabled && len(denied) == 0 {
 			return models
 		}
 		filtered := make([]gemini.Model, 0, len(models))
 		for _, model := range models {
-			if apiKey.Group.ModelAllowlist.Allows(model.Name) {
+			if (!allowlistEnabled || apiKey.Group.ModelAllowlist.Allows(model.Name)) && !service.UserGroupDeniesModel(denied, model.Name) {
 				filtered = append(filtered, model)
 			}
 		}
@@ -77,7 +83,7 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 	}
 
 	// 分组内 Gemini 账号都声明了 model_mapping 时，列表与 /v1/models 同源（含白名单口径），不透传单个账号的上游列表。
-	if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && len(declared) > 0 {
+	if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && declared != nil {
 		ids := append([]string{}, declared...)
 		for _, id := range agModelIDs {
 			if !slices.Contains(declared, id) {
@@ -109,6 +115,13 @@ func (h *GatewayHandler) GeminiV1BetaListModels(c *gin.Context) {
 		return
 	}
 
+	keyRelease, keyErr := h.concurrencyHelper.AcquireAPIKeySlot(c.Request.Context(), apiKey.ID, apiKey.ConcurrencyLimit)
+	if keyErr != nil {
+		status, _, _, message := concurrencyErrorResponse(keyErr, "API key")
+		googleError(c, status, message)
+		return
+	}
+	defer keyRelease()
 	res, err := h.geminiCompatService.ForwardListModels(c.Request.Context(), account)
 	if err != nil {
 		googleError(c, http.StatusBadGateway, err.Error())
@@ -247,6 +260,11 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		googleError(c, http.StatusUnauthorized, "Invalid API key")
 		return
 	}
+	modelName := strings.TrimSpace(c.Param("model"))
+	if !GeminiInboundUsesNativeUpstream(c) {
+		h.writeBridgedGeminiModel(c, modelName)
+		return
+	}
 	// 检查平台：优先使用强制平台（/antigravity 路由），否则要求 gemini 分组（composite 分组允许路由到 antigravity）
 	forcePlatform, hasForcePlatform := middleware.GetForcePlatformFromContext(c)
 	effectivePlatform := effectiveAPIKeyPlatform(c, apiKey)
@@ -256,7 +274,6 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
-	modelName := strings.TrimSpace(c.Param("model"))
 	if modelName == "" {
 		googleError(c, http.StatusBadRequest, "Missing model in URL")
 		return
@@ -282,7 +299,7 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 	}
 
 	// 分组内 Gemini 账号都声明了 model_mapping 时，按列表接口的同一来源判断模型是否存在。
-	if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && len(declared) > 0 {
+	if declared, err := h.geminiCompatService.DeclaredModelIDs(c.Request.Context(), apiKey.GroupID); err == nil && declared != nil {
 		if agModelIDs, agErr := h.geminiCompatService.AntigravityGeminiModelIDs(c.Request.Context(), apiKey.GroupID, true); agErr == nil {
 			if service.DeclaredModelsCover(declared, modelName) || service.DeclaredModelsCover(agModelIDs, modelName) {
 				c.JSON(http.StatusOK, gemini.FallbackModel(modelName))
@@ -310,6 +327,13 @@ func (h *GatewayHandler) GeminiV1BetaGetModel(c *gin.Context) {
 		return
 	}
 
+	keyRelease, keyErr := h.concurrencyHelper.AcquireAPIKeySlot(c.Request.Context(), apiKey.ID, apiKey.ConcurrencyLimit)
+	if keyErr != nil {
+		status, _, _, message := concurrencyErrorResponse(keyErr, "API key")
+		googleError(c, status, message)
+		return
+	}
+	defer keyRelease()
 	res, err := h.geminiCompatService.ForwardGetModel(c.Request.Context(), account, modelName)
 	if err != nil {
 		googleError(c, http.StatusBadGateway, err.Error())
@@ -374,16 +398,20 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		return
 	}
 
-	stream := action == "streamGenerateContent"
+	c.Request = c.Request.WithContext(service.WithGatewayGeminiSelection(c.Request.Context(), modelName))
+	stream := action == gemini.ActionStreamGenerateContent
 	reqLog = reqLog.With(zap.String("model", modelName), zap.String("action", action), zap.Bool("stream", stream))
 
 	body, err := pkghttputil.ReadRequestBodyWithPrealloc(c.Request)
 	if err != nil {
-		if handleRequestBodyReadError(c, reqLog, err) {
+		if middleware.RejectRequestBodyReadError(c, "handler.gemini_v1beta_handler", err) {
 			return
 		}
-		status, message := requestBodyReadFailure(reqLog, c.Request, err)
-		googleErrorWithType(c, status, "invalid_request_error", "", message)
+		if maxErr, ok := extractMaxBytesError(err); ok {
+			googleError(c, http.StatusRequestEntityTooLarge, buildBodyTooLargeMessage(maxErr.Limit))
+			return
+		}
+		googleError(c, http.StatusBadRequest, "Failed to read request body")
 		return
 	}
 	if len(body) == 0 {
@@ -430,7 +458,7 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 	if h.errorPassthroughService != nil {
 		service.BindErrorPassthroughService(c, h.errorPassthroughService)
 	}
-	userReleaseFunc, err := geminiConcurrency.AcquireUserSlotWithWait(c, authSubject.UserID, authSubject.Concurrency, stream, &streamStarted)
+	userReleaseFunc, err := geminiConcurrency.AcquireUserSlotWithWait(c, authSubject.UserID, authSubject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, stream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gemini.user_slot_acquire_failed", zap.Error(err))
 		googleConcurrencyError(c, err, "user")
@@ -780,6 +808,9 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
 		}
+		if service.IsUpstreamModerationDenied(err) {
+			return
+		}
 		if err != nil {
 			var failoverErr *service.UpstreamFailoverError
 			if errors.As(err, &failoverErr) {
@@ -802,8 +833,15 @@ func (h *GatewayHandler) GeminiV1BetaModels(c *gin.Context) {
 					return
 				}
 			}
-			// 转发层已写出错误响应；客户端断开时转发层不写，响应未提交则标记 499。
-			failoverClientGone(c)
+			// Fresh admission can fail before the forwarder writes a response.
+			// Preserve committed responses and client cancellation; never replay an ordinary error.
+			if !failoverClientGone(c) && !c.Writer.Written() && !service.IsResponseCommitted(c) {
+				// A stream read failure may leave headers staged before its first byte.
+				for _, header := range []string{"Content-Type", "Content-Length", "Content-Encoding", "Cache-Control", "Connection", "X-Accel-Buffering"} {
+					c.Writer.Header().Del(header)
+				}
+				googleError(c, http.StatusBadGateway, "Unable to forward request to upstream")
+			}
 			reqLog.Error("gemini.forward_failed", zap.Int64("account_id", account.ID), zap.Error(err))
 			return
 		}
@@ -879,18 +917,11 @@ func parseGeminiModelAction(rest string) (model string, action string, err error
 	if rest == "" {
 		return "", "", &pathParseError{"missing path"}
 	}
-
-	// Standard: {model}:{action}
-	if i := strings.Index(rest, ":"); i > 0 && i < len(rest)-1 {
-		return rest[:i], rest[i+1:], nil
+	model, action, ok := gemini.ParseModelAction(rest)
+	if !ok {
+		return "", "", &pathParseError{"invalid model action path"}
 	}
-
-	// Fallback: {model}/{action}
-	if i := strings.Index(rest, "/"); i > 0 && i < len(rest)-1 {
-		return rest[:i], rest[i+1:], nil
-	}
-
-	return "", "", &pathParseError{"invalid model action path"}
+	return model, action, nil
 }
 
 func (h *GatewayHandler) handleGeminiFailoverExhausted(c *gin.Context, failoverErr *service.UpstreamFailoverError) {
@@ -989,7 +1020,7 @@ func googleErrorWithType(c *gin.Context, status int, errType, code, message stri
 // googleClientErrorType 返回客户端请求类 4xx 状态码对应的 ops 错误类型；其余状态码返回空串。
 func googleClientErrorType(status int) string {
 	switch status {
-	case http.StatusBadRequest, http.StatusRequestEntityTooLarge:
+	case http.StatusBadRequest, http.StatusRequestTimeout, http.StatusRequestEntityTooLarge:
 		return "invalid_request_error"
 	case http.StatusUnauthorized:
 		return "authentication_error"

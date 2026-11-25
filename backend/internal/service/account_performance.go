@@ -7,8 +7,11 @@ import (
 	"fmt"
 	"log/slog"
 	"math"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamstats"
 )
 
 var ErrPerformanceConflict = errors.New("performance monitor changed; reload before saving")
@@ -52,16 +55,20 @@ func (r PerformanceRule) RecoveryBounds() PerformanceBounds {
 }
 
 type PerformanceConfig struct {
-	Version         int             `json:"version"`
-	Enabled         bool            `json:"enabled"`
-	SuccessRate     PerformanceRule `json:"success_rate"`
-	CacheRate       PerformanceRule `json:"cache_rate"`
-	TTFT            PerformanceRule `json:"ttft"`
-	Duration        PerformanceRule `json:"duration"`
-	MinSamples      int64           `json:"min_samples"`
-	AutoRecover     bool            `json:"auto_recover"`
-	CooldownMinutes int             `json:"cooldown_minutes"`
-	RecoverySamples int64           `json:"recovery_samples"`
+	Version         int               `json:"version"`
+	Enabled         bool              `json:"enabled"`
+	SuccessRate     PerformanceRule   `json:"success_rate"`
+	CacheRate       PerformanceRule   `json:"cache_rate"`
+	TTFT            PerformanceRule   `json:"ttft"`
+	Duration        PerformanceRule   `json:"duration"`
+	TPS             PerformanceBounds `json:"tps"`
+	Degradation     PerformanceBounds `json:"degradation"`
+	ObservedTTFT    PerformanceBounds `json:"observed_ttft"`
+	UpstreamError   PerformanceBounds `json:"upstream_error"`
+	MinSamples      int64             `json:"min_samples"`
+	AutoRecover     bool              `json:"auto_recover"`
+	CooldownMinutes int               `json:"cooldown_minutes"`
+	RecoverySamples int64             `json:"recovery_samples"`
 }
 
 func DefaultPerformanceConfig() PerformanceConfig {
@@ -94,6 +101,12 @@ func (c PerformanceConfig) Validate() error {
 		}
 		enabled = enabled || r.Enabled()
 	}
+	for i, bounds := range c.observedBounds() {
+		if err := bounds.Validate(i == 1 || i == 3); err != nil {
+			return err
+		}
+		enabled = enabled || bounds.Min != nil || bounds.Max != nil
+	}
 	if c.Enabled && !enabled {
 		return fmt.Errorf("select at least one metric")
 	}
@@ -101,6 +114,20 @@ func (c PerformanceConfig) Validate() error {
 }
 
 type AccountPerformance struct {
+	// Display-only cache state. Safety evaluation always reads live SQL evidence.
+	StatisticsStatus    string                 `json:"statistics_status,omitempty"`
+	StatisticsUpdatedAt *time.Time             `json:"statistics_updated_at,omitempty"`
+	UpstreamError       upstreamstats.Evidence `json:"upstream_error"`
+	AvgTPS              *float64               `json:"avg_tps"`
+	DegradationPercent  *float64               `json:"degradation_percent"`
+	AvgTTFTMs           *float64               `json:"avg_ttft_ms"`
+	AvgCachePercent     *float64               `json:"avg_cache_percent"`
+	CacheSamples        int                    `json:"cache_samples"`
+	TPSSamples          int                    `json:"tps_samples"`
+	TTFTSamples         int                    `json:"ttft_samples"`
+	QualitySamples      int                    `json:"quality_samples"`
+	WindowStart         time.Time              `json:"window_start"`
+	WindowEnd           time.Time              `json:"window_end"`
 	MonitoringAvailable bool                   `json:"monitoring_available"`
 	AccountID           int64                  `json:"account_id"`
 	Metrics             OpsAccountRequestStats `json:"metrics"`
@@ -114,6 +141,118 @@ type AccountPerformance struct {
 	MetricsSince        *time.Time             `json:"metrics_since"`
 	Reason              string                 `json:"reason"`
 }
+
+// Snapshot callers own the returned evidence; do not expose cache pointers.
+func cloneAccountPerformance(in *AccountPerformance) *AccountPerformance {
+	if in == nil {
+		return nil
+	}
+	out := *in
+	clone := func(p *float64) *float64 {
+		if p == nil {
+			return nil
+		}
+		value := *p
+		return &value
+	}
+	out.AvgTPS, out.AvgTTFTMs, out.DegradationPercent = clone(in.AvgTPS), clone(in.AvgTTFTMs), clone(in.DegradationPercent)
+	out.AvgCachePercent = clone(in.AvgCachePercent)
+	if in.StatisticsUpdatedAt != nil {
+		at := *in.StatisticsUpdatedAt
+		out.StatisticsUpdatedAt = &at
+	}
+	out.UpstreamError.Percent = clone(in.UpstreamError.Percent)
+	for _, bounds := range []*PerformanceBounds{&out.Config.TPS, &out.Config.ObservedTTFT, &out.Config.Degradation, &out.Config.UpstreamError} {
+		bounds.Min, bounds.Max = clone(bounds.Min), clone(bounds.Max)
+	}
+	for _, rule := range []*PerformanceRule{&out.Config.SuccessRate, &out.Config.CacheRate, &out.Config.TTFT, &out.Config.Duration} {
+		rule.Pause.Min, rule.Pause.Max = clone(rule.Pause.Min), clone(rule.Pause.Max)
+		rule.Recovery.Min, rule.Recovery.Max = clone(rule.Recovery.Min), clone(rule.Recovery.Max)
+	}
+	out.TrialStartedAt = clonePerformanceTime(in.TrialStartedAt)
+	out.MetricsSince = clonePerformanceTime(in.MetricsSince)
+	out.Metrics.SuccessRate = clone(in.Metrics.SuccessRate)
+	out.Metrics.CacheRate = clone(in.Metrics.CacheRate)
+	out.Metrics.AvgFirstTokenMs = clone(in.Metrics.AvgFirstTokenMs)
+	out.Metrics.AvgDurationMs = clone(in.Metrics.AvgDurationMs)
+	if in.PausedAt != nil {
+		value := *in.PausedAt
+		out.PausedAt = &value
+	}
+	return &out
+}
+
+// Shared validation for display evidence and scheduling. Unknown is not zero.
+func validPerformanceMetric(value *float64) bool {
+	return value != nil && !math.IsNaN(*value) && !math.IsInf(*value, 0) && *value >= 0
+}
+
+func performanceUpstreamErrorRate(e upstreamstats.Evidence) *float64 {
+	if e.Source != "process_local_http_responses" || e.Total <= 0 || e.Failures < 0 || e.Failures > e.Total || !validPerformanceMetric(e.Percent) || *e.Percent > 100 {
+		return nil
+	}
+	value := float64(e.Failures) / float64(e.Total)
+	return &value
+}
+
+func clonePerformanceTime(value *time.Time) *time.Time {
+	if value == nil {
+		return nil
+	}
+	copy := *value
+	return &copy
+}
+
+func (c PerformanceConfig) observedBounds() [4]PerformanceBounds {
+	return [4]PerformanceBounds{c.TPS, c.Degradation, c.ObservedTTFT, c.UpstreamError}
+}
+
+func (c PerformanceConfig) UsesObservedThresholds() bool {
+	for _, bounds := range c.observedBounds() {
+		if bounds.Min != nil || bounds.Max != nil {
+			return true
+		}
+	}
+	return false
+}
+
+// The observed thresholds retain their existing manual-release policy.
+// An automatic trial may only clear a pause caused by bounded recovery rules.
+func PerformanceRequiresManualRelease(reason string) bool {
+	for _, metric := range strings.Split(reason, ",") {
+		switch metric {
+		case "tps", "degradation", "observed_ttft", "upstream_error":
+			return true
+		}
+	}
+	return false
+}
+
+func (m AccountPerformance) observedBreaches() []string {
+	var reasons []string
+	for _, sample := range []struct {
+		name   string
+		count  int
+		value  *float64
+		bounds PerformanceBounds
+	}{
+		{"tps", m.TPSSamples, m.AvgTPS, m.Config.TPS},
+		{"degradation", m.QualitySamples, m.DegradationPercent, m.Config.Degradation},
+		{"observed_ttft", m.TTFTSamples, m.AvgTTFTMs, m.Config.ObservedTTFT},
+	} {
+		if sample.count > 0 && validPerformanceMetric(sample.value) && sample.bounds.Breached(sample.value) {
+			reasons = append(reasons, sample.name)
+		}
+	}
+	if rate := performanceUpstreamErrorRate(m.UpstreamError); rate != nil {
+		ratePercent := percent(rate)
+		if m.Config.UpstreamError.Breached(ratePercent) {
+			reasons = append(reasons, "upstream_error")
+		}
+	}
+	return reasons
+}
+
 type performanceMeasurement struct {
 	name    string
 	rule    PerformanceRule
@@ -136,9 +275,6 @@ func (m AccountPerformance) measurements() []performanceMeasurement {
 		{"duration", m.Config.Duration, m.Metrics.AvgDurationMs, m.Metrics.DurationSamples},
 	}
 }
-func validPerformanceValue(v *float64) bool {
-	return v != nil && !math.IsNaN(*v) && !math.IsInf(*v, 0) && *v >= 0
-}
 func (m AccountPerformance) Breaches() []string {
 	var reasons []string
 	minimum := m.Config.MinSamples
@@ -146,11 +282,11 @@ func (m AccountPerformance) Breaches() []string {
 		minimum = m.Config.RecoverySamples
 	}
 	for _, v := range m.measurements() {
-		if v.rule.Enabled() && v.samples >= minimum && validPerformanceValue(v.value) && v.rule.Pause.Breached(v.value) {
+		if v.rule.Enabled() && v.samples >= minimum && validPerformanceMetric(v.value) && v.rule.Pause.Breached(v.value) {
 			reasons = append(reasons, v.name)
 		}
 	}
-	return reasons
+	return append(reasons, m.observedBreaches()...)
 }
 func (m AccountPerformance) ReadyForRecovery() bool {
 	enabled := false
@@ -159,7 +295,7 @@ func (m AccountPerformance) ReadyForRecovery() bool {
 			continue
 		}
 		enabled = true
-		if v.samples < m.Config.RecoverySamples || !validPerformanceValue(v.value) || v.rule.RecoveryBounds().Breached(v.value) {
+		if v.samples < m.Config.RecoverySamples || !validPerformanceMetric(v.value) || v.rule.RecoveryBounds().Breached(v.value) {
 			return false
 		}
 	}
@@ -217,6 +353,10 @@ func (s *AccountPerformanceService) Read(ctx context.Context, ids []int64, now t
 		m.MonitoringAvailable = available
 		if !available {
 			m.Metrics = OpsAccountRequestStats{WindowStart: m.Metrics.WindowStart, WindowEnd: m.Metrics.WindowEnd}
+			m.AvgTPS, m.AvgTTFTMs, m.AvgCachePercent, m.DegradationPercent = nil, nil, nil, nil
+			m.TPSSamples, m.TTFTSamples, m.CacheSamples, m.QualitySamples = 0, 0, 0, 0
+			m.UpstreamError = upstreamstats.Evidence{}
+			m.StatisticsStatus, m.StatisticsUpdatedAt = "unavailable", nil
 		}
 		rows[id] = m
 	}
@@ -249,6 +389,9 @@ func (s *AccountPerformanceService) Stop() {
 		s.cancel()
 	}
 	s.wg.Wait()
+	if stopper, ok := s.Repo.(interface{ Stop() }); ok {
+		stopper.Stop()
+	}
 }
 func (s *AccountPerformanceService) evaluate(ctx context.Context) {
 	if !s.MonitoringAvailable(ctx) {
@@ -286,7 +429,31 @@ type PerformancePauseReader interface {
 	PerformancePaused(context.Context, []int64) (map[int64]bool, error)
 }
 
+// A subscriber's permission comes only from its authenticated, expiring local
+// snapshot. Missing accounts are denials, never a lookup in the local database.
+type localPerformancePauseReader struct{ reader LocalSchedulerSnapshotReader }
+
+func (r localPerformancePauseReader) PerformancePaused(ctx context.Context, ids []int64) (map[int64]bool, error) {
+	details, ok := r.reader.(LocalSchedulerDetailReader)
+	if !ok {
+		return nil, ErrLocalSchedulerSnapshotUnavailable
+	}
+	accounts, err := details.GetLocalAccounts(ctx, ids)
+	if err != nil {
+		return nil, err
+	}
+	paused := make(map[int64]bool, len(ids))
+	for _, id := range ids {
+		a := accounts[id]
+		paused[id] = a == nil || !a.IsSchedulable()
+	}
+	return paused, nil
+}
+
 func (s *SchedulerSnapshotService) filterPerformanceAccounts(ctx context.Context, accounts []Account) ([]Account, error) {
+	if s.localSnapshotReader != nil {
+		return accounts, nil
+	}
 	reader, ok := s.accountRepo.(PerformancePauseReader)
 	if !ok || len(accounts) == 0 {
 		return accounts, nil
@@ -308,6 +475,9 @@ func (s *SchedulerSnapshotService) filterPerformanceAccounts(ctx context.Context
 	return out, nil
 }
 func (s *SchedulerSnapshotService) markPerformanceAccounts(ctx context.Context, accounts map[int64]*Account) (map[int64]*Account, error) {
+	if s.localSnapshotReader != nil {
+		return accounts, nil
+	}
 	reader, ok := s.accountRepo.(PerformancePauseReader)
 	if !ok || len(accounts) == 0 {
 		return accounts, nil

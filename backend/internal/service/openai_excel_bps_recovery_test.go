@@ -153,12 +153,12 @@ func TestExcelBPS403RecoveryKeepsProxyPoolWarm(t *testing.T) {
 	a := recoveryTestAccount(time.Now())
 	a.Extra["openai_excel_bps_mihomo"] = true
 	a.Extra[ExcelBPSProxySourceKey] = ExcelBPSProxySourceIPPool
-	managed, static := excelBPSWarmTargets([]Account{*a})
+	managed, static, _ := excelBPSWarmTargets([]Account{*a}, true)
 	require.Zero(t, managed)
 	require.Equal(t, 1, static)
 	require.False(t, a.IsExcelBPSEnabled())
 	a.Extra[ExcelBPSAutoRecoverOn403Key] = false
-	_, static = excelBPSWarmTargets([]Account{*a})
+	_, static, _ = excelBPSWarmTargets([]Account{*a}, true)
 	require.Zero(t, static)
 }
 
@@ -214,11 +214,15 @@ func TestExcelBPS403RecoveryEmptyProxyPoolNeverFallsBackToDirect(t *testing.T) {
 }
 
 func TestExcelBPS403RecoveryPolicyRequiresAutomaticShutdown(t *testing.T) {
+	policy := &QualityBPSPolicy{AutoRecoverOn403: true}
+	require.Equal(t, false, QualityBPSExtra(policy)[ExcelBPSAutoRecoverOn403Key])
+	policy.AutoDisableOn403 = true
+	require.Equal(t, true, QualityBPSExtra(policy)[ExcelBPSAutoRecoverOn403Key])
 	extra := map[string]any{ExcelBPSAutoRecoverOn403Key: "true"}
 	_, err := normalizeBulkExcelBPSExtra(extra)
 	require.Error(t, err)
 	extra = map[string]any{"openai_excel_bps": false, ExcelBPSAutoRecoverOn403Key: true}
 	_, err = normalizeBulkExcelBPSExtra(extra)
 	require.NoError(t, err)
-	require.Equal(t, true, extra[ExcelBPSAutoRecoverOn403Key], "disabled account edits preserve recovery preference")
+	require.Equal(t, false, extra[ExcelBPSAutoRecoverOn403Key], "an explicit bulk disable clears automatic recovery")
 }

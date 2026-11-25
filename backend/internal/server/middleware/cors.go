@@ -3,6 +3,7 @@ package middleware
 import (
 	"log"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 
@@ -53,7 +54,7 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 	allowHeaders := []string{
 		"Content-Type", "Content-Length", "Accept-Encoding", "X-CSRF-Token", "Authorization",
 		"accept", "origin", "Cache-Control", "X-Requested-With", "X-API-Key", "X-Admin-UI-Request", "X-User-UI-Request", "If-Match", "X-QQBot-Section",
-		"MCP-Protocol-Version", "MCP-Session-Id",
+		"MCP-Protocol-Version", "MCP-Session-Id", "Anthropic-Version",
 	}
 	// OpenAI Node SDK 会发送 x-stainless-* 请求头，需在 CORS 中显式放行。
 	openAIProperties := []string{
@@ -88,6 +89,28 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 			c.Next()
 			return
 		}
+		// Published Pelican results use explicit API key headers, never cookies. Handle
+		// its preflight here because this global middleware precedes routes.
+		if isPublicPelicanShowcasePath(c.Request.URL.Path) {
+			method := c.Request.Method
+			if method == http.MethodOptions {
+				method = c.GetHeader("Access-Control-Request-Method")
+			}
+			if method == http.MethodGet || method == http.MethodHead {
+				c.Header("Access-Control-Allow-Origin", "*")
+				c.Writer.Header().Del("Access-Control-Allow-Credentials")
+				c.Header("Access-Control-Allow-Methods", "GET, HEAD, OPTIONS")
+				c.Header("Access-Control-Allow-Headers", "Accept, Authorization, X-API-Key, X-Goog-API-Key, If-None-Match, Cache-Control")
+				c.Header("Access-Control-Expose-Headers", "ETag, Cache-Control, Retry-After")
+				c.Header("Access-Control-Max-Age", "86400")
+				if c.Request.Method == http.MethodOptions {
+					c.AbortWithStatus(http.StatusNoContent)
+					return
+				}
+				c.Next()
+				return
+			}
+		}
 		origin := strings.TrimSpace(c.GetHeader("Origin"))
 		originAllowed := allowAll
 		if origin != "" && !allowAll {
@@ -104,9 +127,15 @@ func CORS(cfg config.CORSConfig) gin.HandlerFunc {
 			if allowCredentials {
 				c.Writer.Header().Set("Access-Control-Allow-Credentials", "true")
 			}
-			c.Writer.Header().Set("Access-Control-Allow-Headers", allowHeadersValue)
+			allowedHeaders := allowHeadersValue
+			exposedHeaders := "ETag, Server-Timing, WWW-Authenticate, Retry-After, X-QQBot-Config-Version, X-QQBot-checkin-Version, X-QQBot-tasks-Version, X-QQBot-periodic_tasks-Version, X-Client-Request-ID, X-Sub2api-Usage-Id, X-Request-Id"
+			if c.Request.URL.Path == "/v1/usage/records" {
+				allowedHeaders += ", X-Goog-API-Key"
+				exposedHeaders += ", X-Next-Cursor, X-Has-More"
+			}
+			c.Writer.Header().Set("Access-Control-Allow-Headers", allowedHeaders)
 			c.Writer.Header().Set("Access-Control-Allow-Methods", "POST, OPTIONS, GET, PUT, DELETE, PATCH")
-			c.Writer.Header().Set("Access-Control-Expose-Headers", "ETag, Server-Timing, WWW-Authenticate, Retry-After, X-QQBot-Config-Version, X-QQBot-checkin-Version, X-QQBot-tasks-Version, X-QQBot-periodic_tasks-Version")
+			c.Writer.Header().Set("Access-Control-Expose-Headers", exposedHeaders)
 			c.Writer.Header().Set("Access-Control-Max-Age", "86400")
 		}
 		// 处理预检请求
@@ -132,6 +161,19 @@ func publicMCPOAuthMethod(path string) string {
 	default:
 		return ""
 	}
+}
+
+func isPublicPelicanShowcasePath(path string) bool {
+	const root = "/api/v1/public/pelican-showcase"
+	if path == root {
+		return true
+	}
+	id, ok := strings.CutPrefix(path, root+"/items/")
+	if !ok {
+		return false
+	}
+	value, err := strconv.ParseInt(id, 10, 64)
+	return err == nil && value > 0
 }
 
 func normalizeOrigins(values []string) []string {

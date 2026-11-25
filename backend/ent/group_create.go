@@ -308,6 +308,20 @@ func (_c *GroupCreate) SetNillableAllowImageGeneration(v *bool) *GroupCreate {
 	return _c
 }
 
+// SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
+func (_c *GroupCreate) SetAllowBatchImageGeneration(v bool) *GroupCreate {
+	_c.mutation.SetAllowBatchImageGeneration(v)
+	return _c
+}
+
+// SetNillableAllowBatchImageGeneration sets the "allow_batch_image_generation" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableAllowBatchImageGeneration(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetAllowBatchImageGeneration(*v)
+	}
+	return _c
+}
+
 // SetImageCountBilling sets the "image_count_billing" field.
 func (_c *GroupCreate) SetImageCountBilling(v bool) *GroupCreate {
 	_c.mutation.SetImageCountBilling(v)
@@ -388,6 +402,34 @@ func (_c *GroupCreate) SetImagePrice4k(v float64) *GroupCreate {
 func (_c *GroupCreate) SetNillableImagePrice4k(v *float64) *GroupCreate {
 	if v != nil {
 		_c.SetImagePrice4k(*v)
+	}
+	return _c
+}
+
+// SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
+func (_c *GroupCreate) SetBatchImageDiscountMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetBatchImageDiscountMultiplier(v)
+	return _c
+}
+
+// SetNillableBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableBatchImageDiscountMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetBatchImageDiscountMultiplier(*v)
+	}
+	return _c
+}
+
+// SetBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field.
+func (_c *GroupCreate) SetBatchImageHoldMultiplier(v float64) *GroupCreate {
+	_c.mutation.SetBatchImageHoldMultiplier(v)
+	return _c
+}
+
+// SetNillableBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableBatchImageHoldMultiplier(v *float64) *GroupCreate {
+	if v != nil {
+		_c.SetBatchImageHoldMultiplier(*v)
 	}
 	return _c
 }
@@ -614,6 +656,48 @@ func (_c *GroupCreate) SetNillableFallbackGroupIDOnInvalidRequest(v *int64) *Gro
 	return _c
 }
 
+// SetBlockSubagents sets the "block_subagents" field.
+func (_c *GroupCreate) SetBlockSubagents(v bool) *GroupCreate {
+	_c.mutation.SetBlockSubagents(v)
+	return _c
+}
+
+// SetNillableBlockSubagents sets the "block_subagents" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableBlockSubagents(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetBlockSubagents(*v)
+	}
+	return _c
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (_c *GroupCreate) SetCodexCliOnly(v bool) *GroupCreate {
+	_c.mutation.SetCodexCliOnly(v)
+	return _c
+}
+
+// SetNillableCodexCliOnly sets the "codex_cli_only" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableCodexCliOnly(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetCodexCliOnly(*v)
+	}
+	return _c
+}
+
+// SetStreamOnly sets the "stream_only" field.
+func (_c *GroupCreate) SetStreamOnly(v bool) *GroupCreate {
+	_c.mutation.SetStreamOnly(v)
+	return _c
+}
+
+// SetNillableStreamOnly sets the "stream_only" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableStreamOnly(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetStreamOnly(*v)
+	}
+	return _c
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (_c *GroupCreate) SetModelRouting(v map[string][]int64) *GroupCreate {
 	_c.mutation.SetModelRouting(v)
@@ -716,24 +800,10 @@ func (_c *GroupCreate) SetForceOpenaiFast(v bool) *GroupCreate {
 	return _c
 }
 
-// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
-func (_c *GroupCreate) SetForceOpenaiUltrafast(v bool) *GroupCreate {
-	_c.mutation.SetForceOpenaiUltrafast(v)
-	return _c
-}
-
 // SetNillableForceOpenaiFast sets the "force_openai_fast" field if the given value is not nil.
 func (_c *GroupCreate) SetNillableForceOpenaiFast(v *bool) *GroupCreate {
 	if v != nil {
 		_c.SetForceOpenaiFast(*v)
-	}
-	return _c
-}
-
-// SetNillableForceOpenaiUltrafast sets the "force_openai_ultrafast" field if the given value is not nil.
-func (_c *GroupCreate) SetNillableForceOpenaiUltrafast(v *bool) *GroupCreate {
-	if v != nil {
-		_c.SetForceOpenaiUltrafast(*v)
 	}
 	return _c
 }
@@ -748,6 +818,20 @@ func (_c *GroupCreate) SetForceOpenaiServiceTier(v string) *GroupCreate {
 func (_c *GroupCreate) SetNillableForceOpenaiServiceTier(v *string) *GroupCreate {
 	if v != nil {
 		_c.SetForceOpenaiServiceTier(*v)
+	}
+	return _c
+}
+
+// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
+func (_c *GroupCreate) SetForceOpenaiUltrafast(v bool) *GroupCreate {
+	_c.mutation.SetForceOpenaiUltrafast(v)
+	return _c
+}
+
+// SetNillableForceOpenaiUltrafast sets the "force_openai_ultrafast" field if the given value is not nil.
+func (_c *GroupCreate) SetNillableForceOpenaiUltrafast(v *bool) *GroupCreate {
+	if v != nil {
+		_c.SetForceOpenaiUltrafast(*v)
 	}
 	return _c
 }
@@ -1172,6 +1256,10 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultAllowImageGeneration
 		_c.mutation.SetAllowImageGeneration(v)
 	}
+	if _, ok := _c.mutation.AllowBatchImageGeneration(); !ok {
+		v := group.DefaultAllowBatchImageGeneration
+		_c.mutation.SetAllowBatchImageGeneration(v)
+	}
 	if _, ok := _c.mutation.ImageCountBilling(); !ok {
 		v := group.DefaultImageCountBilling
 		_c.mutation.SetImageCountBilling(v)
@@ -1183,6 +1271,14 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ImageRateMultiplier(); !ok {
 		v := group.DefaultImageRateMultiplier
 		_c.mutation.SetImageRateMultiplier(v)
+	}
+	if _, ok := _c.mutation.BatchImageDiscountMultiplier(); !ok {
+		v := group.DefaultBatchImageDiscountMultiplier
+		_c.mutation.SetBatchImageDiscountMultiplier(v)
+	}
+	if _, ok := _c.mutation.BatchImageHoldMultiplier(); !ok {
+		v := group.DefaultBatchImageHoldMultiplier
+		_c.mutation.SetBatchImageHoldMultiplier(v)
 	}
 	if _, ok := _c.mutation.VideoRateIndependent(); !ok {
 		v := group.DefaultVideoRateIndependent
@@ -1199,6 +1295,18 @@ func (_c *GroupCreate) defaults() error {
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		v := group.DefaultClaudeCodeOnly
 		_c.mutation.SetClaudeCodeOnly(v)
+	}
+	if _, ok := _c.mutation.BlockSubagents(); !ok {
+		v := group.DefaultBlockSubagents
+		_c.mutation.SetBlockSubagents(v)
+	}
+	if _, ok := _c.mutation.CodexCliOnly(); !ok {
+		v := group.DefaultCodexCliOnly
+		_c.mutation.SetCodexCliOnly(v)
+	}
+	if _, ok := _c.mutation.StreamOnly(); !ok {
+		v := group.DefaultStreamOnly
+		_c.mutation.SetStreamOnly(v)
 	}
 	if _, ok := _c.mutation.StrictFailover(); !ok {
 		v := group.DefaultStrictFailover
@@ -1232,13 +1340,13 @@ func (_c *GroupCreate) defaults() error {
 		v := group.DefaultForceOpenaiFast
 		_c.mutation.SetForceOpenaiFast(v)
 	}
-	if _, ok := _c.mutation.ForceOpenaiUltrafast(); !ok {
-		v := group.DefaultForceOpenaiUltrafast
-		_c.mutation.SetForceOpenaiUltrafast(v)
-	}
 	if _, ok := _c.mutation.ForceOpenaiServiceTier(); !ok {
 		v := group.DefaultForceOpenaiServiceTier
 		_c.mutation.SetForceOpenaiServiceTier(v)
+	}
+	if _, ok := _c.mutation.ForceOpenaiUltrafast(); !ok {
+		v := group.DefaultForceOpenaiUltrafast
+		_c.mutation.SetForceOpenaiUltrafast(v)
 	}
 	if _, ok := _c.mutation.FreeOpenaiFast(); !ok {
 		v := group.DefaultFreeOpenaiFast
@@ -1389,6 +1497,9 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.AllowImageGeneration(); !ok {
 		return &ValidationError{Name: "allow_image_generation", err: errors.New(`ent: missing required field "Group.allow_image_generation"`)}
 	}
+	if _, ok := _c.mutation.AllowBatchImageGeneration(); !ok {
+		return &ValidationError{Name: "allow_batch_image_generation", err: errors.New(`ent: missing required field "Group.allow_batch_image_generation"`)}
+	}
 	if _, ok := _c.mutation.ImageCountBilling(); !ok {
 		return &ValidationError{Name: "image_count_billing", err: errors.New(`ent: missing required field "Group.image_count_billing"`)}
 	}
@@ -1397,6 +1508,12 @@ func (_c *GroupCreate) check() error {
 	}
 	if _, ok := _c.mutation.ImageRateMultiplier(); !ok {
 		return &ValidationError{Name: "image_rate_multiplier", err: errors.New(`ent: missing required field "Group.image_rate_multiplier"`)}
+	}
+	if _, ok := _c.mutation.BatchImageDiscountMultiplier(); !ok {
+		return &ValidationError{Name: "batch_image_discount_multiplier", err: errors.New(`ent: missing required field "Group.batch_image_discount_multiplier"`)}
+	}
+	if _, ok := _c.mutation.BatchImageHoldMultiplier(); !ok {
+		return &ValidationError{Name: "batch_image_hold_multiplier", err: errors.New(`ent: missing required field "Group.batch_image_hold_multiplier"`)}
 	}
 	if _, ok := _c.mutation.VideoRateIndependent(); !ok {
 		return &ValidationError{Name: "video_rate_independent", err: errors.New(`ent: missing required field "Group.video_rate_independent"`)}
@@ -1430,6 +1547,15 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.ClaudeCodeOnly(); !ok {
 		return &ValidationError{Name: "claude_code_only", err: errors.New(`ent: missing required field "Group.claude_code_only"`)}
 	}
+	if _, ok := _c.mutation.BlockSubagents(); !ok {
+		return &ValidationError{Name: "block_subagents", err: errors.New(`ent: missing required field "Group.block_subagents"`)}
+	}
+	if _, ok := _c.mutation.CodexCliOnly(); !ok {
+		return &ValidationError{Name: "codex_cli_only", err: errors.New(`ent: missing required field "Group.codex_cli_only"`)}
+	}
+	if _, ok := _c.mutation.StreamOnly(); !ok {
+		return &ValidationError{Name: "stream_only", err: errors.New(`ent: missing required field "Group.stream_only"`)}
+	}
 	if _, ok := _c.mutation.StrictFailover(); !ok {
 		return &ValidationError{Name: "strict_failover", err: errors.New(`ent: missing required field "Group.strict_failover"`)}
 	}
@@ -1454,9 +1580,6 @@ func (_c *GroupCreate) check() error {
 	if _, ok := _c.mutation.ForceOpenaiFast(); !ok {
 		return &ValidationError{Name: "force_openai_fast", err: errors.New(`ent: missing required field "Group.force_openai_fast"`)}
 	}
-	if _, ok := _c.mutation.ForceOpenaiUltrafast(); !ok {
-		return &ValidationError{Name: "force_openai_ultrafast", err: errors.New(`ent: missing required field "Group.force_openai_ultrafast"`)}
-	}
 	if _, ok := _c.mutation.ForceOpenaiServiceTier(); !ok {
 		return &ValidationError{Name: "force_openai_service_tier", err: errors.New(`ent: missing required field "Group.force_openai_service_tier"`)}
 	}
@@ -1464,6 +1587,9 @@ func (_c *GroupCreate) check() error {
 		if err := group.ForceOpenaiServiceTierValidator(v); err != nil {
 			return &ValidationError{Name: "force_openai_service_tier", err: fmt.Errorf(`ent: validator failed for field "Group.force_openai_service_tier": %w`, err)}
 		}
+	}
+	if _, ok := _c.mutation.ForceOpenaiUltrafast(); !ok {
+		return &ValidationError{Name: "force_openai_ultrafast", err: errors.New(`ent: missing required field "Group.force_openai_ultrafast"`)}
 	}
 	if _, ok := _c.mutation.FreeOpenaiFast(); !ok {
 		return &ValidationError{Name: "free_openai_fast", err: errors.New(`ent: missing required field "Group.free_openai_fast"`)}
@@ -1639,6 +1765,10 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldAllowImageGeneration, field.TypeBool, value)
 		_node.AllowImageGeneration = value
 	}
+	if value, ok := _c.mutation.AllowBatchImageGeneration(); ok {
+		_spec.SetField(group.FieldAllowBatchImageGeneration, field.TypeBool, value)
+		_node.AllowBatchImageGeneration = value
+	}
 	if value, ok := _c.mutation.ImageCountBilling(); ok {
 		_spec.SetField(group.FieldImageCountBilling, field.TypeBool, value)
 		_node.ImageCountBilling = value
@@ -1662,6 +1792,14 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 	if value, ok := _c.mutation.ImagePrice4k(); ok {
 		_spec.SetField(group.FieldImagePrice4k, field.TypeFloat64, value)
 		_node.ImagePrice4k = &value
+	}
+	if value, ok := _c.mutation.BatchImageDiscountMultiplier(); ok {
+		_spec.SetField(group.FieldBatchImageDiscountMultiplier, field.TypeFloat64, value)
+		_node.BatchImageDiscountMultiplier = value
+	}
+	if value, ok := _c.mutation.BatchImageHoldMultiplier(); ok {
+		_spec.SetField(group.FieldBatchImageHoldMultiplier, field.TypeFloat64, value)
+		_node.BatchImageHoldMultiplier = value
 	}
 	if value, ok := _c.mutation.VideoRateIndependent(); ok {
 		_spec.SetField(group.FieldVideoRateIndependent, field.TypeBool, value)
@@ -1731,6 +1869,18 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldFallbackGroupIDOnInvalidRequest, field.TypeInt64, value)
 		_node.FallbackGroupIDOnInvalidRequest = &value
 	}
+	if value, ok := _c.mutation.BlockSubagents(); ok {
+		_spec.SetField(group.FieldBlockSubagents, field.TypeBool, value)
+		_node.BlockSubagents = value
+	}
+	if value, ok := _c.mutation.CodexCliOnly(); ok {
+		_spec.SetField(group.FieldCodexCliOnly, field.TypeBool, value)
+		_node.CodexCliOnly = value
+	}
+	if value, ok := _c.mutation.StreamOnly(); ok {
+		_spec.SetField(group.FieldStreamOnly, field.TypeBool, value)
+		_node.StreamOnly = value
+	}
 	if value, ok := _c.mutation.ModelRouting(); ok {
 		_spec.SetField(group.FieldModelRouting, field.TypeJSON, value)
 		_node.ModelRouting = value
@@ -1767,13 +1917,13 @@ func (_c *GroupCreate) createSpec() (*Group, *sqlgraph.CreateSpec) {
 		_spec.SetField(group.FieldForceOpenaiFast, field.TypeBool, value)
 		_node.ForceOpenaiFast = value
 	}
-	if value, ok := _c.mutation.ForceOpenaiUltrafast(); ok {
-		_spec.SetField(group.FieldForceOpenaiUltrafast, field.TypeBool, value)
-		_node.ForceOpenaiUltrafast = value
-	}
 	if value, ok := _c.mutation.ForceOpenaiServiceTier(); ok {
 		_spec.SetField(group.FieldForceOpenaiServiceTier, field.TypeString, value)
 		_node.ForceOpenaiServiceTier = value
+	}
+	if value, ok := _c.mutation.ForceOpenaiUltrafast(); ok {
+		_spec.SetField(group.FieldForceOpenaiUltrafast, field.TypeBool, value)
+		_node.ForceOpenaiUltrafast = value
 	}
 	if value, ok := _c.mutation.FreeOpenaiFast(); ok {
 		_spec.SetField(group.FieldFreeOpenaiFast, field.TypeBool, value)
@@ -2305,6 +2455,18 @@ func (u *GroupUpsert) UpdateAllowImageGeneration() *GroupUpsert {
 	return u
 }
 
+// SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
+func (u *GroupUpsert) SetAllowBatchImageGeneration(v bool) *GroupUpsert {
+	u.Set(group.FieldAllowBatchImageGeneration, v)
+	return u
+}
+
+// UpdateAllowBatchImageGeneration sets the "allow_batch_image_generation" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateAllowBatchImageGeneration() *GroupUpsert {
+	u.SetExcluded(group.FieldAllowBatchImageGeneration)
+	return u
+}
+
 // SetImageCountBilling sets the "image_count_billing" field.
 func (u *GroupUpsert) SetImageCountBilling(v bool) *GroupUpsert {
 	u.Set(group.FieldImageCountBilling, v)
@@ -2416,6 +2578,42 @@ func (u *GroupUpsert) AddImagePrice4k(v float64) *GroupUpsert {
 // ClearImagePrice4k clears the value of the "image_price_4k" field.
 func (u *GroupUpsert) ClearImagePrice4k() *GroupUpsert {
 	u.SetNull(group.FieldImagePrice4k)
+	return u
+}
+
+// SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
+func (u *GroupUpsert) SetBatchImageDiscountMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldBatchImageDiscountMultiplier, v)
+	return u
+}
+
+// UpdateBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateBatchImageDiscountMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldBatchImageDiscountMultiplier)
+	return u
+}
+
+// AddBatchImageDiscountMultiplier adds v to the "batch_image_discount_multiplier" field.
+func (u *GroupUpsert) AddBatchImageDiscountMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldBatchImageDiscountMultiplier, v)
+	return u
+}
+
+// SetBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field.
+func (u *GroupUpsert) SetBatchImageHoldMultiplier(v float64) *GroupUpsert {
+	u.Set(group.FieldBatchImageHoldMultiplier, v)
+	return u
+}
+
+// UpdateBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateBatchImageHoldMultiplier() *GroupUpsert {
+	u.SetExcluded(group.FieldBatchImageHoldMultiplier)
+	return u
+}
+
+// AddBatchImageHoldMultiplier adds v to the "batch_image_hold_multiplier" field.
+func (u *GroupUpsert) AddBatchImageHoldMultiplier(v float64) *GroupUpsert {
+	u.Add(group.FieldBatchImageHoldMultiplier, v)
 	return u
 }
 
@@ -2773,6 +2971,42 @@ func (u *GroupUpsert) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsert {
 	return u
 }
 
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsert) SetBlockSubagents(v bool) *GroupUpsert {
+	u.Set(group.FieldBlockSubagents, v)
+	return u
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateBlockSubagents() *GroupUpsert {
+	u.SetExcluded(group.FieldBlockSubagents)
+	return u
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsert) SetCodexCliOnly(v bool) *GroupUpsert {
+	u.Set(group.FieldCodexCliOnly, v)
+	return u
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateCodexCliOnly() *GroupUpsert {
+	u.SetExcluded(group.FieldCodexCliOnly)
+	return u
+}
+
+// SetStreamOnly sets the "stream_only" field.
+func (u *GroupUpsert) SetStreamOnly(v bool) *GroupUpsert {
+	u.Set(group.FieldStreamOnly, v)
+	return u
+}
+
+// UpdateStreamOnly sets the "stream_only" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateStreamOnly() *GroupUpsert {
+	u.SetExcluded(group.FieldStreamOnly)
+	return u
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsert) SetModelRouting(v map[string][]int64) *GroupUpsert {
 	u.Set(group.FieldModelRouting, v)
@@ -2887,21 +3121,9 @@ func (u *GroupUpsert) SetForceOpenaiFast(v bool) *GroupUpsert {
 	return u
 }
 
-// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
-func (u *GroupUpsert) SetForceOpenaiUltrafast(v bool) *GroupUpsert {
-	u.Set(group.FieldForceOpenaiUltrafast, v)
-	return u
-}
-
 // UpdateForceOpenaiFast sets the "force_openai_fast" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateForceOpenaiFast() *GroupUpsert {
 	u.SetExcluded(group.FieldForceOpenaiFast)
-	return u
-}
-
-// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
-func (u *GroupUpsert) UpdateForceOpenaiUltrafast() *GroupUpsert {
-	u.SetExcluded(group.FieldForceOpenaiUltrafast)
 	return u
 }
 
@@ -2914,6 +3136,18 @@ func (u *GroupUpsert) SetForceOpenaiServiceTier(v string) *GroupUpsert {
 // UpdateForceOpenaiServiceTier sets the "force_openai_service_tier" field to the value that was provided on create.
 func (u *GroupUpsert) UpdateForceOpenaiServiceTier() *GroupUpsert {
 	u.SetExcluded(group.FieldForceOpenaiServiceTier)
+	return u
+}
+
+// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
+func (u *GroupUpsert) SetForceOpenaiUltrafast(v bool) *GroupUpsert {
+	u.Set(group.FieldForceOpenaiUltrafast, v)
+	return u
+}
+
+// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
+func (u *GroupUpsert) UpdateForceOpenaiUltrafast() *GroupUpsert {
+	u.SetExcluded(group.FieldForceOpenaiUltrafast)
 	return u
 }
 
@@ -3524,6 +3758,20 @@ func (u *GroupUpsertOne) UpdateAllowImageGeneration() *GroupUpsertOne {
 	})
 }
 
+// SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
+func (u *GroupUpsertOne) SetAllowBatchImageGeneration(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowBatchImageGeneration(v)
+	})
+}
+
+// UpdateAllowBatchImageGeneration sets the "allow_batch_image_generation" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateAllowBatchImageGeneration() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowBatchImageGeneration()
+	})
+}
+
 // SetImageCountBilling sets the "image_count_billing" field.
 func (u *GroupUpsertOne) SetImageCountBilling(v bool) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -3654,6 +3902,48 @@ func (u *GroupUpsertOne) UpdateImagePrice4k() *GroupUpsertOne {
 func (u *GroupUpsertOne) ClearImagePrice4k() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
+func (u *GroupUpsertOne) SetBatchImageDiscountMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBatchImageDiscountMultiplier(v)
+	})
+}
+
+// AddBatchImageDiscountMultiplier adds v to the "batch_image_discount_multiplier" field.
+func (u *GroupUpsertOne) AddBatchImageDiscountMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddBatchImageDiscountMultiplier(v)
+	})
+}
+
+// UpdateBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateBatchImageDiscountMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBatchImageDiscountMultiplier()
+	})
+}
+
+// SetBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field.
+func (u *GroupUpsertOne) SetBatchImageHoldMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBatchImageHoldMultiplier(v)
+	})
+}
+
+// AddBatchImageHoldMultiplier adds v to the "batch_image_hold_multiplier" field.
+func (u *GroupUpsertOne) AddBatchImageHoldMultiplier(v float64) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddBatchImageHoldMultiplier(v)
+	})
+}
+
+// UpdateBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateBatchImageHoldMultiplier() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBatchImageHoldMultiplier()
 	})
 }
 
@@ -4070,6 +4360,48 @@ func (u *GroupUpsertOne) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertOne 
 	})
 }
 
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsertOne) SetBlockSubagents(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBlockSubagents(v)
+	})
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateBlockSubagents() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBlockSubagents()
+	})
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsertOne) SetCodexCliOnly(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexCliOnly(v)
+	})
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateCodexCliOnly() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexCliOnly()
+	})
+}
+
+// SetStreamOnly sets the "stream_only" field.
+func (u *GroupUpsertOne) SetStreamOnly(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStreamOnly(v)
+	})
+}
+
+// UpdateStreamOnly sets the "stream_only" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateStreamOnly() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStreamOnly()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertOne) SetModelRouting(v map[string][]int64) *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
@@ -4203,24 +4535,10 @@ func (u *GroupUpsertOne) SetForceOpenaiFast(v bool) *GroupUpsertOne {
 	})
 }
 
-// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
-func (u *GroupUpsertOne) SetForceOpenaiUltrafast(v bool) *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetForceOpenaiUltrafast(v)
-	})
-}
-
 // UpdateForceOpenaiFast sets the "force_openai_fast" field to the value that was provided on create.
 func (u *GroupUpsertOne) UpdateForceOpenaiFast() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateForceOpenaiFast()
-	})
-}
-
-// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
-func (u *GroupUpsertOne) UpdateForceOpenaiUltrafast() *GroupUpsertOne {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateForceOpenaiUltrafast()
 	})
 }
 
@@ -4235,6 +4553,20 @@ func (u *GroupUpsertOne) SetForceOpenaiServiceTier(v string) *GroupUpsertOne {
 func (u *GroupUpsertOne) UpdateForceOpenaiServiceTier() *GroupUpsertOne {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateForceOpenaiServiceTier()
+	})
+}
+
+// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
+func (u *GroupUpsertOne) SetForceOpenaiUltrafast(v bool) *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetForceOpenaiUltrafast(v)
+	})
+}
+
+// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
+func (u *GroupUpsertOne) UpdateForceOpenaiUltrafast() *GroupUpsertOne {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateForceOpenaiUltrafast()
 	})
 }
 
@@ -5047,6 +5379,20 @@ func (u *GroupUpsertBulk) UpdateAllowImageGeneration() *GroupUpsertBulk {
 	})
 }
 
+// SetAllowBatchImageGeneration sets the "allow_batch_image_generation" field.
+func (u *GroupUpsertBulk) SetAllowBatchImageGeneration(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetAllowBatchImageGeneration(v)
+	})
+}
+
+// UpdateAllowBatchImageGeneration sets the "allow_batch_image_generation" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateAllowBatchImageGeneration() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateAllowBatchImageGeneration()
+	})
+}
+
 // SetImageCountBilling sets the "image_count_billing" field.
 func (u *GroupUpsertBulk) SetImageCountBilling(v bool) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -5177,6 +5523,48 @@ func (u *GroupUpsertBulk) UpdateImagePrice4k() *GroupUpsertBulk {
 func (u *GroupUpsertBulk) ClearImagePrice4k() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.ClearImagePrice4k()
+	})
+}
+
+// SetBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field.
+func (u *GroupUpsertBulk) SetBatchImageDiscountMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBatchImageDiscountMultiplier(v)
+	})
+}
+
+// AddBatchImageDiscountMultiplier adds v to the "batch_image_discount_multiplier" field.
+func (u *GroupUpsertBulk) AddBatchImageDiscountMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddBatchImageDiscountMultiplier(v)
+	})
+}
+
+// UpdateBatchImageDiscountMultiplier sets the "batch_image_discount_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateBatchImageDiscountMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBatchImageDiscountMultiplier()
+	})
+}
+
+// SetBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field.
+func (u *GroupUpsertBulk) SetBatchImageHoldMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBatchImageHoldMultiplier(v)
+	})
+}
+
+// AddBatchImageHoldMultiplier adds v to the "batch_image_hold_multiplier" field.
+func (u *GroupUpsertBulk) AddBatchImageHoldMultiplier(v float64) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.AddBatchImageHoldMultiplier(v)
+	})
+}
+
+// UpdateBatchImageHoldMultiplier sets the "batch_image_hold_multiplier" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateBatchImageHoldMultiplier() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBatchImageHoldMultiplier()
 	})
 }
 
@@ -5593,6 +5981,48 @@ func (u *GroupUpsertBulk) ClearFallbackGroupIDOnInvalidRequest() *GroupUpsertBul
 	})
 }
 
+// SetBlockSubagents sets the "block_subagents" field.
+func (u *GroupUpsertBulk) SetBlockSubagents(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetBlockSubagents(v)
+	})
+}
+
+// UpdateBlockSubagents sets the "block_subagents" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateBlockSubagents() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateBlockSubagents()
+	})
+}
+
+// SetCodexCliOnly sets the "codex_cli_only" field.
+func (u *GroupUpsertBulk) SetCodexCliOnly(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetCodexCliOnly(v)
+	})
+}
+
+// UpdateCodexCliOnly sets the "codex_cli_only" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateCodexCliOnly() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateCodexCliOnly()
+	})
+}
+
+// SetStreamOnly sets the "stream_only" field.
+func (u *GroupUpsertBulk) SetStreamOnly(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetStreamOnly(v)
+	})
+}
+
+// UpdateStreamOnly sets the "stream_only" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateStreamOnly() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateStreamOnly()
+	})
+}
+
 // SetModelRouting sets the "model_routing" field.
 func (u *GroupUpsertBulk) SetModelRouting(v map[string][]int64) *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
@@ -5726,24 +6156,10 @@ func (u *GroupUpsertBulk) SetForceOpenaiFast(v bool) *GroupUpsertBulk {
 	})
 }
 
-// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
-func (u *GroupUpsertBulk) SetForceOpenaiUltrafast(v bool) *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.SetForceOpenaiUltrafast(v)
-	})
-}
-
 // UpdateForceOpenaiFast sets the "force_openai_fast" field to the value that was provided on create.
 func (u *GroupUpsertBulk) UpdateForceOpenaiFast() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateForceOpenaiFast()
-	})
-}
-
-// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
-func (u *GroupUpsertBulk) UpdateForceOpenaiUltrafast() *GroupUpsertBulk {
-	return u.Update(func(s *GroupUpsert) {
-		s.UpdateForceOpenaiUltrafast()
 	})
 }
 
@@ -5758,6 +6174,20 @@ func (u *GroupUpsertBulk) SetForceOpenaiServiceTier(v string) *GroupUpsertBulk {
 func (u *GroupUpsertBulk) UpdateForceOpenaiServiceTier() *GroupUpsertBulk {
 	return u.Update(func(s *GroupUpsert) {
 		s.UpdateForceOpenaiServiceTier()
+	})
+}
+
+// SetForceOpenaiUltrafast sets the "force_openai_ultrafast" field.
+func (u *GroupUpsertBulk) SetForceOpenaiUltrafast(v bool) *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.SetForceOpenaiUltrafast(v)
+	})
+}
+
+// UpdateForceOpenaiUltrafast sets the "force_openai_ultrafast" field to the value that was provided on create.
+func (u *GroupUpsertBulk) UpdateForceOpenaiUltrafast() *GroupUpsertBulk {
+	return u.Update(func(s *GroupUpsert) {
+		s.UpdateForceOpenaiUltrafast()
 	})
 }
 

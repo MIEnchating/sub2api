@@ -75,10 +75,10 @@ func (s *Service) loadConfig(ctx context.Context, db queryRower) (Config, error)
 	if err != nil {
 		return c, err
 	}
-	if err = json.Unmarshal([]byte(raw), &c); err != nil {
+	if err = decodeStoredBotConfig([]byte(raw), &c); err != nil {
 		return c, fmt.Errorf("QQ 配置读取失败")
 	}
-	for _, p := range []*string{&c.AppSecret, &c.APIKey, &c.ImageAPIKey} {
+	for _, p := range []*string{&c.AppSecret, &c.APIKey} {
 		if *p != "" {
 			*p, err = s.encryptor.Decrypt(*p)
 			if err != nil {
@@ -88,6 +88,25 @@ func (s *Service) loadConfig(ctx context.Context, db queryRower) (Config, error)
 	}
 	return c, nil
 }
+
+// Existing installations used the former generation switch to retain quoted
+// attachments. Import that choice without restoring its payment settings.
+func decodeStoredBotConfig(raw []byte, cfg *Config) error {
+	if err := json.Unmarshal(raw, cfg); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &fields); err != nil {
+		return err
+	}
+	if _, configured := fields["remember_quoted_images"]; !configured {
+		if legacy, exists := fields["image_enabled"]; exists {
+			return json.Unmarshal(legacy, &cfg.RememberQuotedImages)
+		}
+	}
+	return nil
+}
+
 func (s *Service) Config(ctx context.Context) (Config, error) { return s.loadConfig(ctx, s.db) }
 
 // Authorize writes against the current settings, then keep them stable until
@@ -116,21 +135,9 @@ func validateConfig(c Config) error {
 	if c.AIConnection != "" && c.AIConnection != "external" && c.AIConnection != "site" {
 		return errors.New("AI 连接类型不正确")
 	}
-	if c.ImageAIConnection != "" && c.ImageAIConnection != "reuse_chat" && c.ImageAIConnection != "external" && c.ImageAIConnection != "site" {
-		return errors.New("图片 AI 连接类型不正确")
-	}
-	if c.ImageAIConnection != "site" && (c.ImageSiteAPIKeyID != 0 || c.ImageSiteGroupID != 0 || c.ImageSiteOwnerID != 0) {
-		return errors.New("本站图片 AI 归属信息必须通过本站图片 AI 连接入口管理")
-	}
 	q := c.NotificationQuietHours
 	if q.StartHour < 0 || q.StartHour > 23 || q.EndHour < 0 || q.EndHour > 23 || (q.Enabled && q.StartHour == q.EndHour) {
 		return errors.New("通知静默开始与结束小时须在 0～23 之间且不能相同")
-	}
-	if c.Enabled && c.ImageEnabled {
-		base, key := imageConnection(c)
-		if base == "" || key == "" {
-			return errors.New("启用生图须配置可用的生图地址和密钥（或复用聊天连接）")
-		}
 	}
 	if err := validateGroupPolicies(c); err != nil {
 		return err
@@ -162,14 +169,14 @@ func validateConfig(c Config) error {
 	if c.ChatProtocol != "responses" && c.ChatProtocol != "chat_completions" {
 		return errors.New("聊天接口模式不正确")
 	}
-	for _, u := range []string{c.BaseURL, c.ImageBaseURL} {
+	for _, u := range []string{c.BaseURL} {
 		if u != "" {
 			if err := validateURL(u); err != nil {
 				return err
 			}
 		}
 	}
-	for _, n := range []int{c.DailyChatLimit, c.DailyImageLimit, c.TotalDailyChatLimit, c.TotalDailyImageLimit, c.InviteDailyLimit} {
+	for _, n := range []int{c.DailyChatLimit, c.TotalDailyChatLimit, c.InviteDailyLimit} {
 		if n < 0 || n > 100000 {
 			return errors.New("每日次数必须在 0 到 100000 之间；0 表示禁止")
 		}
@@ -197,7 +204,7 @@ func validateConfig(c Config) error {
 	if c.TransferMaxAmount > 0 && c.TransferMaxAmount < c.TransferMinAmount {
 		return errors.New("最大转账金额不能小于最小转账金额")
 	}
-	if len(c.SystemPrompt) > 8000 || len(c.ChatModel) > 200 || len(c.ImageModel) > 200 || len(c.AllowedGroups) > 100 {
+	if len(c.SystemPrompt) > 8000 || len(c.ChatModel) > 200 || len(c.AllowedGroups) > 100 {
 		return errors.New("配置内容过长")
 	}
 	for _, g := range c.AllowedGroups {
@@ -205,23 +212,11 @@ func validateConfig(c Config) error {
 			return errors.New("群 OpenID 格式不正确")
 		}
 	}
-	if c.ImageSize != "1024x1024" && c.ImageSize != "1536x1024" && c.ImageSize != "1024x1536" && c.ImageSize != "auto" {
-		return errors.New("图片尺寸不正确")
-	}
-	if !validImageOutputFormat(c.ImageOutputFormat) {
-		return errors.New("图片输出格式须为默认、PNG、JPEG、WebP 或 GIF")
-	}
 	if c.Enabled && (c.AppID == "" || c.AppSecret == "" || len(c.AllowedGroups) == 0) {
 		return errors.New("启用前请填写 QQ 凭据和允许使用的群")
 	}
 	if c.Enabled && !c.ChatDisabled && (c.BaseURL == "" || c.APIKey == "" || c.ChatModel == "") {
 		return errors.New("启用 AI 聊天前请填写中转地址、API Key 和聊天模型；也可先关闭 AI 聊天")
-	}
-	if c.Enabled && c.ImageEnabled && c.ImageModel == "" {
-		return errors.New("请填写生图模型")
-	}
-	if c.ImageBaseURL != "" && c.ImageAPIKey == "" {
-		return errors.New("使用独立生图地址时，请填写独立生图 API Key")
 	}
 	return nil
 }
@@ -241,7 +236,6 @@ func (s *Service) SaveBasicConfig(ctx context.Context, c Config) (Config, error)
 		c.SiteKnowledge = old.SiteKnowledge
 		c.RewardBudgetDaily = old.RewardBudgetDaily
 		c.AIConnection, c.SiteAPIKeyID, c.SiteGroupID, c.SiteOwnerID = old.AIConnection, old.SiteAPIKeyID, old.SiteGroupID, old.SiteOwnerID
-		preserveImageConnectionMetadata(&c, old)
 		c.InviteEnabled = old.InviteEnabled
 		c.InviteReward = old.InviteReward
 		c.InviteCouponTemplateID = old.InviteCouponTemplateID
@@ -284,18 +278,8 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 	if err != nil {
 		return c, err
 	}
-	if imageConnectionMetadataOmitted(c) {
-		preserveImageConnectionMetadata(&c, old)
-	}
 	if !managedSetupAllowed(ctx) && (old.AIConnection != c.AIConnection || old.SiteAPIKeyID != c.SiteAPIKeyID || old.SiteGroupID != c.SiteGroupID || old.SiteOwnerID != c.SiteOwnerID || (old.AIConnection == "site" && (old.ChatProtocol != c.ChatProtocol || old.BaseURL != c.BaseURL || (c.APIKey != "" && c.APIKey != old.APIKey) || c.ClearAPIKey))) {
 		return c, errors.New("本站 AI 凭据和接口由快速配置管理，请通过本站 AI 连接入口修改")
-	}
-	if !managedSetupAllowed(ctx) && (old.ImageAIConnection != c.ImageAIConnection || old.ImageSiteAPIKeyID != c.ImageSiteAPIKeyID || old.ImageSiteGroupID != c.ImageSiteGroupID || old.ImageSiteOwnerID != c.ImageSiteOwnerID || managedImageCredentialsChanged(old, c)) {
-		return c, errors.New("本站图片 AI 凭据由快速配置管理，请通过本站图片 AI 连接入口修改")
-	}
-	if c.ImageAIConnection == "reuse_chat" {
-		c.ImageBaseURL, c.ImageAPIKey = "", ""
-		c.ClearImageAPIKey = true
 	}
 	if ConfigVersion(old.AllowedGroups) != ConfigVersion(c.AllowedGroups) {
 		reconcileRemovedGroups(&c)
@@ -310,7 +294,6 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 	c.GroupAdmins = normalizeGroupAdmins(c.GroupAdmins)
 	c.Moderation.Exemptions = normalizeModerationExemptions(c.Moderation.Exemptions)
 	c.BaseURL = strings.TrimRight(strings.TrimSpace(c.BaseURL), "/")
-	c.ImageBaseURL = strings.TrimRight(strings.TrimSpace(c.ImageBaseURL), "/")
 	// Exemptions predate per-entry AppID fields. Never reinterpret an existing
 	// member OpenID under a different application, including an unassigned legacy
 	// config. The operator must explicitly clear and then reselect identities.
@@ -332,9 +315,6 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 	if old.BaseURL != "" && old.BaseURL != c.BaseURL && c.APIKey == "" && !c.ClearAPIKey {
 		return c, errors.New("修改中转地址时请重新填写 API Key")
 	}
-	if old.ImageBaseURL != "" && old.ImageBaseURL != c.ImageBaseURL && c.ImageAPIKey == "" && !c.ClearImageAPIKey {
-		return c, errors.New("修改生图地址时请重新填写或清除生图 API Key")
-	}
 	merge := func(dst *string, prev string, clear bool) {
 		if clear {
 			*dst = ""
@@ -344,10 +324,8 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 	}
 	merge(&c.AppSecret, old.AppSecret, c.ClearAppSecret)
 	merge(&c.APIKey, old.APIKey, c.ClearAPIKey)
-	merge(&c.ImageAPIKey, old.ImageAPIKey, c.ClearImageAPIKey)
 	c.ClearAppSecret = false
 	c.ClearAPIKey = false
-	c.ClearImageAPIKey = false
 	if err = validateConfig(c); err != nil {
 		return c, err
 	}
@@ -409,7 +387,7 @@ func (s *Service) saveConfigTransaction(ctx context.Context, update func(*sql.Tx
 		}
 	}
 	stored := c
-	for _, p := range []*string{&stored.AppSecret, &stored.APIKey, &stored.ImageAPIKey} {
+	for _, p := range []*string{&stored.AppSecret, &stored.APIKey} {
 		if *p != "" {
 			if !s.encryptionReady {
 				return c, errors.New("请先配置固定 TOTP_ENCRYPTION_KEY，再保存机器人密钥")

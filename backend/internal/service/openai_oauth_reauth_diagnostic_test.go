@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -43,6 +44,29 @@ func TestSessionStudioDiagnosticOnlyContainsObservedClientPhase(t *testing.T) {
 		require.Equal(t, "Session Studio failed; invalid diagnostic omitted", sanitizeReauthError(raw))
 		require.Nil(t, safeReauthTask(&OpenAIOAuthReauthTaskRecord{Error: raw}).Diagnostic)
 	}
+}
+
+func TestSessionStudioDiagnosticFailureUsesExistingTaskOwnership(t *testing.T) {
+	svc, _, repo, updater, _, _ := newReauthTestService("acct-1")
+	ctx := context.Background()
+	_, err := svc.SaveCredentialConfig(ctx, 42, OpenAIOAuthReauthConfigInput{
+		LoginEmail: "user@example.test", CredentialMode: OpenAIOAuthReauthModePasswordTOTP,
+		Engine: OpenAIOAuthReauthEngineSessionStudio, Password: "synthetic-password",
+	})
+	require.NoError(t, err)
+	_, err = svc.CreateTask(ctx, 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTaskWithEngines(ctx, "worker-a", []string{OpenAIOAuthReauthEngineSessionStudio})
+	require.NoError(t, err)
+	require.NotNil(t, claim)
+	raw := "session_studio_failed stage=terminal_result reason=provider_failed elapsed_ms=120 http_status=0"
+	require.Error(t, svc.FailTask(ctx, claim.TaskID, "worker-b", raw))
+	require.Equal(t, OpenAIOAuthReauthStatusRunning, repo.task.Status)
+	require.NoError(t, svc.FailTask(ctx, claim.TaskID, "worker-a", raw))
+	require.Equal(t, OpenAIOAuthReauthStatusFailed, repo.task.Status)
+	require.Equal(t, raw, repo.task.Error)
+	require.False(t, updater.applied)
+	require.NotNil(t, safeReauthTask(repo.task).Diagnostic)
 }
 
 func TestLocalProtocolDiagnosticIsBoundedAndPrivate(t *testing.T) {

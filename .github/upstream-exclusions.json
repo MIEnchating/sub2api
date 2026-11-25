@@ -3,7 +3,7 @@
     {
       "name": "共享账号池",
       "path_pattern": "(^|/)[^/]*(?:shared[_-]?account|shared[_-]?pool|shared[_-]?api[_-]?key|shared[_-]?listing|shared_proxy_credentials|add-shared-account-pool)",
-      "content_pattern": "shared[_-]?account[_-]?(?:pool|listing|wallet|usage|revenue|fee|freeze)|shared[_-]pool(?:[_-](?:enabled|fee|api|account|listing|wallet|usage|revenue|freeze))|SharedPool(?:Enabled|Fee|Handler|Service)|shared[_-]?(?:total[_-]?call[_-]?count|listing[_-]?status)|shared[_-]?api[_-]?key|is_shared_pool|account_scope",
+      "content_pattern": "shared[_-]?account[_-]?(?:pool|listing|wallet|usage|revenue|fee|freeze)|shared[_-]pool(?:[_-](?:enabled|fee|api|account|listing|wallet|usage|revenue|freeze))|SharedPool(?:Enabled|Fee|Handler|Service)|shared[_-]?(?:total[_-]?call[_-]?count|listing[_-]?status)|shared[_-]?api[_-]?key|is_shared_pool|(?<![A-Za-z0-9_])account_scope(?![A-Za-z0-9_])",
       "content_roots": [
         "frontend/src/",
         "backend/internal/",
@@ -11,6 +11,15 @@
         "backend/ent/",
         "backend/migrations/",
         "deploy/"
+      ]
+    },
+    {
+      "name": "fork 生图计费扩展",
+      "path_pattern": "^(?:backend/internal/(?:handler/image_billing_response|service/image_usage_billing)(?:_test)?[.]go|frontend/src/i18n/locales/(?:en|zh)/imageUsage[.]ts)$",
+      "content_pattern": "\\b(?:image_minimum_charge(?:_adjustment)?|ImageMinimumCharge(?:Adjustment)?|ImageBillingReceipt|ImageEquivalentOutputPricePerMillion|image_purchase_prices|ImagePurchasePrices(?:Key)?|OpenAIImageResponseHeaderTimeout|image_group_ids|openaiImageHeaderTimeoutGroups)\\b",
+      "content_roots": [
+        "backend/internal/",
+        "frontend/src/"
       ]
     },
     {
@@ -42,5 +51,13 @@
         "backend/migrations/234_batch_image_routed_group.sql"
       ]
     }
-  ]
+  ],
+  "fork_image_generation": {
+    "name": "fork 生图二开",
+    "path_pattern": "(^|/)(?:backend/internal/qqbot/(?:chat_image_tool|image_edit|image_intent|image_output|image_progress|setup_image)[^/]*\\.go|backend/internal/handler/(?:image_task_error_message|moderation_upstream_images)_test[.]go|backend/internal/service/(?:openai_excel_bps_images|openai_images_allowlist|openai_images_(?:form_compat|billing_error)_test|openai_image_routing|image_intent_prefilter_test|image_task_error_message_test)[^/]*\\.go|frontend/src/components/(?:admin/qqbot/QQBotImageAISettings|account/ExtraImageModelsField)\\.vue)$",
+    "content_pattern": "json:\"(?:image_enabled|image_ai_connection|image_site_api_key_id|image_daily_limit)\"|\\bimage_generate\\b|/images/(?:generations|edits)",
+    "content_roots": [
+      "backend/internal/qqbot/"
+    ]
+  }
 }

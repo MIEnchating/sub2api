@@ -33,6 +33,15 @@ function createOrderResult(overrides: Partial<CreateOrderResult> = {}): CreateOr
 }
 
 describe('getVisibleMethods', () => {
+  it('keeps Stripe subtype fees attached to the Stripe route', () => {
+    const subMethods = { card: { fee_rate: 3, fee_rate_min: 3, fee_rate_max: 3 } }
+    expect(getVisibleMethods({ stripe: methodLimit({ sub_methods: subMethods }) }).stripe.sub_methods).toEqual(subMethods)
+    const base = { amount: 100, orderType: 'balance' as const, isMobile: false, isWechatBrowser: false }
+    expect(buildCreateOrderPayload({ ...base, paymentType: 'stripe', paymentSubtype: 'wxpay' })).toMatchObject({
+      payment_type: 'stripe', payment_subtype: 'wxpay',
+    })
+    expect(buildCreateOrderPayload({ ...base, paymentType: 'wxpay', paymentSubtype: 'card' })).not.toHaveProperty('payment_subtype')
+  })
   it('normalizes provider aliases and keeps stripe as a top-level method', () => {
     const visible = getVisibleMethods({
       alipay_direct: methodLimit({ single_min: 5 }),
@@ -317,6 +326,7 @@ describe('buildCreateOrderPayload', () => {
       paymentType: 'wxpay',
       orderType: 'subscription',
       planId: 7,
+      renewalMode: 'extend',
       origin: 'https://app.example.com',
       isMobile: false,
       isWechatBrowser: true,
@@ -325,9 +335,27 @@ describe('buildCreateOrderPayload', () => {
       payment_type: 'wxpay',
       order_type: 'subscription',
       plan_id: 7,
+      renewal_mode: 'extend',
       return_url: 'https://app.example.com/payment/result',
       is_mobile: false,
       payment_source: 'wechat_in_app_resume',
+    })
+  })
+
+  it('includes the default restart choice for subscription orders', () => {
+    expect(buildCreateOrderPayload({
+      amount: 128,
+      paymentType: 'alipay',
+      orderType: 'subscription',
+      planId: 7,
+      renewalMode: 'restart',
+      origin: 'https://app.example.com',
+      isMobile: false,
+      isWechatBrowser: false,
+    })).toMatchObject({
+      order_type: 'subscription',
+      plan_id: 7,
+      renewal_mode: 'restart',
     })
   })
 

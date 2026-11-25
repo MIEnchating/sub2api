@@ -54,7 +54,7 @@ func TestCommandInventoryExcludesRetiredCustomCommands(t *testing.T) {
 		{Command: "/faq", Reply: "current", Enabled: true},
 	}
 	expectPreviewConfig(t, mock, c)
-	commands, err := New(db, previewEncryptor{}, true, nil).Commands(context.Background())
+	commands, err := newMatureFixtureService(db, previewEncryptor{}, true, nil).Commands(context.Background())
 	require.NoError(t, err)
 	byCommand := make(map[string]CommandInfo, len(commands))
 	for _, item := range commands {
@@ -68,7 +68,7 @@ func TestCommandInventoryExcludesRetiredCustomCommands(t *testing.T) {
 }
 
 func TestChatPreviewRequestValidationPrecedesAllIO(t *testing.T) {
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	for _, req := range []ChatPreviewRequest{
 		{}, {GroupID: "group", Question: " "}, {GroupID: "group", Question: strings.Repeat("中", 6001)},
 		{GroupID: "group other", Question: "你好"}, {GroupID: "group", MemberID: "member\n", Question: "你好"},
@@ -97,12 +97,12 @@ func TestChatPreviewConfigPolicyAndConcurrentTrials(t *testing.T) {
 				c.DailyChatLimit = 0
 			}
 			expectPreviewConfig(t, mock, c)
-			_, err = New(db, previewEncryptor{}, true, nil).PreviewChat(context.Background(), ChatPreviewRequest{GroupID: "group", Question: "你好"})
+			_, err = newMatureFixtureService(db, previewEncryptor{}, true, nil).PreviewChat(context.Background(), ChatPreviewRequest{GroupID: "group", Question: "你好"})
 			require.Error(t, err)
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	activeChatPreviews.Store(s, struct{}{})
 	defer activeChatPreviews.Delete(s)
 	_, err := s.PreviewChat(context.Background(), ChatPreviewRequest{GroupID: "group", Question: "你好"})
@@ -127,7 +127,7 @@ func TestChatPreviewMenuAndReadOnlyToolsAcrossProtocols(t *testing.T) {
 					}
 					require.Contains(t, string(body[key]), "真实指令清单 JSON")
 					require.Contains(t, string(body[key]), "试问站点资料")
-					require.NotContains(t, string(body["tools"]), chatImageToolName)
+					require.NotContains(t, string(body["tools"]), "generate_image")
 					require.NotContains(t, string(body[key]), "本轮提问者已由后端验证为当前群绑定的管理员")
 					if scenario == "provider-error" {
 						w.WriteHeader(500)
@@ -146,10 +146,10 @@ func TestChatPreviewMenuAndReadOnlyToolsAcrossProtocols(t *testing.T) {
 				}))
 				defer server.Close()
 				c := previewTestConfig()
-				c.BaseURL, c.ChatProtocol, c.ImageEnabled = server.URL, protocol, true
+				c.BaseURL, c.ChatProtocol, c.RememberQuotedImages = server.URL, protocol, true
 				c.SiteKnowledge = SiteKnowledgeConfig{Enabled: true, Content: "试问站点资料"}
 				expectPreviewConfig(t, mock, c)
-				s := New(db, previewEncryptor{}, true, nil)
+				s := newMatureFixtureService(db, previewEncryptor{}, true, nil)
 				s.SetChannelStatusProvider(channelStatusProviderFunc(func(context.Context) (*ChannelStatusReport, error) { return channelStatusFixture(), nil }))
 				question := "请说明站点资料"
 				if scenario == "menu" {
@@ -160,10 +160,10 @@ func TestChatPreviewMenuAndReadOnlyToolsAcrossProtocols(t *testing.T) {
 					require.ErrorContains(t, err, "试问模型调用失败")
 					require.NotContains(t, err.Error(), "private-provider-token")
 					require.NotNil(t, out.ChatExecution)
-					require.Equal(t, 3, out.ChatExecution.Attempts)
-					require.Equal(t, 2, out.ChatExecution.Retries)
+					require.Equal(t, 1, out.ChatExecution.Attempts)
+					require.Zero(t, out.ChatExecution.Retries)
 					require.False(t, out.ChatExecution.UsageComplete)
-					require.Equal(t, 3, calls)
+					require.Equal(t, 1, calls)
 				} else {
 					require.NoError(t, err)
 					require.NotNil(t, out.KnowledgeSources)
@@ -204,7 +204,7 @@ func TestChatPreviewHelpRemainsAvailableWithChatDisabled(t *testing.T) {
 	c.ChatDisabled, c.TotalDailyChatLimit, c.DailyChatLimit = true, 0, 0
 	c.BaseURL, c.APIKey, c.ChatModel = "", "", ""
 	expectPreviewConfig(t, mock, c)
-	out, err := New(db, previewEncryptor{}, true, nil).PreviewChat(context.Background(), ChatPreviewRequest{GroupID: "group", Question: "/帮助"})
+	out, err := newMatureFixtureService(db, previewEncryptor{}, true, nil).PreviewChat(context.Background(), ChatPreviewRequest{GroupID: "group", Question: "/帮助"})
 	require.NoError(t, err)
 	require.Equal(t, "menu", out.Action)
 	require.Contains(t, out.Text, "签到")

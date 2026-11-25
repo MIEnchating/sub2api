@@ -13,7 +13,7 @@ import (
 )
 
 func TestCodexImages26GIFRoutingAndMIME(t *testing.T) {
-	for _, model := range []string{"gpt-image-2.6", "gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
+	for _, model := range []string{"gpt-image-2.6-flare", "gpt-image-2.6-sunburst"} {
 		t.Run(model, func(t *testing.T) {
 			body := []byte(fmt.Sprintf(`{"model":%q,"prompt":"waving cat","output_format":"gif","response_format":"url"}`, model))
 			c, rec := newOpenAIImagesTestContext(t, body)

@@ -57,7 +57,7 @@ func TestUpstreamBillingRateLimitRechecksHydratedAccount(t *testing.T) {
 			case PlatformOpenAI:
 				svc := &OpenAIGatewayService{schedulerSnapshot: snapshot}
 				released := 0
-				selection, selectionErr := svc.newAcquiredSelectionResult(ctx, stale, func() { released++ })
+				selection, selectionErr := svc.newAcquiredSelectionResult(ctx, stale, func() { released++ }, "")
 				require.ErrorIs(t, selectionErr, ErrNoAvailableAccounts)
 				require.Nil(t, selection)
 				require.Equal(t, 1, released)

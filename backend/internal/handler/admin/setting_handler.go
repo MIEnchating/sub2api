@@ -1,6 +1,7 @@
 package admin
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -10,6 +11,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/handler/dto"
+	"github.com/Wei-Shaw/sub2api/internal/keyrisk"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
@@ -51,6 +53,11 @@ func firstNonEmpty(values ...string) string {
 
 // SettingHandler 系统设置处理器
 type SettingHandler struct {
+	keyRisk                  *keyrisk.Service
+	keyRiskKeys              keyRiskAPIKeys
+	ipAuditPenaltyRelease    func(context.Context, int64, int64, string) (service.SecurityPenaltySummary, error)
+	ipAuditLogs              *service.AuditLogService
+	ipAuditPenaltySummary    func(context.Context, int64) (service.SecurityPenaltySummary, error)
 	settingService           *service.SettingService
 	emailService             *service.EmailService
 	turnstileService         *service.TurnstileService
@@ -159,8 +166,11 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ExcelBPSImageTTLMinutes:                 settings.ExcelBPSImageTTLMinutes,
 
 		RegistrationEnabled:                                    settings.RegistrationEnabled,
+		LoginRateLimitEnabled:                                  settings.LoginRateLimitEnabled,
+		RegistrationIPLimitEnabled:                             settings.RegistrationIPLimitEnabled,
 		EmailVerifyEnabled:                                     settings.EmailVerifyEnabled,
 		RegistrationEmailSuffixWhitelist:                       settings.RegistrationEmailSuffixWhitelist,
+		RegistrationEmailAliasBlockEnabled:                     settings.RegistrationEmailAliasBlockEnabled,
 		RegistrationEmailDomainQuotaEnabled:                    settings.RegistrationEmailDomainQuotaEnabled,
 		PromoCodeEnabled:                                       settings.PromoCodeEnabled,
 		PasswordResetEnabled:                                   settings.PasswordResetEnabled,
@@ -292,6 +302,7 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		CyberSessionBlockEnabled:                               settings.CyberSessionBlockEnabled,
 		CyberPolicyUserAllowlist:                               settings.CyberPolicyUserAllowlist,
 		CyberSessionBlockTTLSeconds:                            settings.CyberSessionBlockTTLSeconds,
+		CyberSessionIdentityStrictEnabled:                      settings.CyberSessionIdentityStrictEnabled,
 		AffiliateRebateRate:                                    settings.AffiliateRebateRate,
 		AffiliateRebateFreezeHours:                             settings.AffiliateRebateFreezeHours,
 		AffiliateRebateDurationDays:                            settings.AffiliateRebateDurationDays,
@@ -342,6 +353,8 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ClaudeCodeClientVersion:                                settings.ClaudeCodeClientVersion,
 		ClaudeCodeClientVersionSynced:                          settings.ClaudeCodeClientVersionSynced,
 		ClaudeCodeVersionAutoSyncEnabled:                       settings.ClaudeCodeVersionAutoSyncEnabled,
+		OpenAIRequestTimezoneEnabled:                           settings.OpenAIRequestTimezoneEnabled,
+		OpenAIRequestTimezoneAuto:                              settings.OpenAIRequestTimezoneAuto,
 		MinCodexVersion:                                        settings.MinCodexVersion,
 		MaxCodexVersion:                                        settings.MaxCodexVersion,
 		CodexCLIOnlyBlacklist:                                  settings.CodexCLIOnlyBlacklist,
@@ -419,26 +432,50 @@ func (h *SettingHandler) GetSettings(c *gin.Context) {
 		ChannelMonitorHideThroughput:         settings.ChannelMonitorHideThroughput,
 		ChannelMonitorShowQuota:              settings.ChannelMonitorShowQuota,
 		ChannelMonitorHideUserRanking:        settings.ChannelMonitorHideUserRanking,
+		PrismBrowserEnabled:                  settings.PrismBrowserEnabled,
+		PrismBrowserBaseURL:                  settings.PrismBrowserBaseURL,
+		PrismBrowserAPIKeyConfigured:         settings.PrismBrowserAPIKeyConfigured,
 
-		GrokDefaultTextModel:           settings.GrokDefaultTextModel,
-		GrokCrossClientModelMapEnabled: settings.GrokCrossClientModelMapEnabled,
-		GrokDefaultBaseURLMode:         settings.GrokDefaultBaseURLMode,
+		GrokDefaultTextModel:                 settings.GrokDefaultTextModel,
+		GrokCrossClientModelMapEnabled:       settings.GrokCrossClientModelMapEnabled,
+		GrokDefaultBaseURLMode:               settings.GrokDefaultBaseURLMode,
+		GrokVideoSourceURLEnabled:            settings.GrokVideoSourceURLEnabled,
+		OpenAI409OmitEncryptedHistoryEnabled: settings.OpenAI409OmitEncryptedHistoryEnabled,
+		OpenAI400OmitEncryptedHistoryEnabled: settings.OpenAI400OmitEncryptedHistoryEnabled,
 
 		AvailableChannelsEnabled:      settings.AvailableChannelsEnabled,
 		NavigationItemVisibility:      settings.NavigationItemVisibility,
 		UserSubscriptionsPageEnabled:  settings.UserSubscriptionsPageEnabled,
 		AdminSubscriptionsPageEnabled: settings.AdminSubscriptionsPageEnabled,
 		SubscriptionEnabled:           settings.SubscriptionEnabled,
+		PelicanShowcaseEnabled:        settings.PelicanShowcaseEnabled,
+		PelicanShowcase:               settings.PelicanShowcase,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled: settings.PluginManagementEnabled,
 		ModelPlazaDescription:   settings.ModelPlazaDescription,
+		ModelPlazaUSDToCNYRate:  settings.ModelPlazaUSDToCNYRate,
+		ModelPlazaCurrency:      settings.ModelPlazaCurrency,
+
+		SupportTicketEnabled: settings.SupportTicketEnabled,
+		SupportTicket:        settings.SupportTicket,
 
 		AffiliateEnabled: settings.AffiliateEnabled,
 
-		AccountSchedulingThresholds: settings.AccountSchedulingThresholds,
-		AllowUserViewErrorRequests:  settings.AllowUserViewErrorRequests,
+		AccountSchedulingThresholds:           settings.AccountSchedulingThresholds,
+		AllowUserViewErrorRequests:            settings.AllowUserViewErrorRequests,
+		UsageShowLongContextBadge:             settings.UsageShowLongContextBadge,
+		UsageShowCacheRate:                    settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:             settings.UsageShowCacheRateToUsers,
+		UsageShowUpstreamResponseModelToUsers: settings.UsageShowUpstreamResponseModelToUsers,
+		SmartOpsHiddenMenuItems:               settings.SmartOpsHiddenMenuItems,
+		RequestCaptureEnabled:                 settings.RequestCaptureEnabled,
+		RequestCaptureQuotaMiB:                settings.RequestCaptureQuotaMiB,
+		RequestCaptureRetentionDays:           settings.RequestCaptureRetentionDays,
+		ExcelBPSImageLimitPolicy:              settings.ExcelBPSImageLimitPolicy,
+		ExcelBPSImageWarningRemaining:         settings.ExcelBPSImageWarningRemaining,
+		ExcelBPSImageCompactReserve:           settings.ExcelBPSImageCompactReserve,
 	}
 
 	// OpenAI fast policy (stored under a dedicated setting key)

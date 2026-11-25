@@ -141,6 +141,12 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 	}
 
 	failedAccounts := make(map[int64]struct{})
+	keyRelease, keyErr := h.concurrencyHelper.AcquireAPIKeySlot(c.Request.Context(), apiKey.ID, apiKey.ConcurrencyLimit)
+	if keyErr != nil {
+		h.handleConcurrencyError(c, keyErr, "API key", false)
+		return
+	}
+	defer keyRelease()
 	var account *service.Account
 	var accountReleaseFunc func()
 	var nativeResp *websearch.SearchResponse
@@ -196,6 +202,9 @@ func (h *GatewayHandler) WebSearch(c *gin.Context) {
 		account = selected.Account
 		accountReleaseFunc = release
 
+		if gateErr := service.CheckUpstreamModeration(c.Request.Context(), c, account); gateErr != nil {
+			return
+		}
 		if isXSearch {
 			nativeResp, providerName, err = h.doGrokNativeXSearch(c.Request.Context(), c, account, req, searchModel, maxResults)
 		} else {

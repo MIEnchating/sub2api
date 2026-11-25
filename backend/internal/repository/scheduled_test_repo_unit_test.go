@@ -59,7 +59,8 @@ func TestScheduledTestResultRepositoryListIncludesDisplayNames(t *testing.T) {
 		WithArgs(int64(10), 20).
 		WillReturnRows(sqlmock.NewRows([]string{
 			"id", "plan_id", "plan_name", "test_name", "test_order", "group_name", "plan_order", "target_mode", "status", "response_text", "output_kind", "output_html", "output_numeric", "account_id", "model_id", "reasoning_effort", "group_id", "error_message", "latency_ms", "started_at", "finished_at", "created_at", "test_definition_id", "account_name",
-		}).AddRow(1, 10, "nightly candy", "糖果数字测试", 0, "公开组", 12, "all_accounts", "success", "答案：29", "number", "", 29.0, 7, "model", "high", 3, "", 42, createdAt, createdAt, createdAt, 2, "Account Seven"))
+			"pelican_config", "quality_action", "quality_judgment", "quality_round_id",
+		}).AddRow(1, 10, "nightly candy", "糖果数字测试", 0, "公开组", 12, "all_accounts", "success", "答案：29", "number", "", 29.0, 7, "model", "high", 3, "", 42, createdAt, createdAt, createdAt, 2, "Account Seven", nil, "", nil, ""))
 	mock.ExpectQuery(`(?s)SELECT r.id,r.protection_decision.*FROM scheduled_test_results`).
 		WithArgs(sqlmock.AnyArg()).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "protection_decision", "execution_info", "account_schedulable", "model_schedulable", "model_order"}))

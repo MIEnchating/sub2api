@@ -316,10 +316,10 @@ func TestProfitControl_EligibilityFunctionVetoes(t *testing.T) {
 		account.Schedulable = true
 	}
 
-	require.True(t, isOpenAICompatibleAccountEligibleForRequest(gateCtx, cheap, PlatformOpenAI, "", false, ""))
-	require.False(t, isOpenAICompatibleAccountEligibleForRequest(gateCtx, expensive, PlatformOpenAI, "", false, ""))
+	require.True(t, isOpenAICompatibleAccountEligibleForRequest(gateCtx, cheap, nil, PlatformOpenAI, "", false, ""))
+	require.False(t, isOpenAICompatibleAccountEligibleForRequest(gateCtx, expensive, nil, PlatformOpenAI, "", false, ""))
 	// 无门时保持既有行为。
-	require.True(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), expensive, PlatformOpenAI, "", false, ""))
+	require.True(t, isOpenAICompatibleAccountEligibleForRequest(context.Background(), expensive, nil, PlatformOpenAI, "", false, ""))
 }
 
 func TestDeepSeekProfitControlChatScheduling(t *testing.T) {

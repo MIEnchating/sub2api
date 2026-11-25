@@ -42,7 +42,7 @@ func TestParseSSEUsage_MessageStart(t *testing.T) {
 	require.Equal(t, 100, usage.InputTokens)
 	require.Equal(t, 50, usage.CacheCreationInputTokens)
 	require.Equal(t, 200, usage.CacheReadInputTokens)
-	require.Equal(t, 0, usage.OutputTokens, "message_start 不应设置 output_tokens")
+	require.Equal(t, 0, usage.OutputTokens, "缺失 output_tokens 时应保留零值")
 }
 
 func TestParseSSEUsage_MessageDelta(t *testing.T) {
@@ -150,8 +150,9 @@ func TestHandleStreamingResponse_CacheTokens(t *testing.T) {
 	go func() {
 		defer func() { _ = pw.Close() }()
 		_, _ = pw.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":10,\"cache_creation_input_tokens\":20,\"cache_read_input_tokens\":30}}}\n\n"))
+		_, _ = io.WriteString(pw, anthropicFixtureTextSSE)
 		_, _ = pw.Write([]byte("data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":15}}\n\n"))
-		_, _ = pw.Write([]byte("data: [DONE]\n\n"))
+		_, _ = pw.Write([]byte("data: {\"type\":\"message_stop\"}\n\n"))
 	}()
 
 	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "model", "model", false)
@@ -205,7 +206,7 @@ func TestHandleStreamingResponse_SpecialCharactersInJSON(t *testing.T) {
 		_, _ = pw.Write([]byte("data: {\"type\":\"content_block_delta\",\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"Hello \\\"world\\\"\\n你好\"}}\n\n"))
 		_, _ = pw.Write([]byte("data: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":5}}}\n\n"))
 		_, _ = pw.Write([]byte("data: {\"type\":\"message_delta\",\"usage\":{\"output_tokens\":3}}\n\n"))
-		_, _ = pw.Write([]byte("data: [DONE]\n\n"))
+		_, _ = pw.Write([]byte("data: {\"type\":\"message_stop\"}\n\n"))
 	}()
 
 	result, err := svc.handleStreamingResponse(context.Background(), resp, c, &Account{ID: 1}, time.Now(), "model", "model", false)
@@ -421,7 +422,8 @@ func TestHandleStreamingResponse_SSEErrorEvent_ReturnsTypedErrorWithRawData(t *t
 	_ = pr.Close()
 
 	require.Error(t, err)
-	require.Nil(t, result)
+	require.NotNil(t, result)
+	require.False(t, result.usage.hasObservedTokens())
 
 	// typed error 必须可被 errors.As 匹配，RawData 必须保留上游 dataLine 原文
 	var sseErr *sseStreamErrorEventError
@@ -458,15 +460,12 @@ func TestHandleStreamingResponse_SSEErrorEvent_EmptyDataLine(t *testing.T) {
 	_ = pr.Close()
 
 	require.Error(t, err)
-	var sseErr *sseStreamErrorEventError
-	require.True(t, errors.As(err, &sseErr), "即使 data 行为空，也必须返回 typed error 让上层走 stream_error 分支")
-	require.Equal(t, "", sseErr.RawData)
+	var replay *UpstreamFailoverError
+	require.False(t, errors.As(err, &replay))
+	require.Contains(t, rec.Body.String(), "event: error")
+	require.NotContains(t, rec.Body.String(), "message_stop")
 }
 
-// 对抗用例：上游先发 message_start 再发 event:error，模拟"流已开始写客户端"+SSE error 帧。
-// 这是 ping 放大场景的服务侧近似（c.Writer 已被写后才出现 error）。
-// 必须仍然返回 *sseStreamErrorEventError 且 RawData 包含真实错误体，
-// 让 Forward 调用方能正确补全 ResponseBody 与 ops 事件。
 func TestHandleStreamingResponse_SSEErrorEvent_AfterPartialStreamOutput(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	svc := newMinimalGatewayService()
@@ -525,15 +524,19 @@ func TestHandleStreamingResponse_SSEErrorEvent_NonJSONDataLine(t *testing.T) {
 	_ = pr.Close()
 
 	require.Error(t, err)
-	var sseErr *sseStreamErrorEventError
-	require.True(t, errors.As(err, &sseErr))
-	require.Equal(t, "not-a-json-payload", sseErr.RawData)
+	var replay *UpstreamFailoverError
+	require.False(t, errors.As(err, &replay))
+	require.Contains(t, rec.Body.String(), "event: error")
+	require.NotContains(t, rec.Body.String(), "message_stop")
+}
 
-	// gjson 对非 JSON 输入返回空字符串，不 panic — Forward 主流程靠这个 invariant 安全地走下去
-	require.NotPanics(t, func() {
-		_ = ExtractUpstreamErrorMessage([]byte(sseErr.RawData))
-	})
-	require.Equal(t, "", ExtractUpstreamErrorMessage([]byte(sseErr.RawData)))
+func TestParseSSEUsage_StartOutputIsCumulativeNotAddedTwice(t *testing.T) {
+	s := &GatewayService{}
+	usage := &ClaudeUsage{}
+	s.parseSSEUsage(`{"type":"message_start","message":{"usage":{"input_tokens":11,"output_tokens":2}}}`, usage)
+	require.Equal(t, 2, usage.OutputTokens)
+	s.parseSSEUsage(`{"type":"message_delta","usage":{"output_tokens":7}}`, usage)
+	require.Equal(t, 7, usage.OutputTokens)
 }
 
 func TestSSEEventNeedsJSONParse(t *testing.T) {
@@ -622,6 +625,7 @@ func TestHandleStreamingResponse_FastPathForwardsDeltaBytesVerbatim(t *testing.T
 	delta := `{"delta":{"text":"你好","type":"text_delta"},"type":"content_block_delta","index":0,"extra":"a  b"}`
 	go func() {
 		defer func() { _ = pw.Close() }()
+		_, _ = io.WriteString(pw, "event: message_start\ndata: {\"type\":\"message_start\",\"message\":{\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}\n\n")
 		_, _ = pw.Write([]byte("event: content_block_delta\ndata: " + delta + "\n\n"))
 		_, _ = pw.Write([]byte("event: message_stop\ndata: {\"type\":\"message_stop\"}\n\n"))
 	}()

@@ -3,17 +3,24 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"log/slog"
 	"net/http"
+	"os"
+	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
+	"github.com/Wei-Shaw/sub2api/internal/iprisk"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/websearch"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
+	"github.com/Wei-Shaw/sub2api/internal/serverless"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/Wei-Shaw/sub2api/internal/setup"
 
 	"github.com/gin-gonic/gin"
 	"github.com/google/wire"
@@ -23,6 +30,7 @@ import (
 
 // ProviderSet 提供服务器层的依赖
 var ProviderSet = wire.NewSet(
+	ProvideLifecycle,
 	ProvideRouter,
 	ProvideHTTPServer,
 )
@@ -43,6 +51,7 @@ func ProvideRouter(
 	settingService *service.SettingService,
 	compositeResolver *service.CompositeRouteResolver,
 	redisClient *redis.Client,
+	lifecycle *Lifecycle,
 ) *gin.Engine {
 	if cfg.Server.Mode == "release" {
 		gin.SetMode(gin.ReleaseMode)
@@ -88,6 +97,46 @@ func ProvideRouter(
 		service.SetWebSearchManager(websearch.NewManager(configs, redisClient))
 	})
 
+	manager, err := serverless.New(serverless.Runtime{
+		ID: cfg.Runtime.ServerlessID, Endpoint: cfg.Runtime.ServerlessEndpoint,
+		Region: cfg.Runtime.ServerlessRegion, Secret: cfg.Runtime.ServerlessSecret,
+		Gateway: cfg.Runtime.Role == config.RuntimeRoleGateway, Version: settingService.ServerlessVersion(),
+		ResponseHeaderTimeout: time.Duration(cfg.Runtime.ServerlessResponseHeaderTimeout) * time.Second,
+	}, redisClient, settingService.ServerlessStore())
+	if err != nil {
+		panic(err)
+	}
+	settingService.Serverless = manager
+	settingService.IPRisk = iprisk.New(settingService.IPRiskStore(), redisClient, serverless.NewGeoJSResolver(redisClient), strings.EqualFold(os.Getenv("IP_RISK_DISABLED"), "true"))
+	settingService.IPRisk.Start()
+	if cfg.Runtime.Role != config.RuntimeRoleGateway && handlers.Admin != nil && handlers.Admin.Setting != nil {
+		handlers.Admin.Setting.SetKeyRiskAPIKeys(apiKeyService)
+		stop, err := handlers.Admin.Setting.StartKeyRisk(cfg.Database.DSN())
+		if err != nil {
+			slog.Warn("key risk initialization failed")
+		} else {
+			lifecycle.onDrain = append(lifecycle.onDrain, stop)
+		}
+	}
+	if handlers.Admin != nil && handlers.Admin.Setting != nil {
+		if handlers.Admin.PromptAudit != nil {
+			handlers.Admin.Setting.ConfigureIPAudit(handlers.Admin.AuditLog, handlers.Admin.PromptAudit.IPAuditPenaltySummary, handlers.Admin.PromptAudit.ReleaseIPAuditPenalty)
+		}
+	}
+	lifecycle.onDrain = append(lifecycle.onDrain, settingService.IPRisk.Stop)
+	manager.Start(func(ctx context.Context) error {
+		if lifecycle.isDraining() {
+			return fmt.Errorf("draining")
+		}
+		return lifecycle.checkWithinBudget(ctx)
+	})
+	lifecycle.onDrain = append(lifecycle.onDrain, manager.Stop)
+	r.Use(manager.Ingress())
+	// Each node owns its local spool from the retired user traffic recorder.
+	if err := removeLegacyTrafficFiles(filepath.Join(setup.GetDataDir(), "user-traffic-pending")); err != nil {
+		slog.Warn("could not remove legacy user traffic spool", "error", err)
+	}
+	r.GET("/internal/serverless/probe", manager.ProbeHandler)
 	return SetupRouter(r, handlers, jwtAuth, optionalJWTAuth, adminAuth, apiKeyAuth, auditLog, stepUpAuth, apiKeyService, subscriptionService, opsService, settingService, compositeResolver, cfg, redisClient)
 }
 
@@ -111,7 +160,7 @@ func configureTrustedProxies(r *gin.Engine, cfg config.ServerConfig) {
 }
 
 // ProvideHTTPServer 提供 HTTP 服务器
-func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
+func ProvideHTTPServer(cfg *config.Config, router *gin.Engine, lifecycle *Lifecycle) *http.Server {
 	httpHandler := http.Handler(router)
 	server := &http.Server{
 		Addr:           cfg.Server.Address(),
@@ -161,7 +210,8 @@ func ProvideHTTPServer(cfg *config.Config, router *gin.Engine) *http.Server {
 	}
 
 	httpHandler = pkghttputil.WithBodyReadTimeout(httpHandler, time.Duration(cfg.Gateway.RequestBodyReadTimeoutSeconds)*time.Second)
-	server.Handler = pkghttputil.WithWriteTimeout(httpHandler, time.Duration(cfg.Gateway.DownstreamWriteTimeoutSeconds)*time.Second)
+	httpHandler = pkghttputil.WithWriteTimeout(httpHandler, time.Duration(cfg.Gateway.DownstreamWriteTimeoutSeconds)*time.Second)
+	server.Handler = lifecycle.Wrap(httpHandler)
 	return server
 }
 

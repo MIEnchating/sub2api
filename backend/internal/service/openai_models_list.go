@@ -13,6 +13,15 @@ import (
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
 
+type openAIModelsReadPolicy uint8
+
+const (
+	openAIModelsReadDefault openAIModelsReadPolicy = iota
+	// A replacement whitelist needs this request's complete upstream response.
+	// It must not refresh credentials, recover tasks or change account health.
+	openAIModelsReadWhitelist
+)
+
 // FetchOpenAIModelsList discovers a single account's raw public model catalog.
 // API keys use the standard endpoint; OAuth reuses the authenticated, cached
 // Codex source. Account mappings and group policy are applied after this cache.
@@ -24,6 +33,10 @@ func (s *OpenAIGatewayService) FetchOpenAIModelsList(ctx context.Context, accoun
 }
 
 func (s *OpenAIGatewayService) fetchNativeOpenAIModelsList(ctx context.Context, account *Account) (*OpenAIModelsResponse, error) {
+	return s.fetchNativeOpenAIModelsListWithPolicy(ctx, account, openAIModelsReadDefault)
+}
+
+func (s *OpenAIGatewayService) fetchNativeOpenAIModelsListWithPolicy(ctx context.Context, account *Account, policy openAIModelsReadPolicy) (*OpenAIModelsResponse, error) {
 	if s == nil || account == nil {
 		return nil, infraerrors.New(http.StatusInternalServerError, "OPENAI_MODELS_ACCOUNT_REQUIRED", "OpenAI account is required")
 	}
@@ -39,9 +52,12 @@ func (s *OpenAIGatewayService) fetchNativeOpenAIModelsList(ctx context.Context, 
 		if s.settingService != nil {
 			clientVersion = s.settingService.GetOpenAICodexClientVersion(ctx)
 		}
-		response, err := s.fetchNativeCodexModelsManifest(ctx, account, clientVersion, "")
+		response, err := s.fetchNativeCodexModelsManifestWithPolicy(ctx, account, clientVersion, "", policy)
 		if err != nil {
 			return nil, err
+		}
+		if response == nil || response.NotModified {
+			return nil, invalidOpenAIModelsList(fmt.Errorf("upstream returned no current model catalog"))
 		}
 		body, err := standardOpenAIModelsBody(response.Body, true)
 		if err != nil {
@@ -60,7 +76,7 @@ func (s *OpenAIGatewayService) fetchNativeOpenAIModelsList(ctx context.Context, 
 		accountConcurrency: account.Concurrency, useAPIKeyUpstream: true,
 		standardModelsList: true,
 	}
-	response, err := s.fetchCachedOpenAIModels(ctx, request, func(fetchCtx context.Context, etag string) (*OpenAIModelsResponse, error) {
+	fetch := func(fetchCtx context.Context, etag string) (*OpenAIModelsResponse, error) {
 		response, err := s.fetchOpenAIModelsUpstream(fetchCtx, request, etag)
 		if err != nil || response.NotModified {
 			return response, err
@@ -72,7 +88,15 @@ func (s *OpenAIGatewayService) fetchNativeOpenAIModelsList(ctx context.Context, 
 		response.Body = body
 		response.ETag = codexModelsManifestBodyETag(body)
 		return response, nil
-	}, "")
+	}
+	var response *OpenAIModelsResponse
+	if policy == openAIModelsReadWhitelist {
+		request.headers.Del("If-None-Match")
+		request.headers.Set("Cache-Control", "no-cache")
+		response, err = fetch(ctx, "")
+	} else {
+		response, err = s.fetchCachedOpenAIModels(ctx, request, fetch, "")
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -188,12 +212,20 @@ func projectAccountModelsBody(body []byte, account *Account, group *Group, codex
 // the shared response, and never synthesizes models absent from this account.
 func projectAccountModelAliases(body []byte, account *Account, group *Group, codex bool) ([]byte, error) {
 	passthrough := account.IsOpenAIPassthroughEnabled()
-	if (passthrough && !account.IsOpenAIPassthroughModelFilterEnabled()) || len(account.GetModelMapping()) == 0 {
-		return body, nil
+	var groupID *int64
+	if group != nil {
+		groupID = &group.ID
 	}
 	field, idField := "data", "id"
 	if codex {
 		field, idField = "models", "slug"
+	}
+	if !account.hasOAuthInitialModelSelection() && ((passthrough && !account.IsOpenAIPassthroughModelFilterEnabled()) || len(account.GetModelMapping()) == 0) {
+		if len(account.GroupAllowedModels(derefGroupID(groupID))) == 0 {
+			return body, nil
+		}
+		// 没有映射的账号原样公布上游列表；在本分组被限制时只保留允许的模型。
+		return filterModelsBodyForGroup(body, account, groupID, field, idField)
 	}
 	envelope, entries, err := modelCatalogEntries(body, field)
 	if err != nil {
@@ -247,13 +279,20 @@ func projectAccountModelAliases(body []byte, account *Account, group *Group, cod
 		if _, ok := seen[id]; ok {
 			continue
 		}
+		if !account.IsModelAllowedInGroup(groupID, id) {
+			continue
+		}
+		if account.hasOAuthInitialModelSelection() && !account.IsModelSupported(id) {
+			continue
+		}
 		target, matched := account.ResolveMappedModel(id)
 		if passthrough {
 			// Filtering changes eligibility, never the upstream/public model name.
 			target, matched = id, account.IsModelSupported(id)
 		}
+		allowed := matched || ((len(account.GetModelMapping()) == 0 || account.IsOpenAIModelMappingAliases()) && account.IsModelSupported(id))
 		raw, available := byID[strings.TrimSpace(target)]
-		if !matched || !available {
+		if !available || !allowed {
 			continue
 		}
 		seen[id] = struct{}{}
@@ -279,6 +318,34 @@ func projectAccountModelAliases(body []byte, account *Account, group *Group, cod
 		return body, nil
 	}
 	envelope[field], err = json.Marshal(projected)
+	if err != nil {
+		return nil, err
+	}
+	return json.Marshal(envelope)
+}
+
+// filterModelsBodyForGroup keeps only the catalog entries the account may serve
+// in the group, preserving every other field of the envelope and the entries.
+func filterModelsBodyForGroup(body []byte, account *Account, groupID *int64, field, idField string) ([]byte, error) {
+	envelope, entries, err := modelCatalogEntries(body, field)
+	if err != nil {
+		return nil, err
+	}
+	kept := make([]json.RawMessage, 0, len(entries))
+	for _, raw := range entries {
+		var entry map[string]json.RawMessage
+		if json.Unmarshal(raw, &entry) != nil {
+			continue
+		}
+		var id string
+		if json.Unmarshal(entry[idField], &id) != nil {
+			continue
+		}
+		if account.IsModelAllowedInGroup(groupID, strings.TrimSpace(id)) {
+			kept = append(kept, raw)
+		}
+	}
+	envelope[field], err = json.Marshal(kept)
 	if err != nil {
 		return nil, err
 	}

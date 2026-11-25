@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"net/http"
 	"strings"
 	"unicode/utf8"
@@ -16,6 +15,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/pkg/apicompat"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
@@ -58,6 +58,12 @@ func buildOpenAIResponsesURL(base string) string {
 // buildOpenAIResponsesURLForPlatform 组装 Responses 端点（平台感知）。
 // 供应商 profile 声明了 ResponsesPath 时按其拼接（如 DeepSeek 为无 /v1 前缀的
 // /responses）；其余平台维持 /v1/responses。
+//
+// 第三方 DeepSeek 兼容上游（聚合站/自建 relay）不统一：有的与官方一样在根路径
+// 提供 /responses，有的只提供 /v1/responses。因此在 base_url 上显式带上版本号
+// 是唯一可靠的配置方式：base 以 /v1 结尾时 buildOpenAIEndpointURL 不再追加
+// /v1，直接得到 /v1/responses；base 写成 .../responses 时也不再追加路径。
+// 多协议账号用 credentials.api_base_urls.responses 指定该地址即可。
 func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
 	if profile := LookupProviderProfile(platform); profile != nil && profile.ResponsesPath != "" {
 		return buildOpenAIEndpointURL(base, profile.ResponsesPath)
@@ -65,9 +71,12 @@ func buildOpenAIResponsesURLForPlatform(platform string, base string) string {
 	return buildOpenAIResponsesURL(base)
 }
 
-func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account) bool {
+func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account, model string) bool {
 	if account == nil {
 		return false
+	}
+	if account.Platform == PlatformMistral || (account.Platform == PlatformQwen && qwenEffortModel(account.GetMappedModel(model))) {
+		return true
 	}
 	if account.IsOpenAIPassthroughEnabled() {
 		return true
@@ -86,7 +95,7 @@ func shouldPreserveOpenAIResponsesNoneReasoningEffort(account *Account) bool {
 // non-reasoning model. Treat that catalog-only "none" value as omission for
 // compatible upstreams, while preserving official OpenAI request semantics.
 func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body []byte) ([]byte, error) {
-	if len(body) == 0 || shouldPreserveOpenAIResponsesNoneReasoningEffort(account) {
+	if len(body) == 0 || shouldPreserveOpenAIResponsesNoneReasoningEffort(account, gjson.GetBytes(body, "model").Str) {
 		return body, nil
 	}
 
@@ -113,7 +122,8 @@ func filterOpenAIResponsesNoneReasoningEffortForAccount(account *Account, body [
 }
 
 func deleteOpenAIResponsesNoneReasoningEffortFromObject(account *Account, body map[string]any) {
-	if body == nil || shouldPreserveOpenAIResponsesNoneReasoningEffort(account) {
+	model, _ := body["model"].(string)
+	if body == nil || shouldPreserveOpenAIResponsesNoneReasoningEffort(account, model) {
 		return
 	}
 	if effort, ok := body["reasoning_effort"].(string); ok && strings.EqualFold(strings.TrimSpace(effort), "none") {
@@ -142,7 +152,7 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 	if account == nil {
 		return body
 	}
-	applyStateless := account.UsesNativeCNResponses()
+	applyStateless := account.UsesNativeCNResponses() && !account.QwenSessionCacheEnabled()
 	applyImages := shouldAliasDeepSeekResponsesInputImages(account)
 	if !applyStateless && !applyImages {
 		return body
@@ -176,7 +186,7 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 		changed = true
 	}
 	if applyImages {
-		if aliased, aliasedChanged := aliasDeepSeekResponsesInputImages(input); aliasedChanged {
+		if aliased, aliasedChanged := aliasDeepSeekResponsesInputImages(input, deepSeekResponsesImageField(account)); aliasedChanged {
 			requestBody["input"] = aliased
 			changed = true
 		}
@@ -191,14 +201,26 @@ func normalizeDeepSeekResponsesRequestBody(account *Account, body []byte) []byte
 	return rebuilt
 }
 
+// DeepSeekResponsesImageFieldCredential selects a wire schema, not a retry.
+// The default uses the current image_url schema. Legacy url-required providers
+// can opt in to url; the adapter never sends both or probes with a paid replay.
+const DeepSeekResponsesImageFieldCredential = "deepseek_responses_image_field"
+
+func deepSeekResponsesImageField(account *Account) string {
+	if account != nil && strings.EqualFold(strings.TrimSpace(account.GetCredential(DeepSeekResponsesImageFieldCredential)), "url") {
+		return "url"
+	}
+	return "image_url"
+}
+
 func shouldAliasDeepSeekResponsesInputImages(account *Account) bool {
 	return targetsDeepSeekAPIHost(account)
 }
 
 // aliasDeepSeekResponsesInputImages 把图片 part 改写成 DeepSeek 官方形状：
-// type=input_image，同时只保留字符串字段 image_url。仅有 file_id、没有可用
+// type=input_image，只保留明确协议分支选择的 URL 字段。仅有 file_id、没有可用
 // URL 的 part 原样保留。
-func aliasDeepSeekResponsesInputImages(input any) (any, bool) {
+func aliasDeepSeekResponsesInputImages(input any, imageField string) (any, bool) {
 	items, ok := asDeepSeekResponsesSlice(input)
 	if !ok {
 		return input, false
@@ -209,7 +231,7 @@ func aliasDeepSeekResponsesInputImages(input any) (any, bool) {
 		if !ok {
 			continue
 		}
-		if aliasDeepSeekResponsesInputItem(item) {
+		if aliasDeepSeekResponsesInputItem(item, imageField) {
 			items[i] = item
 			changed = true
 		}
@@ -220,16 +242,16 @@ func aliasDeepSeekResponsesInputImages(input any) (any, bool) {
 	return items, true
 }
 
-func aliasDeepSeekResponsesInputItem(item map[string]any) bool {
-	changed := aliasDeepSeekResponsesImagePart(item)
+func aliasDeepSeekResponsesInputItem(item map[string]any, imageField string) bool {
+	changed := aliasDeepSeekResponsesImagePart(item, imageField)
 	if content, exists := item["content"]; exists {
-		if rewritten, did := aliasDeepSeekResponsesContent(content); did {
+		if rewritten, did := aliasDeepSeekResponsesContent(content, imageField); did {
 			item["content"] = rewritten
 			changed = true
 		}
 	}
 	if output, exists := item["output"]; exists {
-		if rewritten, did := aliasDeepSeekResponsesContent(output); did {
+		if rewritten, did := aliasDeepSeekResponsesContent(output, imageField); did {
 			item["output"] = rewritten
 			changed = true
 		}
@@ -237,7 +259,7 @@ func aliasDeepSeekResponsesInputItem(item map[string]any) bool {
 	return changed
 }
 
-func aliasDeepSeekResponsesContent(content any) (any, bool) {
+func aliasDeepSeekResponsesContent(content any, imageField string) (any, bool) {
 	parts, ok := asDeepSeekResponsesSlice(content)
 	if !ok {
 		return content, false
@@ -248,7 +270,7 @@ func aliasDeepSeekResponsesContent(content any) (any, bool) {
 		if !ok {
 			continue
 		}
-		if aliasDeepSeekResponsesImagePart(part) {
+		if aliasDeepSeekResponsesImagePart(part, imageField) {
 			parts[i] = part
 			changed = true
 		}
@@ -259,7 +281,7 @@ func aliasDeepSeekResponsesContent(content any) (any, bool) {
 	return parts, true
 }
 
-func aliasDeepSeekResponsesImagePart(part map[string]any) bool {
+func aliasDeepSeekResponsesImagePart(part map[string]any, imageField string) bool {
 	partType := strings.TrimSpace(stringValue(part["type"]))
 	switch partType {
 	case "input_image", "image_url", "image":
@@ -275,13 +297,19 @@ func aliasDeepSeekResponsesImagePart(part map[string]any) bool {
 		part["type"] = "input_image"
 		changed = true
 	}
-	if current, ok := part["image_url"].(string); !ok || strings.TrimSpace(current) != imageURL {
-		part["image_url"] = imageURL
+	if current, ok := part[imageField].(string); !ok || strings.TrimSpace(current) != imageURL {
+		part[imageField] = imageURL
 		changed = true
 	}
-	if _, exists := part["url"]; exists {
-		delete(part, "url")
-		changed = true
+	// Exactly one URL field crosses the adapter boundary. Converted source/image
+	// aliases also contain the bitmap and must not duplicate the selected payload.
+	for _, key := range []string{"url", "image_url", "image", "source"} {
+		if key != imageField {
+			if _, exists := part[key]; exists {
+				delete(part, key)
+				changed = true
+			}
+		}
 	}
 	return changed
 }
@@ -660,9 +688,14 @@ func openAIRequestBodyHasTools(body []byte) bool {
 	if gjsonArrayHasElements(root.Get("tools")) {
 		return true
 	}
+	return openAIRequestBodyHasAdditionalTools(body)
+}
+
+func openAIRequestBodyHasAdditionalTools(body []byte) bool {
 	if !bytes.Contains(body, []byte("additional_tools")) && !JSONMayEscapePlainASCII(body) {
 		return false
 	}
+	root := parseRawJSONView(body)
 	found := false
 	isAdditionalToolsWithTools := func(item gjson.Result) bool {
 		return strings.TrimSpace(item.Get("type").String()) == "additional_tools" && gjsonArrayHasElements(item.Get("tools"))
@@ -693,8 +726,8 @@ func gjsonArrayHasElements(value gjson.Result) bool {
 }
 
 // normalizeOpenAIResponsesReasoningContentReplay removes non-portable
-// reasoning.content arrays before history is sent to a real OpenAI Responses
-// endpoint. Compatible providers may return visible reasoning blocks there,
+// reasoning.content arrays and output-only reasoning.status before history
+// is sent to a real OpenAI Responses endpoint. Compatible providers may return visible reasoning blocks there,
 // while OpenAI accepts only an empty array when the item is replayed.
 //
 // Keep the reasoning item and its portable fields (summary, encrypted_content,
@@ -712,7 +745,7 @@ func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, 
 			return true
 		}
 		content := item.Get("content")
-		if content.IsArray() && len(content.Array()) > 0 {
+		if item.Get("status").Exists() || (content.IsArray() && len(content.Array()) > 0) {
 			needsNormalization = true
 			return false
 		}
@@ -735,6 +768,12 @@ func normalizeOpenAIResponsesReasoningContentReplay(body []byte) ([]byte, bool, 
 		item, ok := rawItem.(map[string]any)
 		if !ok || strings.TrimSpace(firstNonEmptyString(item["type"])) != "reasoning" {
 			continue
+		}
+		// Response output metadata is rejected when replayed as reasoning input.
+		// Restrict this to the item itself; message/tool/nested status is meaningful.
+		if _, exists := item["status"]; exists {
+			delete(item, "status")
+			changed = true
 		}
 		content, ok := item["content"].([]any)
 		if !ok || len(content) == 0 {
@@ -1644,7 +1683,8 @@ func normalizeOpenAIResponsesWebSocketCompatibilityBody(body []byte, account *Ac
 }
 
 func normalizeOpenAIResponsesWebSocketCompatibilityBodyWithConfig(cfg *config.Config, body []byte, account *Account, responsesLite bool) ([]byte, bool, error) {
-	return normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{Config: cfg, ResponsesLite: responsesLite})
+	protected := cfg != nil && !openAILegacyCompatibilityEnabled(cfg) && cfg.Gateway.DisableEncryptedAgentOwnerBinding && len(openAIAgentRecoveryItemDigests(body)) > 0
+	return normalizeOpenAIResponsesCompatibilityBodyWithOptions(body, account, openAIResponsesCompatibilityOptions{Config: cfg, ResponsesLite: responsesLite, PreserveInput: protected})
 }
 
 type openAIResponsesCompatibilityOptions struct {
@@ -1653,6 +1693,9 @@ type openAIResponsesCompatibilityOptions struct {
 	// Compact marks the /responses/compact wire shape, which is left as-is
 	// by request-shape compatibility rewrites such as web_search history.
 	Compact bool
+	// The pre-builder metadata stage already prepared this complete history.
+	// Never drop readable reasoning or whole items in ordinary opt-out mode.
+	PreserveInput bool
 }
 
 func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *Account, opts openAIResponsesCompatibilityOptions) ([]byte, bool, error) {
@@ -1675,11 +1718,13 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 			changed = true
 		}
 	}
-	if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningContentReplay(normalized); err != nil {
-		return body, false, err
-	} else if normalizedReasoningContent {
-		normalized = next
-		changed = true
+	if !opts.PreserveInput {
+		if next, normalizedReasoningContent, err := normalizeOpenAIResponsesReasoningContentReplay(normalized); err != nil {
+			return body, false, err
+		} else if normalizedReasoningContent {
+			normalized = next
+			changed = true
+		}
 	}
 	if account.IsOpenAIApiKey() {
 		if next, normalizedParallel, err := normalizeOpenAIParallelToolCallsWithoutTools(normalized, responsesLite); err != nil {
@@ -1688,11 +1733,13 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 			normalized = next
 			changed = true
 		}
-		if next, normalizedReasoning, err := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(normalized, false); err != nil {
-			return body, false, err
-		} else if normalizedReasoning {
-			normalized = next
-			changed = true
+		if !opts.PreserveInput {
+			if next, normalizedReasoning, err := normalizeOpenAIAPIKeyStoreFalseReasoningReplay(normalized, false); err != nil {
+				return body, false, err
+			} else if normalizedReasoning {
+				normalized = next
+				changed = true
+			}
 		}
 	}
 	if sanitized, idsChanged, err := sanitizeOpenAIResponsesInputItemIDs(normalized); err != nil {
@@ -1736,9 +1783,9 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 			changed = changed || webSearchChanged
 		}
 	}
-	needsOrphanCleanup := account != nil && account.IsOpenAIOAuthLike() &&
+	needsOrphanCleanup := !opts.PreserveInput && account.IsOpenAIOAuthLike() &&
 		openAIResponsesInputMayNeedOrphanCleanup(normalized)
-	if needsOrphanCleanup || openAIResponsesInputMayNeedTruncation(normalized) {
+	if needsOrphanCleanup || (!opts.PreserveInput && openAIResponsesInputMayNeedTruncation(normalized)) {
 		var reqBody map[string]any
 		if err := decodeOpenAIJSONUseNumber(normalized, &reqBody); err != nil {
 			return body, false, fmt.Errorf("normalize websocket Responses body: %w", err)
@@ -1773,7 +1820,7 @@ func normalizeOpenAIResponsesCompatibilityBodyWithOptions(body []byte, account *
 	}
 	if openAIRequestBodyImageGenerationToolNeedsNormalization(normalized) {
 		var reqBody map[string]any
-		if err := json.Unmarshal(normalized, &reqBody); err != nil {
+		if err := decodeOpenAIJSONUseNumber(normalized, &reqBody); err != nil {
 			return body, false, fmt.Errorf("normalize websocket image tool body: %w", err)
 		}
 		if normalizeOpenAIResponsesImageGenerationTools(reqBody) {
@@ -1841,7 +1888,8 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 		changed = true
 	}
 
-	if inputResult := gjson.GetBytes(normalized, "input"); inputResult.Exists() {
+	// Inspect the input in place so an already-normalized history array is never copied here.
+	if inputResult := gjson.Get(openAIWSPayloadStringView(normalized), "input"); inputResult.Exists() {
 		switch {
 		case inputResult.Type == gjson.String:
 			text := inputResult.String()
@@ -1906,6 +1954,24 @@ func normalizeOpenAIPassthroughOAuthBody(body []byte, compact bool) ([]byte, boo
 	}
 
 	return normalized, changed, nil
+}
+
+func detectOpenAIPassthroughInstructionsRejectReason(reqModel string, body []byte) string {
+	if !isOpenAICodexModel(reqModel) {
+		return ""
+	}
+
+	instructions := gjson.GetBytes(body, "instructions")
+	if !instructions.Exists() {
+		return ""
+	}
+	if instructions.Type != gjson.String {
+		return "instructions_not_string"
+	}
+	if strings.TrimSpace(instructions.String()) == "" {
+		return "instructions_empty"
+	}
+	return ""
 }
 
 func isOpenAICodexModel(model string) bool {
@@ -2261,62 +2327,6 @@ func openAIFastPolicySettingsFromContext(ctx context.Context) *OpenAIFastPolicyS
 		return v
 	}
 	return nil
-}
-
-// openAIModelSupportsUltrafast reports whether OpenAI offers the Ultrafast
-// service tier for the model. Both model-scoped group controls and default
-// billing multipliers use this gate; explicit tier overrides remain independent.
-func openAIModelSupportsUltrafast(model string) bool {
-	normalized := normalizeKnownOpenAICodexModel(model)
-	return isOpenAIGPT6AstraModel(normalized) || normalized == "gpt-6.1-sol" || normalized == "gpt-6.2-sol" || normalized == "gpt-6.2-astra"
-}
-
-// openAIGroupForcedServiceTier returns the service_tier that the trusted request
-// Group forces onto an OpenAI-account request for the given upstream model, or
-// "" when the group forces nothing and the client's value is kept.
-//
-// An explicit ForceOpenAIServiceTier retains the custom tier override. Otherwise
-// the two group flags are independent and resolve as Ultrafast > Fast > client:
-//   - ForceOpenAIUltrafast applies only to models that support Ultrafast
-//     (openAIModelSupportsUltrafast) and yields "ultrafast".
-//   - Otherwise ForceOpenAIFast yields "priority", for every model.
-//
-// So a group with only ForceOpenAIUltrafast leaves unsupported models to the
-// client, and a group with both flags falls back to Fast for them.
-func openAIGroupForcedServiceTier(ctx context.Context, account *Account, model string) string {
-	if ctx == nil || account == nil || account.Platform != PlatformOpenAI {
-		return ""
-	}
-	group, _ := ctx.Value(ctxkey.Group).(*Group)
-	if !IsGroupContextValid(group) || !groupSupportsOpenAIFast(group.Platform) {
-		return ""
-	}
-	switch group.ForceOpenAIServiceTier {
-	case OpenAIFastTierPriority, OpenAIFastTierUltrafast:
-		return group.ForceOpenAIServiceTier
-	case "":
-		// The upstream boolean controls are used only without an explicit tier.
-	default:
-		return ""
-	}
-	if group.ForceOpenAIUltrafast && openAIModelSupportsUltrafast(model) {
-		// Resolve the published Pro entitlement first, then account-specific grants.
-		if base := openai.GPT62ModelID(model); base != "" && account.IsOpenAIOAuthLike() {
-			if gpt62PlanIncludesUltrafast(account, base) {
-				return OpenAIFastTierUltrafast
-			}
-			metadata, ok := account.GetUpstreamModelMetadata(base)
-			if ok && gjson.GetBytes(metadata.CodexToolCapabilities["service_tiers"], `#(id=="ultrafast")`).Exists() {
-				return OpenAIFastTierUltrafast
-			}
-		} else {
-			return OpenAIFastTierUltrafast
-		}
-	}
-	if group.ForceOpenAIFast {
-		return OpenAIFastTierPriority
-	}
-	return ""
 }
 
 // applyOpenAIFastPolicyToBody applies the OpenAI fast policy to a raw request
@@ -2861,7 +2871,7 @@ func normalizeOpenAIReasoningEffortForModel(raw, model string) string {
 // supportsOpenAIReasoningEffortMax reports model families whose upstream scale
 // has a distinct max level. Other models keep the legacy max -> xhigh behavior.
 func supportsOpenAIReasoningEffortMax(model string) bool {
-	if isOpenAIGPT6Model(model) || isOpenAIGPT56Model(model) {
+	if isOpenAIGPT6Model(model) || isOpenAIGPT56Model(model) || normalizeOpenAIGPT62Model(model) != "" {
 		return true
 	}
 
@@ -2871,7 +2881,7 @@ func supportsOpenAIReasoningEffortMax(model string) bool {
 	case strings.HasPrefix(normalized, "deepseek-v4"), strings.HasPrefix(normalized, "deepseek-flash"):
 		// deepseek-flash（= DeepSeek-V4.1-Flash）与 v4 系同为 low/high/max 档位。
 		return true
-	case strings.HasPrefix(normalized, "glm-"):
+	case strings.HasPrefix(normalized, "glm-"), normalized == "zai-glm-5-3", normalized == "zai-glm-5-3-flash":
 		return true
 	case strings.HasPrefix(normalized, "kimi-"), strings.HasPrefix(normalized, "moonshot-"):
 		return true

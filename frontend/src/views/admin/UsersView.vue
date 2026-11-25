@@ -29,6 +29,7 @@
                 :options="[
                   { value: '', label: t('admin.users.allRoles') },
                   { value: 'admin', label: t('admin.users.admin') },
+                  { value: 'observer', label: t('admin.users.roles.observer') },
                   { value: 'user', label: t('admin.users.user') }
                 ]"
                 @change="applyFilter"
@@ -455,6 +456,10 @@
                 {{ t('admin.users.deposit') }}
               </button>
             </div>
+            <div v-if="creditAuth.isAdmin && row.auto_credit_outstanding && !/^0(?:\.0+)?$/.test(row.auto_credit_outstanding)" class="mt-1 flex items-center gap-1">
+              <button type="button" class="text-left text-xs font-semibold text-amber-700 dark:text-amber-300" @click="autoCreditUser = row">{{ t('autoCredit.debt', { amount: Number(row.auto_credit_outstanding).toFixed(2) }) }}</button>
+              <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.vipAutoCredit" :user-id="creditAuth.user?.id" compact />
+            </div>
           </template>
 
           <template #cell-balance_platform_quota="{ row }">
@@ -573,6 +578,21 @@
             <PlatformCostCell :usage="getPlatformUsage(row.id, 'antigravity')" />
           </template>
 
+          <template #header-live_usage>
+            <span class="inline-flex items-center gap-1" :title="t('admin.users.liveUsageHint')">
+              {{ t('admin.users.columns.liveUsage') }}
+              <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.userLiveLoad" :user-id="creditAuth.user?.id" compact />
+            </span>
+          </template>
+          <template #cell-live_usage="{ row }">
+            <div class="flex items-start gap-1">
+              <UserLiveUsageCell :user="row" />
+              <span class="md:hidden">
+                <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.userLiveLoad" :user-id="creditAuth.user?.id" compact />
+              </span>
+            </div>
+          </template>
+
           <template #cell-concurrency="{ row }">
             <UserConcurrencyCell
               :current="row.current_concurrency ?? 0"
@@ -612,6 +632,10 @@
 
           <template #cell-actions="{ row }">
             <div class="flex items-center gap-1">
+              <div v-if="creditAuth.isAdmin" class="flex items-center gap-1">
+                <button type="button" class="rounded-lg p-1.5 text-xs text-amber-700 hover:bg-amber-50 dark:text-amber-300" @click="autoCreditUser = row">{{ t('autoCredit.title') }}</button>
+                <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.vipAutoCredit" :user-id="creditAuth.user?.id" compact />
+              </div>
               <!-- Edit Button -->
               <button
                 @click="handleEdit(row)"
@@ -784,6 +808,7 @@
     />
     <UserApiKeysModal :show="showApiKeysModal" :user="viewingUser" @close="closeApiKeysModal" />
     <UserAllowedGroupsModal :show="showAllowedGroupsModal" :user="allowedGroupsUser" @close="closeAllowedGroupsModal" @success="loadUsers" />
+    <UserAutoCreditModal :show="!!autoCreditUser" :user="autoCreditUser" @close="autoCreditUser = null" @success="loadUsers" />
     <UserBalanceModal :show="showBalanceModal" :user="balanceUser" :operation="balanceOperation" @close="closeBalanceModal" @success="loadUsers" />
     <UserBalanceHistoryModal :show="showBalanceHistoryModal" :user="balanceHistoryUser" @close="closeBalanceHistoryModal" @deposit="handleDepositFromHistory" @withdraw="handleWithdrawFromHistory" />
     <GroupReplaceModal :show="showGroupReplaceModal" :user="groupReplaceUser" :old-group="groupReplaceOldGroup" :all-groups="allGroups" @close="closeGroupReplaceModal" @success="loadUsers" />
@@ -817,6 +842,7 @@ import GroupBadge from '@/components/common/GroupBadge.vue'
 import Select from '@/components/common/Select.vue'
 import { buildApiKeyGroupFilterOptions } from './apiKeyGroupFilterOptions'
 import UserAttributesConfigModal from '@/components/user/UserAttributesConfigModal.vue'
+import UserLiveUsageCell from '@/components/user/UserLiveUsageCell.vue'
 import UserConcurrencyCell from '@/components/user/UserConcurrencyCell.vue'
 import PlatformUsageBreakdown from '@/components/user/PlatformUsageBreakdown.vue'
 import PlatformCostCell from '@/components/user/PlatformCostCell.vue'
@@ -828,10 +854,16 @@ import UserPlatformQuotaModal from '@/components/admin/user/UserPlatformQuotaMod
 import UserApiKeysModal from '@/components/admin/user/UserApiKeysModal.vue'
 import UserAllowedGroupsModal from '@/components/admin/user/UserAllowedGroupsModal.vue'
 import UserBalanceModal from '@/components/admin/user/UserBalanceModal.vue'
+import UserAutoCreditModal from '@/components/admin/user/UserAutoCreditModal.vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
+import { useAuthStore } from '@/stores/auth'
 import UserBalanceHistoryModal from '@/components/admin/user/UserBalanceHistoryModal.vue'
 import GroupReplaceModal from '@/components/admin/user/GroupReplaceModal.vue'
 
 const appStore = useAppStore()
+const creditAuth = useAuthStore()
+const autoCreditUser = ref<AdminUser | null>(null)
 
 // Generate dynamic attribute columns from enabled definitions
 const attributeColumns = computed<Column[]>(() =>
@@ -898,6 +930,7 @@ const allColumns = computed<Column[]>(() => [
   { key: 'usage_gemini', label: t('admin.users.columns.usageGemini'), sortable: false },
   { key: 'usage_antigravity', label: t('admin.users.columns.usageAntigravity'), sortable: false },
   { key: 'concurrency', label: t('admin.users.columns.concurrency'), sortable: true },
+  { key: 'live_usage', label: t('admin.users.columns.liveUsage'), sortable: false },
   { key: 'status', label: t('admin.users.columns.status'), sortable: true },
   { key: 'last_active_at', label: t('admin.users.columns.lastActive'), sortable: true },
   { key: 'last_used_at', label: t('admin.users.columns.lastUsed'), sortable: true },
@@ -1584,7 +1617,11 @@ const handleAttributesModalClose = async () => {
   loadUsers()
 }
 
+let lastUsersLoadAt = 0
+let liveUsageTimer: ReturnType<typeof setInterval> | undefined
+
 const loadUsers = async () => {
+  lastUsersLoadAt = Date.now()
   abortController?.abort()
   const currentAbortController = new AbortController()
   abortController = currentAbortController
@@ -1895,6 +1932,11 @@ onMounted(() => {
   loadSavedColumns()
   attributeDefinitionsReady = loadAttributeDefinitions()
   loadUsers()
+  liveUsageTimer = setInterval(() => {
+    if (document.hidden || hiddenColumns.has('live_usage') || loading.value) return
+    if (Date.now() - lastUsersLoadAt < 60_000) return
+    void loadUsers()
+  }, 60_000)
   if (hasVisibleGroupsColumn.value || visibleFilters.has('group')) {
     loadAllGroups()
   }
@@ -1906,6 +1948,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  clearInterval(liveUsageTimer)
   document.removeEventListener('click', handleClickOutside)
   window.removeEventListener('scroll', handleScroll, true)
   clearTimeout(searchTimeout)

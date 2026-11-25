@@ -381,8 +381,10 @@ type InflightEstimateRequest struct {
 	// SearchCalls 叠加的搜索次数（按分组 search_price_per_1k 计）。
 	SearchCalls int
 	// 视频：分辨率与时长（秒）。
-	VideoResolution      string
-	VideoDurationSeconds int
+	VideoResolution           string
+	VideoDurationSeconds      int
+	UseRequestedVideoDuration bool
+	MiniMaxH3BaseCost         *float64
 	// 音频：模式（tts/stt/realtime）与计量单位（百万字符/小时/分钟）。
 	AudioMode  string
 	AudioUnits float64
@@ -593,10 +595,18 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 		}
 	case InflightEstimateVideo:
 		if perRequestMode {
-			cost = maxPerRequestPrice(resolved) * float64(units) * math.Max(textRate, imageRate)
+			billableUnits := float64(units)
+			if req.UseRequestedVideoDuration && resolved.Mode == BillingModeVideo {
+				billableUnits *= float64(req.VideoDurationSeconds)
+			}
+			cost = maxPerRequestPrice(resolved) * billableUnits * math.Max(textRate, imageRate)
 		}
 		if d.billing != nil {
-			if b := d.billing.CalculateVideoCost(model, req.VideoResolution, units, req.VideoDurationSeconds, videoPriceConfigFromAPIKey(apiKey), math.Max(textRate, imageRate)); b != nil && b.ActualCost > cost {
+			duration := req.VideoDurationSeconds
+			if !req.UseRequestedVideoDuration {
+				duration = NormalizeVideoBillingDurationSecondsOrDefault(duration)
+			}
+			if b := d.billing.calculateVideoCost(model, req.VideoResolution, units, duration, videoPriceConfigFromAPIKey(apiKey), math.Max(textRate, imageRate)); b != nil && b.ActualCost > cost {
 				cost = b.ActualCost
 			}
 		}
@@ -639,6 +649,10 @@ func (d inflightEstimateDeps) estimateOne(ctx context.Context, apiKey *APIKey, m
 
 // estimate 返回保守的单请求费用（USD，已乘倍率）；无法定价返回 (0,false)。
 func (d inflightEstimateDeps) estimate(ctx context.Context, apiKey *APIKey, req InflightEstimateRequest) (float64, bool) {
+	if req.MiniMaxH3BaseCost != nil && apiKey != nil && apiKey.Group != nil {
+		cost := *req.MiniMaxH3BaseCost * math.Max(0, apiKey.Group.RateMultiplier)
+		return cost, validCost(cost)
+	}
 	if apiKey == nil || apiKey.User == nil {
 		return 0, false
 	}

@@ -17,7 +17,7 @@ import (
 type astraActionState struct {
 	Mode         string                 `json:"mode"`
 	GroupIDs     []int64                `json:"group_ids,omitempty"`
-	Removed      []astraSchedulingGroup `json:"removed,omitempty"`
+	Removed      []qualityGroup         `json:"removed,omitempty"`
 	Memberships  []astraGroupMembership `json:"memberships,omitempty"`
 	Mapping      json.RawMessage        `json:"mapping,omitempty"`
 	AfterMapping json.RawMessage        `json:"after_mapping,omitempty"`

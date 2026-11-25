@@ -17,7 +17,7 @@ const (
 	CLIProxyHost = "cli-chat-proxy.grok.com"
 
 	// CLIStableVersion is the known-good minimum client version accepted by cli-chat-proxy.
-	CLIStableVersion = "1.0.13"
+	CLIStableVersion = CLIClientVersion
 
 	// CLIVersionEnv is the optional operator override for CLIStableVersion.
 	CLIVersionEnv = "XAI_GROK_CLI_VERSION"

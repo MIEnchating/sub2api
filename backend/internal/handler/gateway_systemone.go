@@ -88,7 +88,7 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 	subscription, _ := middleware2.GetSubscriptionFromContext(c)
 
 	streamStarted := false
-	userRelease, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, false, &streamStarted)
+	userRelease, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, false, &streamStarted)
 	if err != nil {
 		reqLog.Warn("systemone.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", false)
@@ -203,6 +203,9 @@ func (h *GatewayHandler) SystemOne(c *gin.Context) {
 		result, forwardErr := h.gatewayService.ForwardSystemOne(c.Request.Context(), c, account, body)
 		if accountRelease != nil {
 			accountRelease()
+		}
+		if service.IsUpstreamModerationDenied(forwardErr) {
+			return
 		}
 		service.SetOpsLatencyMs(c, service.OpsResponseLatencyMsKey, time.Since(forwardStart).Milliseconds())
 

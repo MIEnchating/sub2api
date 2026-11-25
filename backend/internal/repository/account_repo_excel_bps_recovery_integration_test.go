@@ -164,6 +164,7 @@ func TestExcelBPS403RecoveryRejectsChangesDuringProbe(t *testing.T) {
 		{"auto shutdown off", `extra=extra || '{"openai_excel_bps_auto_disable_on_403":false}'::jsonb`},
 		{"model changed", `extra=extra || '{"openai_excel_bps_models":["gpt-5.6-sol"]}'::jsonb`},
 		{"proxy policy changed", `extra=extra || '{"openai_excel_bps_mihomo":true}'::jsonb`},
+		{"request proxy changed", `extra=extra || '{"openai_proxy_mode":"request","openai_proxy_ids":[8]}'::jsonb`},
 		{"credentials changed", `credentials=credentials || '{"access_token":"replacement"}'::jsonb`},
 		{"account disabled", `status='disabled'`},
 		{"scheduling paused", `schedulable=false`},

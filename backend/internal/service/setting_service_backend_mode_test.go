@@ -72,7 +72,7 @@ func (s *bmUpdateRepoStub) Set(ctx context.Context, key, value string) error {
 func (s *bmUpdateRepoStub) GetMultiple(ctx context.Context, keys []string) (map[string]string, error) {
 	values := make(map[string]string, len(keys))
 	for _, key := range keys {
-		if value, exists := s.updates[key]; exists {
+		if value, ok := s.updates[key]; ok {
 			values[key] = value
 		}
 	}

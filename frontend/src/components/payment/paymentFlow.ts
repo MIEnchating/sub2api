@@ -3,6 +3,7 @@ import type {
   CreateOrderResult,
   MethodLimit,
   OrderType,
+  SubscriptionRenewalMode,
   WechatJSAPIPayload,
   WechatOAuthInfo,
 } from '@/types/payment'
@@ -79,8 +80,10 @@ export interface PaymentLaunchDecision {
 export interface BuildCreateOrderPayloadInput {
   amount: number
   paymentType: string
+  paymentSubtype?: string
   orderType: OrderType
   planId?: number
+  renewalMode?: SubscriptionRenewalMode
   origin?: string
   isMobile: boolean
   isWechatBrowser: boolean
@@ -138,6 +141,12 @@ export function buildCreateOrderPayload(input: BuildCreateOrderPayloadInput): Cr
 
   if (input.planId) {
     payload.plan_id = input.planId
+  }
+  if (visibleMethod === 'stripe' && input.paymentSubtype) {
+    payload.payment_subtype = input.paymentSubtype
+  }
+  if (input.orderType === 'subscription' && input.renewalMode) {
+    payload.renewal_mode = input.renewalMode
   }
   if (normalizedOrigin) {
     payload.return_url = `${normalizedOrigin}/payment/result`

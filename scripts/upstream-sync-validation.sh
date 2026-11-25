@@ -25,6 +25,15 @@ docker_go() (
     integration_args=(--network host -v /var/run/docker.sock:/var/run/docker.sock
       -v "$(command -v docker):/usr/local/bin/docker:ro" -e CI=true
       -e DOCKER_HOST=unix:///var/run/docker.sock -e TESTCONTAINERS_HOST_OVERRIDE=127.0.0.1)
+    # The auth-cache integration test starts an isolated Redis over a Unix socket.
+    # Keep this check equivalent to backend CI, which installs redis-server.
+    set -- /bin/bash -ec '
+      if ! command -v redis-server >/dev/null 2>&1; then
+        apt-get update
+        DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends redis-server
+      fi
+      exec "$@"
+    ' sub2api-integration "$@"
   fi
   docker run --rm \
     "${integration_args[@]}" \
@@ -110,13 +119,14 @@ check_backend_integration() (
     printf 'Invalid integration PostgreSQL port mapping.\n' >&2
     return 1
   fi
+  # The combined repository suite can exceed 30 minutes while making progress.
   if docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
     "QQBOT_TEST_DSN=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
-    go test -count=1 -tags=integration -timeout=30m ./...; then
+    go test -count=1 -tags=integration -timeout=60m ./...; then
     return 0
   else
     rc=$?
-    printf 'Backend integration: go test -count=1 -tags=integration -timeout=30m ./... failed (exit %d).\n' "$rc" >&2
+    printf 'Backend integration: go test -count=1 -tags=integration -timeout=60m ./... failed (exit %d).\n' "$rc" >&2
     return "$rc"
   fi
 )
@@ -178,6 +188,10 @@ run_validation_checks() {
   log "starting complete validation pass $pass"
   record_check '候选差异空白检查' git -C "$WORKTREE" diff HEAD --check
   record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE"
+  if [[ -n "${SUB2API_MIGRATION_BASE:-}" ]]; then
+    record_check '已发布 SQL 迁移原文检查' git -C "$WORKTREE" diff --exit-code --no-renames \
+      --diff-filter=DMT "$SUB2API_MIGRATION_BASE" -- 'backend/migrations/*.sql'
+  fi
   record_check '上游排除规则及报告测试' python3 -m unittest discover -s "$WORKTREE/.github" -p 'test_upstream*.py'
   record_check 'Release 工作流及打包元数据测试' python3 -m unittest discover -s "$WORKTREE/.github/release-tools" -p 'test_*.py'
   record_check '后端普通测试' docker_go go test ./...

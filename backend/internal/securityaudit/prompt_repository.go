@@ -78,8 +78,9 @@ type JobRepository interface {
 }
 
 type PostgreSQLRepository struct {
-	db    *sql.DB
-	clock Clock
+	db             *sql.DB
+	clock          Clock
+	prepareFinding func(context.Context) (func(*sql.Tx, PromptSnapshot, *NormalizedResult) error, error)
 }
 
 func NewPostgreSQLRepository(db *sql.DB) *PostgreSQLRepository {
@@ -173,11 +174,69 @@ func (r *PostgreSQLRepository) Complete(ctx context.Context, job *Job, result *N
 	if job == nil || result == nil {
 		return nil, errors.New("prompt audit completion requires job and result")
 	}
+	var finding func(*sql.Tx, PromptSnapshot, *NormalizedResult) error
+	if r.prepareFinding != nil && result.Action == ActionBlock {
+		var err error
+		finding, err = r.prepareFinding(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	event, err := completePromptAuditTx(ctx, tx, job, result, storePassEvents, finding)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+// Recovered text never enters the durable queue or payload store. Its finished
+// metadata and penalty are committed together using the same hook and completion
+// transaction as Runner.Complete; failed penalty writes roll back the event too.
+func (r *PostgreSQLRepository) RecordRecoveredAsync(ctx context.Context, snapshot PromptSnapshot, configVersion int64, result *NormalizedResult, storePassEvents bool) (*Event, error) {
+	if r == nil || r.db == nil || result == nil || !snapshot.NoBodyRetention {
+		return nil, errors.New("recovered async completion requires private snapshot and result")
+	}
+	result = promptResultForRetention(snapshot, result)
+	var finding func(*sql.Tx, PromptSnapshot, *NormalizedResult) error
+	if r.prepareFinding != nil && result.Action == ActionBlock {
+		var err error
+		finding, err = r.prepareFinding(ctx)
+		if err != nil {
+			return nil, err
+		}
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	job, err := insertJob(ctx, tx, snapshot.Redacted(), ModeAsync, configVersion, "processing", 1)
+	if err != nil {
+		return nil, err
+	}
+	job.Snapshot = snapshot.Redacted()
+	if _, err = tx.ExecContext(ctx, `UPDATE prompt_audit_jobs SET attempts=1, processing_started_at=NOW() WHERE id=$1`, job.ID); err != nil {
+		return nil, err
+	}
+	event, err := completePromptAuditTx(ctx, tx, job, result, storePassEvents, finding)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return event, nil
+}
+
+func completePromptAuditTx(ctx context.Context, tx *sql.Tx, job *Job, result *NormalizedResult, storePassEvents bool, finding func(*sql.Tx, PromptSnapshot, *NormalizedResult) error) (*Event, error) {
 	updateResult, err := tx.ExecContext(ctx, `
 		UPDATE prompt_audit_jobs SET status='done', processed_at=NOW(), updated_at=NOW(),
 			last_error_code='', last_error_message=''
@@ -192,8 +251,10 @@ func (r *PostgreSQLRepository) Complete(ctx context.Context, job *Job, result *N
 			return nil, err
 		}
 	}
-	if err := tx.Commit(); err != nil {
-		return nil, err
+	if finding != nil {
+		if err := finding(tx, job.Snapshot, result); err != nil {
+			return nil, err
+		}
 	}
 	return event, nil
 }
@@ -315,6 +376,10 @@ type sqlQueryer interface {
 }
 
 func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot, mode Mode, configVersion int64, status string, maxAttempts int) (*Job, error) {
+	penaltyContext, err := json.Marshal(snapshot.PenaltyContext)
+	if err != nil {
+		return nil, err
+	}
 	processedExpr := "NULL"
 	if status == "done" || status == "failed" {
 		processedExpr = "NOW()"
@@ -323,14 +388,14 @@ func insertJob(ctx context.Context, queryer sqlQueryer, snapshot PromptSnapshot,
 		INSERT INTO prompt_audit_jobs (
 			request_id,user_id,username_snapshot,user_email_snapshot,api_key_id,api_key_name_snapshot,
 			group_id,group_name,provider,endpoint,protocol,model,prompt_hash,redacted_preview,
-			prompt_length,message_count,stage,execution_mode,config_version,status,max_attempts,processed_at
-		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,`+processedExpr+`)
+			prompt_length,message_count,stage,execution_mode,config_version,status,max_attempts,processed_at,penalty_context
+		) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,`+processedExpr+`,$22::jsonb)
 		RETURNING `+jobColumns("prompt_audit_jobs"),
 		snapshot.RequestID, nullableID(snapshot.UserID), snapshot.UsernameSnapshot, snapshot.UserEmailSnapshot,
 		nullableID(snapshot.APIKeyID), snapshot.APIKeyNameSnapshot, snapshot.GroupID, snapshot.GroupName,
 		snapshot.Provider, snapshot.Endpoint, snapshot.Protocol, snapshot.Model, snapshot.PromptHash,
 		snapshot.RedactedPreview, snapshot.PromptLength, snapshot.MessageCount, normalizeStage(snapshot.Stage),
-		string(mode), configVersion, status, maxAttempts)
+		string(mode), configVersion, status, maxAttempts, penaltyContext)
 	return scanJob(row)
 }
 
@@ -367,6 +432,7 @@ type rowScanner interface{ Scan(...any) error }
 
 func scanJob(row rowScanner) (*Job, error) {
 	job := &Job{}
+	var penaltyContext []byte
 	var userID, apiKeyID, groupID sql.NullInt64
 	var processingStarted, processed sql.NullTime
 	err := row.Scan(
@@ -376,10 +442,15 @@ func scanJob(row rowScanner) (*Job, error) {
 		&job.Snapshot.RedactedPreview, &job.Snapshot.PromptLength, &job.Snapshot.MessageCount, &job.Snapshot.Stage,
 		&job.ExecutionMode, &job.ConfigVersion, &job.Status, &job.Attempts, &job.MaxAttempts, &job.ClaimVersion,
 		&job.NextAttemptAt, &processingStarted, &processed, &job.LastErrorCode, &job.LastErrorMessage,
-		&job.CreatedAt, &job.UpdatedAt,
+		&job.CreatedAt, &job.UpdatedAt, &penaltyContext,
 	)
 	if err != nil {
 		return nil, err
+	}
+	if len(penaltyContext) > 0 {
+		if err := json.Unmarshal(penaltyContext, &job.Snapshot.PenaltyContext); err != nil {
+			return nil, err
+		}
 	}
 	job.Snapshot.UserID = nullableInt64Value(userID)
 	job.Snapshot.APIKeyID = nullableInt64Value(apiKeyID)
@@ -402,7 +473,7 @@ func jobColumns(alias string) string {
 		%[1]s.prompt_length,%[1]s.message_count,%[1]s.stage,%[1]s.execution_mode,%[1]s.config_version,%[1]s.status,
 		%[1]s.attempts,%[1]s.max_attempts,%[1]s.claim_version,%[1]s.next_attempt_at,
 		%[1]s.processing_started_at,%[1]s.processed_at,%[1]s.last_error_code,%[1]s.last_error_message,
-		%[1]s.created_at,%[1]s.updated_at`, alias)
+		%[1]s.created_at,%[1]s.updated_at,%[1]s.penalty_context`, alias)
 }
 
 func normalizeStage(stage string) string {

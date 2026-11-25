@@ -10,6 +10,7 @@ import QQBotActivityTemplates from '@/components/admin/qqbot/QQBotActivityTempla
 import { configSections, pickSection, cloneConfig, type ConfigSection } from '@/components/admin/qqbot/configSections'
 import type { QQBotConfig, QQSetupRequest } from '@/api/qqbot'
 const api = vi.hoisted(() => ({ config: vi.fn(), runtime: vi.fn(), saveSetup: vi.fn(), setupOptions: vi.fn(), setupChecks: vi.fn(), setupProbe: vi.fn(), activityTemplates: vi.fn(), applyActivityTemplate: vi.fn(), saveSection: vi.fn() }))
+vi.mock('@/components/admin/qqbot/QQCommunityNav.vue', () => ({ default: { template: '<nav />' } }))
 vi.mock('@/api/qqbot', async original => ({ ...await original<typeof import('@/api/qqbot')>(), qqbotAPI: api }))
 vi.mock('@/components/layout/AppLayout.vue', () => ({ default: { template: '<main><slot /></main>' } }))
 let server: QQBotConfig
@@ -25,10 +26,10 @@ async function next(w: VueWrapper) { await w.get('form').trigger('submit'); awai
 beforeEach(() => {
  vi.resetAllMocks()
  vi.spyOn(window, 'confirm').mockReturnValue(true)
- server = { enabled: false, app_id: '', app_secret: '', app_secret_set: false, sandbox: false, allowed_groups: [], base_url: '', api_key: '', api_key_set: false, chat_model: '', chat_protocol: 'chat_completions', image_enabled: false, image_base_url: '', image_api_key: '', image_api_key_set: false, image_model: '', image_size: '1024x1024', system_prompt: '', max_output_tokens: 2048, history_messages: 12, daily_chat_limit: 30, daily_image_limit: 2, total_daily_chat_limit: 500, total_daily_image_limit: 20, cooldown_seconds: 5, checkin_reward: 0, invite_enabled: false, invite_reward: 0, invite_daily_limit: 10, custom_commands: [], section_versions: Object.fromEntries(Object.keys(configSections).map(key => [key, key + '-1'])) }
+ server = { enabled: false, app_id: '', app_secret: '', app_secret_set: false, sandbox: false, allowed_groups: [], base_url: '', api_key: '', api_key_set: false, chat_model: '', chat_protocol: 'chat_completions', remember_quoted_images: false, system_prompt: '', max_output_tokens: 2048, history_messages: 12, daily_chat_limit: 30, total_daily_chat_limit: 500, cooldown_seconds: 5, checkin_reward: 0, invite_enabled: false, invite_reward: 0, invite_daily_limit: 10, custom_commands: [], section_versions: Object.fromEntries(Object.keys(configSections).map(key => [key, key + '-1'])) }
  api.config.mockImplementation(async () => cloneConfig(server))
  api.runtime.mockResolvedValue({ groups: [{ id: 'group' }] })
- api.setupOptions.mockResolvedValue({ groups: [{ id: 2, name: 'Test group', models: ['model'] }], image_groups: [{ id: 20, name: 'Image group', models: ['image-model'] }], current_quota: 0, current_used: 0, current_image_quota: 0, current_image_used: 0 })
+ api.setupOptions.mockResolvedValue({ groups: [{ id: 2, name: 'Test group', models: ['model'] }], current_quota: 0, current_used: 0, })
  api.saveSetup.mockImplementation(async (req: QQSetupRequest) => { for (const section of req.sections as ConfigSection[]) Object.assign(server, pickSection(req.config, section)); if (server.app_secret) server.app_secret_set = true; server.app_secret = ''; if (server.ai_connection === 'site') { server.api_key_set = true; server.site_api_key_id = 101 } return cloneConfig(server) })
  api.setupChecks.mockResolvedValue({ ready: false, checks: [{ code: 'probe_qq', status: 'pending', message: 'QQ', action: '' }, { code: 'probe_chat_flow', status: 'pending', message: 'AI', action: '' }], version: '1' })
  api.setupProbe.mockResolvedValue({ kind: 'qq', status: 'ready', message: 'OK', at: '' })
@@ -77,7 +78,7 @@ describe('QQ quick setup', () => {
   expect(w.find('[data-testid="site-group"]').exists()).toBe(true)
   expect(api.saveSetup).toHaveBeenCalledTimes(1)
  })
- it('configures images independently without selecting a chat model or chat group', async () => {
+ it('saves quoted-image retention without provisioning a dedicated key', async () => {
   server.chat_disabled = true
   const { wrapper: w } = await setup()
   await w.get('[data-testid="setup-app-id"]').setValue('app'); await w.get('[data-testid="setup-secret"]').setValue('secret'); await next(w)
@@ -85,22 +86,14 @@ describe('QQ quick setup', () => {
   expect(w.find('[data-testid="site-group"]').exists()).toBe(false)
   await next(w)
   await w.findAll('section > label input[type="checkbox"]')[1]!.setValue(true)
-  await w.get('[data-testid="image-ai-source"]').setValue('site')
-  await w.get('[data-testid="image-site-group"]').setValue('20')
-  await w.get('[data-testid="image-site-quota"]').setValue('30')
-  await w.get('[data-testid="image-model"] button').trigger('click'); await flushPromises()
-  await w.get('[role="option"]').trigger('click'); await next(w)
+  await next(w)
   const request = api.saveSetup.mock.calls[1]![0] as QQSetupRequest
   expect(request.config.chat_disabled).toBe(true)
   expect(request.config.chat_model).toBe('')
   expect(request.config.site_group_id).toBeUndefined()
   expect(request.config.ai_connection).toBe('external')
-  expect(request.config.image_ai_connection).toBe('site')
-  expect(request.config.image_site_group_id).toBe(20)
-  expect(request.config.image_model).toBe('image-model')
-  expect(request.image_site_quota).toBe(30)
-  expect(request.regenerate_image_site_key).toBe(false)
-  expect(request.sections).toContain('images')
+  expect(request.config.remember_quoted_images).toBe(true)
+  expect(request.sections).toContain('vision')
  })
  it('retains credentials and step when saving fails, and blocks navigation with an unsaved draft', async () => {
   const { wrapper: w, router } = await setup(); await w.get('[data-testid="setup-app-id"]').setValue('app'); await w.get('[data-testid="setup-secret"]').setValue('secret')

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -47,6 +48,28 @@ type OpenAIRateLimitWindow struct {
 	LimitWindowSeconds int64   `json:"limit_window_seconds"`
 	ResetAfterSeconds  int64   `json:"reset_after_seconds"`
 	ResetAt            int64   `json:"reset_at"`
+	decoded            bool
+	usedPresent        bool
+	resetAfterPresent  bool
+	observedAt         time.Time
+}
+
+func (w *OpenAIRateLimitWindow) UnmarshalJSON(data []byte) error {
+	type plain OpenAIRateLimitWindow
+	var value plain
+	if err := json.Unmarshal(data, &value); err != nil {
+		return err
+	}
+	var fields map[string]json.RawMessage
+	if err := json.Unmarshal(data, &fields); err != nil {
+		return err
+	}
+	*w = OpenAIRateLimitWindow(value)
+	w.decoded = true
+	w.observedAt = time.Now()
+	w.usedPresent = len(fields["used_percent"]) > 0 && string(fields["used_percent"]) != "null"
+	w.resetAfterPresent = len(fields["reset_after_seconds"]) > 0 && string(fields["reset_after_seconds"]) != "null"
+	return nil
 }
 
 // OpenAIRateLimit is a rate-limit envelope (primary + optional secondary window).
@@ -55,6 +78,28 @@ type OpenAIRateLimit struct {
 	LimitReached    bool                   `json:"limit_reached"`
 	PrimaryWindow   *OpenAIRateLimitWindow `json:"primary_window,omitempty"`
 	SecondaryWindow *OpenAIRateLimitWindow `json:"secondary_window,omitempty"`
+}
+
+func (r *OpenAIRateLimit) UnmarshalJSON(data []byte) error {
+	var raw struct {
+		Allowed      bool            `json:"allowed"`
+		LimitReached bool            `json:"limit_reached"`
+		Primary      json.RawMessage `json:"primary_window"`
+		Secondary    json.RawMessage `json:"secondary_window"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return err
+	}
+	*r = OpenAIRateLimit{Allowed: raw.Allowed, LimitReached: raw.LimitReached}
+	// One malformed slot is unavailable display data, not a reason to lose
+	// another slot. Scheduling validates the original raw fields separately.
+	if err := json.Unmarshal(raw.Primary, &r.PrimaryWindow); err != nil {
+		r.PrimaryWindow = nil
+	}
+	if err := json.Unmarshal(raw.Secondary, &r.SecondaryWindow); err != nil {
+		r.SecondaryWindow = nil
+	}
+	return nil
 }
 
 // OpenAIAdditionalRateLimit describes a per-feature rate limit (e.g. Codex Spark).
@@ -105,7 +150,10 @@ type OpenAIQuotaUsage struct {
 	RateLimitResetCredits *OpenAIRateLimitResetCredits `json:"rate_limit_reset_credits,omitempty"`
 	Credits               *OpenAICredits               `json:"credits,omitempty"`
 	FetchedAt             int64                        `json:"fetched_at"`
+	UsageCachePersisted   bool                         `json:"usage_cache_persisted"`
 	autoResetCandidates   []openAIAutoResetCreditCandidate
+	schedulingUpdates     map[string]any
+	schedulingObserved    bool
 }
 
 // OpenAIQuotaResetCredit captures the redeemed credit metadata returned by the
@@ -178,6 +226,13 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 	callCtx, cancel := context.WithTimeout(ctx, openaiQuotaUpstreamTimeout)
 	defer cancel()
 	agentIdentity := s.isAgentIdentityAccount(ctx, accountID)
+	// Observe before querying upstream; a concurrent 429 must survive recovery.
+	var observed *openAIQuotaRecoveryObservation
+	var queriedAccount *Account
+	if account, readErr := s.accountRepo.GetByID(callCtx, accountID); readErr == nil {
+		queriedAccount = account
+		observed = observeOpenAIQuotaRecovery(account, time.Now())
+	}
 
 	var payload OpenAIQuotaUsage
 	for recovered := false; ; {
@@ -185,10 +240,10 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 		if headerErr != nil {
 			return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_AUTH_FAILED", "failed to build upstream authentication: %v", headerErr)
 		}
+		queryStartedAt := time.Now()
 		resp, err := client.R().
 			SetContext(callCtx).
 			SetHeaders(quotaHeaders).
-			SetSuccessResult(&payload).
 			Get(chatGPTUsageURL)
 		if err != nil {
 			return nil, infraerrors.Newf(http.StatusBadGateway, "OPENAI_QUOTA_REQUEST_FAILED", "upstream request failed: %v", err)
@@ -209,6 +264,45 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 			body := truncate(s.redactQuotaErrorBody(ctx, accountID, resp.String()), 240)
 			slog.Warn("openai_quota_query_failed", "account_id", accountID, "status", status, "body", body)
 			return nil, infraerrors.Newf(mapUpstreamStatus(status), "OPENAI_QUOTA_UPSTREAM_ERROR", "upstream returned %d: %s", status, body)
+		}
+		// Decode display data independently: its unrelated malformed fields
+		// must not prevent raw weekly evidence/invalidation from being stored.
+		decodeErr := json.Unmarshal(resp.Bytes(), &payload)
+		payload.schedulingObserved = true
+		payload.UsageCachePersisted = false
+		// A failed row read cannot safely choose global vs Spark windows.
+		var updates map[string]any
+		if queriedAccount != nil && !identityValuesConflict(queriedAccount.GetCredential("email"), payload.Email) {
+			updates = openAIQuotaSchedulingUpdates(resp.Bytes(), queriedAccount.IsShadow(), chatGPTAccountID, time.Now())
+		}
+		if len(updates) > 0 {
+			// Order by request observation, so a slow earlier query cannot undo
+			// a later response/header snapshot. Resets use response receipt time.
+			updates["codex_usage_updated_at"] = queryStartedAt.UTC().Format(time.RFC3339Nano)
+			if evidence, ok := updates[openAI429WeeklyEvidenceKey].(map[string]any); ok {
+				// Bind the proof to the same ordering version as its atomic field.
+				// Absolute resets above still use response receipt time.
+				evidence["observed_at"] = updates["codex_usage_updated_at"]
+			}
+			if _, invalid := updates[openAI429WeeklyInvalidAtKey]; invalid {
+				updates[openAI429WeeklyInvalidAtKey] = updates["codex_usage_updated_at"]
+			}
+			payload.schedulingUpdates = updates
+			if err := scopedAccountIDAccess(callCtx, s.accountRepo, accountID, scopedAccountOperation(ctx, "openai.quota.read"), true); err != nil {
+				return nil, err
+			}
+			written, writeErr := persistCodexUsageUpdates(callCtx, s.accountRepo, accountID, updates)
+			payload.UsageCachePersisted = written && writeErr == nil
+			if writeErr != nil {
+				slog.Warn("openai_quota_usage_snapshot_failed", "account_id", accountID, "error_code", "snapshot_persistence_failed")
+			} else if written && !queriedAccount.IsShadow() && adminaccess.RestrictedFromContext(ctx) == nil {
+				// Recovery still requires the original complete-zero payload and
+				// observed generation; nonzero/partial data never clears a 429.
+				recoverOpenAIQuotaRateLimit(callCtx, s.accountRepo, observed, openAIQuotaRecoveryUsageUpdates(resp.Bytes(), time.Now()))
+			}
+		}
+		if decodeErr != nil {
+			return nil, infraerrors.New(http.StatusBadGateway, "OPENAI_QUOTA_RESPONSE_INVALID", "upstream quota response has invalid fields")
 		}
 		break
 	}
@@ -303,7 +397,7 @@ func (s *OpenAIQuotaService) cacheResetCreditsSnapshot(ctx context.Context, acco
 		updates = make(map[string]any, 1)
 	}
 	updates[openaiQuotaResetCreditsKey] = credits
-	if err := s.accountRepo.UpdateExtra(ctx, accountID, updates); err != nil {
+	if _, err := persistCodexUsageUpdates(ctx, s.accountRepo, accountID, updates); err != nil {
 		return infraerrors.New(
 			http.StatusInternalServerError,
 			"OPENAI_QUOTA_CACHE_WRITE_FAILED",
@@ -500,6 +594,16 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 		return "", "", "", false, infraerrors.New(http.StatusBadRequest, "OPENAI_QUOTA_MISSING_ACCOUNT_ID", "chatgpt_account_id is missing; please re-authorize this account")
 	}
 
+	requestProxy := account.OpenAIRequestProxyEnabled()
+	if requestProxy {
+		// Validate the saved group before token maintenance can issue network
+		// requests. Request mode must never use the legacy single/direct exit.
+		proxyURL, err = resolveOpenAIMaintenanceProxy(ctx, account, s.proxyRepo)
+		if err != nil {
+			return "", "", "", false, err
+		}
+	}
+
 	if !account.IsOpenAIAgentIdentity() {
 		if s.tokenProvider == nil {
 			return "", "", "", false, infraerrors.New(http.StatusInternalServerError, "OPENAI_QUOTA_NOT_CONFIGURED", "openai quota token provider is not configured")
@@ -514,11 +618,13 @@ func (s *OpenAIQuotaService) prepareUpstreamCall(ctx context.Context, accountID 
 	}
 	fedRAMP = account.IsChatGPTAccountFedRAMP()
 
-	// Revalidate managed proxies before issuing quota requests so an unavailable
-	// account route cannot silently fall back to direct egress.
-	proxyURL, err = resolveOpenAIAccountProxyURL(ctx, s.proxyRepo, account)
-	if err != nil {
-		return "", "", "", false, err
+	if !requestProxy {
+		// Revalidate managed proxies before issuing quota requests so an unavailable
+		// account route cannot silently fall back to direct egress.
+		proxyURL, err = resolveOpenAIAccountProxyURL(ctx, s.proxyRepo, account)
+		if err != nil {
+			return "", "", "", false, err
+		}
 	}
 
 	return accessToken, chatGPTAccountID, proxyURL, fedRAMP, nil

@@ -32,7 +32,7 @@ func TestAstraSchedulingModesOwnedRestoration(t *testing.T) {
 				_, _ = integrationDB.ExecContext(ctx, `DELETE FROM accounts WHERE id=$1`, id)
 				_, _ = integrationDB.ExecContext(ctx, `DELETE FROM groups WHERE id IN ($1,$2)`, gid, other)
 			})
-			_, err := integrationDB.ExecContext(ctx, `INSERT INTO account_groups(account_id,group_id,priority) VALUES($1,$2,7),($1,$3,50)`, id, gid, other)
+			_, err := integrationDB.ExecContext(ctx, `INSERT INTO account_groups(account_id,group_id,priority,allowed_models) VALUES($1,$2,7,'["gpt-6-astra"]'),($1,$3,50,NULL)`, id, gid, other)
 			require.NoError(t, err)
 			s := config.AstraRoutingSettings{AccountScheduling: true, SchedulingMode: mode, SchedulingGroupIDs: []int64{gid}, Revision: "test", CookiePool: config.CodexGatewayPinConfig{Enabled: true, SourceAccountIDs: []int64{1}, TargetAccountIDs: []int64{id}}}
 			save := func() {
@@ -67,8 +67,10 @@ func TestAstraSchedulingModesOwnedRestoration(t *testing.T) {
 			require.True(t, a.Schedulable)
 			require.True(t, a.IsModelSupported("gpt-6-astra"))
 			var priority int
-			require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT priority FROM account_groups WHERE account_id=$1 AND group_id=$2`, id, gid).Scan(&priority))
+			var models string
+			require.NoError(t, integrationDB.QueryRowContext(ctx, `SELECT priority,allowed_models::text FROM account_groups WHERE account_id=$1 AND group_id=$2`, id, gid).Scan(&priority, &models))
 			require.Equal(t, 7, priority)
+			require.JSONEq(t, `["gpt-6-astra"]`, models)
 			_, err = repo.ApplyAstraScheduling(ctx, id, s, false)
 			require.NoError(t, err)
 			s.SchedulingMode = "model"

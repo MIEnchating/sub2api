@@ -36,7 +36,7 @@
           </select>
           <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !downloadModeDirty" @click="saveDownloadMode">{{ text('保存下载模式', 'Save download mode') }}</button>
         </div>
-        <p class="mt-2 text-xs text-gray-500">{{ text('仅影响订阅文件下载，不改变请求出口。自动模式在代理下载失败或内容无效时尝试直连；仅代理模式不会回退直连。', 'Only affects subscription downloads, not request traffic. Auto retries direct after a failed or invalid proxy response; proxy-only never falls back to direct.') }}</p>
+        <p class="mt-2 text-xs text-gray-500">{{ text('仅影响订阅文件下载，不改变打票或账号业务出口。自动模式在代理下载失败或内容无效时尝试直连；仅代理模式不会回退直连。', 'Only affects subscription downloads, not ticket or account traffic. Auto retries direct after a failed or invalid proxy response; proxy-only never falls back to direct.') }}</p>
       </div>
       <div class="flex flex-wrap gap-3">
         <input v-model="search" type="search" class="input sm:max-w-xs" :placeholder="text('搜索订阅名称', 'Search subscription names')" :aria-label="text('搜索订阅', 'Search subscriptions')" />

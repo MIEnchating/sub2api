@@ -20,9 +20,7 @@ func TestGLMReasoningEffortPolicyPreservesNoneAndMinimal(t *testing.T) {
 						t.Run(model+"/"+field+"/"+effort+"/"+ceiling+"/"+overLimit, func(t *testing.T) {
 							body := []byte(fmt.Sprintf(`{"model":%q,`+field+`}`, model, effort))
 							ctx := WithOpenAIReasoningEffortPolicy(context.Background(), ceiling, nil, overLimit)
-							normalized, normalizationChanged := NormalizeGLMOpenAIReasoningEffort(body, model)
-							require.False(t, normalizationChanged)
-							got, changed, err := ApplyOpenAIReasoningEffortPolicyFromContext(ctx, normalized)
+							got, changed, err := applyOpenAIReasoningEffortPolicyForGLMFromContext(ctx, body, model)
 							require.NoError(t, err)
 							require.False(t, changed)
 							require.Equal(t, body, got)
@@ -207,7 +205,7 @@ func TestNormalizeReasoningEffortMappings(t *testing.T) {
 			require.ErrorContains(t, err, "only supported for platforms")
 		}
 
-		_, err := NormalizeReasoningEffortMappings(PlatformOpenAI, []ReasoningEffortMapping{{From: "ultra", To: "high"}})
+		_, err := NormalizeReasoningEffortMappings(PlatformOpenAI, []ReasoningEffortMapping{{From: "custom", To: "high"}})
 		require.ErrorContains(t, err, "empty or unknown")
 	})
 
@@ -260,11 +258,18 @@ func TestNormalizeMaxReasoningEffortForPlatform(t *testing.T) {
 	value, err = normalizeMaxReasoningEffortForPlatform(PlatformComposite, "max")
 	require.NoError(t, err)
 	require.Equal(t, "max", value)
+	for _, platform := range []string{PlatformOpenAI, PlatformComposite} {
+		value, err = normalizeMaxReasoningEffortForPlatform(platform, " ULTRA ")
+		require.NoError(t, err)
+		require.Equal(t, "ultra", value)
+	}
 
 	value, err = normalizeMaxReasoningEffortForPlatform(PlatformAnthropic, "xhigh")
 	require.NoError(t, err)
 	require.Equal(t, "xhigh", value)
 	_, err = normalizeMaxReasoningEffortForPlatform(PlatformAnthropic, "minimal")
+	require.ErrorContains(t, err, "not supported")
+	_, err = normalizeMaxReasoningEffortForPlatform(PlatformAnthropic, "ultra")
 	require.ErrorContains(t, err, "not supported")
 
 	for _, platform := range []string{PlatformGemini, PlatformAntigravity, PlatformGrok} {

@@ -204,12 +204,18 @@ class ReleaseMatrixTest(unittest.TestCase):
         Path('deploy').mkdir()
         Path('deploy/docker-entrypoint.sh').write_text('#!/bin/sh\nexec /app/sub2api\n')
         Path('backend/resources').mkdir()
+        Path('THIRD_PARTY_NOTICES.md').write_text('BEpusdt collection engine notices\n')
+        Path('LICENSES').mkdir()
+        Path('LICENSES/BEpusdt-GPL-3.0.txt').write_text('BEpusdt GPL-3.0 license fixture\n')
         Path('backend/resources/data').write_text('fixture')
         release.contexts(args)
         for arch in ('amd64', 'arm64'):
             binary = Path('contexts') / arch / 'sub2api'
             self.assertEqual(binary.read_bytes(), b'fixture')
             self.assertEqual(binary.stat().st_mode & 0o777, 0o755)
+            context = binary.parent
+            self.assertEqual((context / 'THIRD_PARTY_NOTICES.md').read_text(), Path('THIRD_PARTY_NOTICES.md').read_text())
+            self.assertEqual((context / 'LICENSES/BEpusdt-GPL-3.0.txt').read_text(), Path('LICENSES/BEpusdt-GPL-3.0.txt').read_text())
             self.assertEqual((binary.parent / 'sub2api-updater').read_bytes(), b'host updater')
             self.assertIn('COPY sub2api-updater', (binary.parent / 'Dockerfile').read_text())
         Path('updater-input/updater-linux-amd64').write_bytes(b'corrupted')
@@ -283,6 +289,14 @@ class ReleaseMatrixTest(unittest.TestCase):
                     self.assertIn('fixturehub/sub2api:9.8', log)
                     self.assertIn('ghcr.io/exampleowner/sub2api:9', log)
 
+
+
+    def test_release_announcement_requires_explicit_opt_in(self):
+        workflow = yaml.safe_load((ROOT / '.github/workflows/release.yml').read_text())
+        trigger = workflow.get('on', workflow.get(True))
+        self.assertIs(trigger['workflow_dispatch']['inputs']['notify_release']['default'], False)
+        step = next(step for step in workflow['jobs']['release']['steps'] if step.get('name') == 'Send Telegram Notification')
+        self.assertIn('inputs.notify_release == true', step['if'])
 
 
 if __name__ == '__main__':

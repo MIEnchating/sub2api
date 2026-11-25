@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 )
@@ -249,7 +250,8 @@ func prepareStrictFailover(ctx context.Context, group *Group, repo AccountReposi
 	byID := make(map[int64]*Account, len(rows))
 	for _, a := range rows {
 		if a != nil {
-			byID[a.ID] = a
+			candidate := *a
+			byID[a.ID] = &candidate
 		}
 	}
 	evidence := map[int64]string{}
@@ -385,16 +387,35 @@ func (s *OpenAIGatewayService) prepareOpenAIStrictFailover(ctx context.Context, 
 			return ctx, fmt.Errorf("%w: load group: %v", ErrStrictFailoverUnconfirmed, err)
 		}
 	}
-	ctx = s.withOpenAIQuotaAutoPauseContext(ctx)
+	ctx = s.withOpenAIQuotaAutoPauseContext(s.withOAuth429Routing(ctx, model, compact))
+	platform = NormalizeOpenAICompatiblePlatform(platform)
 	parents := map[int64]*Account{}
 	return prepareStrictFailover(ctx, g, s.accountRepo, excluded, model, func(a *Account) (string, error) {
-		if a.Platform != NormalizeOpenAICompatiblePlatform(platform) {
+		if a.IsGateway() {
+			scope, ok := requestGatewaySelection(ctx, groupID, platform)
+			if !ok || scope.family != domain.PlatformGatewayOpenAI {
+				return "platform_mismatch", nil
+			}
+			view, err := gatewayProtocolAccountFromSnapshot(ctx, a, a, g, scope.family, scope.model)
+			if err != nil {
+				return "gateway_route_unavailable", nil
+			}
+			view.Platform = platform
+			*a = *view
+		} else if a.Platform != platform {
 			return "platform_mismatch", nil
 		}
-		if !supportsOpenAIRequestModel(a, model, compact) {
+		if model != "" && !pelicanGroupTestModelAllowed(ctx, a, model) {
+			return "model_not_selected_for_pelican", nil
+		}
+		if model != "" && !a.IsModelAllowedInGroup(groupID, model) {
+			return "model_not_allowed_in_group", nil
+		}
+		if !supportsOpenAIRequestModel(a, model, compact, oauth429CompactModel(ctx)) {
 			return "model_not_supported", nil
 		}
-		if !accountSupportsOpenAICapabilities(a, capability, imageCapability) || (compact && openAICompactSupportTier(a) == 0) {
+		if !accountSupportsOpenAICapabilitiesForRequest(ctx, a, model, capability, imageCapability) ||
+			(compact && openAICompactSupportTierForRequest(a, model) == 0) {
 			return "capability_not_supported", nil
 		}
 		// An explicit size is a capability requirement, so an incompatible
@@ -405,7 +426,7 @@ func (s *OpenAIGatewayService) prepareOpenAIStrictFailover(ctx context.Context, 
 				return openAIImageSizeTierUnsupportedReason, nil
 			}
 		}
-		if len(transports) > 0 && transports[0] != "" && transports[0] != OpenAIUpstreamTransportAny && transports[0] != OpenAIUpstreamTransportHTTPSSE && !s.isOpenAIAccountTransportCompatible(a, transports[0]) {
+		if len(transports) > 0 && transports[0] != "" && transports[0] != OpenAIUpstreamTransportAny && transports[0] != OpenAIUpstreamTransportHTTPSSE && !s.isOpenAIAccountTransportCompatible(a, transports[0], model) {
 			return "transport_not_supported", nil
 		}
 		if a.IsShadow() {
@@ -451,15 +472,29 @@ func (s *OpenAIGatewayService) prepareOpenAIStrictFailover(ctx context.Context, 
 
 func (s *GatewayService) prepareGatewayStrictFailover(ctx context.Context, groupID *int64, excluded map[int64]struct{}, model, platform string, mixed bool) (context.Context, error) {
 	g := strictGroupFromContext(ctx, groupID)
-	if g == nil && groupID != nil && s.groupRepo != nil {
+	if g == nil && groupID != nil && (s.groupRepo != nil || (s.schedulerSnapshot != nil && s.schedulerSnapshot.localSnapshotReader != nil)) {
 		var err error
-		g, err = s.groupRepo.GetByIDLite(ctx, *groupID)
+		g, err = s.resolveGroupByID(ctx, *groupID)
 		if err != nil {
 			return ctx, err
 		}
 	}
 	return prepareStrictFailover(ctx, g, s.accountRepo, excluded, model, func(a *Account) (string, error) {
-		if a.Platform != platform && (!mixed || a.Platform != PlatformAntigravity || !a.IsMixedSchedulingEnabled()) {
+		if a.IsGateway() {
+			scope, ok := requestGatewaySelection(ctx, groupID, platform)
+			if !ok {
+				return "platform_mismatch", nil
+			}
+			if g.RequirePrivacySet && !a.IsPrivacySet() {
+				return "privacy_required", nil
+			}
+			view, err := gatewayProtocolAccountFromSnapshot(ctx, a, a, g, scope.family, model)
+			if err != nil {
+				return "gateway_route_unavailable", nil
+			}
+			a.gatewaySelectionTarget = platform
+			a.gatewayMessagesView = view
+		} else if a.Platform != platform && (!mixed || a.Platform != PlatformAntigravity || !a.IsMixedSchedulingEnabled()) {
 			return "platform_mismatch", nil
 		}
 		if model != "" && !s.isModelSupportedByAccountWithContext(ctx, a, model) {

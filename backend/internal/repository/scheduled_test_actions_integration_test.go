@@ -52,7 +52,7 @@ func TestScheduledTestActionsIntegration(t *testing.T) {
 		require.NoError(currentT, err)
 	}
 	exec(`CREATE TABLE users (id BIGINT PRIMARY KEY);
-CREATE TABLE accounts(id BIGINT PRIMARY KEY,name TEXT,platform TEXT NOT NULL DEFAULT 'openai',status TEXT NOT NULL DEFAULT 'active',schedulable BOOLEAN NOT NULL DEFAULT TRUE,extra JSONB NOT NULL DEFAULT '{}',updated_at TIMESTAMPTZ DEFAULT NOW(),deleted_at TIMESTAMPTZ);
+CREATE TABLE accounts(id BIGINT PRIMARY KEY,name TEXT,platform TEXT NOT NULL DEFAULT 'openai',type TEXT NOT NULL DEFAULT 'oauth',status TEXT NOT NULL DEFAULT 'active',schedulable BOOLEAN NOT NULL DEFAULT TRUE,extra JSONB NOT NULL DEFAULT '{}',updated_at TIMESTAMPTZ DEFAULT NOW(),deleted_at TIMESTAMPTZ);
 CREATE TABLE groups(id BIGINT PRIMARY KEY,name TEXT,platform TEXT NOT NULL DEFAULT 'openai',status TEXT NOT NULL DEFAULT 'active',deleted_at TIMESTAMPTZ,is_exclusive BOOLEAN NOT NULL DEFAULT FALSE,subscription_type TEXT NOT NULL DEFAULT 'standard');
 CREATE TABLE account_groups(account_id BIGINT NOT NULL REFERENCES accounts(id),group_id BIGINT NOT NULL REFERENCES groups(id),priority INTEGER NOT NULL DEFAULT 50,created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),PRIMARY KEY(account_id,group_id));
 CREATE TABLE user_allowed_groups(user_id BIGINT,group_id BIGINT);
@@ -64,6 +64,7 @@ INSERT INTO accounts(id,name) VALUES(62,'Secret account name'),(63,'Other accoun
 INSERT INTO groups(id,name) VALUES(8,'Source and lower tier'),(9,'Unrelated membership'),(10,'Upper tier one'),(11,'Upper tier two'),(12,'Independent upper tier'),(13,'Independent lower tier');`)
 	for _, name := range []string{
 		"066_add_scheduled_test_tables.sql", "070_add_scheduled_test_auto_recover.sql",
+		"243_pelican_scheduled_tests.sql", "244_account_group_allowed_models.sql", "247_account_quality_ops.sql", "248_account_quality_judgment.sql",
 		"247_generalized_scheduled_tests.sql", "248_scheduled_test_reasoning_effort.sql", "249_scheduled_test_result_reasoning_effort.sql",
 		"250_allow_group_account_scheduled_test_targets.sql", "251_scheduled_test_target_modes.sql", "252_scheduled_test_definition_sort_order.sql",
 		"253_scheduled_test_plan_sort_order.sql", "256_scheduled_test_multiple_definitions.sql", "257_scheduled_test_hourly_statistics.sql",

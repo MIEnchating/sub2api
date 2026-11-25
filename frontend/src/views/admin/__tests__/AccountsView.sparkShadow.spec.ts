@@ -36,6 +36,7 @@ vi.mock('@/api/admin/channelQuality', () => ({ channelQualityAPI: { scores: asyn
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getManagementCapabilities: vi.fn().mockResolvedValue({ web_search_enabled: false, account_quota_notify_enabled: false }),
       list: listAccounts,
       listWithEtag,
       getBatchTodayStats,
@@ -327,7 +328,7 @@ describe('admin AccountsView — 账号行展示', () => {
     const wrapper = mountViewWithRow()
     await flushPromises()
 
-    const links = wrapper.findAll('a')
+    const links = wrapper.findAll('a[target="_blank"]')
     expect(links).toHaveLength(1)
     const [link] = links
     expect(link.text()).toBe('relay-account')

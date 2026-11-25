@@ -78,7 +78,7 @@ func (s *SchedulerSnapshotService) runOutboxRetryWorker(retries SchedulerOutboxR
 }
 
 func (s *SchedulerSnapshotService) pollOutboxRetry(retries SchedulerOutboxRetryRepository) {
-	if s == nil || s.cache == nil {
+	if s == nil || !s.writesSnapshots() || s.cache == nil {
 		return
 	}
 	claimCtx, claimCancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -126,7 +126,7 @@ func (s *SchedulerSnapshotService) pollOutboxRetry(retries SchedulerOutboxRetryR
 
 func (s *SchedulerSnapshotService) deleteOutboxAccount(ctx context.Context, accountID int64) error {
 	if isOutboxRetryPublication(ctx) {
-		if _, ok := s.cache.(*outboxAuthoritativeSchedulerCache); ok {
+		if _, ok := s.cache.(*codexOrderedSchedulerCache); ok {
 			return s.cache.SetAccount(ctx, &Account{ID: accountID})
 		}
 	}

@@ -542,11 +542,12 @@ export default {
       nDays: '{days}d',
       expiryDaysPlaceholder: 'Custom days, empty = never',
       expiryWarnDays: 'Expiry warning (days)',
-      fallbackMode: 'Expiry fallback',
+      fallbackMode: 'Failure / expiry fallback',
       fallbackNone: 'No fallback',
       fallbackProxy: 'Backup proxy',
       fallbackDirect: 'Direct connection',
       backupProxy: 'Backup proxy',
+      fallbackModeHint: 'Applies the selected policy on expiry. For eligible OpenAI HTTP connection failures, runtime fallback requires confirmation that the request has not been sent; streams with output are not replayed by this fallback. Direct connections use the network of the environment running Sub2API.',
     },
 
     // Redeem Codes
@@ -733,7 +734,16 @@ export default {
         conditionBalance: 'Balance',
         operator: 'Operator',
         balanceValue: 'Balance threshold',
-        selectPackages: 'Select packages'
+        selectPackages: 'Select packages',
+        conditionUser: 'Specific users',
+        targetingUsers: 'Specific users',
+        targetingUsersHint: 'Only the selected users can see this announcement, e.g. to remind or warn one user. With the Popup notify mode it pops up after they sign in or reload the page, until they mark it as read.',
+        selectUsers: 'Select users',
+        selectUsersRequired: 'Select at least one user',
+        searchUsersPlaceholder: 'Search by email or username',
+        noUsersFound: 'No matching users',
+        noUsersSelected: 'No users selected yet',
+        userUnavailable: 'User not found',
       },
       operators: {
         gt: '>',
@@ -757,7 +767,8 @@ export default {
       failedToUpdate: 'Failed to update announcement',
       failedToDelete: 'Failed to delete announcement',
       failedToLoadReadStatus: 'Failed to load read status',
-      deleteConfirm: 'Are you sure you want to delete this announcement? This action cannot be undone.'
+      deleteConfirm: 'Are you sure you want to delete this announcement? This action cannot be undone.',
+      targetingSummaryUsers: 'Specific users ({count})',
     },
 
     // Promo Codes
@@ -914,8 +925,14 @@ export default {
           succeeded: 'Succeeded',
           failed: 'Failed',
           canceled: 'Canceled'
-        }
-      }
+        },
+        calendarRangeRequired: 'Cleanup is unavailable for rolling or precise time ranges. Select calendar dates first; cleanup deletes the full selected days.',
+      },
+      platform: 'Platform',
+      allPlatforms: 'All platforms',
+      unknownPlatform: 'Unknown (legacy)',
+      platformHistoryHint: 'Uses the platform recorded for each request. Older records without a platform remain under Unknown (legacy).',
+      platformCleanupUnavailable: 'Reset the platform filter before cleaning up records.',
     },
 
     // Ops Monitoring

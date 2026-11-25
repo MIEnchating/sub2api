@@ -127,11 +127,14 @@ type schedulerActiveGroupIDLister interface {
 }
 
 type SchedulerSnapshotService struct {
+	regionalRuntime              *regionalSchedulerRuntime
+	regionalExportMu             sync.Mutex
 	cache                        SchedulerCache
 	outboxRepo                   SchedulerOutboxRepository
 	accountRepo                  AccountRepository
 	groupRepo                    GroupRepository
 	cfg                          *config.Config
+	localSnapshotReader          LocalSchedulerSnapshotReader
 	stopCh                       chan struct{}
 	stopOnce                     sync.Once
 	wg                           sync.WaitGroup
@@ -166,7 +169,7 @@ func NewSchedulerSnapshotService(
 	cfg *config.Config,
 ) *SchedulerSnapshotService {
 	if source, ok := accountRepo.(LatestSchedulerAccountsRepository); ok && cache != nil {
-		cache = &outboxAuthoritativeSchedulerCache{SchedulerCache: cache, source: source}
+		cache = &codexOrderedSchedulerCache{SchedulerCache: cache, source: source}
 	}
 	maxQPS := 0
 	if cfg != nil {
@@ -183,8 +186,19 @@ func NewSchedulerSnapshotService(
 	}
 }
 
+// SetLocalSnapshotReader must be called before starting workers or serving requests.
+// SetLocalSnapshotReader enables the regional request path. Once configured,
+// ListSchedulableAccounts treats the local view as authoritative and does not
+// fall back to the primary database on miss or expiry.
+func (s *SchedulerSnapshotService) SetLocalSnapshotReader(reader LocalSchedulerSnapshotReader) {
+	if s == nil {
+		return
+	}
+	s.localSnapshotReader = reader
+}
+
 func (s *SchedulerSnapshotService) Start() {
-	if s == nil || s.cache == nil {
+	if s == nil || s.cache == nil || !s.writesSnapshots() {
 		return
 	}
 
@@ -225,6 +239,7 @@ func (s *SchedulerSnapshotService) Stop() {
 		return
 	}
 	s.stopOnce.Do(func() {
+		s.regionalRuntime.stop()
 		close(s.stopCh)
 	})
 	s.wg.Wait()
@@ -243,6 +258,20 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		return nil, useMixed, err
 	}
 
+	if s.localSnapshotReader != nil {
+		cached, hit, err := s.localSnapshotReader.GetLocalSnapshot(ctx, bucket)
+		if ctxErr := ctx.Err(); ctxErr != nil {
+			return nil, useMixed, ctxErr
+		}
+		if err != nil {
+			return nil, useMixed, err
+		}
+		if !hit {
+			return nil, useMixed, ErrLocalSchedulerSnapshotUnavailable
+		}
+		return derefAccounts(cached), useMixed, nil
+	}
+
 	if s.cache != nil {
 		cached, hit, err := s.readSnapshotAccounts(ctx, bucket)
 		if ctxErr := ctx.Err(); ctxErr != nil {
@@ -255,22 +284,23 @@ func (s *SchedulerSnapshotService) ListSchedulableAccounts(ctx context.Context, 
 		}
 	}
 
+	if s.cache != nil && !s.writesSnapshots() {
+		return nil, useMixed, ErrSchedulerCacheNotReady
+	}
 	accounts, err := s.loadFallbackAccounts(ctx, bucket, useMixed)
 	if err != nil {
 		return nil, useMixed, err
 	}
-	return accounts, useMixed, nil
+	return schedulableAccountValues(accounts), useMixed, nil
 }
 
-// readSnapshotAccounts 读取 bucket 快照，只返回当前可调度的账号；缓存实现能直接返回值切片时直接使用该切片。
-// 快照缓存的是配置的账号池，限流、过载、临时不可调度等限时封禁在每次读取时判定，到期无需写入或 outbox 事件。
+// readSnapshotAccounts 读取 bucket 快照；缓存实现能直接返回值切片时直接使用该切片。
 func (s *SchedulerSnapshotService) readSnapshotAccounts(ctx context.Context, bucket SchedulerBucket) ([]Account, bool, error) {
 	if reader, ok := s.cache.(schedulerSnapshotValuesReader); ok {
 		accounts, hit, err := reader.GetSnapshotValues(ctx, bucket)
 		if err != nil || !hit {
 			return nil, false, err
 		}
-		// GetSnapshotValues 返回的切片由本次调用独占，可以原地压缩。
 		return compactSchedulableAccounts(accounts), true, nil
 	}
 	cached, hit, err := s.cache.GetSnapshot(ctx, bucket)
@@ -282,7 +312,7 @@ func (s *SchedulerSnapshotService) readSnapshotAccounts(ctx context.Context, buc
 
 // loadFallbackAccounts 回源数据库读取 bucket 的账号，取得发布令牌时尽力回写快照。
 // 同一 bucket 的并发回源合并为一次：合并回源与回写不随单个调用方取消，各调用方按自身 ctx 等待结果，
-// 并各自得到一份只含当前可调度账号的独占切片；账号的 map、切片底层数组与指针指向的值在调用方之间共享，不得原地修改。
+// 并各自得到深拷贝的账号快照，避免调用方修改嵌套配置影响其他请求。
 func (s *SchedulerSnapshotService) loadFallbackAccounts(ctx context.Context, bucket SchedulerBucket, useMixed bool) ([]Account, error) {
 	loadCtx := context.WithoutCancel(ctx)
 	results := s.fallbackLoads.DoChan(bucket.String(), func() (result any, err error) {
@@ -303,11 +333,9 @@ func (s *SchedulerSnapshotService) loadFallbackAccounts(ctx context.Context, buc
 		if shared == nil {
 			return nil, nil
 		}
-		accounts := make([]Account, 0, len(shared))
+		accounts := make([]Account, len(shared))
 		for i := range shared {
-			if shared[i].IsSchedulable() {
-				accounts = append(accounts, shared[i])
-			}
+			accounts[i] = shared[i].CopySchedulerSnapshot()
 		}
 		return accounts, nil
 	case <-ctx.Done():
@@ -362,7 +390,8 @@ func (s *SchedulerSnapshotService) loadAndPublishFallback(ctx context.Context, b
 
 func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int64) (result *Account, resultErr error) {
 	defer func() {
-		if resultErr == nil && result != nil {
+		// Regional GetAccounts already applied the live pause check once.
+		if s.localSnapshotReader == nil && resultErr == nil && result != nil {
 			var values map[int64]*Account
 			values, resultErr = s.markPerformanceAccounts(ctx, map[int64]*Account{accountID: result})
 			if resultErr == nil {
@@ -372,6 +401,13 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 			}
 		}
 	}()
+	if s.localSnapshotReader != nil {
+		accounts, err := s.GetAccounts(ctx, []int64{accountID})
+		if err != nil {
+			return nil, err
+		}
+		return accounts[accountID], nil
+	}
 	if accountID <= 0 {
 		return nil, nil
 	}
@@ -400,6 +436,13 @@ func (s *SchedulerSnapshotService) GetAccount(ctx context.Context, accountID int
 
 // GetGroupByID 获取分组信息（供调度器使用）
 func (s *SchedulerSnapshotService) GetGroupByID(ctx context.Context, groupID int64) (*Group, error) {
+	if s.localSnapshotReader != nil {
+		reader, ok := s.localSnapshotReader.(LocalSchedulerDetailReader)
+		if !ok {
+			return nil, ErrLocalSchedulerSnapshotUnavailable
+		}
+		return reader.GetLocalGroup(ctx, groupID)
+	}
 	if s.groupRepo == nil {
 		return nil, nil
 	}
@@ -411,13 +454,22 @@ func (s *SchedulerSnapshotService) GetGroupByID(ctx context.Context, groupID int
 // 查询纯属浪费——composite / 模型路由 / fallback 每次装门都要付一次，WS 更是
 // 每个 turn 一次，且发生在「是否启用利润控制」判定之前。
 func (s *SchedulerSnapshotService) GetGroupByIDLite(ctx context.Context, groupID int64) (*Group, error) {
+	if s.localSnapshotReader != nil {
+		reader, ok := s.localSnapshotReader.(LocalSchedulerDetailReader)
+		if !ok {
+			return nil, ErrLocalSchedulerSnapshotUnavailable
+		}
+		return reader.GetLocalGroup(ctx, groupID)
+	}
 	if s.groupRepo == nil {
 		return nil, nil
 	}
 	return s.groupRepo.GetByIDLite(ctx, groupID)
 }
 
-// UpdateAccountInCache 立即更新 Redis 中单个账号的数据（用于模型限流后立即生效）
+// UpdateAccountInCache 立即更新 Redis 中单个账号的数据（用于模型限流后立即生效）。
+// Reader mode retains request-triggered cooldown/status feedback; this does not
+// grant authority to rebuild candidate snapshots or consume the outbox.
 func (s *SchedulerSnapshotService) UpdateAccountInCache(ctx context.Context, account *Account) error {
 	if s.cache == nil || account == nil {
 		return nil
@@ -472,7 +524,7 @@ func (s *SchedulerSnapshotService) runFullRebuildWorker(interval time.Duration) 
 }
 
 func (s *SchedulerSnapshotService) pollOutbox() {
-	if s.outboxRepo == nil || s.cache == nil {
+	if !s.writesSnapshots() || s.outboxRepo == nil || s.cache == nil {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -1061,6 +1113,10 @@ func (s *SchedulerSnapshotService) prepareBucketWriteTasks(ctx context.Context, 
 		return nil, ErrSchedulerCacheNotReady
 	}
 	tasks := make([]schedulerBucketWriteTask, 0, len(buckets))
+	// A successful inactive reconciliation already retires the entire group,
+	// including historical buckets. Reuse only that completed decision within
+	// this preparation; failures and active plans still follow the fresh path.
+	var retiredGroups map[int64]struct{}
 	var firstErr error
 	for _, bucket := range buckets {
 		token, err := s.cache.CaptureBucketWriteToken(ctx, bucket)
@@ -1069,11 +1125,23 @@ func (s *SchedulerSnapshotService) prepareBucketWriteTasks(ctx context.Context, 
 				// A delayed account event can refer to a now-deleted group. Recheck
 				// authority under the existing lifecycle lease; do not reopen it
 				// from the event payload or retain an already-retired group forever.
+				// Capture above always takes precedence: a concurrent reopen can
+				// supply a current token even after this group's inactive decision.
+				if _, completed := retiredGroups[bucket.GroupID]; completed {
+					continue
+				}
 				plan, lifecycleErr := s.prepareGroupLifecycle(ctx, bucket.GroupID, nil)
 				if lifecycleErr != nil {
 					if firstErr == nil {
 						firstErr = lifecycleErr
 					}
+					continue
+				}
+				if !plan.active {
+					if retiredGroups == nil {
+						retiredGroups = make(map[int64]struct{})
+					}
+					retiredGroups[bucket.GroupID] = struct{}{}
 					continue
 				}
 				for _, task := range plan.tasks {
@@ -1147,11 +1215,14 @@ func (s *SchedulerSnapshotService) rebuildBucketWithTokenPolicyAndQueryCache(
 	rebuildCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
+	rebuildStarted := time.Now()
 	accounts, err := s.loadAccountsForRebuild(rebuildCtx, bucket, queries)
+	loadDuration := time.Since(rebuildStarted)
 	if err != nil {
-		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] rebuild failed: bucket=%s reason=%s err=%v", bucket.String(), reason, err)
+		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] rebuild failed: bucket=%s reason=%s load_ms=%d err=%v", bucket.String(), reason, loadDuration.Milliseconds(), err)
 		return err
 	}
+	publicationStarted := time.Now()
 	if err := s.setRebuildSnapshot(rebuildCtx, task, accounts, queries); err != nil {
 		if errors.Is(err, ErrSchedulerBucketRetired) || errors.Is(err, ErrSchedulerBucketWriteFenced) {
 			slog.Debug("[Scheduler] rebuild fenced", "bucket", bucket.String(), "reason", reason)
@@ -1160,10 +1231,10 @@ func (s *SchedulerSnapshotService) rebuildBucketWithTokenPolicyAndQueryCache(
 			}
 			return nil
 		}
-		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] rebuild cache failed: bucket=%s reason=%s err=%v", bucket.String(), reason, err)
+		logger.LegacyPrintf("service.scheduler_snapshot", "[Scheduler] rebuild cache failed: bucket=%s reason=%s size=%d load_ms=%d publish_ms=%d elapsed_ms=%d err=%v", bucket.String(), reason, len(accounts), loadDuration.Milliseconds(), time.Since(publicationStarted).Milliseconds(), time.Since(rebuildStarted).Milliseconds(), err)
 		return err
 	}
-	slog.Debug("[Scheduler] rebuild ok", "bucket", bucket.String(), "reason", reason, "size", len(accounts))
+	slog.Debug("[Scheduler] rebuild ok", "bucket", bucket.String(), "reason", reason, "size", len(accounts), "load_ms", loadDuration.Milliseconds(), "publish_ms", time.Since(publicationStarted).Milliseconds(), "elapsed_ms", time.Since(rebuildStarted).Milliseconds())
 	return nil
 }
 
@@ -1205,7 +1276,7 @@ func (s *SchedulerSnapshotService) setRebuildSnapshot(
 }
 
 func (s *SchedulerSnapshotService) triggerFullRebuild(reason string) error {
-	if s.cache == nil {
+	if !s.writesSnapshots() || s.cache == nil {
 		return ErrSchedulerCacheNotReady
 	}
 	return s.coalesceFullRebuild(func() error {
@@ -1216,7 +1287,7 @@ func (s *SchedulerSnapshotService) triggerFullRebuild(reason string) error {
 }
 
 func (s *SchedulerSnapshotService) rebuildFullSnapshot(ctx context.Context, reason string) error {
-	if s.cache == nil {
+	if !s.writesSnapshots() || s.cache == nil {
 		return ErrSchedulerCacheNotReady
 	}
 
@@ -1753,7 +1824,14 @@ func (s *SchedulerSnapshotService) resolveMode(platform string, hasForcePlatform
 	return SchedulerModeSingle
 }
 
+func (s *SchedulerSnapshotService) writesSnapshots() bool {
+	return s != nil && s.localSnapshotReader == nil && s.cfg.WritesSchedulerSnapshots()
+}
+
 func (s *SchedulerSnapshotService) guardFallback(ctx context.Context) error {
+	if !s.writesSnapshots() {
+		return ErrSchedulerCacheNotReady
+	}
 	if s.cfg == nil || s.cfg.Gateway.Scheduling.DbFallbackEnabled {
 		if s.fallbackLimit == nil || s.fallbackLimit.Allow() {
 			return nil
@@ -1919,4 +1997,28 @@ func (l *fallbackLimiter) Allow() bool {
 	}
 	l.count++
 	return true
+}
+
+func derefAccounts(accounts []*Account) []Account {
+	if len(accounts) == 0 {
+		return []Account{}
+	}
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account == nil {
+			continue
+		}
+		out = append(out, *account)
+	}
+	return out
+}
+
+func schedulableAccountValues(accounts []Account) []Account {
+	out := make([]Account, 0, len(accounts))
+	for _, account := range accounts {
+		if account.IsSchedulable() {
+			out = append(out, account)
+		}
+	}
+	return out
 }

@@ -121,10 +121,20 @@ func TestExcelOAuthDualAuthorizationPreservesCodex(t *testing.T) {
 	token, err := svc.ExcelAccessToken(context.Background(), reader.account, nil)
 	require.NoError(t, err)
 	require.Equal(t, credentials["access_token"], token)
-	_, err = svc.CreateTaskForProfile(context.Background(), 42, "codex")
-	require.Error(t, err, "this authorization API must not mutate primary Codex credentials")
-	require.False(t, updater.applied)
-
+	// A subsequent Codex task stays Codex even while the account routes BPS.
+	reader.account.Extra = map[string]any{"openai_excel_bps": true}
+	task, err = svc.CreateTaskForProfile(context.Background(), 42, "codex")
+	require.NoError(t, err)
+	require.Equal(t, "codex", task.OAuthProfile)
+	require.False(t, updater.applied, "creating the Codex task must leave the primary credentials untouched")
+	claim, err = svc.ClaimTask(context.Background(), "codex-worker")
+	require.NoError(t, err)
+	require.Equal(t, "codex", claim.OAuthProfile)
+	_, err = svc.SubmitCredentials(context.Background(), claim.TaskID, "codex-worker", directReauthCredentials("acct-1", "user-1", "user@example.com"), nil)
+	require.NoError(t, err)
+	require.True(t, updater.applied)
+	require.Equal(t, "new-access", updater.credentials["access_token"])
+	require.NotEmpty(t, repo.ciphertext)
 }
 func TestExcelOAuthRejectsWrongIdentityProfileAndFailedPersistence(t *testing.T) {
 	for _, scenario := range []string{"workspace", "user", "email", "client", "expired", "storage", "snapshot"} {
@@ -158,7 +168,14 @@ func TestExcelOAuthRejectsWrongIdentityProfileAndFailedPersistence(t *testing.T)
 			require.Empty(t, repo.ciphertext)
 		})
 	}
-
+	svc, _, _, updater, _ := newExcelReauthTestService(t)
+	_, err := svc.CreateTask(context.Background(), 42)
+	require.NoError(t, err)
+	claim, err := svc.ClaimTask(context.Background(), "worker")
+	require.NoError(t, err)
+	_, err = svc.SubmitCredentials(context.Background(), claim.TaskID, "worker", excelTestCredentials("one", time.Now().Add(time.Hour)), nil)
+	require.Error(t, err)
+	require.False(t, updater.applied)
 }
 func TestExcelOAuthQueueExistingEnabledAccounts(t *testing.T) {
 	svc, reader, repo, _, _ := newExcelReauthTestService(t)

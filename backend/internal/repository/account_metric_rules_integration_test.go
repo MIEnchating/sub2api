@@ -35,6 +35,7 @@ func metricRulesDB(t *testing.T) *sql.DB {
 	require.NoError(t, err)
 	t.Cleanup(func() { require.NoError(t, db.Close()) })
 	_, err = db.Exec(`CREATE TABLE accounts(id BIGINT PRIMARY KEY,deleted_at TIMESTAMPTZ,schedulable BOOLEAN DEFAULT false);
+ CREATE TABLE ai_ops_controls(account_id BIGINT PRIMARY KEY REFERENCES accounts(id),ai_paused BOOLEAN NOT NULL DEFAULT false);
  CREATE TABLE settings(key TEXT PRIMARY KEY,value TEXT);
  CREATE TABLE usage_logs(id BIGSERIAL,account_id BIGINT DEFAULT 1,api_key_id BIGINT DEFAULT 1,request_id TEXT,created_at TIMESTAMPTZ,request_type INT DEFAULT 2,stream BOOLEAN DEFAULT true,openai_ws_mode BOOLEAN DEFAULT false,
  actual_cost NUMERIC DEFAULT 0,input_tokens BIGINT DEFAULT 10,output_tokens BIGINT DEFAULT 10,cache_read_tokens BIGINT DEFAULT 90,cache_creation_tokens BIGINT DEFAULT 0,image_input_tokens BIGINT DEFAULT 0,first_token_ms BIGINT DEFAULT 100,duration_ms BIGINT DEFAULT 1000);

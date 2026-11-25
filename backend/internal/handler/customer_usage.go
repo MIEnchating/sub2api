@@ -166,6 +166,22 @@ func customerCSVRow(r service.CustomerUsageRow) []string {
 	}
 }
 
+func customerPanelCSVRow(r service.CustomerUsageRow, showModel, showCacheRate, zh bool) []string {
+	actualCost, _ := strconv.ParseFloat(r.ActualCost, 64)
+	totalCost, _ := strconv.ParseFloat(r.TotalCost, 64)
+	multiplier, _ := strconv.ParseFloat(r.RateMultiplier, 64)
+	model := strings.TrimSpace(r.UpstreamResponseModel)
+	row := usageRecord{
+		CreatedAt: r.CreatedAt.UTC(), Model: r.Model, UpstreamResponseModel: &model,
+		ReasoningEffort: &r.ReasoningEffort, InboundEndpoint: &r.Endpoint, IPAddress: &r.IPAddress,
+		RequestType: r.RequestType, BillingMode: &r.BillingMode, InputTokens: r.InputTokens,
+		OutputTokens: r.OutputTokens, CacheReadTokens: r.CacheReadTokens, CacheCreationTokens: r.CacheCreationTokens,
+		ActualCost: actualCost, TotalCost: totalCost, RateMultiplier: multiplier,
+		DurationMs: r.DurationMS, FirstTokenMs: r.FirstTokenMS,
+	}
+	return usageRecordsCSVRow(row, r.KeyName, showModel, showCacheRate, zh)
+}
+
 const maxUsageCSVSize = 128 << 20
 
 var errCSVSize = errors.New("CSV exceeds 128 MiB; narrow the date range")
@@ -221,14 +237,24 @@ func (h *UsageHandler) ExportCSV(c *gin.Context) {
 	}
 	writer := csv.NewWriter(output)
 	withIP := c.Query("include_ip") == "true"
+	panel := c.Query("format") == "panel"
 	header := customerCSVHeader
-	if withIP {
+	var showModel, showCacheRate, zh bool
+	if panel {
+		showModel = h.userMaySeeUpstreamResponseModel(c)
+		showCacheRate = h.settingService.IsUserUsageCacheRateVisible(ctx)
+		zh = usageRecordsCSVChinese(c.GetHeader("Accept-Language"))
+		header = usageRecordsCSVHeader(showModel, showCacheRate)
+	} else if withIP {
 		header = append(append([]string(nil), header...), "IP Address")
 	}
 	err = writer.Write(header)
 	sort := pagination.PaginationParams{SortBy: c.DefaultQuery("sort_by", "created_at"), SortOrder: c.DefaultQuery("sort_order", "desc")}
 	if err == nil {
 		err = h.billing.Export(ctx, parsed.Filters, sort, func(row service.CustomerUsageRow) error {
+			if panel {
+				return writer.Write(customerPanelCSVRow(row, showModel, showCacheRate, zh))
+			}
 			fields := customerCSVRow(row)
 			if withIP {
 				fields = append(fields, csvText(row.IPAddress))

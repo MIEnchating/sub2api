@@ -41,6 +41,38 @@ func TestPricingNonEmptyInvalidRemoteURLStillReturnsValidationError(t *testing.T
 	require.Contains(t, err.Error(), "invalid pricing url")
 }
 
+func TestBillingServiceUnknownGPTModelKeepsLegacyFallbackPricing(t *testing.T) {
+	legacyPricing := &LiteLLMModelPricing{
+		InputCostPerToken:       2.5e-6,
+		OutputCostPerToken:      15e-6,
+		CacheReadInputTokenCost: 0.25e-6,
+	}
+	probePricing := &LiteLLMModelPricing{
+		InputCostPerToken:       5e-6,
+		OutputCostPerToken:      30e-6,
+		CacheReadInputTokenCost: 0.5e-6,
+	}
+	pricingSvc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gpt-5.4":     legacyPricing,
+		"gpt-5.6-sol": probePricing,
+	}}
+	require.Same(t, legacyPricing, pricingSvc.GetModelPricing("gpt-unlisted-custom"))
+	require.Same(t, probePricing, pricingSvc.GetModelPricing("gpt-5.6-sol"))
+
+	svc := NewBillingService(&config.Config{}, pricingSvc)
+	cost, err := svc.CalculateCost("gpt-unlisted-custom", UsageTokens{
+		InputTokens:     1000,
+		OutputTokens:    100,
+		CacheReadTokens: 200,
+	}, 1)
+	require.NoError(t, err)
+	require.InDelta(t, 1000*2.5e-6, cost.InputCost, 1e-12)
+	require.InDelta(t, 100*15e-6, cost.OutputCost, 1e-12)
+	require.InDelta(t, 200*0.25e-6, cost.CacheReadCost, 1e-12)
+	require.InDelta(t, 0.00405, cost.TotalCost, 1e-12)
+	require.InDelta(t, cost.TotalCost, cost.ActualCost, 1e-12)
+}
+
 func TestParsePricingData_ParsesPriorityAndServiceTierFields(t *testing.T) {
 	svc := &PricingService{}
 	body := []byte(`{
@@ -339,7 +371,7 @@ func TestDefaultPricingIncludesOfficialGPT56Rates(t *testing.T) {
 		input, cached, cacheWrite, output                                 float64
 		inputPriority, cachedPriority, cacheWritePriority, outputPriority float64
 	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6, inputPriority: 10e-6, cachedPriority: 1e-6, cacheWritePriority: 12.5e-6, outputPriority: 60e-6},
+		{model: "gpt-5.6-sol", input: 4e-6, cached: 0.4e-6, cacheWrite: 5e-6, output: 20e-6, inputPriority: 8e-6, cachedPriority: 0.8e-6, cacheWritePriority: 10e-6, outputPriority: 40e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6, inputPriority: 4e-6, cachedPriority: 0.4e-6, cacheWritePriority: 5e-6, outputPriority: 24e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6, inputPriority: 0.4e-6, cachedPriority: 0.04e-6, cacheWritePriority: 0.5e-6, outputPriority: 2.4e-6},
 	}
@@ -367,7 +399,7 @@ func TestGPT56DedicatedFallbacksUseOfficialRates(t *testing.T) {
 		model                             string
 		input, cached, cacheWrite, output float64
 	}{
-		{model: "gpt-5.6-sol", input: 5e-6, cached: 0.5e-6, cacheWrite: 6.25e-6, output: 30e-6},
+		{model: "gpt-5.6-sol", input: 4e-6, cached: 0.4e-6, cacheWrite: 5e-6, output: 20e-6},
 		{model: "gpt-5.6-terra", input: 2e-6, cached: 0.2e-6, cacheWrite: 2.5e-6, output: 12e-6},
 		{model: "gpt-5.6-luna", input: 0.2e-6, cached: 0.02e-6, cacheWrite: 0.25e-6, output: 1.2e-6},
 	}
@@ -711,6 +743,74 @@ func TestBillingService_Gemini38FlashThinkingTierFallbacksAreBillable(t *testing
 	}
 }
 
+func TestPricingService_Gemini4ArgonThinkingTiersUseBaseModelPricing(t *testing.T) {
+	basePricing := &LiteLLMModelPricing{
+		InputCostPerToken:       2.0e-6,
+		OutputCostPerToken:      10.0e-6,
+		CacheReadInputTokenCost: 0.1e-6,
+	}
+	svc := &PricingService{pricingData: map[string]*LiteLLMModelPricing{
+		"gemini-4-argon": basePricing,
+	}}
+
+	for _, model := range []string{
+		"gemini-4-argon",
+		"gemini-4-argon-high",
+		"gemini-4-argon-low",
+		"gemini-4-argon-medium",
+		"gemini-4-argon-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			require.Same(t, basePricing, svc.GetModelPricing(model))
+		})
+	}
+}
+
+func TestBillingService_Gemini4ArgonThinkingTierFallbacksAreBillable(t *testing.T) {
+	svc := NewBillingService(&config.Config{}, nil)
+	tokens := UsageTokens{InputTokens: 1_000_000, OutputTokens: 1_000_000, CacheReadTokens: 1_000_000}
+
+	for _, model := range []string{
+		"gemini-4-argon",
+		"gemini-4-argon-high",
+		"gemini-4-argon-low",
+		"gemini-4-argon-medium",
+		"gemini-4-argon-tiered",
+	} {
+		t.Run(model, func(t *testing.T) {
+			cost, err := svc.CalculateCost(model, tokens, 1)
+			require.NoError(t, err)
+			require.InDelta(t, 2.0, cost.InputCost, 1e-12)
+			require.InDelta(t, 10.0, cost.OutputCost, 1e-12)
+			require.InDelta(t, 0.1, cost.CacheReadCost, 1e-12)
+			require.InDelta(t, 12.1, cost.TotalCost, 1e-12)
+		})
+	}
+}
+
+func TestDefaultPricingIncludesGemini4ArgonRates(t *testing.T) {
+	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
+	require.NoError(t, err)
+
+	pricingSvc := &PricingService{}
+	pricingData, err := pricingSvc.parsePricingData(data)
+	require.NoError(t, err)
+	pricingSvc.pricingData = pricingData
+
+	for _, model := range []string{"gemini-4-argon", "gemini-4-argon-high", "gemini-4-argon-low", "gemini-4-argon-medium"} {
+		t.Run(model, func(t *testing.T) {
+			pricing := pricingSvc.GetModelPricing(model)
+			require.NotNil(t, pricing)
+			require.Equal(t, "gemini", pricing.LiteLLMProvider)
+			require.InDelta(t, 2e-6, pricing.InputCostPerToken, 1e-15)
+			require.InDelta(t, 10e-6, pricing.OutputCostPerToken, 1e-15)
+			require.InDelta(t, 0.1e-6, pricing.CacheReadInputTokenCost, 1e-15)
+			require.Zero(t, pricing.LongContextInputTokenThreshold)
+		})
+	}
+	require.Contains(t, pricingSvc.ListModelNamesByProvider("gemini"), "gemini-4-argon")
+}
+
 func TestDefaultPricingIncludesGemini36FlashRates(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)
@@ -783,7 +883,7 @@ func TestBillingService_Gemini4ArgonFallbacksAreBillable(t *testing.T) {
 	}
 }
 
-func TestDefaultPricingIncludesGemini4ArgonRates(t *testing.T) {
+func TestDefaultPricingIncludesGemini4ArgonCyberAndPriorityRates(t *testing.T) {
 	data, err := os.ReadFile(filepath.Join("..", "..", "resources", "model-pricing", "model_prices_and_context_window.json"))
 	require.NoError(t, err)
 

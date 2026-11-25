@@ -1,4 +1,7 @@
 export default { qqbot: {
+  visionSettings: '图片输入',
+  rememberQuotedImages: '保存附图供引用',
+  rememberQuotedImagesHelp: '保留附图最多 24 小时，供群成员在后续回复中引用。',
   reports: {
     "title": "报表统计",
     "help": "按日期查看奖励领取情况，汇总金额、人数与奖品数量。",
@@ -332,7 +335,7 @@ export default { qqbot: {
   "groupPolicyHelp": "群规则是对全局设置的进一步限制。空额度继承全局上限，0 禁止；自主接话也消耗群聊天额度。活动开关控制本群触发的签到、邀请、抽奖和成长奖励，不撤销历史权益。",
   "groupLabel": "群昵称 / 备注",
   "disable_chat": "允许 AI 聊天",
-  "disable_images": "允许图片",
+  "disable_images": "保存附图供引用",
   "disable_activities": "允许活动奖励",
   "disable_notifications": "允许通知",
   "chat_daily_limit": "群每日聊天次数",

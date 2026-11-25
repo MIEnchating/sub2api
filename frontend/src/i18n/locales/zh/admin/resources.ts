@@ -540,11 +540,12 @@ export default {
       nDays: '{days} 天',
       expiryDaysPlaceholder: '自定义天数，留空 = 永不过期',
       expiryWarnDays: '到期提醒提前天数',
-      fallbackMode: '到期回退',
+      fallbackMode: '故障/到期回退',
       fallbackNone: '不回退',
       fallbackProxy: '指定备用代理',
       fallbackDirect: '回退直连',
       backupProxy: '备用代理',
+      fallbackModeHint: '到期时按所选策略处理；OpenAI HTTP 转发遇到符合条件的建连故障时，仅在确认请求尚未发出时回退，不重放已输出的流。直连使用 Sub2API 所在运行环境的网络。',
     },
 
     // Redeem Codes Management
@@ -730,7 +731,16 @@ export default {
         conditionBalance: '余额',
         operator: '运算符',
         balanceValue: '余额阈值',
-        selectPackages: '选择套餐'
+        selectPackages: '选择套餐',
+        conditionUser: '指定用户',
+        targetingUsers: '指定用户',
+        targetingUsersHint: '只有选中的用户能看到这条公告，适合单独提醒或警告某个用户。通知方式选「弹窗」时，对方登录或刷新页面后会弹出提醒，直到点「标记已读」为止。',
+        selectUsers: '选择用户',
+        selectUsersRequired: '请至少选择一个用户',
+        searchUsersPlaceholder: '输入邮箱或用户名搜索',
+        noUsersFound: '没有找到匹配的用户',
+        noUsersSelected: '还没有选择用户',
+        userUnavailable: '用户不存在',
       },
       operators: {
         gt: '>',
@@ -754,7 +764,8 @@ export default {
       failedToUpdate: '更新公告失败',
       failedToDelete: '删除公告失败',
       failedToLoadReadStatus: '加载已读情况失败',
-      deleteConfirm: '确定要删除该公告吗？此操作无法撤销。'
+      deleteConfirm: '确定要删除该公告吗？此操作无法撤销。',
+      targetingSummaryUsers: '指定用户（{count} 人）',
     },
 
     // Promo Codes
@@ -911,8 +922,14 @@ export default {
           succeeded: '已完成',
           failed: '失败',
           canceled: '已取消'
-        }
-      }
+        },
+        calendarRangeRequired: '滚动或精确时间范围不可直接清理。请先选择自然日；清理将删除所选日期的整日记录。',
+      },
+      platform: '平台',
+      allPlatforms: '全部平台',
+      unknownPlatform: '未知（历史记录）',
+      platformHistoryHint: '按请求发生时记录的平台筛选。未记录平台的历史数据保留在“未知（历史记录）”中。',
+      platformCleanupUnavailable: '清理记录前请重置平台筛选。',
     },
 
     // Ops Monitoring

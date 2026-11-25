@@ -116,15 +116,8 @@ func accountCodexToolCapabilities(account *Account, modelID string) map[string]j
 		}
 		applyCodexToolCapabilities(capabilities, defaults, false)
 	}
-	if account.IsOpenAIApiKey() {
-		target := modelID
-		if isOpenAIGPT6AstraModel(target) {
-			target = "gpt-6-astra"
-		}
-		_, disabled := apiKeyCodexModelsWithoutResponsesLite[target]
-		if disabled && bytes.Equal(capabilities["use_responses_lite"], []byte("true")) {
-			capabilities["use_responses_lite"] = json.RawMessage("false")
-		}
+	if account.IsOpenAIApiKey() && apiKeyCodexModelRequiresFullResponses(modelID) {
+		capabilities["use_responses_lite"] = json.RawMessage("false")
 	}
 	// Preserve declared tiers (including their provider-specific fields). An older
 	// OAuth snapshot can list only Fast even for a newly entitled subscription.

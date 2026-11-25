@@ -40,7 +40,7 @@ func (u *nativeImageRouteUpstream) Do(req *http.Request, _ string, _ int64, _ in
 	return u.client.Do(forwarded)
 }
 
-func newNativeImageRoute(t *testing.T, delay time.Duration, status int) (*httptest.Server, *atomic.Int64) {
+func newNativeImageRoute(t *testing.T, delay time.Duration, status int, setup ...func(*OpenAIGatewayHandler, service.AccountRepository, *gin.Engine)) (*httptest.Server, *atomic.Int64) {
 	t.Helper()
 	gin.SetMode(gin.TestMode)
 	var calls atomic.Int64
@@ -83,7 +83,7 @@ func newNativeImageRoute(t *testing.T, delay time.Duration, status int) (*httpte
 	repo := openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 1, Name: "fixture", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Credentials: map[string]any{"api_key": "fixture-key", "base_url": "https://fixture.example/v1"}}}}
 	transport := &nativeImageRouteUpstream{target: target, client: upstream.Client()}
 	deferred := service.NewDeferredService(repo, nil, time.Minute)
-	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, transport, deferred, nil, nil, nil, nil, nil, nil, nil)
+	gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, nil, transport, deferred, nil, nil, nil, nil, nil, nil, nil)
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
 	handler := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(nil), billing, service.NewAPIKeyService(nil, nil, nil, nil, nil, nil, cfg), nil, nil, nil, nil, cfg)
@@ -95,6 +95,9 @@ func newNativeImageRoute(t *testing.T, delay time.Duration, status int) (*httpte
 	})
 	router.POST("/v1/images/generations", handler.Images)
 	router.POST("/v1/images/edits", handler.Images)
+	for _, configure := range setup {
+		configure(handler, repo, router)
+	}
 	server := httptest.NewServer(router)
 	t.Cleanup(server.Close)
 	return server, &calls

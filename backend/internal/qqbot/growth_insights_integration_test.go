@@ -56,7 +56,7 @@ func TestGrowthAutomaticGrantsRebindingAndProgress(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			bot := New(db, testEncryptor{}, true, nil)
+			bot := newMatureFixtureService(db, testEncryptor{}, true, nil)
 			_, grants, err := bot.processGrowthTasks(ctx, c, j, time.Now(), true)
 			if err != nil {
 				failed.Add(1)
@@ -200,8 +200,10 @@ func TestModelPriceCommandPaginationAndBoundIdentity(t *testing.T) {
 	s.db = db
 	uid := user(t, db)
 	bind(t, db, uid, "member")
-	c := DefaultConfig()
-	c.AppID = "app"
+	savedBot(t, db) // Persist the same enabled authorization used by workers.
+	s.encryptor = testEncryptor{}
+	c, err := s.Config(context.Background())
+	require.NoError(t, err)
 	var received int64
 	s.SetModelPriceProvider(modelPriceFunc(func(_ context.Context, model string, id int64, _ time.Time) ([]string, error) {
 		require.Equal(t, "gpt-5", model)

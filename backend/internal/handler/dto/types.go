@@ -6,23 +6,25 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/domain"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 type User struct {
-	ID            int64      `json:"id"`
-	Email         string     `json:"email"`
-	Username      string     `json:"username"`
-	Role          string     `json:"role"`
-	Balance       float64    `json:"balance"`
-	FrozenBalance float64    `json:"frozen_balance"`
-	Concurrency   int        `json:"concurrency"`
-	Status        string     `json:"status"`
-	AllowedGroups []int64    `json:"allowed_groups"`
-	LastActiveAt  *time.Time `json:"last_active_at,omitempty"`
-	CreatedAt     time.Time  `json:"created_at"`
-	UpdatedAt     time.Time  `json:"updated_at"`
-	DeletedAt     *time.Time `json:"deleted_at,omitempty"`
+	ID               int64      `json:"id"`
+	Email            string     `json:"email"`
+	Username         string     `json:"username"`
+	Role             string     `json:"role"`
+	Balance          float64    `json:"balance"`
+	FrozenBalance    float64    `json:"frozen_balance"`
+	Concurrency      int        `json:"concurrency"`
+	Status           string     `json:"status"`
+	AllowedGroups    []int64    `json:"allowed_groups"`
+	ObserverGroupIDs []int64    `json:"observer_group_ids"`
+	LastActiveAt     *time.Time `json:"last_active_at,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+	UpdatedAt        time.Time  `json:"updated_at"`
+	DeletedAt        *time.Time `json:"deleted_at,omitempty"`
 
 	// 余额不足通知
 	BalanceNotifyEnabled       bool               `json:"balance_notify_enabled"`
@@ -54,38 +56,44 @@ type AdminUser struct {
 }
 
 type APIKey struct {
-	ID              int64      `json:"id"`
-	UserID          int64      `json:"user_id"`
-	Key             string     `json:"key"`
-	Name            string     `json:"name"`
-	GroupID         *int64     `json:"group_id"`
-	FallbackGroupID *int64     `json:"fallback_group_id"`
-	Status          string     `json:"status"`
-	IPWhitelist     []string   `json:"ip_whitelist"`
-	IPBlacklist     []string   `json:"ip_blacklist"`
-	LastUsedAt      *time.Time `json:"last_used_at"`
-	LastUsedIP      *string    `json:"last_used_ip"`
-	Quota           float64    `json:"quota"`      // Quota limit in USD (0 = unlimited)
-	QuotaUsed       float64    `json:"quota_used"` // Used quota amount in USD
-	ExpiresAt       *time.Time `json:"expires_at"` // Expiration time (nil = never expires)
-	CreatedAt       time.Time  `json:"created_at"`
-	UpdatedAt       time.Time  `json:"updated_at"`
+	ID                int64             `json:"id"`
+	UserID            int64             `json:"user_id"`
+	Key               string            `json:"key"`
+	Name              string            `json:"name"`
+	GroupID           *int64            `json:"group_id"`
+	FallbackGroupID   *int64            `json:"fallback_group_id"`
+	Status            string            `json:"status"`
+	IPWhitelist       []string          `json:"ip_whitelist"`
+	IPBlacklist       []string          `json:"ip_blacklist"`
+	LastUsedAt        *time.Time        `json:"last_used_at"`
+	LastUsedIP        *string           `json:"last_used_ip"`
+	Quota             float64           `json:"quota"`      // Quota limit in USD (0 = unlimited)
+	QuotaUsed         float64           `json:"quota_used"` // Used quota amount in USD
+	ExpiresAt         *time.Time        `json:"expires_at"` // Expiration time (nil = never expires)
+	CreatedAt         time.Time         `json:"created_at"`
+	UpdatedAt         time.Time         `json:"updated_at"`
+	GroupIDs          []int64           `json:"group_ids"`
+	ModelMapping      map[string]string `json:"model_mapping"`
+	ReasoningEffort   string            `json:"reasoning_effort"`
+	ContextTokenLimit int               `json:"context_token_limit"`
+	AllowLongContext  bool              `json:"allow_long_context"`
 	// CurrentConcurrency is the real-time active request count for this API key.
 	CurrentConcurrency int `json:"current_concurrency"`
 
 	// Rate limit fields
-	RateLimit5h   float64    `json:"rate_limit_5h"`
-	RateLimit1d   float64    `json:"rate_limit_1d"`
-	RateLimit7d   float64    `json:"rate_limit_7d"`
-	Usage5h       float64    `json:"usage_5h"`
-	Usage1d       float64    `json:"usage_1d"`
-	Usage7d       float64    `json:"usage_7d"`
-	Window5hStart *time.Time `json:"window_5h_start"`
-	Window1dStart *time.Time `json:"window_1d_start"`
-	Window7dStart *time.Time `json:"window_7d_start"`
-	Reset5hAt     *time.Time `json:"reset_5h_at,omitempty"`
-	Reset1dAt     *time.Time `json:"reset_1d_at,omitempty"`
-	Reset7dAt     *time.Time `json:"reset_7d_at,omitempty"`
+	ConcurrencyLimit int        `json:"concurrency_limit"`
+	RateLimit5h      float64    `json:"rate_limit_5h"`
+	RateLimit1d      float64    `json:"rate_limit_1d"`
+	RateLimit7d      float64    `json:"rate_limit_7d"`
+	Usage5h          float64    `json:"usage_5h"`
+	Usage1d          float64    `json:"usage_1d"`
+	Usage7d          float64    `json:"usage_7d"`
+	Window5hStart    *time.Time `json:"window_5h_start"`
+	Window1dStart    *time.Time `json:"window_1d_start"`
+	Window7dStart    *time.Time `json:"window_7d_start"`
+	Reset5hAt        *time.Time `json:"reset_5h_at,omitempty"`
+	Reset1dAt        *time.Time `json:"reset_1d_at,omitempty"`
+	Reset7dAt        *time.Time `json:"reset_7d_at,omitempty"`
 
 	User          *User  `json:"user,omitempty"`
 	Group         *Group `json:"group,omitempty"`
@@ -112,12 +120,15 @@ type Group struct {
 	LongContextPricingEnabled bool     `json:"long_context_pricing_enabled"`
 
 	// 图片生成计费配置（仅 antigravity 平台使用）
-	AllowImageGeneration bool    `json:"allow_image_generation"`
-	ImageCountBilling    bool    `json:"image_count_billing"`
-	ImageRateIndependent bool    `json:"image_rate_independent"`
-	ImageRateMultiplier  float64 `json:"image_rate_multiplier"`
-	VideoRateIndependent bool    `json:"video_rate_independent"`
-	VideoRateMultiplier  float64 `json:"video_rate_multiplier"`
+	AllowImageGeneration         bool    `json:"allow_image_generation"`
+	AllowBatchImageGeneration    bool    `json:"allow_batch_image_generation"`
+	ImageCountBilling            bool    `json:"image_count_billing"`
+	ImageRateIndependent         bool    `json:"image_rate_independent"`
+	ImageRateMultiplier          float64 `json:"image_rate_multiplier"`
+	BatchImageDiscountMultiplier float64 `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier     float64 `json:"batch_image_hold_multiplier"`
+	VideoRateIndependent         bool    `json:"video_rate_independent"`
+	VideoRateMultiplier          float64 `json:"video_rate_multiplier"`
 	// 高峰时段倍率配置
 	PeakRateEnabled    bool     `json:"peak_rate_enabled"`
 	PeakStart          string   `json:"peak_start"`
@@ -180,6 +191,9 @@ type AdminGroup struct {
 	// 免费加速档位是管理端计费策略。
 	FreeOpenAIFast      bool `json:"free_openai_fast"`
 	FreeOpenAIUltrafast bool `json:"free_openai_ultrafast"`
+	StreamOnly          bool `json:"stream_only"`
+	CodexCLIOnly        bool `json:"codex_cli_only"`
+	BlockSubagents      bool `json:"block_subagents"`
 
 	// 分组利润控制（margin/buffer 为小数存储）。
 	// 仅管理员可见：这三个字段与同响应中的 rate_multiplier 相乘即可反推出
@@ -222,6 +236,7 @@ type Account struct {
 	Notes                   *string                          `json:"notes"`
 	Platform                string                           `json:"platform"`
 	Type                    string                           `json:"type"`
+	UpstreamChannelBinding  *service.UpstreamChannelBinding  `json:"upstream_channel_binding,omitempty"`
 	// Credentials 经 RedactCredentials 处理后只含非敏感子键；敏感 token / api_key / 私钥
 	// 的存在性通过 CredentialsStatus（has_<key>）暴露，原始值不返回前端。
 	Credentials             map[string]any                          `json:"credentials"`
@@ -247,6 +262,7 @@ type Account struct {
 	AutoPauseOnExpired      bool                                    `json:"auto_pause_on_expired"`
 	CreatedAt               time.Time                               `json:"created_at"`
 	UpdatedAt               time.Time                               `json:"updated_at"`
+	GroupRateMultiplier     float64                                 `json:"group_rate_multiplier"`
 
 	Schedulable                bool `json:"schedulable"`
 	UpstreamBillingRateLimited bool `json:"upstream_billing_rate_limited,omitempty"`
@@ -272,7 +288,7 @@ type Account struct {
 	MaxSessions           *int `json:"max_sessions,omitempty"`
 	SessionIdleTimeoutMin *int `json:"session_idle_timeout_minutes,omitempty"`
 
-	// RPM 限制（仅 Anthropic OAuth/SetupToken 账号有效）
+	// RPM 限制（Anthropic OAuth/SetupToken 与 OpenAI OAuth 账号有效）
 	// 从 extra 字段提取，方便前端显示和编辑
 	BaseRPM          *int    `json:"base_rpm,omitempty"`
 	RPMStrategy      *string `json:"rpm_strategy,omitempty"`
@@ -357,6 +373,7 @@ type AccountListItem struct {
 	Notes                   *string                          `json:"notes"`
 	Platform                string                           `json:"platform"`
 	Type                    string                           `json:"type"`
+	UpstreamChannelBinding  *service.UpstreamChannelBinding  `json:"upstream_channel_binding,omitempty"`
 
 	Credentials       map[string]any                          `json:"credentials,omitempty"`
 	CredentialsStatus map[string]bool                         `json:"credentials_status,omitempty"`
@@ -374,6 +391,7 @@ type AccountListItem struct {
 	LoadFactor              *int       `json:"load_factor,omitempty"`
 	Priority                int        `json:"priority"`
 	RateMultiplier          float64    `json:"rate_multiplier"`
+	GroupRateMultiplier     float64    `json:"group_rate_multiplier"`
 	Status                  string     `json:"status"`
 	ErrorMessage            string     `json:"error_message"`
 	LastUsedAt              *time.Time `json:"last_used_at"`
@@ -448,10 +466,12 @@ type AccountListItem struct {
 }
 
 type AccountGroup struct {
-	AccountID int64     `json:"account_id"`
-	GroupID   int64     `json:"group_id"`
-	Priority  int       `json:"priority"`
-	CreatedAt time.Time `json:"created_at"`
+	AccountID int64 `json:"account_id"`
+	GroupID   int64 `json:"group_id"`
+	Priority  int   `json:"priority"`
+	// AllowedModels 为空表示账号在该分组内不限制模型
+	AllowedModels []string  `json:"allowed_models,omitempty"`
+	CreatedAt     time.Time `json:"created_at"`
 
 	Account *Account `json:"account,omitempty"`
 	Group   *Group   `json:"group,omitempty"`
@@ -557,7 +577,8 @@ type RedeemCode struct {
 type AdminRedeemCode struct {
 	RedeemCode
 
-	Notes string `json:"notes"`
+	Notes      string                            `json:"notes"`
+	AutoCredit *service.AutoCreditBalanceHistory `json:"auto_credit,omitempty"`
 }
 
 type NullableTimeField struct {
@@ -615,13 +636,15 @@ type BatchUpdateRedeemCodesRequest struct {
 
 // UsageLog 是普通用户接口使用的 usage log DTO（不包含管理员字段）。
 type UsageLog struct {
-	ID         int64  `json:"id"`
-	UserID     int64  `json:"user_id"`
-	APIKeyID   int64  `json:"api_key_id"`
-	AccountID  int64  `json:"account_id"`
-	RequestID  string `json:"request_id"`
-	HTTPStatus *int   `json:"http_status,omitempty"`
-	Model      string `json:"model"`
+	ID                  int64                             `json:"id"`
+	UserID              int64                             `json:"user_id"`
+	APIKeyID            int64                             `json:"api_key_id"`
+	AccountID           int64                             `json:"account_id"`
+	RequestID           string                            `json:"request_id"`
+	HTTPStatus          *int                              `json:"http_status,omitempty"`
+	Model               string                            `json:"model"`
+	CustomerCostDetails *service.CustomerCostDetails      `json:"customer_cost_details,omitempty"`
+	ContentTiming       *requesttiming.ContentObservation `json:"content_timing,omitempty"`
 	// ServiceTier records the OpenAI service tier used for billing, e.g. "priority" / "flex".
 	ServiceTier                *string `json:"service_tier,omitempty"`
 	ServiceTierSurchargeWaived bool    `json:"service_tier_surcharge_waived,omitempty"`
@@ -665,6 +688,10 @@ type UsageLog struct {
 	NativeCompactionV2 bool `json:"native_compaction_v2"`
 	DurationMs         *int `json:"duration_ms"`
 	FirstTokenMs       *int `json:"first_token_ms"`
+	// QueueWaitMs is pre-forward elapsed time, not client E2E. Legacy timers
+	// can overlap it; QueueTiming carries explicit measured server/forward scopes.
+	QueueWaitMs *int                 `json:"queue_wait_ms"`
+	QueueTiming *service.QueueTiming `json:"queue_timing"`
 
 	// 图片生成字段
 	ImageCount         int            `json:"image_count"`
@@ -692,6 +719,11 @@ type UsageLog struct {
 
 	// BillingMode 计费模式：token/image
 	BillingMode *string `json:"billing_mode,omitempty"`
+
+	// UpstreamResponseModel is the model declared by the upstream response.
+	// End-user payloads include it only when the admin visibility setting is on.
+	// Omitted otherwise so mapped models stay hidden by default.
+	UpstreamResponseModel *string `json:"upstream_response_model,omitempty"`
 
 	CreatedAt time.Time `json:"created_at"`
 
@@ -729,6 +761,8 @@ type AdminUsageLog struct {
 	AccountRateMultiplier *float64 `json:"account_rate_multiplier"`
 	// AccountStatsCost 自定义定价规则计算的账号统计费用（nil 表示使用默认公式）
 	AccountStatsCost *float64 `json:"account_stats_cost,omitempty"`
+	// ProcurementCostSnapshot follows existing admin/authorized observer cost scope.
+	ProcurementCostSnapshot *service.ProcurementCostSnapshot `json:"procurement_cost_snapshot,omitempty"`
 
 	// IPAddress 用户请求 IP
 	IPAddress *string `json:"ip_address,omitempty"`

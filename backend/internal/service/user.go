@@ -7,22 +7,23 @@ import (
 )
 
 type User struct {
-	ID             int64
-	Email          string
-	Username       string
-	Notes          string
-	AvatarURL      string
-	AvatarSource   string
-	AvatarMIME     string
-	AvatarByteSize int
-	AvatarSHA256   string
-	PasswordHash   string
-	Role           string
-	Balance        float64
-	FrozenBalance  float64
-	Concurrency    int
-	Status         string
-	AllowedGroups  []int64
+	ID               int64
+	Email            string
+	Username         string
+	Notes            string
+	AvatarURL        string
+	AvatarSource     string
+	AvatarMIME       string
+	AvatarByteSize   int
+	AvatarSHA256     string
+	PasswordHash     string
+	Role             string
+	Balance          float64
+	FrozenBalance    float64
+	Concurrency      int
+	Status           string
+	AllowedGroups    []int64
+	ObserverGroupIDs []int64
 	// RestrictPublicGroups narrows the public groups this user may bind to the
 	// ones listed in AllowedGroups. False keeps the default, where every public
 	// group is bindable.
@@ -55,9 +56,11 @@ type User struct {
 	BalanceNotifyExtraEmails   []NotifyEmailEntry
 	TotalRecharged             float64
 
-	// RPMLimit 用户级每分钟请求数上限（0 = 不限制）。仅在所用分组未设置 rpm_limit
-	// 且该 (用户, 分组) 无 rpm_override 时作为全局兜底生效，计数键 rpm:u:{userID}:{min}。
+	// RPMLimit 用户级每分钟请求数上限（0 = 不限制，但仍计数）。
+	// 与分组限额并行生效，计数键 rpm:u:{userID}:{min}。
 	RPMLimit int
+	// CurrentRPM is a read-only list snapshot; nil means unavailable.
+	CurrentRPM *int
 
 	// UserGroupRPMOverride 来自 auth cache snapshot 的 (user, group) RPM 覆盖值。
 	// nil = 该 API Key 对应的 (user, group) 无 override；非 nil 时 checkRPM 直接使用，
@@ -67,12 +70,20 @@ type User struct {
 	// 等于当前分组且 UserGroupRPMOverride 为 nil 时表示确认无 override，checkRPM 不再查 DB。
 	UserGroupRPMOverrideGroupID int64
 
+	// UserGroupDeniedModels 来自 auth cache snapshot 的 (user, group) 禁用模型，
+	// 即该 API Key 所属用户在 Key 分组内不能使用的模型。字段不持久化到 users 表。
+	UserGroupDeniedModels []string
+
 	APIKeys       []APIKey
 	Subscriptions []UserSubscription
 }
 
 func (u *User) IsAdmin() bool {
 	return u.Role == RoleAdmin
+}
+
+func (u *User) IsObserver() bool {
+	return u.Role == RoleObserver
 }
 
 func (u *User) IsActive() bool {

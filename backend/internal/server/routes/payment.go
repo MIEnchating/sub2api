@@ -43,13 +43,13 @@ func RegisterPaymentRoutes(
 	// 面板全局按用户限流
 	authenticated.Use(panelRateLimiter.Global())
 	{
+		authenticated.GET("/coupons", paymentHandler.ListMyCoupons)
+		authenticated.GET("/coupons/usage", paymentHandler.ListMyCouponUsage)
+		authenticated.POST("/coupons/:id/quote", paymentHandler.QuoteCoupon)
 		authenticated.GET("/config", paymentHandler.GetPaymentConfig)
 		authenticated.GET("/checkout-info", paymentHandler.GetCheckoutInfo)
 		authenticated.GET("/plans", paymentHandler.GetPlans)
 		authenticated.GET("/limits", paymentHandler.GetLimits)
-		authenticated.GET("/coupons", paymentHandler.ListMyCoupons)
-		authenticated.GET("/coupons/usage", paymentHandler.ListMyCouponUsage)
-		authenticated.POST("/coupons/:id/quote", paymentHandler.QuoteCoupon)
 
 		invoices := authenticated.Group("/invoices")
 		{
@@ -59,6 +59,7 @@ func RegisterPaymentRoutes(
 			invoices.POST("", paymentHandler.CreateInvoiceRequest)
 			invoices.GET("/:id/pdf", paymentHandler.DownloadInvoicePDF)
 		}
+		authenticated.GET("/crypto/:out_trade_no", paymentHandler.GetCryptoCheckout)
 
 		orders := authenticated.Group("/orders")
 		{
@@ -94,6 +95,7 @@ func RegisterPaymentRoutes(
 		// EasyPay sends GET callbacks with query params
 		webhook.GET("/easypay", webhookHandler.EasyPayNotify)
 		webhook.POST("/easypay", webhookHandler.EasyPayNotify)
+		webhook.POST("/bepusdt", webhookHandler.BEpusdtNotify)
 		webhook.POST("/alipay", webhookHandler.AlipayNotify)
 		webhook.POST("/wxpay", webhookHandler.WxpayNotify)
 		webhook.POST("/stripe", webhookHandler.StripeWebhook)
@@ -107,7 +109,6 @@ func RegisterPaymentRoutes(
 	adminGroup.Use(gin.HandlerFunc(auditLog))
 	adminGroup.Use(middleware.AdminComplianceGuard(settingService))
 	{
-		// Dashboard
 		coupons := adminGroup.Group("/coupons")
 		{
 			coupons.GET("/templates", adminPaymentHandler.ListCouponTemplates)
@@ -118,6 +119,7 @@ func RegisterPaymentRoutes(
 			coupons.GET("/usage", adminPaymentHandler.ListCouponUsage)
 			coupons.POST("/:id/revoke", adminPaymentHandler.RevokeCoupon)
 		}
+		// Dashboard
 		adminGroup.GET("/dashboard", adminPaymentHandler.GetDashboard)
 
 		// Config
@@ -133,6 +135,17 @@ func RegisterPaymentRoutes(
 			invoices.POST("/:id/issue", adminPaymentHandler.IssueInvoiceRequest)
 			invoices.GET("/:id/pdf", adminPaymentHandler.DownloadInvoicePDF)
 		}
+
+		// Built-in collection management uses the existing administrator guard.
+		collection := adminGroup.Group("/bepusdt")
+		collection.GET("", adminPaymentHandler.GetBEpusdt)
+		collection.POST("/nodes/check", adminPaymentHandler.CheckBEpusdtNodes)
+		collection.PUT("/settings", adminPaymentHandler.SaveBEpusdtSettings)
+		collection.POST("/wallets", adminPaymentHandler.SaveBEpusdtWallet)
+		collection.PUT("/wallets/:id", adminPaymentHandler.SaveBEpusdtWallet)
+		collection.DELETE("/wallets/:id", adminPaymentHandler.DeleteBEpusdtWallet)
+		collection.POST("/rates/sync", adminPaymentHandler.SyncBEpusdtRates)
+		collection.POST("/rates", adminPaymentHandler.SaveBEpusdtRate)
 
 		// Orders
 		adminOrders := adminGroup.Group("/orders")

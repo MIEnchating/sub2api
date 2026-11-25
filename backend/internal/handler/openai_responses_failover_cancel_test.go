@@ -49,7 +49,26 @@ func (u *openAIResponsesFailoverCancelUpstream) calls() []int64 {
 	return append([]int64(nil), u.accountIDs...)
 }
 
-func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUpstream, repositories ...service.AccountRepository) *OpenAIGatewayHandler {
+func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUpstream, fixtureAccounts ...service.Account) *OpenAIGatewayHandler {
+	t.Helper()
+	return newOpenAIResponsesFailoverTestHandlerWithCache(t, upstream, nil, fixtureAccounts...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithCache(t *testing.T, upstream service.HTTPUpstream, cache service.GatewayCache, fixtureAccounts ...service.Account) *OpenAIGatewayHandler {
+	t.Helper()
+	return newOpenAIResponsesFailoverTestHandlerWithSettings(t, upstream, cache, nil, fixtureAccounts...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithSettings(t *testing.T, upstream service.HTTPUpstream, cache service.GatewayCache, settings *service.SettingService, fixtureAccounts ...service.Account) *OpenAIGatewayHandler {
+	t.Helper()
+	return newOpenAIResponsesFailoverTestHandlerWithUsage(t, upstream, cache, settings, nil, fixtureAccounts...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithUsage(t *testing.T, upstream service.HTTPUpstream, cache service.GatewayCache, settings *service.SettingService, usage service.UsageLogRepository, fixtureAccounts ...service.Account) *OpenAIGatewayHandler {
+	return newOpenAIResponsesFailoverTestHandlerWithConcurrency(t, upstream, cache, settings, usage, nil, fixtureAccounts...)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithConcurrency(t *testing.T, upstream service.HTTPUpstream, cache service.GatewayCache, settings *service.SettingService, usage service.UsageLogRepository, concurrency *service.ConcurrencyService, fixtureAccounts ...service.Account) *OpenAIGatewayHandler {
 	t.Helper()
 	accounts := []service.Account{
 		{
@@ -75,38 +94,52 @@ func newOpenAIResponsesFailoverTestHandler(t *testing.T, upstream service.HTTPUp
 			Credentials: map[string]any{"access_token": "token-2"},
 		},
 	}
-	var accountRepo service.AccountRepository = openAIImagesFailoverAccountRepo{accounts: accounts}
-	if len(repositories) > 0 {
-		accountRepo = repositories[0]
+	if len(fixtureAccounts) > 0 {
+		accounts = fixtureAccounts
 	}
+	// This fixture is shared by the regular and Astra Pro failover handlers.
+	for i := range accounts {
+		if len(accounts[i].GroupIDs) == 0 {
+			accounts[i].GroupIDs = []int64{3131, 3132}
+		}
+	}
+	return newOpenAIResponsesFailoverTestHandlerWithRepository(t, upstream, openAIImagesFailoverAccountRepo{accounts: accounts}, cache, settings, usage, concurrency)
+}
+
+func newOpenAIResponsesFailoverTestHandlerWithRepository(t *testing.T, upstream service.HTTPUpstream, accountRepo service.AccountRepository, cache service.GatewayCache, settings *service.SettingService, usage service.UsageLogRepository, concurrency *service.ConcurrencyService) *OpenAIGatewayHandler {
+	t.Helper()
 	cfg := &config.Config{RunMode: config.RunModeSimple}
 	gatewayService := service.NewOpenAIGatewayService(
 		accountRepo,
 		nil,
+		usage,
 		nil,
 		nil,
 		nil,
 		nil,
-		nil,
+		cache,
 		cfg,
 		nil,
-		nil,
-		nil,
+		concurrency,
+		service.NewBillingService(cfg, nil),
 		nil,
 		nil,
 		upstream,
+		&service.DeferredService{},
 		nil,
 		nil,
 		nil,
 		nil,
 		nil,
-		nil,
-		nil,
+		settings,
 		nil,
 	)
 	billingService := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingService.Stop)
-	concurrencyService := service.NewConcurrencyService(nil)
+	concurrencyService := concurrency
+	if concurrencyService == nil {
+		concurrencyService = service.NewConcurrencyService(nil)
+	}
 	handler := NewOpenAIGatewayHandler(
 		gatewayService,
 		concurrencyService,
@@ -179,19 +212,30 @@ func TestOpenAIGatewayHandlerResponses_FailoverAbortsWhenClientDisconnected(t *t
 	require.Equal(t, 520, events[0].UpstreamStatusCode)
 }
 
-// TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient 回归
-// 守卫：客户端在线时 failover 行为不变——切换到账号 2，两个账号都 520 后按
-// 耗尽返回 502。
+// Connected OAuth requests retry transient failures on the original account.
+// API-key accounts retain their existing bounded cross-account failover.
 func TestOpenAIGatewayHandlerResponses_FailoverContinuesForConnectedClient(t *testing.T) {
 	gin.SetMode(gin.TestMode)
-
-	upstream := &openAIResponsesFailoverCancelUpstream{}
-	handler := newOpenAIResponsesFailoverTestHandler(t, upstream)
-	c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
-
-	handler.Responses(c)
-
-	require.Equal(t, []int64{1, 2}, upstream.calls(), "在线客户端应正常切换账号")
-	require.Equal(t, http.StatusBadGateway, rec.Code)
-	require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+	for _, tc := range []struct {
+		kind     string
+		accounts []int64
+	}{
+		{service.AccountTypeOAuth, []int64{1, 1, 1, 1}},
+		{service.AccountTypeAPIKey, []int64{1, 2}},
+	} {
+		t.Run(tc.kind, func(t *testing.T) {
+			accounts := issue715Accounts()
+			for i := range accounts {
+				accounts[i].Type = tc.kind
+				accounts[i].Credentials = map[string]any{"api_key": "fixture-key", "access_token": "fixture-access"}
+			}
+			upstream := &openAIResponsesFailoverCancelUpstream{}
+			handler := newOpenAIResponsesFailoverTestHandler(t, upstream, accounts...)
+			c, rec := newOpenAIResponsesFailoverTestContext(t, nil)
+			handler.Responses(c)
+			require.Equal(t, tc.accounts, upstream.calls())
+			require.Equal(t, http.StatusBadGateway, rec.Code)
+			require.Equal(t, "upstream_error", gjson.GetBytes(rec.Body.Bytes(), "error.type").String())
+		})
+	}
 }

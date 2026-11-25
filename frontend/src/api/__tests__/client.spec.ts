@@ -91,6 +91,89 @@ describe('API Client', () => {
       expect(config.params).toHaveProperty('timezone')
     })
 
+    it('AI 运维读取经过真实客户端拦截器后不附加查询参数', async () => {
+      const [{ aiOpsAPI }, { aiOpsControlAPI }] = await Promise.all([
+        import('@/api/admin/aiOps'),
+        import('@/api/admin/aiOpsControl'),
+      ])
+      localStorage.setItem('auth_token', 'ai-ops-test-token')
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+      const runId = '00000000-0000-4000-8000-000000000001'
+
+      await aiOpsAPI.status()
+      await aiOpsAPI.list()
+      await aiOpsAPI.get(runId)
+      await aiOpsControlAPI.policy()
+      await aiOpsControlAPI.actions()
+      await aiOpsControlAPI.probes()
+
+      const configs = adapter.mock.calls.map(([config]) => config)
+      expect(configs.map(config => config.url)).toEqual([
+        '/admin/ops/ai/status',
+        '/admin/ops/ai/runs',
+        `/admin/ops/ai/runs/${runId}`,
+        '/admin/ops/ai/policy',
+        '/admin/ops/ai/actions',
+        '/admin/ops/ai/probes',
+      ])
+      for (const config of configs) {
+        expect(apiClient.getUri(config)).not.toContain('?')
+        expect(config.headers.get('Authorization')).toBe('Bearer ai-ops-test-token')
+        expect(config.headers.get('Accept-Language')).toBe('zh-CN')
+        expect(config.headers.get('X-Admin-UI-Request')).toBe('1')
+      }
+    })
+
+    it.each(['/admin/ops/overview', '/admin/ops/ai-other/status'])(
+      '普通运维 GET %s 仍附加 timezone',
+      async (path) => {
+        const adapter = vi.fn().mockResolvedValue({
+          status: 200,
+          data: { code: 0, data: {} },
+          headers: {},
+          config: {},
+          statusText: 'OK',
+        })
+        apiClient.defaults.adapter = adapter
+
+        await apiClient.get(path)
+
+        const config = adapter.mock.calls[0][0]
+        const uri = new URL(apiClient.getUri(config), window.location.origin)
+        expect(uri.searchParams.get('timezone')).toBe(
+          Intl.DateTimeFormat().resolvedOptions().timeZone
+        )
+      }
+    )
+
+    it('AI 运维显式查询参数保留给后端校验，不被客户端删除', async () => {
+      const adapter = vi.fn().mockResolvedValue({
+        status: 200,
+        data: { code: 0, data: {} },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      })
+      apiClient.defaults.adapter = adapter
+
+      await apiClient.get('/admin/ops/ai/status?scope=unexpected', {
+        params: { timezone: 'UTC', instruction: 'unexpected' },
+      })
+
+      const config = adapter.mock.calls[0][0]
+      const uri = new URL(apiClient.getUri(config), window.location.origin)
+      expect(uri.searchParams.get('scope')).toBe('unexpected')
+      expect(uri.searchParams.get('timezone')).toBe('UTC')
+      expect(uri.searchParams.get('instruction')).toBe('unexpected')
+    })
+
     it('POST 请求不附加 timezone 参数', async () => {
       const adapter = vi.fn().mockResolvedValue({
         status: 200,
@@ -258,25 +341,6 @@ describe('API Client', () => {
           message: '参数错误',
         })
       )
-    })
-
-    it.each([
-      ['17', 17],
-      ['Wed, 21 Oct 2026 07:28:00 GMT', undefined],
-      [undefined, undefined],
-    ])('429 结构化错误携带 Retry-After 秒数（%s）', async (retryAfter, expected) => {
-      apiClient.defaults.adapter = vi.fn().mockRejectedValueOnce({
-        response: {
-          status: 429,
-          data: { code: 'RATE_LIMITED', message: 'Too many requests' },
-          headers: retryAfter === undefined ? {} : { 'retry-after': retryAfter },
-        },
-        config: { url: '/usage', headers: {} },
-      })
-
-      const error = await apiClient.get('/usage').catch((err) => err)
-      expect(error).toMatchObject({ status: 429, code: 'RATE_LIMITED', message: 'Too many requests' })
-      expect(error.retry_after_seconds).toBe(expected)
     })
 
     it('部署与运营合规未确认时广播事件且保留登录态', async () => {
@@ -513,6 +577,33 @@ describe('API Client', () => {
   // --- 网络错误 ---
 
   describe('网络错误', () => {
+    it('429 结构化错误携带 Retry-After 秒数，缺失或非秒数时为 undefined', async () => {
+      const rateLimited = (headers: Record<string, string>) => vi.fn().mockRejectedValue({
+        response: {
+          status: 429,
+          headers,
+          data: { code: 'RATE_LIMITED', message: 'Too many requests, please slow down and try again later' },
+        },
+        config: { url: '/usage' },
+        code: 'ERR_BAD_REQUEST',
+      })
+
+      apiClient.defaults.adapter = rateLimited({ 'retry-after': '37' })
+      await expect(apiClient.get('/usage')).rejects.toEqual(
+        expect.objectContaining({ status: 429, code: 'RATE_LIMITED', retry_after_seconds: 37 })
+      )
+
+      apiClient.defaults.adapter = rateLimited({})
+      await expect(apiClient.get('/usage')).rejects.toEqual(
+        expect.objectContaining({ status: 429, retry_after_seconds: undefined })
+      )
+
+      apiClient.defaults.adapter = rateLimited({ 'retry-after': 'Wed, 21 Oct 2026 07:28:00 GMT' })
+      await expect(apiClient.get('/usage')).rejects.toEqual(
+        expect.objectContaining({ status: 429, retry_after_seconds: undefined })
+      )
+    })
+
     it.each(['ERR_NETWORK', 'ECONNABORTED', 'ETIMEDOUT', undefined])('网络错误保留错误码 %s', async (code) => {
       const adapter = vi.fn().mockRejectedValue({
         code,

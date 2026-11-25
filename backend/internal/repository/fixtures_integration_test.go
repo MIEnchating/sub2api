@@ -90,6 +90,7 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetSubscriptionType(g.SubscriptionType).
 		SetRateMultiplier(g.RateMultiplier).
 		SetIsExclusive(g.IsExclusive).
+		SetRequirePrivacySet(g.RequirePrivacySet).
 		SetForceOpenaiFast(g.ForceOpenAIFast).
 		SetForceOpenaiServiceTier(g.ForceOpenAIServiceTier).
 		SetForceOpenaiUltrafast(g.ForceOpenAIUltrafast).
@@ -99,8 +100,7 @@ func mustCreateGroup(t *testing.T, client *dbent.Client, g *service.Group) *serv
 		SetCodexModelsManifestConfig(g.CodexModelsManifestConfig).
 		SetProfitControlEnabled(g.ProfitControlEnabled).
 		SetProfitMinMargin(g.ProfitMinMargin).
-		SetProfitSafetyBuffer(g.ProfitSafetyBuffer).
-		SetRequirePrivacySet(g.RequirePrivacySet)
+		SetProfitSafetyBuffer(g.ProfitSafetyBuffer)
 	if g.Description != "" {
 		create.SetDescription(g.Description)
 	}

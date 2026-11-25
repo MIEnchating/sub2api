@@ -9,8 +9,10 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 
 	"github.com/gin-gonic/gin"
@@ -37,15 +39,16 @@ func NewAPIKeyAuthMiddleware(apiKeyService *service.APIKeyService, subscriptionS
 // usage 允许过期/配额耗尽的 Key 查询自身用量，billing 用于读取当前 Key 的倍率配置，
 // 异步生图查询允许已耗尽额度的 Key 拉取自身任务结果。
 func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
-	return func(c *gin.Context) {
+	var authenticate gin.HandlerFunc
+	authenticate = func(c *gin.Context) {
+		authDone := requesttiming.Observe(c.Request.Context(), "api_key_auth")
+		defer authDone()
 		// ── 1. 提取 API Key ──────────────────────────────────────────
-		if rejectInvalidAuthAbuse(c, apiKeyService) {
-			AbortWithError(c, http.StatusTooManyRequests, "INVALID_AUTH_RATE_LIMITED", "Too many invalid authentication attempts; retry later")
-			return
-		}
 
 		if apiKeyHeadersTooLarge(c) {
-			recordInvalidAuthFailure(c, apiKeyService)
+			if rejectAnonymousCredentialFailure(c, apiKeyService, "malformed", false) {
+				return
+			}
 			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
 			AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
 			return
@@ -54,7 +57,6 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 		queryKey := strings.TrimSpace(c.Query("key"))
 		queryApiKey := strings.TrimSpace(c.Query("api_key"))
 		if queryKey != "" || queryApiKey != "" {
-			recordInvalidAuthFailure(c, apiKeyService)
 			MarkIngressRejected(c, IngressRejectQueryAPIKeyDeprecated)
 			AbortWithError(c, 400, "api_key_in_query_deprecated", "API key in query parameter is deprecated. Please use Authorization header instead.")
 			return
@@ -77,7 +79,9 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			apiKeyString = c.GetHeader("x-api-key")
 		}
 		if len(apiKeyString) > service.MaxAPIKeyCredentialBytes {
-			recordInvalidAuthFailure(c, apiKeyService)
+			if rejectAnonymousCredentialFailure(c, apiKeyService, "malformed", false) {
+				return
+			}
 			MarkIngressRejected(c, IngressRejectInvalidAPIKey)
 			AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
 			return
@@ -90,7 +94,13 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// 如果所有header都没有API key
 		if apiKeyString == "" {
-			recordInvalidAuthFailure(c, apiKeyService)
+			reason := "missing"
+			if hasAPIKeyCredentialInput(c) {
+				reason = "malformed"
+			}
+			if rejectAnonymousCredentialFailure(c, apiKeyService, reason, false) {
+				return
+			}
 			if hasAPIKeyCredentialInput(c) {
 				MarkIngressRejected(c, IngressRejectInvalidAPIKey)
 			} else {
@@ -102,68 +112,114 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 2. 验证 Key 存在 ─────────────────────────────────────────
 
-		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
+		lookup := apiKeyService.GetByKey
+		if c.GetBool("auto_credit.attempted") {
+			lookup = apiKeyService.GetByKeyUncached
+		}
+		apiKey, err := lookup(c.Request.Context(), apiKeyString)
 		if err != nil {
-			if errors.Is(err, service.ErrAPIKeyNotFound) {
-				recordInvalidAuthFailure(c, apiKeyService)
-				MarkIngressRejected(c, IngressRejectInvalidAPIKey)
-				AbortWithError(c, 401, "INVALID_API_KEY", "Invalid API key")
-				return
-			}
-			if errors.Is(err, service.ErrAPIKeyAuthOverloaded) {
-				MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
-				AbortWithError(c, http.StatusServiceUnavailable, "API_KEY_AUTH_OVERLOADED", "API key authentication is temporarily unavailable")
-				return
-			}
-			if abortIfAPIKeyLookupClientGone(c, err) {
-				return
-			}
-			AbortWithError(c, 500, "INTERNAL_ERROR", "Failed to validate API key")
+			abortAPIKeyLookupError(c, err, apiKeyService)
 			return
 		}
+		// Detailed usage needs current permissions. Resolve the authenticated
+		// identity before any policy check or context write uses the key.
+		if c.Request.Method == http.MethodGet && (c.FullPath() == gatewayUsageRecordsPath || isKeyGroupHealthRequest(c)) {
+			apiKey, err = revalidateUsageRecordsKey(c.Request.Context(), apiKeyService, apiKeyString, apiKey)
+			if err != nil {
+				abortAPIKeyLookupError(c, err, nil)
+				return
+			}
+		}
+		// Keep the loaded identity available for scoped Ops logging on rejection.
+		SetOpsFallbackAPIKey(c, apiKey)
+		if apiKey != nil && apiKey.Status == service.StatusAPIKeyDisabled && rejectAnonymousCredentialFailure(c, apiKeyService, "disabled", false) {
+			return
+		}
+		if err := validateAPIKeyPrincipalAccess(c, apiKey, cfg); err != nil {
+			AbortWithError(c, err.Status, err.Code, err.Message)
+			return
+		}
+		anonymousCredentialSuccess(c)
+		apiKey, err = selectAPIKeyRequestGroup(c, apiKeyService, subscriptionService, cfg, apiKey, false)
+		if c.IsAborted() {
+			return
+		}
+		if err != nil {
+			AbortWithError(c, infraerrors.Code(err), infraerrors.Reason(err), infraerrors.Message(err))
+			return
+		}
+		if apiKey == nil {
+			AbortWithError(c, http.StatusForbidden, "NO_ELIGIBLE_API_KEY_GROUP", "No selected group is available for this request")
+			return
+		}
+		if !isMultiGroupBillingInfoRequest(c, apiKey) {
+			if err := validateAPIKeyGroupAccess(c, apiKey); err != nil {
+				AbortWithError(c, err.Status, err.Code, err.Message)
+				return
+			}
+		}
 
-		authenticateLoadedAPIKey(c, apiKey, apiKeyService, subscriptionService, cfg)
+		recoverBalance := func() bool {
+			if !c.GetBool("auto_credit.attempted") {
+				c.Set("auto_credit.attempted", true)
+				recovered, err := apiKeyService.RecoverAutoCreditAdmission(c.Request.Context(), apiKey)
+				if err != nil {
+					AbortWithError(c, http.StatusServiceUnavailable, "AUTO_CREDIT_UNAVAILABLE", "Credit authorization unavailable")
+					return true
+				}
+				if recovered {
+					authenticate(c)
+					return true
+				}
+			}
+			apiKeyService.NotifyBalanceRejected(apiKey.User)
+			return false
+		}
+		admitLoadedAPIKey(c, apiKey, apiKeyService, subscriptionService, cfg, recoverBalance, func() {
+			authDone()
+			nextWithAPIKeyAdmissionOwner(c, apiKeyService, apiKeyString, ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), apiKey, false)
+		})
 	}
+	return authenticate
 }
 
-// authenticateLoadedAPIKey applies gateway policy after credential authentication.
-func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) {
-	// apiKey 已加载（含 User/Group）。即便后续因分组停用/Key 停用/用户停用/
-	// IP 限制等早退中断，也让 Ops 错误日志能回退取到 user/group/platform。
-	SetOpsFallbackAPIKey(c, apiKey)
-	if accessErr := ValidateAPIKeyAccess(c, apiKey, cfg); accessErr != nil {
-		status := accessErr.Status
-		// A panel session is already authenticated. Do not invalidate its login.
-		if status == http.StatusUnauthorized && (strings.HasPrefix(c.FullPath(), "/api/v1/key-tests/")) {
-			status = http.StatusForbidden
-		}
-		AbortWithError(c, status, accessErr.Code, accessErr.Message)
-		return
-	}
+// admitLoadedAPIKey applies billing and publishes the context after identity
+// and group admission. Both gateway and owner-authenticated panel tests use it.
+func admitLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config, recoverBalance func() bool, next func()) {
 	ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
+	// 请求头覆写变量（{{user_id}} 等）的取值来源：只在此处由已认证的 Key 建立。
 	ctx = service.WithHeaderOverrideRequestScope(ctx, apiKey.User.ID, apiKey.ID, apiKey.GroupID)
 	c.Request = c.Request.WithContext(ctx)
 	billingInfoRequest := c.Request.URL.Path == "/v1/sub2api/billing"
+	pelicanReadRequest := (c.Request.Method == http.MethodGet || c.Request.Method == http.MethodHead) &&
+		isPublicPelicanShowcasePath(c.Request.URL.Path)
+	// Showcase reads are free but still require an unexpired site API key,
+	// including in simple mode. The existing user/group/IP checks above apply.
+	if (pelicanReadRequest || isKeyGroupHealthRequest(c)) && (apiKey.Status == service.StatusAPIKeyExpired || apiKey.IsExpired()) {
+		AbortWithError(c, http.StatusForbidden, "API_KEY_EXPIRED", "API key 已过期")
+		return
+	}
+	_, modelListingRequest := GetModelListingGroups(c)
+	metadataReadRequest := isKeyGroupHealthRequest(c) || billingInfoRequest || pelicanReadRequest || modelListingRequest
+	// Discovery does not spend balance or quota, but expired keys must not
+	// regain access through the metadata path.
+	if modelListingRequest && (apiKey.Status == service.StatusAPIKeyExpired || apiKey.IsExpired()) {
+		AbortWithError(c, http.StatusForbidden, "API_KEY_EXPIRED", "API key 已过期")
+		return
+	}
+	if modelListingRequest && (apiKey.Status == service.StatusAPIKeyQuotaExhausted || apiKey.IsQuotaExhausted()) {
+		abortWithAPIKeyQuotaError(c)
+		return
+	}
 	// Async image task polling only reads data that already belongs to the
 	// authenticated key and must remain available after the completed
 	// generation consumes the key's remaining balance.
-	skipBilling := c.Request.URL.Path == "/v1/usage" || billingInfoRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
+	skipBilling := IsGatewayUsagePath(c.Request.URL.Path) || metadataReadRequest || isAsyncImageTaskRead(c.Request.Method, c.Request.URL.Path)
 
 	// ── 4. SimpleMode → early return ─────────────────────────────
 
 	if cfg.RunMode == config.RunModeSimple {
-		c.Set(string(ContextKeyAPIKey), apiKey)
-		c.Set(string(ContextKeyUser), AuthSubject{
-			UserID:      apiKey.User.ID,
-			Concurrency: apiKey.User.Concurrency,
-		})
-		c.Set(string(ContextKeyUserRole), apiKey.User.Role)
-		setGroupContext(c, apiKey.Group)
-		setAPIKeyFallbackContext(c, apiKey)
-		if !billingInfoRequest {
-			_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
-		}
-		c.Next()
+		finishAPIKeyAdmission(c, apiKey, apiKeyService, metadataReadRequest, next)
 		return
 	}
 
@@ -172,8 +228,8 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 	var subscription *service.UserSubscription
 	isSubscriptionType := apiKey.Group != nil && apiKey.Group.IsSubscriptionType()
 
-	// 倍率自省不需要订阅数据；/v1/usage 仍保留原有订阅读取行为。
-	if isSubscriptionType && subscriptionService != nil && !billingInfoRequest {
+	// 倍率自省和展示结果只读查询不需要订阅数据；/v1/usage 保留原行为。
+	if isSubscriptionType && subscriptionService != nil && !metadataReadRequest {
 		sub, subErr := subscriptionService.GetActiveSubscription(
 			c.Request.Context(),
 			apiKey.User.ID,
@@ -240,7 +296,14 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 		} else {
 			// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
-				AbortWithError(c, 403, "INSUFFICIENT_BALANCE", "Insufficient account balance")
+				if recoverBalance != nil && recoverBalance() {
+					return
+				}
+				message := "Insufficient account balance"
+				if recoverBalance != nil {
+					message = service.InsufficientUserBalanceMessage
+				}
+				AbortWithError(c, http.StatusForbidden, "INSUFFICIENT_BALANCE", message)
 				return
 			}
 		}
@@ -251,19 +314,54 @@ func authenticateLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyServ
 	if subscription != nil {
 		c.Set(string(ContextKeySubscription), subscription)
 	}
+	finishAPIKeyAdmission(c, apiKey, apiKeyService, metadataReadRequest, next)
+}
+
+func finishAPIKeyAdmission(c *gin.Context, apiKey *service.APIKey, apiKeyService *service.APIKeyService, metadataReadRequest bool, next func()) {
 	c.Set(string(ContextKeyAPIKey), apiKey)
-	c.Set(string(ContextKeyUser), AuthSubject{
-		UserID:      apiKey.User.ID,
-		Concurrency: apiKey.User.Concurrency,
-	})
+	c.Set(string(ContextKeyUser), AuthSubject{UserID: apiKey.User.ID, Concurrency: apiKey.User.Concurrency})
 	c.Set(string(ContextKeyUserRole), apiKey.User.Role)
 	setGroupContext(c, apiKey.Group)
 	setAPIKeyFallbackContext(c, apiKey)
-	if !billingInfoRequest {
+	if !metadataReadRequest {
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 	}
+	next()
+}
 
-	c.Next()
+// Only initial authentication classifies unknown credentials for abuse tracking.
+func abortAPIKeyLookupError(c *gin.Context, err error, anonymousGuard *service.APIKeyService) {
+	switch {
+	case errors.Is(err, service.ErrUserNotFound):
+		AbortWithError(c, http.StatusUnauthorized, "USER_NOT_FOUND", "User associated with API key not found")
+	case errors.Is(err, service.ErrAPIKeyNotFound):
+		if anonymousGuard != nil && rejectAnonymousCredentialFailure(c, anonymousGuard, "unknown", false) {
+			return
+		}
+		MarkIngressRejected(c, IngressRejectInvalidAPIKey)
+		AbortWithError(c, http.StatusUnauthorized, "INVALID_API_KEY", "Invalid API key")
+	case errors.Is(err, service.ErrAPIKeyAuthOverloaded):
+		MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
+		AbortWithError(c, http.StatusServiceUnavailable, "API_KEY_AUTH_OVERLOADED", "API key authentication is temporarily unavailable")
+	default:
+		if !abortIfAPIKeyLookupClientGone(c, err) {
+			AbortWithError(c, http.StatusInternalServerError, "INTERNAL_ERROR", "Failed to validate API key")
+		}
+	}
+}
+
+func revalidateUsageRecordsKey(ctx context.Context, keys *service.APIKeyService, credential string, cached *service.APIKey) (*service.APIKey, error) {
+	if cached == nil || cached.ID <= 0 || cached.UserID <= 0 || cached.User == nil || cached.User.ID != cached.UserID {
+		return nil, service.ErrAPIKeyNotFound
+	}
+	fresh, err := keys.GetByKeyUncached(ctx, credential)
+	if err != nil {
+		return nil, err
+	}
+	if fresh == nil || fresh.ID != cached.ID || fresh.UserID != cached.UserID || (fresh.User != nil && fresh.User.ID != cached.UserID) {
+		return nil, service.ErrAPIKeyNotFound
+	}
+	return fresh, nil
 }
 
 func apiKeyHeadersTooLarge(c *gin.Context) bool {
@@ -429,6 +527,13 @@ func (e *APIKeyAccessError) Error() string { return e.Message }
 // It records the same ingress classification for HTTP and WS, but never aborts
 // or writes to the connection. Billing admission is checked separately.
 func ValidateAPIKeyAccess(c *gin.Context, apiKey *service.APIKey, cfg *config.Config) *APIKeyAccessError {
+	if err := validateAPIKeyPrincipalAccess(c, apiKey, cfg); err != nil {
+		return err
+	}
+	return validateAPIKeyGroupAccess(c, apiKey)
+}
+
+func validateAPIKeyPrincipalAccess(c *gin.Context, apiKey *service.APIKey, cfg *config.Config) *APIKeyAccessError {
 	if apiKey == nil {
 		return &APIKeyAccessError{401, "INVALID_API_KEY", "Invalid API key"}
 	}
@@ -465,6 +570,10 @@ func ValidateAPIKeyAccess(c *gin.Context, apiKey *service.APIKey, cfg *config.Co
 		MarkIngressRejected(c, IngressRejectUserInactive)
 		return &APIKeyAccessError{401, "USER_INACTIVE", "User account is not active"}
 	}
+	return nil
+}
+
+func validateAPIKeyGroupAccess(c *gin.Context, apiKey *service.APIKey) *APIKeyAccessError {
 	if code, message, ok := validateAPIKeyGroupAvailable(apiKey); !ok {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonAPIKeyGroupUnavailable)
 		if code == "GROUP_DELETED" {

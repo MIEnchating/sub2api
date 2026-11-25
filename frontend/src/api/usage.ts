@@ -342,12 +342,18 @@ export async function getDashboardApiKeysUsage(
   apiKeyIds: number[],
   options?: {
     signal?: AbortSignal
+    start_date?: string
+    end_date?: string
+    timezone?: string
   }
 ): Promise<BatchApiKeysUsageResponse> {
   const { data } = await apiClient.post<BatchApiKeysUsageResponse>(
     '/usage/dashboard/api-keys-usage',
     {
-      api_key_ids: apiKeyIds
+      api_key_ids: apiKeyIds,
+      start_date: options?.start_date,
+      end_date: options?.end_date,
+      timezone: options?.timezone
     },
     {
       signal: options?.signal
@@ -357,9 +363,11 @@ export async function getDashboardApiKeysUsage(
 }
 
 export async function listMyErrorRequests(
-  params: UserErrorListParams
+  params: UserErrorListParams,
+  config: { signal?: AbortSignal } = {}
 ): Promise<PaginatedResponse<UserErrorRequest>> {
   const { data } = await apiClient.get<PaginatedResponse<UserErrorRequest>>('/usage/errors', {
+    ...config,
     params
   })
   return data
@@ -377,8 +385,8 @@ export interface BillingKey {
   deleted_at: string | null
 }
 
-export async function listBillingKeys(page: number, pageSize: number) {
-  const { data } = await apiClient.get<PaginatedResponse<BillingKey>>('/usage/keys', { params: { page, page_size: pageSize } })
+export async function listBillingKeys(page: number, pageSize: number, signal?: AbortSignal) {
+  const { data } = await apiClient.get<PaginatedResponse<BillingKey>>('/usage/keys', { params: { page, page_size: pageSize }, signal })
   return data
 }
 
@@ -388,7 +396,7 @@ export async function getRetention() {
 }
 
 export async function exportCSV(params: UsageQueryParams, signal: AbortSignal) {
-  const { data } = await apiClient.get<Blob>('/usage/export', { params: { ...params, include_ip: true }, responseType: 'blob', signal, timeout: 150000 })
+  const { data } = await apiClient.get<Blob>('/usage/export', { params: { ...params, format: 'panel' }, responseType: 'blob', signal, timeout: 150000 })
   return data
 }
 

@@ -34,6 +34,7 @@ vi.mock('@/api/admin/channelQuality', () => ({ channelQualityAPI: { scores: asyn
 vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
+      getManagementCapabilities: vi.fn().mockResolvedValue({ web_search_enabled: false, account_quota_notify_enabled: false }),
       list: listAccounts,
       listWithEtag,
       getPlatformCounts,
@@ -465,7 +466,10 @@ describe('admin AccountsView select all filtered results', () => {
       include_scheduler_score: '0'
     }))
 
+    vi.useFakeTimers()
     await wrapper.get('[data-test="change-filter"]').trigger('click')
+    await vi.advanceTimersByTimeAsync(300)
+    await flushPromises()
 
     expect(wrapper.get('[data-test="selected-count"]').text()).toBe('0')
     expect(wrapper.get('[data-test="all-results-selected"]').text()).toBe('false')

@@ -3,8 +3,10 @@ package handler
 import (
 	"crypto/sha256"
 	"net/http"
+	"strconv"
 	"strings"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -17,10 +19,11 @@ const securityAuditWSTurnContextKey = "sub2api.security_audit.ws_turn"
 const securityAuditWSDedupeContextKey = "sub2api.security_audit.ws_dedupe"
 
 type securityAuditWSDedupeEntry struct {
-	stage    string
-	turn     int
-	bodyHash [sha256.Size]byte
-	decision securityaudit.Decision
+	stage           string
+	turn            int
+	bodyHash        [sha256.Size]byte
+	noBodyRetention bool
+	decision        securityaudit.Decision
 }
 
 // cachesSecurityAuditCompletion reports whether a successful audit may be
@@ -69,6 +72,11 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 	if c == nil || c.Request == nil {
 		return nil
 	}
+	prepareUpstreamAudit(c, reqLog, coordinator, legacy, apiKey, subject, protocol, model, body, stage)
+	if legacy != nil {
+		c.Set("content_moderation.user_version", legacy.CaptureModerationUserVersion(c.Request.Context(), subject.UserID))
+	}
+	defer requesttiming.Observe(c.Request.Context(), "security_audit")()
 	cacheCompletion := cachesSecurityAuditCompletion(stage)
 	if cacheCompletion {
 		if completed, exists := c.Get(securityAuditCompletedContextKey); exists && completed == true {
@@ -101,7 +109,8 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 			bodyHash := sha256.Sum256(body)
 			if cached, exists := c.Get(securityAuditWSDedupeContextKey); exists {
 				if entry, ok := cached.(securityAuditWSDedupeEntry); ok &&
-					entry.stage == request.Stage && entry.turn == turnNo && entry.bodyHash == bodyHash {
+					entry.stage == request.Stage && entry.turn == turnNo &&
+					entry.bodyHash == bodyHash && entry.noBodyRetention == request.NoBodyRetention {
 					decision := entry.decision
 					logSecurityAuditDone(reqLog, request, decision, true)
 					return &decision
@@ -111,7 +120,8 @@ func runSecurityAudit(c *gin.Context, reqLog *zap.Logger, coordinator *securitya
 			decision := coordinator.Check(c.Request.Context(), request)
 			if decision.Kind == securityaudit.DecisionAllow {
 				c.Set(securityAuditWSDedupeContextKey, securityAuditWSDedupeEntry{
-					stage: request.Stage, turn: turnNo, bodyHash: bodyHash, decision: decision,
+					stage: request.Stage, turn: turnNo, bodyHash: bodyHash,
+					noBodyRetention: request.NoBodyRetention, decision: decision,
 				})
 			}
 			logSecurityAuditDone(reqLog, request, decision, false)
@@ -188,6 +198,7 @@ func buildSecurityAuditRequest(c *gin.Context, apiKey *service.APIKey, subject m
 		APIKeyID: legacy.APIKeyID, APIKeyName: legacy.APIKeyName, GroupID: cloneSecurityAuditGroupID(legacy.GroupID),
 		GroupName: legacy.GroupName, Provider: legacy.Provider, Endpoint: legacy.Endpoint,
 		Protocol: legacy.Protocol, Model: legacy.Model, Body: body, Stage: strings.TrimSpace(stage),
+		NoBodyRetention: service.HasRecoveredContextPrivacy(c.Request.Context()),
 	}
 	if apiKey != nil && apiKey.User != nil {
 		request.Username = apiKey.User.Username
@@ -197,6 +208,39 @@ func buildSecurityAuditRequest(c *gin.Context, apiKey *service.APIKey, subject m
 	}
 	if request.Stage == "" {
 		request.Stage = "http"
+	}
+	if apiKey != nil && apiKey.User != nil && apiKey.User.IsAdmin() {
+		request.PenaltyContext.Exempt = true
+	}
+	identity := service.ResolveCyberSessionIdentity(request.APIKeyID, c, body)
+	if isSecurityAuditWebSocketStage(request.Stage) {
+		const bindingKey = "security_penalty.ws_session"
+		switch identity.Metadata.Status {
+		case service.OpenAIClientSessionIdentityResolved:
+			c.Set(bindingKey, identity.BlockKey)
+		case service.OpenAIClientSessionIdentityMissing:
+			// A frame may omit identity after an explicit earlier frame. Reuse
+			// only this authenticated connection's previously resolved hash.
+			if bound, ok := c.Get(bindingKey); ok {
+				if hash, ok := bound.(string); ok {
+					identity.BlockKey = hash
+				}
+			}
+		}
+	}
+	request.PenaltyContext = securityaudit.PenaltyRequestContext{Exempt: request.PenaltyContext.Exempt, SessionKey: identity.BlockKey, RequestID: request.RequestID, OriginalGroupID: cloneSecurityAuditGroupID(request.GroupID)}
+	if original, ok := c.Get("security_penalty.original_group_id"); ok {
+		if id, ok := original.(int64); ok {
+			request.PenaltyContext.OriginalGroupID = &id
+		}
+	}
+	if name, ok := c.Get("security_penalty.original_group_name"); ok {
+		if name, ok := name.(string); ok {
+			request.PenaltyContext.OriginalGroupName = name
+		}
+	}
+	if turn, ok := securityAuditWSTurn(c); ok {
+		request.PenaltyContext.RequestID += ":" + request.Stage + ":" + strconv.Itoa(turn)
 	}
 	return request
 }

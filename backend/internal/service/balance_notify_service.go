@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -39,21 +40,29 @@ type AccountQuotaReader interface {
 
 // BalanceNotifyService handles balance and quota threshold notifications.
 type BalanceNotifyService struct {
-	emailService             *EmailService
+	emailService interface {
+		SendEmail(context.Context, string, string, string) error
+	}
 	settingRepo              SettingRepository
 	accountRepo              AccountQuotaReader
 	notificationEmailService *NotificationEmailService
 	usageNotifications       *usageNotificationWorker
+	balanceMu                sync.Mutex
+	balanceAttempts          map[int64]balanceNotifyAttempt
+	balanceActive            int
 }
 
 // NewBalanceNotifyService creates a new BalanceNotifyService.
 func NewBalanceNotifyService(emailService *EmailService, settingRepo SettingRepository, accountRepo AccountQuotaReader) *BalanceNotifyService {
-	return &BalanceNotifyService{
-		emailService:       emailService,
+	service := &BalanceNotifyService{
 		settingRepo:        settingRepo,
 		accountRepo:        accountRepo,
 		usageNotifications: newUsageNotificationWorker(),
 	}
+	if emailService != nil {
+		service.emailService = emailService
+	}
+	return service
 }
 
 func (s *BalanceNotifyService) SetNotificationEmailService(notificationEmailService *NotificationEmailService) {
@@ -83,12 +92,14 @@ func (s *BalanceNotifyService) CheckBalanceAfterDeduction(ctx context.Context, u
 	if !crossedDownward(oldBalance, newBalance, effectiveThreshold) {
 		return
 	}
-	s.dispatchBalanceLowEmail(ctx, user, newBalance, effectiveThreshold, rechargeURL)
+	s.scheduleBalanceEmail(user, func(ctx context.Context, snapshot *User) {
+		s.sendResolvedBalanceEmail(ctx, snapshot, newBalance, effectiveThreshold, rechargeURL)
+	})
 }
 
 // canNotifyBalance checks nil guards and user-level toggle.
 func (s *BalanceNotifyService) canNotifyBalance(user *User) bool {
-	if user == nil || s.emailService == nil || s.settingRepo == nil {
+	if s == nil || user == nil || s.emailService == nil || s.settingRepo == nil {
 		return false
 	}
 	return user.BalanceNotifyEnabled
@@ -118,15 +129,6 @@ func (s *BalanceNotifyService) resolveUserEffectiveThreshold(ctx context.Context
 // crossedDownward returns true when oldV was at-or-above threshold but newV dropped below it.
 func crossedDownward(oldV, newV, threshold float64) bool {
 	return oldV >= threshold && newV < threshold
-}
-
-// dispatchBalanceLowEmail sends within the bounded notification task.
-func (s *BalanceNotifyService) dispatchBalanceLowEmail(ctx context.Context, user *User, newBalance, threshold float64, rechargeURL string) {
-	siteName := s.getSiteName(ctx)
-	recipients := s.collectBalanceNotifyRecipients(user)
-	slog.Info("CheckBalanceAfterDeduction: sending notification",
-		"user_id", user.ID, "recipients", recipients, "new_balance", newBalance, "threshold", threshold)
-	s.sendBalanceLowEmails(ctx, recipients, user.ID, user.Username, user.Email, newBalance, threshold, siteName, rechargeURL)
 }
 
 // quotaDim describes one quota dimension for notification checking.
@@ -338,45 +340,57 @@ func (s *BalanceNotifyService) sendBalanceLowEmails(parent context.Context, reci
 	if displayName == "" {
 		displayName = userEmail
 	}
-	if s.notificationEmailService != nil {
-		fallbackRecipients := make([]string, 0, len(recipients))
-		for _, to := range recipients {
-			if parent.Err() != nil {
-				return
-			}
-			ctx, cancel := context.WithTimeout(parent, emailSendTimeout)
-			err := s.notificationEmailService.Send(ctx, NotificationEmailSendInput{
+	const sourceType = "balance_low"
+	sourceID := strconv.FormatInt(userID, 10)
+	reminderKey := time.Now().UTC().Format("2006-01-02")
+	delivery := &NotificationEmailService{settingRepo: s.settingRepo}
+	subject := fmt.Sprintf("[%s] 余额不足提醒 / Balance Low Alert", sanitizeEmailHeader(siteName))
+	body := s.buildBalanceLowEmailBody(html.EscapeString(displayName), balance, threshold, html.EscapeString(siteName), rechargeURL)
+	for _, to := range recipients {
+		if parent.Err() != nil {
+			return
+		}
+		key := notificationEmailDeliveryKey(NotificationEmailEventBalanceLow, sourceType, sourceID, to, reminderKey)
+		legacyKey := legacyNotificationEmailDeliveryKey(NotificationEmailEventBalanceLow, sourceType, sourceID, to, reminderKey)
+		sent, err := delivery.deliveryExists(parent, key, legacyKey)
+		if err != nil || sent {
+			continue
+		}
+		if s.notificationEmailService != nil {
+			err := s.notificationEmailService.Send(parent, NotificationEmailSendInput{
 				Event:          NotificationEmailEventBalanceLow,
 				RecipientEmail: to,
 				RecipientName:  displayName,
 				UserID:         userID,
-				SourceType:     "balance_low",
-				SourceID:       firstNonEmpty(strconv.FormatInt(userID, 10), userEmail),
-				ReminderKey:    time.Now().UTC().Format("2006-01-02"),
+				SourceType:     sourceType,
+				SourceID:       sourceID,
+				ReminderKey:    reminderKey,
 				Variables: map[string]string{
 					"current_balance": fmt.Sprintf("%.2f", balance),
 					"threshold":       fmt.Sprintf("%.2f", threshold),
 					"recharge_url":    rechargeURL,
 				},
 			})
-			cancel()
-			if err != nil {
-				if shouldFallbackNotificationEmail(err) {
-					slog.Warn("template balance low notification failed; falling back to built-in body", "to", to, "err", err.Error())
-					fallbackRecipients = append(fallbackRecipients, to)
-				} else {
-					slog.Warn("template balance low notification delivery failed; not sending fallback to avoid duplicates", "to", to, "err", err.Error())
-				}
+			if err == nil {
+				continue
+			}
+			if !shouldFallbackNotificationEmail(err) {
+				slog.Warn("balance notification delivery failed; eligible for later retry", "user_id", userID)
+				continue
 			}
 		}
-		if len(fallbackRecipients) == 0 {
-			return
+		unsubscribed, err := delivery.IsUnsubscribed(parent, to, NotificationEmailEventBalanceLow)
+		if err != nil || unsubscribed {
+			continue
 		}
-		recipients = fallbackRecipients
+		if err := s.emailService.SendEmail(parent, to, subject, body); err != nil {
+			slog.Warn("balance notification fallback failed; eligible for later retry", "user_id", userID)
+			continue
+		}
+		if err := s.settingRepo.Set(parent, key, time.Now().UTC().Format(time.RFC3339Nano)); err != nil {
+			slog.Warn("balance notification delivery marker failed", "user_id", userID)
+		}
 	}
-	subject := fmt.Sprintf("[%s] 余额不足提醒 / Balance Low Alert", sanitizeEmailHeader(siteName))
-	body := s.buildBalanceLowEmailBody(html.EscapeString(displayName), balance, threshold, html.EscapeString(siteName), rechargeURL)
-	s.sendEmails(parent, recipients, subject, body, "user_email", userEmail, "balance", balance)
 }
 
 // sendQuotaAlertEmails sends quota alert notification to admin emails.

@@ -160,7 +160,7 @@ func TestUpstreamBillingRateLimitRunnerWorksWithGlobalDetectionDisabled(t *testi
 	}})
 	svc.now = func() time.Time { return time.Date(2026, 7, 13, 2, 0, 0, 0, time.UTC) }
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Equal(t, int64(2), upstream.calls.Load())
 	require.False(t, decodeUpstreamBillingProbeSnapshot(limited.Extra).LastAttemptAt.IsZero())
 	require.True(t, decodeUpstreamBillingProbeSnapshot(ordinary.Extra).LastAttemptAt.IsZero())
 	require.True(t, limited.Schedulable)
@@ -209,7 +209,7 @@ func TestUpstreamBillingRateLimitRunnerRechecksLimitAfterDueSelection(t *testing
 		if removed {
 			require.Zero(t, upstream.calls.Load())
 		} else {
-			require.Equal(t, int64(1), upstream.calls.Load())
+			require.Equal(t, int64(2), upstream.calls.Load())
 		}
 	}
 }

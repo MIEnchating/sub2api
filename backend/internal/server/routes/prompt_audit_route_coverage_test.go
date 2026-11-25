@@ -41,6 +41,7 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/images/edits":             {"openai_images.go", "grok_media.go"},
 		"/images/generations/async": {"image_task_handler.go"},
 		"/images/edits/async":       {"image_task_handler.go"},
+		"/images/batches":           {"batch_image_handler.go"},
 		"/videos":                   {"grok_media.go"},
 		"/videos/generations":       {"grok_media.go"},
 		"/videos/edits":             {"grok_media.go"},
@@ -52,9 +53,10 @@ func TestEveryGatewayPOSTRouteIsClassifiedForPromptAuditCoverage(t *testing.T) {
 		"/x_search":                 {"gateway_web_search.go"},
 	}
 	excluded := map[string]string{
-		"/messages/count_tokens": "tokenization only; it does not execute a model request",
-		"/stt":                   "speech transcription is not a text-generation prompt",
-		"/custom-voices":         "voice profile management has no model prompt",
+		"/messages/count_tokens":     "tokenization only; it does not execute a model request",
+		"/stt":                       "speech transcription is not a text-generation prompt",
+		"/custom-voices":             "voice profile management has no model prompt",
+		"/images/batches/:id/cancel": "cancels an existing job without submitting a prompt",
 	}
 
 	unclassified := make([]string, 0)
@@ -99,9 +101,17 @@ func TestResponsesWebSocketHasFirstAndSubsequentTurnPromptGates(t *testing.T) {
 	wsStart := strings.Index(string(handlerSource), `func (h *OpenAIGatewayHandler) ResponsesWebSocket`)
 	require.NotEqual(t, -1, wsStart)
 	wsSource := string(handlerSource)[wsStart:]
+	firstGate := strings.Index(wsSource, `"first_turn"`)
+	// Per-turn admission runs through admitOpenAIWSTurn, which performs the Key
+	// wait (WaitOpenAIWSKeyAdmission) before any user slot.
+	firstSlot := strings.Index(wsSource, `admitOpenAIWSTurn(`)
+	require.NotEqual(t, -1, firstGate, "first-turn prompt gate must exist")
+	require.NotEqual(t, -1, firstSlot, "WS user/key slot acquisition must exist")
+	require.Contains(t, string(handlerSource), `WaitOpenAIWSKeyAdmission`)
+	require.Contains(t, string(handlerSource), `TryAcquireUserSlot`)
 	require.Less(t,
-		strings.Index(wsSource, `"first_turn"`),
-		strings.Index(wsSource, `TryAcquireUserSlotForAPIKey`),
+		firstGate,
+		firstSlot,
 		"the first response.create gate must precede per-request user/account slots",
 	)
 }

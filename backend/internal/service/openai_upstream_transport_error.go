@@ -115,10 +115,22 @@ func isClientCanceledTransportError(ctx context.Context, err error) bool {
 //
 // passthrough tags the Ops error event for the OpenAI passthrough forward path.
 func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Context, c *gin.Context, account *Account, err error, passthrough bool) error {
+	var phaseTimeout *openAIHTTPPhaseTimeout
+	if errors.As(err, &phaseTimeout) {
+		return handleOpenAIHTTPPhaseError(c, account, err)
+	}
+	// A peer reset can arrive after the POST was consumed but before headers.
+	// Absence of response headers is not evidence that replay is safe.
+	if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, "", err); handled {
+		return resetErr
+	}
 	if IsOpenAITurnAdmissionError(err) || errors.Is(err, ErrOpenAICodexTicketUnavailable) {
 		if !WriteOpenAITurnAdmissionError(c, err) {
 			WriteOpenAITurnAdmissionError(c, denyOpenAITicket())
 		}
+		return err
+	}
+	if IsOpenAIRPMError(err) {
 		return err
 	}
 	if errors.Is(err, ErrCodexTicketResponseRejected) {
@@ -132,11 +144,15 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 	if isClientCanceledTransportError(ctx, err) {
 		return err
 	}
+	if routeErr, ok := s.astraRouteFailover(ctx, account, err).(*UpstreamFailoverError); ok {
+		return routeErr
+	}
 	safeErr := sanitizeUpstreamErrorMessage(err.Error())
 	setOpsUpstreamError(c, 0, safeErr, "")
+	proxyID, proxyName := runtimeProxyErrorAttribution(account, err)
 	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-		ProxyID:            opsUpstreamProxyID(account),
-		ProxyName:          opsUpstreamProxyName(account),
+		ProxyID:            proxyID,
+		ProxyName:          proxyName,
 		Platform:           account.Platform,
 		AccountID:          account.ID,
 		AccountName:        account.Name,
@@ -164,15 +180,17 @@ func (s *OpenAIGatewayService) handleOpenAIUpstreamTransportError(ctx context.Co
 		return err
 	}
 
-	if classifyUpstreamTransportError(err).Persistent {
-		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
-	}
-
-	return &UpstreamFailoverError{
+	failoverErr := &UpstreamFailoverError{
 		strictFailoverReason: "upstream_transport_failure",
 		StatusCode:           http.StatusBadGateway,
 		ResponseBody:         openAITransportFailoverBody,
 	}
+	if classifyUpstreamTransportError(err).Persistent {
+		s.tempUnscheduleOpenAITransportError(ctx, account, safeErr)
+	} else if usesOpenAIOAuthRetryAffinity(account) {
+		failoverErr.preserveOpenAIOAuthBinding()
+	}
+	return failoverErr
 }
 
 // tempUnscheduleOpenAITransportError marks an account temporarily unschedulable

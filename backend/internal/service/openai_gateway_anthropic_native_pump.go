@@ -170,3 +170,11 @@ func (p *anthropicNativeLinePump) stop() {
 func (s *OpenAIGatewayService) anthropicNativeStreamInterval() time.Duration {
 	return s.gatewayStreamDataIntervalTimeout()
 }
+
+// anthropicNativeStreamInterval reads the static timeout for callers without a runtime policy.
+func anthropicNativeStreamInterval(cfg *config.Config) time.Duration {
+	if cfg == nil || cfg.Gateway.StreamDataIntervalTimeout <= 0 {
+		return 0
+	}
+	return time.Duration(cfg.Gateway.StreamDataIntervalTimeout) * time.Second
+}

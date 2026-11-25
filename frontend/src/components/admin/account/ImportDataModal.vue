@@ -7,6 +7,10 @@
     @close="handleClose"
   >
     <form id="import-data-form" class="space-y-4" @submit.prevent="handleImport">
+      <div v-if="authStore.isObserver" class="space-y-2">
+        <GroupSelector v-model="groupIDs" :groups="groups" />
+        <p class="input-hint">{{ t('admin.users.observerImportHint') }}</p>
+      </div>
       <div class="text-sm text-gray-600 dark:text-dark-300">
         {{ t('admin.accounts.dataImportHint') }}
       </div>
@@ -113,6 +117,9 @@ import type { AccountProxyMode, Proxy } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'
+import { useAuthStore } from '@/stores/auth'
+import GroupSelector from '@/components/common/GroupSelector.vue'
+import type { Group } from '@/types'
 import type { AdminDataImportResult, AdminDataPayload } from '@/types'
 
 interface Props {
@@ -129,6 +136,15 @@ const emit = defineEmits<Emits>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
+const authStore = useAuthStore()
+const groupIDs = ref<number[]>([])
+const groups = ref<Group[]>([])
+watch(() => props.show, async (show) => {
+  if (show && authStore.isObserver) {
+    groups.value = await adminAPI.groups.getAllIncludingInactive().catch(() => [])
+    groupIDs.value = groupIDs.value.filter(id => groups.value.some(group => group.id === id))
+  }
+})
 
 const overrideProxy = ref(false)
 const proxyMode = ref<AccountProxyMode>('')
@@ -296,6 +312,10 @@ const handleImport = async () => {
     return
   }
 
+  if (authStore.isObserver && !groupIDs.value.length) {
+    appStore.showError(t('admin.users.observerImportHint'))
+    return
+  }
   importing.value = true
   try {
     const dataPayloads: AdminDataPayload[] = []
@@ -319,6 +339,7 @@ const handleImport = async () => {
 
     const res = await adminAPI.accounts.importData({
       data: dataPayload,
+      group_ids: authStore.isObserver ? groupIDs.value : undefined,
       skip_default_group_bind: true,
       ...(overrideProxy.value ? accountProxyPayload(proxyMode.value || (proxyID.value ? 'specified' : 'direct'), proxyID.value ? [proxyID.value] : []) : {})
     })

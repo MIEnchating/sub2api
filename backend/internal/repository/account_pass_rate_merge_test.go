@@ -43,8 +43,8 @@ func TestAccountPassRateProtectionSurvivesStaleWritesAndSchedulerProjection(t *t
 			require.NoError(t, err)
 			mock.ExpectQuery(`(?s)SELECT.*status,.*schedulable,.*FOR NO KEY UPDATE`).
 				WithArgs(int64(41), service.PlatformOpenAI, service.AccountTypeOAuth, `{"access_token":"new-token"}`, nil).
-				WillReturnRows(sqlmock.NewRows([]string{"identity", "ollama_identity", "proxy_identity", "probe", "sync", "snapshot", "session", "auto", "ollama_snapshot", "opencode_identity", "opencode_auto", "opencode_snapshot", "extra", "status", "schedulable", "error_message", "grok_observed_models", "upstream_model_metadata", "group_sync_enabled"}).
-					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, raw, service.StatusActive, true, "", nil, nil, nil))
+				WillReturnRows(sqlmock.NewRows(openCodeGoMergeMockColumns()).
+					AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, raw, 3, service.StatusActive, true, ""))
 			account := &service.Account{ID: 41, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Credentials: map[string]any{"access_token": "new-token"}, Extra: incoming, Status: service.StatusActive, Schedulable: true, StatusChanged: tt.explicitStatus}
 			account.Extra, err = lockAndMergeAccountProbeExtra(context.Background(), client, account, service.AccountBillingSettingsUpdate{})
 			require.NoError(t, err)

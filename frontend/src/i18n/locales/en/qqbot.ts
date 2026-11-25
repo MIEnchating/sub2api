@@ -1,4 +1,7 @@
 export default { qqbot: {
+  visionSettings: 'Image input',
+  rememberQuotedImages: 'Keep images for replies',
+  rememberQuotedImagesHelp: 'Store image attachments for up to 24 hours so group members can refer to them in replies.',
   reports: {
     "title": "Reward reports",
     "help": "View reward totals, recipients and quantities for a selected period.",
@@ -332,7 +335,7 @@ export default { qqbot: {
   "groupPolicyHelp": "Group policies further restrict global settings. Empty quotas inherit the global cap; zero prohibits calls. Autonomous calls consume group chat quotas. Activity controls apply to new group-triggered rewards and do not revoke existing entitlements.",
   "groupLabel": "Group nickname / label",
   "disable_chat": "Allow AI chat",
-  "disable_images": "Allow images",
+  "disable_images": "Keep images for replies",
   "disable_activities": "Allow activity rewards",
   "disable_notifications": "Allow notifications",
   "chat_daily_limit": "Group daily chat quota",

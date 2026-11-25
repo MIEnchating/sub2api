@@ -2,19 +2,20 @@ package admin
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"time"
-
-	"log/slog"
-
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/response"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
+	"log/slog"
+	"maps"
+	"strconv"
+	"strings"
+	"time"
 )
 
 const (
@@ -77,11 +78,15 @@ type DataAccount struct {
 	RateMultiplier         *float64       `json:"rate_multiplier,omitempty"`
 	ExpiresAt              *int64         `json:"expires_at,omitempty"`
 	AutoPauseOnExpired     *bool          `json:"auto_pause_on_expired,omitempty"`
+	BPSProxyKeys           []string       `json:"bps_proxy_keys,omitempty"`
+	OpenAIProxyKeys        []string       `json:"openai_proxy_keys,omitempty"`
+	GroupRateMultiplier    *float64       `json:"group_rate_multiplier,omitempty"`
 }
 
 type DataImportRequest struct {
 	ProxyMode            string      `json:"proxy_mode,omitempty"`
 	ProxyID              *int64      `json:"proxy_id,omitempty"`
+	GroupIDs             []int64     `json:"group_ids"`
 	Data                 DataPayload `json:"data"`
 	SkipDefaultGroupBind *bool       `json:"skip_default_group_bind"`
 }
@@ -157,6 +162,13 @@ func resolveDataAccountProxy(req DataImportRequest, item DataAccount) (DataAccou
 	return item, nil
 }
 
+// BPS groups use an exact, unambiguous identity independent of legacy proxy_key
+// aliases. Credentials are significant byte-for-byte, including whitespace.
+func buildBPSProxyKey(protocol, host string, port int, username, password string) string {
+	tuple, _ := json.Marshal([5]string{protocol, host, strconv.Itoa(port), username, password})
+	return fmt.Sprintf("bps-proxy-v1:%x", sha256.Sum256(tuple))
+}
+
 func (h *AccountHandler) ExportData(c *gin.Context) {
 	ctx := c.Request.Context()
 
@@ -196,6 +208,9 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 		return
 	}
 
+	if _, observer := service.ObserverGroupIDs(ctx); observer {
+		includeProxies = false
+	}
 	var proxies []service.Proxy
 	if includeProxies {
 		proxies, err = h.resolveExportProxies(ctx, accounts)
@@ -216,6 +231,8 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	}
 
 	proxyKeyByID := make(map[int64]string, len(proxies))
+	bpsProxyKeyByID := make(map[int64]string, len(proxies))
+	nonPortableBPSProxyIDs := make(map[int64]bool)
 	dataProxies := make([]DataProxy, 0, len(proxies))
 	for i := range proxies {
 		p := proxies[i]
@@ -225,6 +242,10 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 		}
 		key := buildProxyKey(p.Protocol, p.Host, p.Port, p.Username, p.Password)
 		proxyKeyByID[p.ID] = key
+		bpsProxyKeyByID[p.ID] = buildBPSProxyKey(p.Protocol, p.Host, p.Port, p.Username, p.Password)
+		if strings.TrimSpace(p.MihomoNodeID) != "" {
+			nonPortableBPSProxyIDs[p.ID] = true
+		}
 
 		var expiresAt *int64
 		if p.ExpiresAt != nil {
@@ -255,6 +276,25 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 	for i := range accounts {
 		acc := accounts[i]
 		extra := stripManagedIPv6DataExtra(service.RedactOpenAICodexTicketExtra(service.StripRetiredAccountExtra(exportCodexTicketExtra(&acc))))
+		// Database IDs are local to an instance. Backups carry stable proxy keys
+		// so restoring into another database cannot silently select other exits.
+		delete(extra, service.ExcelBPSProxyIDsKey)
+		delete(extra, service.OpenAIProxyIDsKey)
+		var bpsProxyKeys []string
+		if includeProxies {
+			for _, id := range acc.ExcelBPSRequestProxyIDs() {
+				if nonPortableBPSProxyIDs[id] {
+					response.ErrorFrom(c, infraerrors.BadRequest("BPS_PROXY_NOT_PORTABLE", "BPS proxy groups containing Mihomo nodes require manual reconfiguration after restore; export without proxies"))
+					return
+				}
+				key, ok := bpsProxyKeyByID[id]
+				if !ok {
+					response.ErrorFrom(c, infraerrors.BadRequest("BPS_PROXY_NOT_FOUND", fmt.Sprintf("account %d selected BPS proxy %d not found", acc.ID, id)))
+					return
+				}
+				bpsProxyKeys = append(bpsProxyKeys, key)
+			}
+		}
 		var proxyKey *string
 		if acc.ProxyID != nil {
 			if key, ok := proxyKeyByID[*acc.ProxyID]; ok {
@@ -291,7 +331,13 @@ func (h *AccountHandler) ExportData(c *gin.Context) {
 			RateMultiplier:         acc.RateMultiplier,
 			ExpiresAt:              expiresAt,
 			AutoPauseOnExpired:     &acc.AutoPauseOnExpired,
+			BPSProxyKeys:           bpsProxyKeys,
+			GroupRateMultiplier:    acc.GroupRateMultiplier,
 		})
+		if _, explicit := acc.Extra[service.OpenAIProxyModeKey]; explicit {
+			dataAccounts[len(dataAccounts)-1].OpenAIProxyKeys = bpsProxyKeys
+			dataAccounts[len(dataAccounts)-1].BPSProxyKeys = nil
+		}
 	}
 
 	payload := DataPayload{
@@ -309,6 +355,24 @@ func (h *AccountHandler) ImportData(c *gin.Context) {
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
 		return
+	}
+
+	if _, observer := service.ObserverGroupIDs(c.Request.Context()); observer {
+		if err := service.ValidateObserverGroupBindings(c.Request.Context(), req.GroupIDs); err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		if len(req.Data.Proxies) > 0 || req.ProxyID != nil || req.ProxyMode != "" {
+			response.Forbidden(c, "Observers cannot import proxy configurations")
+			return
+		}
+		for _, account := range req.Data.Accounts {
+			if account.ProxyID != nil || account.ProxyMode != "" || (account.ProxyKey != nil && *account.ProxyKey != "") ||
+				len(account.ProxyPoolKeys) > 0 || len(account.BPSProxyKeys) > 0 || len(account.OpenAIProxyKeys) > 0 {
+				response.Forbidden(c, "Observers cannot import proxy credentials")
+				return
+			}
+		}
 	}
 
 	if err := validateDataHeader(req.Data); err != nil {
@@ -337,6 +401,18 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 
 	proxyKeyToID := make(map[string]int64, len(existingProxies))
 	managedProxyKeys := make(map[string]bool)
+	bpsProxyKeyToID := make(map[string]int64, len(existingProxies))
+	nonPortableBPSProxyKeys := make(map[string]bool)
+	// Populate BPS identities only from actual destination records. The legacy
+	// import may reuse a colliding/aliased proxy_key; it must not authorize a
+	// different credential identity for a BPS account.
+	registerBPSProxy := func(p service.Proxy) {
+		key := buildBPSProxyKey(p.Protocol, p.Host, p.Port, p.Username, p.Password)
+		bpsProxyKeyToID[key] = p.ID
+		if strings.TrimSpace(p.MihomoNodeID) != "" {
+			nonPortableBPSProxyKeys[key] = true
+		}
+	}
 	// proxyNameToID 用于 backup_proxy_name 反查：DB 已有 + 本批次新建均会写入
 	proxyNameToID := make(map[string]int64, len(existingProxies))
 	for i := range existingProxies {
@@ -347,6 +423,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			continue
 		}
 		proxyKeyToID[key] = p.ID
+		registerBPSProxy(p)
 		if p.Name != "" {
 			proxyNameToID[p.Name] = p.ID
 		}
@@ -465,6 +542,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			continue
 		}
 		proxyKeyToID[key] = created.ID
+		registerBPSProxy(*created)
 		// 把新建代理的 name 也加入反查表，供后续批内代理引用
 		if created.Name != "" {
 			proxyNameToID[created.Name] = created.ID
@@ -506,6 +584,11 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		if item.ProxyKey != nil && managedProxyKeys[*item.ProxyKey] {
 			result.AccountFailed++
 			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, ProxyKey: managedIPv6DataProxyKey, Message: managedIPv6ImportError})
+			continue
+		}
+		if err := remapDataAccountBPSProxies(&item, bpsProxyKeyToID, nonPortableBPSProxyKeys); err != nil {
+			result.AccountFailed++
+			result.Errors = append(result.Errors, DataImportError{Kind: "account", Name: item.Name, Message: err.Error()})
 			continue
 		}
 		if err := validateDataAccount(item); err != nil {
@@ -571,10 +654,11 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 			RateLimit429RetryCount: item.RateLimit429RetryCount,
 			Priority:               item.Priority,
 			RateMultiplier:         item.RateMultiplier,
-			GroupIDs:               nil,
+			GroupIDs:               req.GroupIDs,
 			ExpiresAt:              item.ExpiresAt,
 			AutoPauseOnExpired:     item.AutoPauseOnExpired,
 			SkipDefaultGroupBind:   skipDefaultGroupBind,
+			GroupRateMultiplier:    item.GroupRateMultiplier,
 		}
 
 		created, err := h.adminService.CreateAccount(ctx, accountInput)
@@ -703,6 +787,7 @@ func (h *AccountHandler) resolveExportProxies(ctx context.Context, accounts []se
 	ids := make([]int64, 0)
 	for i := range accounts {
 		accountProxyIDs := make([]int64, 0, len(accounts[i].ProxyIDs)+1)
+		accountProxyIDs = append(accountProxyIDs, accounts[i].ExcelBPSRequestProxyIDs()...)
 		if accounts[i].ProxyID != nil {
 			accountProxyIDs = append(accountProxyIDs, *accounts[i].ProxyID)
 		}
@@ -723,6 +808,68 @@ func (h *AccountHandler) resolveExportProxies(ctx context.Context, accounts []se
 	}
 
 	return h.adminService.GetProxiesByIDs(ctx, ids)
+}
+
+func remapDataAccountBPSProxies(item *DataAccount, proxyKeyToID map[string]int64, nonPortableKeys map[string]bool) error {
+	if _, explicit := item.Extra[service.OpenAIProxyModeKey]; explicit {
+		item.Extra = maps.Clone(item.Extra)
+		delete(item.Extra, service.ExcelBPSProxyIDsKey)
+		_, sourceIDs := item.Extra[service.OpenAIProxyIDsKey]
+		if sourceIDs {
+			return errors.New("openai_proxy_keys is required instead of source numeric proxy IDs")
+		}
+		if len(item.OpenAIProxyKeys) == 0 {
+			if item.Extra[service.OpenAIProxyModeKey] == service.OpenAIProxyModeRequest {
+				return errors.New("openai_proxy_keys is required for OpenAI request proxy configuration")
+			}
+			return nil
+		}
+		ids, err := remapDataProxyGroupKeys(item.OpenAIProxyKeys, proxyKeyToID, nonPortableKeys, "openai_proxy_keys")
+		if err != nil {
+			return err
+		}
+		item.Extra[service.OpenAIProxyIDsKey] = ids
+		return nil
+	}
+	if _, sourceIDs := item.Extra[service.OpenAIProxyIDsKey]; sourceIDs || len(item.OpenAIProxyKeys) > 0 {
+		return errors.New("openai_proxy_keys requires an explicit OpenAI proxy mode")
+	}
+	_, hasSourceIDs := item.Extra[service.ExcelBPSProxyIDsKey]
+	if len(item.BPSProxyKeys) == 0 {
+		if hasSourceIDs || item.Extra[service.ExcelBPSProxyModeKey] == service.ExcelBPSProxyModeRequest {
+			return errors.New("bps_proxy_keys is required for BPS request proxy configuration")
+		}
+		return nil
+	}
+	ids, err := remapDataProxyGroupKeys(item.BPSProxyKeys, proxyKeyToID, nonPortableKeys, "bps_proxy_keys")
+	if err != nil {
+		return err
+	}
+	item.Extra = maps.Clone(item.Extra)
+	if item.Extra == nil {
+		item.Extra = make(map[string]any)
+	}
+	item.Extra[service.ExcelBPSProxyIDsKey] = ids
+	return nil
+}
+
+func remapDataProxyGroupKeys(keys []string, proxyKeyToID map[string]int64, nonPortableKeys map[string]bool, field string) ([]int64, error) {
+	ids := make([]int64, 0, len(keys))
+	seen := make(map[int64]bool, len(keys))
+	for _, key := range keys {
+		if nonPortableKeys[key] {
+			return nil, errors.New("proxy group maps to a local Mihomo node; manually reconfigure its exits")
+		}
+		id, ok := proxyKeyToID[key]
+		if !ok {
+			return nil, fmt.Errorf("%s contains a proxy that was not found", field)
+		}
+		if !seen[id] {
+			ids = append(ids, id)
+			seen[id] = true
+		}
+	}
+	return ids, nil
 }
 
 func parseAccountIDs(c *gin.Context) ([]int64, error) {
@@ -819,6 +966,9 @@ func validateDataAccount(item DataAccount) error {
 	if item.ProxyKey != nil && isManagedDataProxyKey(*item.ProxyKey) {
 		return errors.New(managedIPv6ImportError)
 	}
+	if err := service.ValidateGatewayAccountIdentity(item.Platform, item.Type, item.Credentials); err != nil {
+		return err
+	}
 	if strings.TrimSpace(item.Name) == "" {
 		return errors.New("account name is required")
 	}
@@ -832,7 +982,7 @@ func validateDataAccount(item DataAccount) error {
 		return errors.New("account credentials is required")
 	}
 	switch item.Type {
-	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream:
+	case service.AccountTypeOAuth, service.AccountTypeSetupToken, service.AccountTypeAPIKey, service.AccountTypeUpstream, service.AccountTypeGateway:
 	default:
 		return fmt.Errorf("account type is invalid: %s", item.Type)
 	}

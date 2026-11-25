@@ -20,10 +20,10 @@ func TestUnmentionedGroupMessagesDoNotAccessDataOrCallModels(t *testing.T) {
 		w.WriteHeader(http.StatusInternalServerError)
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
-	c.Enabled, c.ImageEnabled = true, true
+	c.Enabled, c.RememberQuotedImages = true, true
 	c.BaseURL = server.URL + "/v1"
 	for _, content := range []string{"你好", "签到有什么用", "帮我看一下我的余额", "画图 一只猫", "/不存在", "/新对话", "/查看结果 task", "帮我解释 /签到", "@CTAV 你好"} {
 		t.Run(content, func(t *testing.T) {
@@ -63,13 +63,14 @@ func TestFullGroupCommandsWithoutMention(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
-	commands := []string{"/帮助", "/绑定", "/生图", "/抽奖 错误", "/我的余额 多余参数", "/余额 多余参数", "帮助", "绑定", "生图", "抽奖 错误", "我的余额 多余参数", "余额 多余参数"}
+	commands := []string{"/帮助", "/绑定", "/抽奖 错误", "/我的余额 多余参数", "/余额 多余参数", "帮助", "绑定", "抽奖 错误", "我的余额 多余参数", "余额 多余参数"}
 	for i, content := range commands {
 		require.True(t, shouldQueueGroupMessage(groupMessageCreate, Event{Content: content}))
-		j := Job{EventType: groupMessageCreate, GroupID: "group", MessageID: strconv.Itoa(i), CreatedAt: time.Now()}
+		j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MessageID: strconv.Itoa(i), CreatedAt: time.Now()}
+		c = expectRepairDelivery(t, s, c, 1)
 		require.NoError(t, s.message(context.Background(), c, &j, Event{GroupID: "group", Content: content}))
 	}
 	require.EqualValues(t, len(commands), replies.Load())
@@ -109,11 +110,12 @@ func TestMentionWithoutContentRepliesWithHelp(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	// Help must work without bindings, model usage reservations or a database.
-	s := New(nil, nil, false, nil)
+	// Help requires only its current delivery authorization, without bindings or model quota.
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
-	j := Job{EventType: groupAtMessageCreate, GroupID: "group", MessageID: "help", CreatedAt: time.Now()}
+	j := Job{TransientReply: true, EventType: groupAtMessageCreate, GroupID: "group", MessageID: "help", CreatedAt: time.Now()}
+	c = expectRepairDelivery(t, s, c, 1)
 	require.NoError(t, s.message(context.Background(), c, &j, Event{Content: "/帮助"}))
 	require.Len(t, replies, 1)
 	help := append([]string(nil), replies...)
@@ -121,8 +123,9 @@ func TestMentionWithoutContentRepliesWithHelp(t *testing.T) {
 		for _, eventType := range []string{groupAtMessageCreate, groupMessageCreate} {
 			t.Run(eventType+"/"+content, func(t *testing.T) {
 				e := Event{GroupID: "group", Content: content, Mentions: []Mention{{ID: "this-bot"}}}
-				j := Job{EventType: eventType, GroupID: "group", MessageID: "empty-mention", CreatedAt: time.Now()}
+				j := Job{TransientReply: true, EventType: eventType, GroupID: "group", MessageID: "empty-mention", CreatedAt: time.Now()}
 				before := len(replies)
+				c = expectRepairDelivery(t, s, c, 1)
 				require.NoError(t, s.message(context.Background(), c, &j, e))
 				require.Len(t, replies, before+len(help))
 				require.Equal(t, help, replies[before:])
@@ -152,17 +155,17 @@ func TestFullGroupMessagesRequireThisBotsIdentity(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
 	for _, content := range []string{"<@another-bot> 你好", "<@another-user> /签到"} {
 		e := Event{GroupID: "group", Content: content}
-		j := Job{EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
+		j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
 		require.NoError(t, s.message(context.Background(), c, &j, e))
 	}
 	for _, content := range []string{"你好", "/签到", "/抽奖", "/我的邀请", "/生图 一只猫", "/画图 一只猫"} {
 		e := Event{GroupID: "group", Content: content, Mentions: []Mention{{MemberID: "another-bot"}}}
-		j := Job{EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
+		j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
 		require.NoError(t, s.message(context.Background(), c, &j, e))
 	}
 	for _, e := range []Event{
@@ -202,12 +205,12 @@ func TestGroupIdentityFailureDoesNotCallModels(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
 	for range 2 {
 		e := Event{GroupID: "group", Content: "/生图 一只猫", Mentions: []Mention{{ID: "some-bot"}}}
-		j := Job{EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
+		j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MessageID: "ignored", CreatedAt: time.Now()}
 		require.ErrorContains(t, s.message(context.Background(), c, &j, e), "bot_state")
 	}
 	require.EqualValues(t, 1, lookups.Load(), "permission errors must not repeatedly request bot state")

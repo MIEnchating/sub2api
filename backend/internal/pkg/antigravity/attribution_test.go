@@ -27,22 +27,6 @@ func TestTransformClaudeToGemini_AttributionSystemText(t *testing.T) {
 		{"different field", "x-anthropic-billing-header-extra: keep", "x-anthropic-billing-header-extra: keep"},
 		{"quoted within instructions", "Explain this metadata: " + attribution, "Explain this metadata: " + attribution},
 		{"later line", "Example:\n" + attribution, "Example:\n" + attribution},
-		{"Codex GPT 5", "You are Codex, based on GPT-5. Keep GPT-5 model ids.", "You are an AI agent. Keep GPT-5 model ids."},
-		{"Codex GPT 5.6", "You are Codex, a coding agent based on GPT-5.6.\nKeep indentation.", "You are an AI agent.\nKeep indentation."},
-		{"Codex GPT 6", "You are Codex, based on GPT-6.", "You are an AI agent."},
-		{"Codex GPT 6 agent", "You are Codex, an agent based on GPT-6. Rest.", "You are an AI agent. Rest."},
-		{"CLI comma", "You are GPT-5.6 running in the Codex CLI, a terminal-based coding assistant.", "You are an AI agent, a terminal-based coding assistant."},
-		{"Codex model suffix", "You are Codex, based on GPT-5.6-Codex. Rest.", "You are an AI agent. Rest."},
-		{"CLI GPT 5.6", "You are GPT-5.6 running in the Codex CLI. Rest.", "You are an AI agent. Rest."},
-		{"CLI GPT 6", " \nYou are GPT-6 running in the Codex CLI\nRest.", "You are an AI agent.\nRest."},
-		{"Claude CLI", "You are Claude Code, Anthropic's official CLI for Claude. Rest.", "You are an AI agent. Rest."},
-		{"Claude SDK", "You are a Claude agent, built on Anthropic's Claude Agent SDK. Rest.", "You are an AI agent. Rest."},
-		{"attribution before GPT", attribution + "\r\nYou are Codex, based on GPT-6. Rest.", "You are an AI agent. Rest."},
-		{"quoted GPT", `"You are Codex, based on GPT-6."`, `"You are Codex, based on GPT-6."`},
-		{"later GPT", "Example:\nYou are GPT-6 running in the Codex CLI.", "Example:\nYou are GPT-6 running in the Codex CLI."},
-		{"vendor mentions", "Use OpenAI GPT-5.6 and Anthropic Claude; preserve gpt-6.", "Use OpenAI GPT-5.6 and Anthropic Claude; preserve gpt-6."},
-		{"not identity", "You are Codex, do not claim to be based on GPT-6.", "You are Codex, do not claim to be based on GPT-6."},
-		{"model token boundary", "You are Codex, based on GPT-6example.", "You are Codex, based on GPT-6example."},
 	}
 	for _, tt := range tests {
 		for _, arrayForm := range []bool{false, true} {
@@ -55,13 +39,12 @@ func TestTransformClaudeToGemini_AttributionSystemText(t *testing.T) {
 			t.Run(name, func(t *testing.T) {
 				systemJSON, err := json.Marshal(system)
 				require.NoError(t, err)
-				userText := strings.TrimSpace(tt.text)
-				userJSON, err := json.Marshal(userText)
+				userJSON, err := json.Marshal(attribution)
 				require.NoError(t, err)
 				input := &ClaudeRequest{
 					Model: "gemini-3.8-flash-high", System: systemJSON,
 					Messages: []ClaudeMessage{{Role: "user", Content: userJSON}},
-					Tools: []ClaudeTool{{Name: "example", Description: tt.text,
+					Tools: []ClaudeTool{{Name: "example", Description: attribution,
 						InputSchema: map[string]any{"type": "object", "properties": map[string]any{"query": map[string]any{"type": "string"}}}}},
 				}
 				before, err := json.Marshal(input)
@@ -85,8 +68,8 @@ func TestTransformClaudeToGemini_AttributionSystemText(t *testing.T) {
 				}
 				require.Equal(t, want, texts)
 				// The same literal text in user content and tool descriptions is not metadata.
-				require.Equal(t, userText, got.Request.Contents[0].Parts[0].Text)
-				require.Equal(t, tt.text, got.Request.Tools[0].FunctionDeclarations[0].Description)
+				require.Equal(t, attribution, got.Request.Contents[0].Parts[0].Text)
+				require.Equal(t, attribution, got.Request.Tools[0].FunctionDeclarations[0].Description)
 				after, err := json.Marshal(input)
 				require.NoError(t, err)
 				require.JSONEq(t, string(before), string(after), "do not mutate the incoming request")
@@ -197,4 +180,58 @@ func TestTransformClaudeToGemini_IdentitySystemBlock(t *testing.T) {
 		require.NotContains(t, text, "Anthropic")
 	}
 	require.Equal(t, userText, got.Request.Contents[0].Parts[0].Text)
+}
+
+// Keep client authorization and refusal constraints intact during protocol
+// conversion. A provider error is not permission to remove system instructions.
+func TestTransformClaudeToGemini_PreservesClaudeCodeSecurityPolicy(t *testing.T) {
+	const policy = "IMPORTANT: Assist with authorized security testing, defensive security, CTF challenges, and educational contexts. Refuse requests for destructive techniques, DoS attacks, mass targeting, supply chain compromise, or detection evasion for malicious purposes. Dual-use security tools (C2 frameworks, credential testing, exploit development) require clear authorization context: pentesting engagements, CTF competitions, security research, or defensive use cases."
+	body := " You are an agent working with the user toward their goals.\n" + policy + "\n# Harness\n - Keep this line."
+	system := []SystemBlock{
+		{Type: "text", Text: "x-anthropic-billing-header: cc_version=2.1.321.97f; cc_entrypoint=sdk-cli;"},
+		{Type: "text", Text: "You are a Claude agent, built on Anthropic's Claude Agent SDK."},
+		{Type: "text", Text: body},
+	}
+	systemJSON, err := json.Marshal(system)
+	require.NoError(t, err)
+	userJSON, err := json.Marshal("Explain this line: " + policy)
+	require.NoError(t, err)
+	input := &ClaudeRequest{
+		Model: "gemini-3.8-flash-high", System: systemJSON,
+		Messages: []ClaudeMessage{{Role: "user", Content: userJSON}},
+		Tools: []ClaudeTool{{Name: "example", Description: policy,
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{"q": map[string]any{"type": "string"}}}}},
+	}
+	out, err := TransformClaudeToGeminiWithOptions(input, "test-project", input.Model, TransformOptions{})
+	require.NoError(t, err)
+	var got V1InternalRequest
+	require.NoError(t, json.Unmarshal(out, &got))
+	var texts []string
+	for _, part := range got.Request.SystemInstruction.Parts {
+		if part.Text != "\n--- [SYSTEM_PROMPT_END] ---" {
+			texts = append(texts, part.Text)
+		}
+	}
+	require.Equal(t, []string{"You are an AI agent.", body}, texts)
+	require.Equal(t, "Explain this line: "+policy, got.Request.Contents[0].Parts[0].Text)
+	require.Equal(t, policy, got.Request.Tools[0].FunctionDeclarations[0].Description)
+}
+
+func TestTransformClaudeToGemini_PreservesCustomSecurityPolicyString(t *testing.T) {
+	const policy = "IMPORTANT: Assist with authorized security testing. Keep all custom approval requirements."
+	for _, system := range []string{policy, "A\n" + policy + "\nB", "A\r\n  " + policy + "\r\nB"} {
+		systemJSON, err := json.Marshal(system)
+		require.NoError(t, err)
+		input := &ClaudeRequest{Model: "gemini-3.8-flash-high", System: systemJSON,
+			Messages: []ClaudeMessage{{Role: "user", Content: json.RawMessage(`"Explain safe testing"`)}}}
+		body, err := TransformClaudeToGeminiWithOptions(input, "test-project", input.Model, TransformOptions{})
+		require.NoError(t, err)
+		var got V1InternalRequest
+		require.NoError(t, json.Unmarshal(body, &got))
+		var texts []string
+		for _, part := range got.Request.SystemInstruction.Parts {
+			texts = append(texts, part.Text)
+		}
+		require.Contains(t, texts, system, "system constraints must be preserved verbatim")
+	}
 }

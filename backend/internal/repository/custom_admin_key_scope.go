@@ -65,6 +65,7 @@ func (r *accountRepository) ScopedAdminList(ctx context.Context, p pagination.Pa
 		Status                 string
 		Schedulable            bool
 		Concurrency            int
+		LoadFactor             *int
 		Priority               int
 		ExpiresAt              *time.Time      `json:"expires_at"`
 		RateLimitResetAt       *time.Time      `json:"rate_limit_reset_at"`
@@ -73,7 +74,7 @@ func (r *accountRepository) ScopedAdminList(ctx context.Context, p pagination.Pa
 		ModelMapping           json.RawMessage `json:"model_mapping"`
 	}
 	err = q.Offset(p.Offset()).Limit(p.Limit()).Order(dbaccount.ByID()).
-		Select(dbaccount.FieldID, dbaccount.FieldName, dbaccount.FieldNotes, dbaccount.FieldPlatform, dbaccount.FieldType, dbaccount.FieldStatus, dbaccount.FieldSchedulable, dbaccount.FieldConcurrency, dbaccount.FieldPriority, dbaccount.FieldExpiresAt, dbaccount.FieldRateLimitResetAt, dbaccount.FieldOverloadUntil, dbaccount.FieldTempUnschedulableUntil).
+		Select(dbaccount.FieldID, dbaccount.FieldName, dbaccount.FieldNotes, dbaccount.FieldPlatform, dbaccount.FieldType, dbaccount.FieldStatus, dbaccount.FieldSchedulable, dbaccount.FieldConcurrency, dbaccount.FieldLoadFactor, dbaccount.FieldPriority, dbaccount.FieldExpiresAt, dbaccount.FieldRateLimitResetAt, dbaccount.FieldOverloadUntil, dbaccount.FieldTempUnschedulableUntil).
 		Aggregate(func(s *entsql.Selector) string {
 			return s.C(dbaccount.FieldCredentials) + "->'model_mapping' AS model_mapping"
 		}).Scan(ctx, &rows)
@@ -99,7 +100,7 @@ func (r *accountRepository) ScopedAdminList(ctx context.Context, p pagination.Pa
 		if len(mapping) > 0 {
 			credentials = map[string]any{"model_mapping": mapping}
 		}
-		a := service.Account{ID: row.ID, Name: row.Name, Notes: row.Notes, Platform: row.Platform, Type: row.Type, Status: row.Status, Schedulable: row.Schedulable, Concurrency: row.Concurrency, Priority: row.Priority, GroupIDs: groups, Credentials: credentials, ExpiresAt: row.ExpiresAt, RateLimitResetAt: row.RateLimitResetAt, OverloadUntil: row.OverloadUntil, TempUnschedulableUntil: row.TempUnschedulableUntil}
+		a := service.Account{ID: row.ID, Name: row.Name, Notes: row.Notes, Platform: row.Platform, Type: row.Type, Status: row.Status, Schedulable: row.Schedulable, Concurrency: row.Concurrency, LoadFactor: row.LoadFactor, Priority: row.Priority, GroupIDs: groups, Credentials: credentials, ExpiresAt: row.ExpiresAt, RateLimitResetAt: row.RateLimitResetAt, OverloadUntil: row.OverloadUntil, TempUnschedulableUntil: row.TempUnschedulableUntil}
 		accounts = append(accounts, a)
 	}
 	// 身份字段只为本页逐行鉴权通过的账户批量投影，不加载完整凭证或 extra。
@@ -188,6 +189,10 @@ func (r *accountRepository) scopedAdminBindGroups(ctx context.Context, accountID
 		return fmt.Errorf("受限分组写入需要数据库事务")
 	}
 	plans, err := lockAccountMembershipProtection(ctx, r.client, accountID)
+	if err != nil {
+		return err
+	}
+	groupIDs, err = lockOAuthDegradationGroupBindings(ctx, r.client, accountID, groupIDs)
 	if err != nil {
 		return err
 	}

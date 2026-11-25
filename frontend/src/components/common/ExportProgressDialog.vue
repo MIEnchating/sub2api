@@ -4,11 +4,11 @@
       <div class="text-sm text-gray-600 dark:text-gray-400">
         {{ t('usage.exportingProgress') }}
       </div>
-      <div class="flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
+      <div v-if="!indeterminate" class="flex items-center justify-between text-sm text-gray-700 dark:text-gray-300">
         <span>{{ t('usage.exportedCount', { current, total }) }}</span>
         <span class="font-medium text-gray-900 dark:text-white">{{ normalizedProgress }}%</span>
       </div>
-      <div class="h-2 w-full rounded-full bg-gray-200 dark:bg-dark-700">
+      <div v-if="!indeterminate" class="h-2 w-full rounded-full bg-gray-200 dark:bg-dark-700">
         <div
           role="progressbar"
           :aria-valuenow="normalizedProgress"
@@ -21,6 +21,9 @@
       </div>
       <div v-if="estimatedTime" class="text-xs text-gray-500 dark:text-gray-400" aria-live="polite" aria-atomic="true">
         {{ t('usage.estimatedTime', { time: estimatedTime }) }}
+      </div>
+      <div v-if="notice" data-testid="export-progress-notice" class="text-xs text-amber-600 dark:text-amber-400" aria-live="polite" aria-atomic="true">
+        {{ notice }}
       </div>
     </div>
 
@@ -43,10 +46,13 @@ import BaseDialog from './BaseDialog.vue'
 
 interface Props {
   show: boolean
-  progress: number
-  current: number
-  total: number
-  estimatedTime: string
+  indeterminate?: boolean
+  progress?: number
+  current?: number
+  total?: number
+  estimatedTime?: string
+  /** Optional status line, e.g. while an export waits out a rate limit. */
+  notice?: string
 }
 
 interface Emits {
@@ -58,8 +64,8 @@ const emit = defineEmits<Emits>()
 const { t } = useI18n()
 
 const normalizedProgress = computed(() => {
-  const value = Number.isFinite(props.progress) ? props.progress : 0
-  return Math.min(100, Math.max(0, Math.round(value)))
+  const value = props.progress ?? 0
+  return Number.isFinite(value) ? Math.min(100, Math.max(0, Math.round(value))) : 0
 })
 
 const handleCancel = () => {

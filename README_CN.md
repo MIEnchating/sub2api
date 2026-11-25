@@ -19,6 +19,8 @@
 > [!IMPORTANT]
 > 这是基于 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) 的非官方 Fork，不是 Sub2API 官方发行版。官方安装脚本和 `weishaw/sub2api:latest` 镜像不包含本 Fork 的扩展功能，请按本仓库的源码构建文档部署。
 
+本项目跟踪 [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)、[DeanZFC/sub2api-custom](https://github.com/DeanZFC/sub2api-custom) 和 [ranxi2001/sub2api](https://github.com/ranxi2001/sub2api) 三个上游。生图功能的合并范围见 [上游合并规则](docs/UPSTREAM_EXCLUSIONS.md)，账号检测和恢复见 [质量运维](docs/account-quality-operations.md)。
+
 ## 扩展功能
 
 - 支持分组内每用户并发限制：可为每个分组单独配置并发上限，按“用户 + 分组”独立计数，并与原有用户级、账号级并发控制同时生效。

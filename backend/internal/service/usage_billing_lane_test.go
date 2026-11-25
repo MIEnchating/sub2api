@@ -38,6 +38,16 @@ type laneTestRepo struct {
 	deadlines map[string]time.Time
 }
 
+func (*laneTestRepo) ReserveBatchImageBalance(context.Context, *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return nil, errors.New("unexpected image balance hold")
+}
+func (*laneTestRepo) CaptureBatchImageBalance(context.Context, *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return nil, errors.New("unexpected image balance capture")
+}
+func (*laneTestRepo) ReleaseBatchImageBalance(context.Context, *BatchImageBalanceHoldCommand) (*BatchImageBalanceHoldResult, error) {
+	return nil, errors.New("unexpected image balance release")
+}
+
 func newLaneTestRepo() *laneTestRepo {
 	return &laneTestRepo{
 		balances:    map[int64]float64{},
@@ -582,4 +592,65 @@ func TestUsageBillingLane_FallbackPanicOnlyFailsThatRequest(t *testing.T) {
 	require.Nil(t, results["q0"].res)
 	require.NoError(t, results["q1"].err)
 	require.True(t, results["q1"].res.Applied)
+}
+
+// The provider must retain the journal and its failed-cache retry rotation.
+type durableLaneTestRepo struct {
+	*laneTestRepo
+	DurableUsageBillingRepository
+	recovery *recoveryCacheRepo
+}
+
+func (r *durableLaneTestRepo) DeferUsageBillingCache(ctx context.Context, key UsageBillingEventKey) error {
+	return r.recovery.DeferUsageBillingCache(ctx, key)
+}
+
+func TestUsageBillingProviderPreservesDurableRecoveryAndDirectApply(t *testing.T) {
+	recovery := &recoveryCacheRepo{seen: map[string]bool{}}
+	direct := newLaneTestRepo()
+	underlying := &durableLaneTestRepo{laneTestRepo: direct, DurableUsageBillingRepository: recovery, recovery: recovery}
+	lanes := newLaneTestCombiner(underlying, 16)
+	t.Cleanup(lanes.Stop)
+	repo := ProvideUsageBillingRepository(lanes)
+	durable, ok := repo.(DurableUsageBillingRepository)
+	require.True(t, ok, "billing wrapper must not hide durable delivery")
+	cache := &BillingCacheService{cache: &recoveryCacheFailure{}}
+	for attempt := 0; attempt < 2; attempt++ {
+		require.Error(t, recoverUsageBillingBatch(context.Background(), durable, cache, nil))
+	}
+	require.Equal(t, []string{"second", "second"}, recovery.acked)
+	require.Equal(t, []string{"first", "first"}, recovery.deferred)
+	require.Len(t, recovery.seen, 2)
+	require.Empty(t, direct.applyCalls, "journal recovery must not replay an Apply charge")
+	result, err := repo.Apply(context.Background(), laneTestCommand(7, "direct", 1))
+	require.NoError(t, err)
+	require.True(t, result.Applied)
+	require.Equal(t, []string{"direct"}, direct.applyCalls)
+}
+
+type recoveryLaneTestRepo struct {
+	*durableLaneTestRepo
+	workerCalls []string
+}
+
+func (r *recoveryLaneTestRepo) RecoverStagedUsageBilling(ctx context.Context, key UsageBillingEventKey) (*UsageBillingRecovery, error) {
+	r.workerCalls = append(r.workerCalls, key.RequestID)
+	if key.RequestID == "first" {
+		return nil, nil // hot wallet is already settling; keep scanning
+	}
+	return r.recovery.ApplyStagedUsageBilling(ctx, key)
+}
+
+func TestUsageBillingProviderPreservesRecoveryBusyWalletBypass(t *testing.T) {
+	recovery := &recoveryCacheRepo{seen: map[string]bool{}}
+	underlying := &recoveryLaneTestRepo{durableLaneTestRepo: &durableLaneTestRepo{
+		laneTestRepo: newLaneTestRepo(), DurableUsageBillingRepository: recovery, recovery: recovery,
+	}}
+	lanes := newLaneTestCombiner(underlying, 16)
+	t.Cleanup(lanes.Stop)
+	repo := ProvideUsageBillingRepository(lanes).(DurableUsageBillingRepository)
+	require.NoError(t, recoverUsageBillingBatch(context.Background(), repo, nil, nil))
+	require.Equal(t, []string{"first", "second"}, underlying.workerCalls)
+	require.Equal(t, []string{"second"}, recovery.acked)
+	require.NotContains(t, recovery.seen, "first", "busy owner must not fall back to live settlement")
 }

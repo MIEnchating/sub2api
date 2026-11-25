@@ -31,7 +31,7 @@ func TestQQNaturalAccountQueriesBypassModelAndKeepPrivate(t *testing.T) {
 	require.NoError(t, s.SaveLotteryConfig(ctx, lottery))
 	c, err := s.Config(ctx)
 	require.NoError(t, err)
-	c.ChatDisabled, c.ImageEnabled = true, false
+	c.ChatDisabled, c.RememberQuotedImages = true, false
 	c.DailyChatLimit, c.TotalDailyChatLimit = 0, 0
 	_, err = s.SaveConfig(ctx, c)
 	require.NoError(t, err)

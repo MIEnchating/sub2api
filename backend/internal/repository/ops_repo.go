@@ -55,9 +55,10 @@ INSERT INTO ops_error_logs (
   response_latency_ms,
   time_to_first_token_ms,
   created_at,
-  api_key_prefix
+  api_key_prefix,
+  duration_ms
 ) VALUES (
-  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38
+  $1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34,$35,$36,$37,$38,$39
 )`
 
 func NewOpsRepository(db *sql.DB) service.OpsRepository {
@@ -167,6 +168,7 @@ func opsInsertErrorLogArgs(input *service.OpsInsertErrorLogInput) []any {
 		opsNullInt64(input.TimeToFirstTokenMs),
 		input.CreatedAt,
 		opsNullString(input.APIKeyPrefix),
+		opsNullableDurationMs(input.DurationMs),
 	}
 }
 
@@ -917,7 +919,7 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	// but they are always client-visible blocked requests that belong in admin + user error
 	// lists.  Without the exemption the entire streaming-path cyber sink would be invisible.
 	if !opsFilterIncludesRecoveredProviderRows(filter, phaseFilter) {
-		clauses = append(clauses, "(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy')")
+		clauses = append(clauses, "(COALESCE(e.status_code, 0) >= 400 OR e.error_type = 'cyber_policy' OR e.error_type = 'transport_error')")
 	}
 
 	if filter.StartTime != nil && !filter.StartTime.IsZero() {
@@ -931,7 +933,11 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	}
 	if p := strings.TrimSpace(filter.Platform); p != "" {
 		args = append(args, p)
-		clauses = append(clauses, "e.platform = $"+itoa(len(args)))
+		match := "e.platform = $" + itoa(len(args))
+		if p == "unknown" {
+			match = "(" + match + " OR e.platform IS NULL OR e.platform = '')"
+		}
+		clauses = append(clauses, match)
 	}
 	if filter.GroupID != nil && *filter.GroupID > 0 {
 		args = append(args, *filter.GroupID)
@@ -943,7 +949,7 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	}
 	if phase := phaseFilter; phase != "" {
 		args = append(args, phase)
-		clauses = append(clauses, "e.error_phase = $"+itoa(len(args)))
+		clauses = append(clauses, opsEffectivePhaseSQL("e")+" = $"+itoa(len(args)))
 	}
 	if filter != nil {
 		if owner := strings.TrimSpace(strings.ToLower(filter.Owner)); owner != "" {
@@ -1038,11 +1044,11 @@ func buildOpsErrorLogsWhere(filter *service.OpsErrorLogFilter) (string, []any) {
 	}
 	if len(filter.ErrorPhasesAny) > 0 {
 		args = append(args, pq.Array(filter.ErrorPhasesAny))
-		clauses = append(clauses, "e.error_phase = ANY($"+itoa(len(args))+")")
+		clauses = append(clauses, opsEffectivePhaseSQL("e")+" = ANY($"+itoa(len(args))+")")
 	}
 	if len(filter.ErrorTypesAny) > 0 {
 		args = append(args, pq.Array(filter.ErrorTypesAny))
-		clauses = append(clauses, "e.error_type = ANY($"+itoa(len(args))+")")
+		clauses = append(clauses, opsEffectiveTypeSQL("e")+" = ANY($"+itoa(len(args))+")")
 	}
 
 	return "WHERE " + strings.Join(clauses, " AND "), args
@@ -1189,6 +1195,14 @@ func opsNullString(v any) any {
 	default:
 		return sql.NullString{}
 	}
+}
+
+// Zero milliseconds is a measured duration, not an absent value.
+func opsNullableDurationMs(v *int64) any {
+	if v == nil || *v < 0 {
+		return sql.NullInt64{}
+	}
+	return sql.NullInt64{Int64: *v, Valid: true}
 }
 
 func opsNullInt64(v *int64) any {

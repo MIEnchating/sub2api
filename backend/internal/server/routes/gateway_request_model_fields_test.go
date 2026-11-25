@@ -66,8 +66,9 @@ func TestGatewayRoutesRequestModelFieldsMountedBeforeAllowlist(t *testing.T) {
 	source, err := os.ReadFile("gateway.go")
 	require.NoError(t, err)
 	for _, chain := range []string{"gateway", "gemini", "antigravityV1", "antigravityV1Beta"} {
-		pattern := regexp.QuoteMeta(chain+".Use(requestModelFields)") + `\s+` + regexp.QuoteMeta(chain+".Use(groupModelAllowlist)")
+		pattern := regexp.QuoteMeta(chain+".Use(") + `(?:captureTraffic, )?requestModelFields\)\s+` +
+			regexp.QuoteMeta(chain+".Use(groupModelAllowlist") + `(?:,|\))`
 		require.Regexp(t, regexp.MustCompile(pattern), string(source), chain)
 	}
-	require.Contains(t, string(source), "gin.HandlerFunc(apiKeyAuth), imageAdmission, requestModelFields, groupModelAllowlist, rejectConflictingFields, compositeTarget")
+	require.Regexp(t, `gin\.HandlerFunc\(apiKeyAuth\), captureTraffic, imageAdmission, requestModelFields, groupModelAllowlist, rejectConflictingFields, [^\n]*compositeTarget`, string(source))
 }

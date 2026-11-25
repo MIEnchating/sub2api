@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	coderws "github.com/coder/websocket"
 	"github.com/stretchr/testify/require"
 )
@@ -24,18 +25,23 @@ func TestOpenAIWSClientSessionPreservesQueuedFrameOrderAndType(t *testing.T) {
 	var releaseOnce sync.Once
 	releaseFrames := func() { releaseOnce.Do(func() { close(release) }) }
 	result := make(chan []frame, 1)
+	frameArrival := time.Date(2026, time.November, 24, 12, 0, 0, 0, time.UTC)
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		conn, err := coderws.Accept(w, r, nil)
 		if err != nil {
 			t.Error(err)
 			return
 		}
-		ctx, stop := BeginOpenAIWSClientSession(r.Context(), conn, 1024)
+		requestCtx := requesttiming.WithClock(r.Context(), func() time.Time { return frameArrival })
+		ctx, stop := BeginOpenAIWSClientSession(requestCtx, conn, 1024)
 		defer stop()
 		<-release
 		got := make([]frame, 0, len(want))
 		for range want {
-			kind, payload, err := ReadOpenAIWSClientMessage(ctx, conn, time.Second, coderws.StatusNormalClosure, "idle")
+			kind, payload, receivedAt, err := ReadOpenAIWSClientMessageWithArrival(ctx, conn, time.Second, coderws.StatusNormalClosure, "idle")
+			if !receivedAt.Equal(frameArrival) {
+				t.Errorf("frame receipt time = %v, want %v", receivedAt, frameArrival)
+			}
 			if err != nil {
 				t.Error(err)
 				break
@@ -213,12 +219,13 @@ func TestOpenAIWSCommittedTurnContextCleanupCanBeRepeated(t *testing.T) {
 func TestOpenAIWSClientSessionPreservesControlCloseFrames(t *testing.T) {
 	for _, test := range []struct {
 		name      string
-		leaseLost bool
+		leaseLoss error
 		status    coderws.StatusCode
 		reason    string
 	}{
 		{name: "first message timeout", status: coderws.StatusPolicyViolation, reason: "missing first response.create message"},
-		{name: "ingress lease lost", leaseLost: true, status: coderws.StatusTryAgainLater, reason: "websocket ingress capacity lease lost; please reconnect"},
+		{name: "ingress lease lost", leaseLoss: ErrOpenAIWSIngressLeaseLost, status: coderws.StatusTryAgainLater, reason: "websocket ingress capacity lease lost; please reconnect"},
+		{name: "API key lease lost", leaseLoss: ErrAPIKeySlotLeaseLost, status: coderws.StatusTryAgainLater, reason: "websocket ingress capacity lease lost; please reconnect"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			parent, cancelParent := context.WithCancelCause(context.Background())
@@ -244,8 +251,8 @@ func TestOpenAIWSClientSessionPreservesControlCloseFrames(t *testing.T) {
 			require.NoError(t, err)
 			defer func() { _ = client.CloseNow() }()
 			<-started
-			if test.leaseLost {
-				cancelParent(ErrOpenAIWSIngressLeaseLost)
+			if test.leaseLoss != nil {
+				cancelParent(test.leaseLoss)
 			}
 			_, _, err = client.Read(ctx)
 			var clientClose coderws.CloseError
@@ -257,8 +264,8 @@ func TestOpenAIWSClientSessionPreservesControlCloseFrames(t *testing.T) {
 				var closeErr *OpenAIWSClientCloseError
 				require.ErrorAs(t, err, &closeErr)
 				require.Equal(t, test.status, closeErr.StatusCode())
-				if test.leaseLost {
-					require.True(t, errors.Is(err, ErrOpenAIWSIngressLeaseLost))
+				if test.leaseLoss != nil {
+					require.ErrorIs(t, err, test.leaseLoss)
 				}
 			case <-ctx.Done():
 				t.Fatal("session reader did not stop after control close")

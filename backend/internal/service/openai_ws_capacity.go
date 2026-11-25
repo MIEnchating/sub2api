@@ -6,6 +6,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 	coderws "github.com/coder/websocket"
 	"github.com/tidwall/gjson"
@@ -54,7 +55,7 @@ func (c *openAIWSCapacityFrameConn) ReadFrame(ctx context.Context) (coderws.Mess
 	}
 	for {
 		msgType, payload, err := c.FrameConn.ReadFrame(ctx)
-		c.receivedAt = time.Now()
+		c.receivedAt = requesttiming.Now(ctx)
 		if err == nil {
 			c.observed.Store(true)
 		}

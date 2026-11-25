@@ -119,11 +119,11 @@
       <OAuthAuthorizationFlow
         ref="oauthFlowRef"
         :add-method="addMethod"
+        :excel-oauth="isExcelOAuth"
         :auth-url="currentAuthUrl"
         :session-id="currentSessionId"
         :loading="currentLoading"
         :error="currentError"
-        :excel-oauth="isExcelOAuth"
         :show-help="isAnthropic"
         :show-proxy-warning="isAnthropic"
         :show-cookie-option="isAnthropic"

@@ -171,6 +171,7 @@ func TestRelaySemanticFirstTokenInterrupted(t *testing.T) {
 					require.Nil(t, result.FirstTokenMs, "metadata-only interruption is unknown, never zero")
 				}
 				require.EqualValues(t, 1, result.ClientToUpstreamFrames, "no replay on missing content")
+				require.Nil(t, result.FirstActualContentMs, "empty reasoning structure is semantic activity, not actual content")
 			})
 		}
 	}

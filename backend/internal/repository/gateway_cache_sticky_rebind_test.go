@@ -7,7 +7,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
 )
@@ -26,7 +25,7 @@ func stickyRebindTestSwap(accountID int64) service.SessionAccountBindingSwap {
 }
 
 func TestStickySessionRebindPublishesBothFormatsAndPreservesGroupIsolation(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	ctx := context.Background()
 	swap := stickyRebindTestSwap(202)
 	primary := buildSessionKey(47, swap.SessionHash)
@@ -54,7 +53,7 @@ func TestStickySessionRebindPublishesBothFormatsAndPreservesGroupIsolation(t *te
 }
 
 func TestStickySessionRebindStaleWaiterCannotUndoNewBinding(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	ctx := context.Background()
 	swap := stickyRebindTestSwap(101)
 	primary := buildSessionKey(47, swap.SessionHash)
@@ -75,7 +74,7 @@ func TestStickySessionRebindStaleWaiterCannotUndoNewBinding(t *testing.T) {
 }
 
 func TestStickySessionRebindDistinguishesLargeAccountIDs(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	ctx := context.Background()
 	swap := stickyRebindTestSwap(202)
 	// Adjacent integers above 2^53 compare equal when Lua coerces them to doubles.
@@ -106,7 +105,7 @@ func TestStickySessionRebindPrimaryTakesPrecedenceOverLegacy(t *testing.T) {
 		{name: "legacy match cannot override newer primary", primary: 303, legacy: 101, changed: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			require.NoError(t, cache.SetSessionAccountID(ctx, 47, swap.SessionHash, tc.primary, time.Minute))
@@ -146,7 +145,7 @@ func TestStickySessionRebindHonorsLegacyReadAndWriteFlags(t *testing.T) {
 		{name: "dual-write is independent of fallback", legacy: 303, readLegacy: false, writeLegacy: true, changed: true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			swap.ReadLegacy, swap.WriteLegacy = tc.readLegacy, tc.writeLegacy
@@ -179,7 +178,7 @@ func TestStickySessionRebindHonorsLegacyReadAndWriteFlags(t *testing.T) {
 }
 
 func TestStickySessionRebindCompetingInstancesAgreeOnOneReplacement(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	otherClient := redis.NewClient(&redis.Options{Addr: mr.Addr(), MaxRetries: -1})
 	t.Cleanup(func() { _ = otherClient.Close() })
 	other := &gatewayCache{rdb: otherClient}
@@ -236,7 +235,7 @@ func TestStickySessionRebindMissingExpiredAndSameTarget(t *testing.T) {
 		{name: "already rebound by another instance", seed: 202},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			if tc.seed > 0 {
@@ -262,7 +261,7 @@ func TestStickySessionRebindMissingExpiredAndSameTarget(t *testing.T) {
 }
 
 func TestStickySessionRebindRedisErrorsDoNotPublish(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	ctx := context.Background()
 	swap := stickyRebindTestSwap(202)
 	require.NoError(t, cache.SetSessionAccountID(ctx, 47, swap.SessionHash, 101, time.Minute))
@@ -281,7 +280,7 @@ func TestStickySessionRebindRedisErrorsDoNotPublish(t *testing.T) {
 }
 
 func TestStickySessionRebindWithoutLegacyHashRetainsPrimaryTTL(t *testing.T) {
-	cache, mr := newStickyRebindTestCache(t)
+	cache, mr := newHTTPResponseOwnerTestCache(t)
 	ctx := context.Background()
 	swap := stickyRebindTestSwap(202)
 	swap.LegacySessionHash = ""
@@ -303,7 +302,7 @@ func TestStickySessionRebindInvalidExpiryDoesNotPartiallyPublish(t *testing.T) {
 			name = "primary"
 		}
 		t.Run(name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			for _, session := range []string{swap.SessionHash, swap.LegacySessionHash} {
@@ -334,7 +333,7 @@ func TestStickySessionRebindWrongTypeDoesNotPartiallyPublish(t *testing.T) {
 			name = "primary"
 		}
 		t.Run(name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			primary := buildSessionKey(47, swap.SessionHash)
@@ -372,7 +371,7 @@ func TestStickySessionRebindUnusedLegacyTypeDoesNotBlockPrimary(t *testing.T) {
 		{name: "disabled fallback ignores the malformed old format", primaryPresent: false, readLegacy: false, writeLegacy: false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			cache, mr := newStickyRebindTestCache(t)
+			cache, mr := newHTTPResponseOwnerTestCache(t)
 			ctx := context.Background()
 			swap := stickyRebindTestSwap(202)
 			swap.ReadLegacy, swap.WriteLegacy = tc.readLegacy, tc.writeLegacy
@@ -396,12 +395,4 @@ func TestStickySessionRebindUnusedLegacyTypeDoesNotBlockPrimary(t *testing.T) {
 			}
 		})
 	}
-}
-
-func newStickyRebindTestCache(t *testing.T) (*gatewayCache, *miniredis.Miniredis) {
-	t.Helper()
-	mr := miniredis.RunT(t)
-	client := redis.NewClient(&redis.Options{Addr: mr.Addr()})
-	t.Cleanup(func() { require.NoError(t, client.Close()) })
-	return &gatewayCache{rdb: client}, mr
 }

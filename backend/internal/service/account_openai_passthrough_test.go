@@ -1,9 +1,8 @@
 package service
 
 import (
-	"testing"
-
 	"github.com/stretchr/testify/require"
+	"testing"
 )
 
 func TestAccount_IsOpenAIPassthroughEnabled(t *testing.T) {

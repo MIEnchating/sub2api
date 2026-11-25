@@ -36,7 +36,11 @@ func TestExcelBPSPreservesProtectionAndIntegrity(t *testing.T) {
 			_, err := svc.Forward(context.Background(), c, a, []byte(tc.body))
 			require.Error(t, err)
 			require.Empty(t, upstream.requests, "protected requests must fail before sending or uploading")
-			if !tc.invalid {
+			if tc.stripEncrypted {
+				var failure *excelBPSForwardError
+				require.ErrorAs(t, err, &failure)
+				require.Equal(t, "basispoints_request_invalid", failure.code)
+			} else if !tc.invalid {
 				require.Contains(t, err.Error(), "input")
 			}
 		})

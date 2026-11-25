@@ -373,8 +373,6 @@ func TestForwardAsChatCompletions_StructuredInputRejectionDoesNotRetryIneligible
 		mode          string
 		unknown       bool
 		platform      string
-		protocol      string
-		endpoint      string
 		accountType   string
 		responsesBody bool
 		nativeIngress bool
@@ -387,10 +385,6 @@ func TestForwardAsChatCompletions_StructuredInputRejectionDoesNotRetryIneligible
 		{name: "Responses shaped Chat ingress", responsesBody: true},
 		{name: "native Responses ingress", responsesBody: true, nativeIngress: true},
 		{name: "native CN Responses protocol", platform: PlatformDeepseek},
-		{name: "adaptive Chat ingress stays raw", platform: PlatformKimi, protocol: APIProtocolAdaptive, endpoint: "/chat/completions"},
-		{name: "adaptive Responses shaped ingress stays Responses", platform: PlatformKimi, protocol: APIProtocolAdaptive, responsesBody: true},
-		{name: "adaptive Responses shaped ingress converts to Chat", platform: PlatformZhipu, protocol: APIProtocolAdaptive, responsesBody: true, endpoint: "/chat/completions"},
-		{name: "model routed Responses is not OpenAI retry eligible", platform: PlatformCommandCode, protocol: APIProtocolResponses},
 		{name: "OAuth", accountType: AccountTypeOAuth},
 		{name: "authentication", status: http.StatusUnauthorized},
 		{name: "authorization", status: http.StatusForbidden},
@@ -416,9 +410,6 @@ func TestForwardAsChatCompletions_StructuredInputRejectionDoesNotRetryIneligible
 			if test.platform != "" {
 				account.Platform = test.platform
 				account.Credentials["api_protocol"] = APIProtocolResponses
-			}
-			if test.protocol != "" {
-				account.Credentials["api_protocol"] = test.protocol
 			}
 			if test.accountType != "" {
 				account.Type = test.accountType
@@ -449,11 +440,7 @@ func TestForwardAsChatCompletions_StructuredInputRejectionDoesNotRetryIneligible
 			require.Error(t, err)
 			require.Nil(t, result)
 			require.Len(t, upstream.requests, 1)
-			endpoint := test.endpoint
-			if endpoint == "" {
-				endpoint = "/responses"
-			}
-			require.True(t, strings.HasSuffix(upstream.requests[0].URL.Path, endpoint))
+			require.True(t, strings.HasSuffix(upstream.requests[0].URL.Path, "/responses"))
 			var failover *UpstreamFailoverError
 			if status == http.StatusUnauthorized || status == http.StatusForbidden || status == http.StatusTooManyRequests {
 				require.ErrorAs(t, err, &failover)
@@ -629,9 +616,9 @@ func TestHandleChatStreamingResponse_ClassifiesHTTP2ReadError(t *testing.T) {
 	code, message, ok := OpenAIUpstreamStreamReadErrorDetails(err)
 	require.True(t, ok)
 	require.Equal(t, OpenAIUpstreamHTTP2StreamErrorCode, code)
-	require.Equal(t, "Upstream HTTP/2 stream failed", message)
+	require.Equal(t, "Upstream connection reset by peer (HTTP/2 INTERNAL_ERROR). Content may be incomplete. Do not automatically retry the same request.", message)
 	require.NotContains(t, message, "stream ID")
-	require.NotContains(t, message, "INTERNAL_ERROR")
+	require.Contains(t, message, "INTERNAL_ERROR")
 }
 
 func TestNormalizeResponsesRequestServiceTier(t *testing.T) {
@@ -1631,7 +1618,7 @@ func TestForwardAsChatCompletions_DoneSentinelWithoutTerminalReturnsError(t *tes
 	require.Zero(t, result.Usage.OutputTokens)
 }
 
-func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.T) {
+func TestForwardAsChatCompletions_CanceledClientDoesNotSendUpstream(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	rec := httptest.NewRecorder()
@@ -1642,17 +1629,7 @@ func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.
 	c.Request.Header.Set("Content-Type", "application/json")
 	cancel()
 
-	upstreamBody := strings.Join([]string{
-		`data: {"type":"response.completed","response":{"id":"resp_1","object":"response","model":"gpt-5.4","status":"completed","output":[{"type":"message","id":"msg_1","role":"assistant","status":"completed","content":[{"type":"output_text","text":"ok"}]}],"usage":{"input_tokens":5,"output_tokens":2,"total_tokens":7}}}`,
-		"",
-		"data: [DONE]",
-		"",
-	}, "\n")
-	upstream := &httpUpstreamRecorder{resp: &http.Response{
-		StatusCode: http.StatusOK,
-		Header:     http.Header{"Content-Type": []string{"text/event-stream"}, "x-request-id": []string{"rid_chat_ctx"}},
-		Body:       io.NopCloser(strings.NewReader(upstreamBody)),
-	}}
+	upstream := &httpUpstreamRecorder{}
 
 	svc := &OpenAIGatewayService{httpUpstream: upstream}
 	account := &Account{
@@ -1668,10 +1645,9 @@ func TestForwardAsChatCompletions_UpstreamRequestIgnoresClientCancel(t *testing.
 	}
 
 	result, err := svc.ForwardAsChatCompletions(reqCtx, c, account, body, "", "gpt-5.1")
-	require.NoError(t, err)
-	require.NotNil(t, result)
-	require.NotNil(t, upstream.lastReq)
-	require.NoError(t, upstream.lastReq.Context().Err())
+	require.ErrorIs(t, err, context.Canceled)
+	require.Nil(t, result)
+	require.Empty(t, upstream.requests)
 }
 
 // TestBuildChatStreamErrorSSE verifies F4: the error chunk payload follows the

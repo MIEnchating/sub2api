@@ -30,6 +30,12 @@ type Tx struct {
 	AuthIdentity *AuthIdentityClient
 	// AuthIdentityChannel is the client for interacting with the AuthIdentityChannel builders.
 	AuthIdentityChannel *AuthIdentityChannelClient
+	// BatchImageEvent is the client for interacting with the BatchImageEvent builders.
+	BatchImageEvent *BatchImageEventClient
+	// BatchImageItem is the client for interacting with the BatchImageItem builders.
+	BatchImageItem *BatchImageItemClient
+	// BatchImageJob is the client for interacting with the BatchImageJob builders.
+	BatchImageJob *BatchImageJobClient
 	// ChannelMonitor is the client for interacting with the ChannelMonitor builders.
 	ChannelMonitor *ChannelMonitorClient
 	// ChannelMonitorDailyRollup is the client for interacting with the ChannelMonitorDailyRollup builders.
@@ -50,6 +56,22 @@ type Tx struct {
 	IdentityAdoptionDecision *IdentityAdoptionDecisionClient
 	// InvoiceRequest is the client for interacting with the InvoiceRequest builders.
 	InvoiceRequest *InvoiceRequestClient
+	// LotteryAccount is the client for interacting with the LotteryAccount builders.
+	LotteryAccount *LotteryAccountClient
+	// LotteryContribution is the client for interacting with the LotteryContribution builders.
+	LotteryContribution *LotteryContributionClient
+	// LotteryDraw is the client for interacting with the LotteryDraw builders.
+	LotteryDraw *LotteryDrawClient
+	// LotteryInvitation is the client for interacting with the LotteryInvitation builders.
+	LotteryInvitation *LotteryInvitationClient
+	// LotteryInviteLink is the client for interacting with the LotteryInviteLink builders.
+	LotteryInviteLink *LotteryInviteLinkClient
+	// LotteryLedger is the client for interacting with the LotteryLedger builders.
+	LotteryLedger *LotteryLedgerClient
+	// LotteryPool is the client for interacting with the LotteryPool builders.
+	LotteryPool *LotteryPoolClient
+	// LotteryPrize is the client for interacting with the LotteryPrize builders.
+	LotteryPrize *LotteryPrizeClient
 	// PaymentAuditLog is the client for interacting with the PaymentAuditLog builders.
 	PaymentAuditLog *PaymentAuditLogClient
 	// PaymentOrder is the client for interacting with the PaymentOrder builders.
@@ -229,6 +251,9 @@ func (tx *Tx) init() {
 	tx.AnnouncementRead = NewAnnouncementReadClient(tx.config)
 	tx.AuthIdentity = NewAuthIdentityClient(tx.config)
 	tx.AuthIdentityChannel = NewAuthIdentityChannelClient(tx.config)
+	tx.BatchImageEvent = NewBatchImageEventClient(tx.config)
+	tx.BatchImageItem = NewBatchImageItemClient(tx.config)
+	tx.BatchImageJob = NewBatchImageJobClient(tx.config)
 	tx.ChannelMonitor = NewChannelMonitorClient(tx.config)
 	tx.ChannelMonitorDailyRollup = NewChannelMonitorDailyRollupClient(tx.config)
 	tx.ChannelMonitorHistory = NewChannelMonitorHistoryClient(tx.config)
@@ -239,6 +264,14 @@ func (tx *Tx) init() {
 	tx.IdempotencyRecord = NewIdempotencyRecordClient(tx.config)
 	tx.IdentityAdoptionDecision = NewIdentityAdoptionDecisionClient(tx.config)
 	tx.InvoiceRequest = NewInvoiceRequestClient(tx.config)
+	tx.LotteryAccount = NewLotteryAccountClient(tx.config)
+	tx.LotteryContribution = NewLotteryContributionClient(tx.config)
+	tx.LotteryDraw = NewLotteryDrawClient(tx.config)
+	tx.LotteryInvitation = NewLotteryInvitationClient(tx.config)
+	tx.LotteryInviteLink = NewLotteryInviteLinkClient(tx.config)
+	tx.LotteryLedger = NewLotteryLedgerClient(tx.config)
+	tx.LotteryPool = NewLotteryPoolClient(tx.config)
+	tx.LotteryPrize = NewLotteryPrizeClient(tx.config)
 	tx.PaymentAuditLog = NewPaymentAuditLogClient(tx.config)
 	tx.PaymentOrder = NewPaymentOrderClient(tx.config)
 	tx.PaymentProviderInstance = NewPaymentProviderInstanceClient(tx.config)

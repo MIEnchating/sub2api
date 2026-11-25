@@ -4,10 +4,12 @@ package repository
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"testing"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/regional/slots"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
@@ -90,4 +92,22 @@ func TestAccountPerformancePostgresAccountLockBlocksSoftDelete(t *testing.T) {
 	require.NoError(t, err)
 	_, err = deletion.ExecContext(ctx, `UPDATE accounts SET deleted_at=NOW() WHERE id=$1`, id)
 	require.ErrorContains(t, err, "lock timeout", "non-key soft deletion must wait until the monitor transaction ends")
+}
+
+func TestAccountPerformancePostgresRegionalSlotsRejectPausedAccount(t *testing.T) {
+	ctx := context.Background()
+	id := performanceCommittedAccount(t)
+	tx, err := integrationDB.BeginTx(ctx, &sql.TxOptions{})
+	require.NoError(t, err)
+	defer func() { _ = tx.Rollback() }()
+	primary := NewRegionalSlotAuthority(integrationDB)
+	resource := slots.Resource{Kind: "account", ID: id}
+	limit, err := primary.Limit(ctx, tx, resource)
+	require.NoError(t, err)
+	require.Equal(t, 4, limit)
+	_, err = tx.ExecContext(ctx, `INSERT INTO account_performance_monitors(account_id,paused) VALUES($1,true)`, id)
+	require.NoError(t, err)
+	limit, err = primary.Limit(ctx, tx, resource)
+	require.NoError(t, err)
+	require.Zero(t, limit, "new grants, renewals and primary acquisitions must deny paused accounts")
 }

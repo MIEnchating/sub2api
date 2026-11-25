@@ -58,7 +58,7 @@ func (r *settingRepository) SetAstraRoutingWithAccounts(ctx context.Context, key
 	}
 	_ = rows.Close()
 	bpsEnabled := true
-	if raw, readErr := r.GetValue(ctx, service.SettingKeyExcelBPSEnabled); readErr == nil {
+	if raw, readErr := (&settingRepository{client: tx.Client()}).GetValue(ctx, service.SettingKeyExcelBPSEnabled); readErr == nil {
 		bpsEnabled = raw != "false"
 	} else if !errors.Is(readErr, service.ErrSettingNotFound) {
 		return readErr

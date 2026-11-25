@@ -39,7 +39,6 @@ type ImageTaskRecord struct {
 	HTTPStatus  int             `json:"http_status,omitempty"`
 	Result      json.RawMessage `json:"result,omitempty"`
 	Error       json.RawMessage `json:"error,omitempty"`
-	ErrorSource string          `json:"error_source,omitempty"`
 	CreatedAt   int64           `json:"created_at"`
 	CompletedAt *int64          `json:"completed_at,omitempty"`
 	ExpiresAt   int64           `json:"expires_at"`
@@ -167,7 +166,7 @@ func (s *ImageTaskService) Create(ctx context.Context, owner ImageTaskOwner) (*I
 	if err := s.store.Save(ctx, task, s.ttl); err != nil {
 		return nil, ErrImageTaskUnavailable.WithCause(err)
 	}
-	return imageTaskToPublicForContext(ctx, task), nil
+	return imageTaskToPublic(task), nil
 }
 
 func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id string) (*ImageTask, error) {
@@ -185,7 +184,7 @@ func (s *ImageTaskService) Get(ctx context.Context, owner ImageTaskOwner, id str
 		// Do not reveal whether a random task ID exists for another caller.
 		return nil, ErrImageTaskNotFound
 	}
-	return imageTaskToPublicForContext(ctx, task), nil
+	return imageTaskToPublic(task), nil
 }
 
 func (s *ImageTaskService) Complete(ctx context.Context, id string, statusCode int, result json.RawMessage) error {
@@ -211,20 +210,7 @@ func (s *ImageTaskService) Fail(ctx context.Context, id string, statusCode int, 
 	return s.finish(ctx, id, ImageTaskStatusFailed, statusCode, nil, taskErr)
 }
 
-// FailWithSource preserves provider diagnostics in storage while allowing the
-// polling response to distinguish them from local authentication/billing errors.
-func (s *ImageTaskService) FailWithSource(ctx context.Context, id string, statusCode int, taskErr json.RawMessage, upstream bool) error {
-	if !json.Valid(taskErr) {
-		taskErr = imageTaskErrorJSON("api_error", "image generation failed")
-	}
-	source := "local"
-	if upstream {
-		source = "upstream"
-	}
-	return s.finish(ctx, id, ImageTaskStatusFailed, statusCode, nil, taskErr, source)
-}
-
-func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage, errorSource ...string) error {
+func (s *ImageTaskService) finish(ctx context.Context, id, status string, statusCode int, result, taskErr json.RawMessage) error {
 	if s == nil || s.store == nil {
 		return ErrImageTaskUnavailable
 	}
@@ -241,45 +227,12 @@ func (s *ImageTaskService) finish(ctx context.Context, id, status string, status
 	task.HTTPStatus = statusCode
 	task.Result = result
 	task.Error = taskErr
-	if len(errorSource) > 0 {
-		task.ErrorSource = errorSource[0]
-	}
 	task.CompletedAt = &completedAt
 	task.ExpiresAt = now.Add(s.ttl).Unix()
 	if err := s.store.Save(ctx, task, s.ttl); err != nil {
 		return ErrImageTaskUnavailable.WithCause(err)
 	}
 	return nil
-}
-
-func imageTaskToPublicForContext(ctx context.Context, task *ImageTaskRecord) *ImageTask {
-	out := imageTaskToPublic(task)
-	if out == nil || task.Status != ImageTaskStatusFailed || ConfiguredUpstreamErrorMessage(ctx) == "" || task.ErrorSource == "local" {
-		return out
-	}
-	// Old task records have no provenance. Preserve recognisable local user
-	// failures; the remaining failed generation diagnostics are provider-facing.
-	if task.ErrorSource == "" {
-		var legacy struct {
-			Type string `json:"type"`
-		}
-		_ = json.Unmarshal(task.Error, &legacy)
-		switch legacy.Type {
-		case "authentication_error", "billing_error", "subscription_error":
-			return out
-		}
-	}
-	envelope, _ := json.Marshal(struct {
-		Error json.RawMessage `json:"error"`
-	}{Error: task.Error})
-	wrapped := WrapUpstreamErrorPayload(ctx, envelope, "")
-	var safe struct {
-		Error json.RawMessage `json:"error"`
-	}
-	if json.Unmarshal(wrapped, &safe) == nil && len(safe.Error) > 0 {
-		out.Error = safe.Error
-	}
-	return out
 }
 
 func imageTaskToPublic(task *ImageTaskRecord) *ImageTask {

@@ -23,11 +23,11 @@ func TestScopedConfigCASAndSecretFreeHistory(t *testing.T) {
 	require.NoError(t, err)
 	a, b := initial.Public(), initial.Public()
 	a.ChatModel = "new-chat"
-	b.ImageModel = "new-image"
+	b.RememberQuotedImages = true
 	saved, err := s.SaveConfigSection(ctx, "chat", a.SectionVersions["chat"], a)
 	require.NoError(t, err)
 	require.Empty(t, saved.APIKey)
-	_, err = s.SaveConfigSection(ctx, "images", b.SectionVersions["images"], b)
+	_, err = s.SaveConfigSection(ctx, "vision", b.SectionVersions["vision"], b)
 	require.NoError(t, err, "unrelated modules should not conflict")
 	_, err = s.SaveConfigSection(ctx, "chat", a.SectionVersions["chat"], a)
 	require.ErrorIs(t, err, ErrConfigConflict)
@@ -36,7 +36,7 @@ func TestScopedConfigCASAndSecretFreeHistory(t *testing.T) {
 	now, err := s.Config(ctx)
 	require.NoError(t, err)
 	require.Equal(t, "new-chat", now.ChatModel)
-	require.Equal(t, "new-image", now.ImageModel)
+	require.True(t, now.RememberQuotedImages)
 	require.Equal(t, initial.APIKey, now.APIKey)
 	h, err := s.ConfigHistory(ctx)
 	require.NoError(t, err)

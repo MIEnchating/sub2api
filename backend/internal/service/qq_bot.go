@@ -18,13 +18,16 @@ func ProvideQQBotService(db *sql.DB, encryptor SecretEncryptor, cfg *config.Conf
 		}
 	})
 	s.SetBindingEmailDelivery(&qqBotBindingEmail{email: email, settings: settings, users: users})
+	s.SetManagedSiteOrigin(qqBotInternalBaseURL(cfg.Server.Port))
 	status := &qqBotChannelStatus{monitor: monitor, settings: settings, groups: groups}
 	s.SetChannelStatusProvider(status)
 	s.SetHealthSnapshotProvider(status)
 	s.SetModelPriceProvider(&qqBotModelPrices{groups: groups, users: users, rates: rates, channels: channelService, billing: billingService, resolver: priceResolver})
 	s.SetPriceSnapshotProvider(&qqBotPriceSource{channels: channels, groups: groups})
 	s.SetSiteAIProvider(&qqBotSiteAI{keys: keys, groups: groups, users: users, accounts: accounts, settings: settings, email: email, baseURL: qqBotInternalBaseURL(cfg.Server.Port)})
-	s.Start()
+	if cfg.RunsBackgroundJobs() {
+		s.Start()
+	}
 	return s
 }
 

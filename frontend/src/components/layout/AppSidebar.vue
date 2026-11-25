@@ -29,8 +29,26 @@
       </div>
     </div>
 
+    <FeatureSearch v-if="isAdmin" :items="searchNavItems" :collapsed="sidebarCollapsed" @navigate="handleMenuItemClick" />
+
     <!-- Navigation -->
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
+      <div v-if="authStore.isObserver" class="sidebar-section">
+        <router-link to="/admin/accounts" class="sidebar-link mb-1"
+          :class="{ 'sidebar-link-active': isActive('/admin/accounts'), 'sidebar-link-collapsed': sidebarCollapsed }"
+          :title="sidebarCollapsed ? t('nav.accounts') : undefined"
+          @click="handleMenuItemClick('/admin/accounts')">
+          <GlobeIcon class="h-5 w-5 flex-shrink-0" />
+          <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }">{{ t('nav.accounts') }}</span>
+        </router-link>
+        <router-link v-if="appStore.backendModeEnabled" to="/usage" class="sidebar-link mb-1"
+          :class="{ 'sidebar-link-active': isActive('/usage'), 'sidebar-link-collapsed': sidebarCollapsed }"
+          :title="sidebarCollapsed ? t('nav.usage') : undefined"
+          @click="handleMenuItemClick('/usage')">
+          <ChartIcon class="h-5 w-5 flex-shrink-0" />
+          <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }">{{ t('nav.usage') }}</span>
+        </router-link>
+      </div>
       <!-- Admin View: Admin menu first, then personal menu -->
       <template v-if="isAdmin">
         <!-- Admin Section -->
@@ -63,41 +81,64 @@
               </button>
               <!-- Children -->
               <div v-if="!sidebarCollapsed && isGroupExpanded(item)" class="mb-1 ml-4 border-l border-gray-200 pl-2 dark:border-dark-600">
-                <router-link
-                  v-for="child in item.children"
-                  :key="child.path"
-                  :to="child.path"
-                  class="sidebar-link mb-0.5 py-1.5 text-sm"
-                  :class="{ 'sidebar-link-active': route.path === child.path }"
-                  @click="handleMenuItemClick(child.path)"
-                >
-                  <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
-                  <span>{{ child.label }}</span>
-                </router-link>
+                <div v-for="child in item.children" :key="child.path" class="relative">
+                  <router-link
+                    :to="child.path"
+                    class="sidebar-link mb-0.5 py-1.5 text-sm"
+                    :class="{ 'sidebar-link-active': route.path === child.path }"
+                    :style="child.noticeId ? { paddingRight: '3.5rem' } : undefined"
+                    @click="handleMenuItemClick(child.path)"
+                  >
+                    <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
+                    <span>{{ child.label }}</span>
+                  </router-link>
+                  <NewFeatureBadge
+                    v-if="child.noticeId"
+                    :notice-id="child.noticeId"
+                    :user-id="authStore.user?.id"
+                    class="absolute right-2 top-1/2 z-10 -translate-y-1/2"
+                  />
+                </div>
               </div>
             </template>
             <!-- Normal item (no children) -->
-            <router-link
-              v-else
-              :to="item.path"
-              class="sidebar-link mb-1"
-              :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
-              :title="sidebarCollapsed ? item.label : undefined"
-              :id="
-                item.path === '/admin/accounts'
-                  ? 'sidebar-channel-manage'
-                  : item.path === '/admin/groups'
-                    ? 'sidebar-group-manage'
-                    : item.path === '/admin/redeem'
-                      ? 'sidebar-wallet'
-                      : undefined
-              "
-              @click="handleMenuItemClick(item.path)"
-            >
-              <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
-              <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
-              <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
-            </router-link>
+            <div v-else class="relative">
+              <router-link
+                :to="item.path"
+                class="sidebar-link mb-1"
+                :class="{ 'sidebar-link-active': isActive(item.path), 'sidebar-link-collapsed': sidebarCollapsed }"
+                :title="sidebarCollapsed ? item.label : undefined"
+                :id="
+                  item.path === '/admin/accounts'
+                    ? 'sidebar-channel-manage'
+                    : item.path === '/admin/groups'
+                      ? 'sidebar-group-manage'
+                      : item.path === '/admin/redeem'
+                        ? 'sidebar-wallet'
+                        : undefined
+                "
+                :style="item.path === '/admin/settings' && !sidebarCollapsed ? { paddingRight: '6.5rem' } : undefined"
+                @click="handleMenuItemClick(item.path)"
+              >
+                <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
+                <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
+                <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+                <span v-if="navBadge(item)" class="sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ sidebarCollapsed ? '' : navBadgeText(item) }}</span>
+              </router-link>
+              <NewFeatureBadge
+                v-if="item.path === '/admin/settings' && !sidebarCollapsed"
+                :notice-id="NEW_FEATURE_NOTICES.protocolFeatureSwitches"
+                :user-id="authStore.user?.id"
+                class="absolute right-2 top-1/2 z-10 -translate-y-1/2"
+              />
+              <NewFeatureBadge
+                v-else-if="item.path === '/admin/settings'"
+                :notice-id="NEW_FEATURE_NOTICES.protocolFeatureSwitches"
+                :user-id="authStore.user?.id"
+                compact
+                class="absolute right-2 top-2 z-10"
+              />
+            </div>
           </template>
         </div>
 
@@ -122,6 +163,7 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span v-if="navBadge(item)" class="sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ sidebarCollapsed ? '' : navBadgeText(item) }}</span>
           </router-link>
         </div>
       </template>
@@ -142,6 +184,7 @@
             <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
             <component v-else :is="item.icon" class="h-5 w-5 flex-shrink-0" />
             <span class="sidebar-label" :class="{ 'sidebar-label-collapsed': sidebarCollapsed }" :aria-hidden="sidebarCollapsed ? 'true' : 'false'">{{ item.label }}</span>
+            <span v-if="navBadge(item)" class="sidebar-nav-badge" :class="{ 'sidebar-nav-badge-collapsed': sidebarCollapsed }" data-testid="sidebar-nav-badge">{{ sidebarCollapsed ? '' : navBadgeText(item) }}</span>
           </router-link>
         </div>
       </template>
@@ -191,14 +234,20 @@
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
-import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore } from '@/stores'
+import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
+import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useSupportTicketStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import FeatureSearch from './FeatureSearch.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
 import { FeatureFlags, makeSidebarFlag } from '@/utils/featureFlags'
 import { isNavigationItemVisible } from '@/utils/navigationVisibility'
 import { resolveSiteBillingMode } from '@/utils/siteBillingMode'
+import { getCustomMenuLabel } from '@/utils/customMenu'
+import { filterSmartOpsSidebar } from '@/utils/smartOpsSidebar'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 
 interface NavItem {
   path: string
@@ -207,6 +256,7 @@ interface NavItem {
   iconSvg?: string
   hideInSimpleMode?: boolean
   children?: NavItem[]
+  noticeId?: string
   /**
    * When true, the parent item only toggles the expand/collapse state and
    * does NOT navigate to its `path`. The `path` is purely a stable key.
@@ -219,6 +269,8 @@ interface NavItem {
    * 开关切换时菜单自动更新。
    */
   featureFlag?: () => boolean | undefined
+  /** Optional count shown as a red badge (a dot while the sidebar is collapsed). */
+  badge?: () => number
 }
 
 // Recursively combine runtime feature switches with operator-configured page
@@ -238,7 +290,7 @@ function applyFeatureFlags(items: NavItem[]): NavItem[] {
   return out
 }
 
-const { t } = useI18n()
+const { t, locale } = useI18n()
 
 const route = useRoute()
 const router = useRouter()
@@ -247,13 +299,17 @@ const authStore = useAuthStore()
 const onboardingStore = useOnboardingStore()
 const adminSettingsStore = useAdminSettingsStore()
 
+const { canUseBatchImage, refreshBatchImageAccess } = useBatchImageAccess()
+
 const sidebarCollapsed = computed(() => appStore.sidebarCollapsed)
 const mobileOpen = computed(() => appStore.mobileOpen)
 const isAdmin = computed(() => authStore.isAdmin)
 const sidebarNavRef = ref<HTMLElement | null>(null)
 const isDark = ref(document.documentElement.classList.contains('dark'))
 
-const homePath = computed(() => (isAdmin.value ? '/admin/dashboard' : '/dashboard'))
+const homePath = computed(() => (
+  isAdmin.value ? '/admin/dashboard' : authStore.isObserver ? '/admin/accounts' : '/dashboard'
+))
 
 // Per-group expand/collapse overrides. A group with no entry follows the
 // automatic behavior (expanded while the active route is one of its children);
@@ -268,6 +324,16 @@ const siteVersion = computed(() => appStore.siteVersion)
 const settingsLoaded = computed(() => appStore.publicSettingsLoaded)
 
 // SVG Icon Components
+const RequestCaptureIcon = { render: () => h(Icon, { name: 'requestCapture', size: 'sm' }) }
+const OpsMonitoringIcon = { render: () => h(Icon, { name: 'monitorPulse' }) }
+const SmartOpsIcon = { render: () => h(Icon, { name: 'cpu' }) }
+const QualityOpsIcon = { render: () => h(Icon, { name: 'badge', size: 'sm' }) }
+const AccountOpsIcon = { render: () => h(Icon, { name: 'userCog', size: 'sm' }) }
+const CredentialOpsIcon = { render: () => h(Icon, { name: 'credentialOps', size: 'sm' }) }
+const PelicanTestsIcon = { render: () => h(Icon, { name: 'beaker', size: 'sm' }) }
+const SupportTicketIcon = { render: () => h(Icon, { name: 'chat' }) }
+const SupportTicketInboxIcon = { render: () => h(Icon, { name: 'inbox' }) }
+
 const DashboardIcon = {
   render: () =>
     h(
@@ -298,6 +364,26 @@ const KeyIcon = {
     )
 }
 
+
+const BatchImageIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M6.827 6.175A2.31 2.31 0 015.186 7.23c-.38.054-.757.112-1.134.175C2.999 7.58 2.25 8.507 2.25 9.574V18a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9.574c0-1.067-.75-1.994-1.802-2.169a47.865 47.865 0 00-1.134-.175 2.31 2.31 0 01-1.64-1.055l-.822-1.316a2.25 2.25 0 00-1.906-1.059H9.554a2.25 2.25 0 00-1.906 1.059l-.821 1.316z'
+        }),
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'M16.5 12.75a4.5 4.5 0 11-9 0 4.5 4.5 0 019 0zM18.75 10.5h.008v.008h-.008V10.5z'
+        })
+      ]
+    )
+}
 
 const ChartIcon = {
   render: () =>
@@ -458,6 +544,7 @@ const GlobeIcon = {
       ]
     )
 }
+
 
 const ServerIcon = {
   render: () =>
@@ -637,6 +724,22 @@ const SignalIcon = {
     )
 }
 
+// 鹈鹕测智展示：画廊（heroicons photo）
+const GalleryIcon = {
+  render: () =>
+    h(
+      'svg',
+      { fill: 'none', viewBox: '0 0 24 24', stroke: 'currentColor', 'stroke-width': '1.5' },
+      [
+        h('path', {
+          'stroke-linecap': 'round',
+          'stroke-linejoin': 'round',
+          d: 'm2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z'
+        })
+      ]
+    )
+}
+
 const ShieldIcon = {
   render: () =>
     h(
@@ -693,6 +796,7 @@ const ChevronDownIcon = {
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
+const flagPelicanShowcase = makeSidebarFlag(FeatureFlags.pelicanShowcase)
 const flagSubscription = makeSidebarFlag(FeatureFlags.subscription)
 
 // 购买入口文案随站点计费模式切换：仅充值 → 「充值」，仅订阅 → 「订阅」，否则「充值/订阅」。
@@ -711,14 +815,19 @@ const flagRiskControl = makeSidebarFlag(FeatureFlags.riskControl)
 const flagPluginManagement = makeSidebarFlag(FeatureFlags.pluginManagement)
 const flagCodexTicket = makeSidebarFlag(FeatureFlags.codexTicket)
 const flagMCP = makeSidebarFlag(FeatureFlags.mcp)
+const flagSupportTickets = makeSidebarFlag(FeatureFlags.supportTickets)
+// Admins answer tickets from their own menu, so their "my account" list skips it.
+const flagUserSupportTickets = () => flagSupportTickets() && !authStore.isAdmin
+const supportTicketStore = useSupportTicketStore()
 const flagOpsMonitoring = () => adminSettingsStore.opsMonitoringEnabled
 const flagAdminPayment = () => adminSettingsStore.paymentEnabled
 
 // buildSelfNavItems 构造用户自己的导航项（用户端主菜单和管理员的"我的账户"子菜单共享这组声明）。
 // withDashboard=true 时包含仪表盘（用户端），false 时不含（管理员的个人区已经有独立仪表盘入口）。
 //
-// 条目顺序：密钥 → 用量 → 可用渠道 → 渠道状态 → 渠道质量检测 → 订阅/支付 → 兑换/资料。
-// 渠道质量检测紧跟渠道状态。
+// 渠道状态之后依次显示渠道质量检测和鹈鹕测智。
+const flagBatchImageAccess = () => canUseBatchImage.value
+
 function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   const items: NavItem[] = []
   if (withDashboard) {
@@ -726,11 +835,12 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
   }
   items.push(
     { path: '/keys', label: t('nav.apiKeys'), icon: KeyIcon },
-
-    { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: true },
+    { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
+    { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: !authStore.isObserver },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
     { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
     { path: '/test-results', label: t('nav.testResults'), icon: TestIcon, hideInSimpleMode: true },
+    { path: '/pelican-showcase', label: t('nav.pelicanShowcase'), icon: GalleryIcon, featureFlag: flagPelicanShowcase },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/purchase', label: purchaseNavLabel.value, icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
@@ -738,12 +848,15 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/invoices', label: t('invoice.title'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/gpt-direct', label: t('gptDirect.title'), icon: GiftIcon, featureFlag: makeSidebarFlag(FeatureFlags.gptDirect) },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
+    { path: '/lottery', label: t('lottery.title'), icon: GiftIcon, hideInSimpleMode: true, featureFlag: makeSidebarFlag(FeatureFlags.lottery) },
     { path: '/affiliate', label: t('nav.affiliate'), icon: UsersIcon, hideInSimpleMode: true, featureFlag: flagAffiliate },
+    { path: '/support-tickets', label: t('nav.supportTickets'), icon: SupportTicketIcon, featureFlag: flagUserSupportTickets, badge: () => supportTicketStore.userUnread },
+    { path: '/security-records', label: t('securityRecords.title'), icon: ShieldIcon },
     { path: '/profile', label: t('nav.profile'), icon: UserIcon },
     { path: '/settings/mcp', label: t('mcp.title'), icon: MCPIcon, featureFlag: flagMCP },
     ...customMenuItemsForUser.value.map((item): NavItem => ({
       path: `/custom/${item.id}`,
-      label: item.label,
+      label: getCustomMenuLabel(item, locale.value),
       icon: null,
       iconSvg: item.icon_svg,
     })),
@@ -783,7 +896,7 @@ const customMenuItemsForAdmin = computed(() => {
 const adminNavItems = computed((): NavItem[] => {
   const baseItems: NavItem[] = [
     { path: '/admin/dashboard', label: t('nav.dashboard'), icon: DashboardIcon },
-    { path: '/admin/ops', label: t('nav.ops'), icon: ChartIcon, featureFlag: flagOpsMonitoring },
+    { path: '/admin/ops', label: t('nav.ops'), icon: OpsMonitoringIcon, featureFlag: flagOpsMonitoring },
     { path: '/admin/users', label: t('nav.users'), icon: UsersIcon, hideInSimpleMode: true },
     { path: '/admin/groups', label: t('nav.groups'), icon: FolderIcon },
     {
@@ -802,6 +915,20 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/subscriptions', label: t('nav.subscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/admin/accounts', label: t('nav.accounts'), icon: GlobeIcon },
     { path: '/admin/harvest-flow', label: t('admin.harvestFlow.title'), icon: TicketIcon, featureFlag: flagCodexTicket },
+    { path: '/admin/smart-ops', label: t('accountOps.smartTitle'), icon: SmartOpsIcon, expandOnly: true, children: [
+      { path: '/admin/lottery', label: t('lottery.adminTitle'), icon: GiftIcon, hideInSimpleMode: true },
+      { path: '/admin/auto-config', label: t('autoConfig.title'), icon: AccountOpsIcon, noticeId: NEW_FEATURE_NOTICES.oauthInitialModelSelection },
+      { path: '/admin/priority-scheduling', label: t('priorityScheduling.title'), icon: AccountOpsIcon },
+      { path: '/admin/qqbot/overview', label: t('qqbot.title'), icon: AccountOpsIcon, noticeId: NEW_FEATURE_NOTICES.qqCommunity },
+      { path: '/admin/channel-config', label: t('channelConfig.title'), icon: PriceTagIcon, noticeId: NEW_FEATURE_NOTICES.channelConfig },
+      { path: '/admin/account-quality', label: t('qualityOps.title'), icon: QualityOpsIcon, noticeId: NEW_FEATURE_NOTICES.qualityRetestRest },
+      { path: '/admin/controlled-experiments', label: t('controlledExperiments.title'), icon: QualityOpsIcon },
+      { path: '/admin/token-guard-v2', label: t('tokenGuardV2.title'), icon: CredentialOpsIcon },
+      { path: '/admin/pelican-tests', label: t('pelicanTests.title'), icon: PelicanTestsIcon },
+      { path: '/admin/group-cache-tests', label: t('admin.groupCacheTest.title'), icon: QualityOpsIcon },
+      { path: '/admin/request-captures', label: t('admin.requestCapture.title'), icon: RequestCaptureIcon, featureFlag: () => adminSettingsStore.requestCaptureEnabled },
+      { path: '/admin/ai-ops', label: t('aiOps.title'), icon: SmartOpsIcon, noticeId: NEW_FEATURE_NOTICES.aiOpsCodex, featureFlag: () => authStore.isAdmin },
+    ] },
     { path: '/admin/plugins', label: t('nav.plugins'), icon: PluginIcon, featureFlag: flagPluginManagement },
     {
       path: '/admin/qqbot', label: t('qqbot.title'), icon: BellIcon, expandOnly: true,
@@ -816,16 +943,18 @@ const adminNavItems = computed((): NavItem[] => {
       ],
     },
     { path: '/admin/announcements', label: t('nav.announcements'), icon: BellIcon },
+    { path: '/admin/support-tickets', label: t('nav.supportTickets'), icon: SupportTicketInboxIcon, featureFlag: flagSupportTickets, badge: () => supportTicketStore.adminPending },
     { path: '/admin/proxies', label: t('nav.proxies'), icon: ServerIcon },
     {
       path: '/admin/security-audit',
       label: t('nav.securityAudit'),
       icon: ShieldIcon,
       expandOnly: true,
-      featureFlag: flagRiskControl,
       children: [
-        { path: '/admin/risk-control', label: t('nav.contentModeration'), icon: ShieldIcon },
-        { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: ShieldIcon },
+        { path: '/admin/risk-control', label: t('nav.contentModeration'), icon: ShieldIcon, featureFlag: flagRiskControl },
+        { path: '/admin/prompt-audit', label: t('nav.promptAudit'), icon: ShieldIcon, featureFlag: flagRiskControl },
+        { path: '/admin/safety-prompt-audit', label: t('admin.safetyPromptAudit.nav'), icon: ShieldIcon, featureFlag: flagRiskControl },
+        { path: '/admin/ip-audit', label: t('ipAudit.title'), icon: ShieldIcon },
       ],
     },
     { path: '/admin/redeem', label: t('nav.redeemCodes'), icon: TicketIcon, hideInSimpleMode: true },
@@ -863,7 +992,7 @@ const adminNavItems = computed((): NavItem[] => {
     { path: '/admin/audit-logs', label: t('nav.auditLogs'), icon: ShieldIcon, hideInSimpleMode: true }
   ]
 
-  const visible = applyFeatureFlags(baseItems)
+  const visible = filterSmartOpsSidebar(applyFeatureFlags(baseItems), adminSettingsStore.smartOpsHiddenMenuItems)
 
   // 简单模式下，在系统设置前插入 API密钥
   if (authStore.isSimpleMode) {
@@ -874,7 +1003,7 @@ const adminNavItems = computed((): NavItem[] => {
     for (const cm of customMenuItemsForAdmin.value) {
       const path = `/custom/${cm.id}`
       if (isNavigationItemVisible(appStore.cachedPublicSettings, path)) {
-        filtered.push({ path, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+        filtered.push({ path, label: getCustomMenuLabel(cm, locale.value), icon: null, iconSvg: cm.icon_svg })
       }
     }
     return filtered
@@ -884,11 +1013,17 @@ const adminNavItems = computed((): NavItem[] => {
   for (const cm of customMenuItemsForAdmin.value) {
     const path = `/custom/${cm.id}`
     if (isNavigationItemVisible(appStore.cachedPublicSettings, path)) {
-      visible.push({ path, label: cm.label, icon: null, iconSvg: cm.icon_svg })
+      visible.push({ path, label: getCustomMenuLabel(cm, locale.value), icon: null, iconSvg: cm.icon_svg })
     }
   }
   return visible
 })
+
+// Use exactly the visible navigation, including the personal section only when shown.
+const searchNavItems = computed(() => [
+  ...adminNavItems.value,
+  ...(authStore.isSimpleMode ? [] : personalNavItems.value)
+])
 
 function toggleSidebar() {
   appStore.toggleSidebar()
@@ -922,6 +1057,15 @@ function handleMenuItemClick(itemPath: string) {
   if (selector && onboardingStore.isCurrentStep(selector)) {
     onboardingStore.nextStep(500)
   }
+}
+
+function navBadge(item: NavItem): number {
+  return item.badge?.() ?? 0
+}
+
+function navBadgeText(item: NavItem): string {
+  const count = navBadge(item)
+  return count > 99 ? '99+' : String(count)
 }
 
 function isActive(path: string): boolean {
@@ -985,6 +1129,7 @@ watch(
 )
 
 onMounted(() => {
+  void refreshBatchImageAccess()
   if (isAdmin.value) {
     adminSettingsStore.fetch()
   }
@@ -1113,6 +1258,35 @@ onBeforeUnmount(() => {
   align-items: center;
   justify-content: space-between;
   gap: 0.5rem;
+}
+
+.sidebar-link {
+  position: relative;
+}
+
+.sidebar-nav-badge {
+  margin-left: auto;
+  flex-shrink: 0;
+  min-width: 1.25rem;
+  height: 1.25rem;
+  padding: 0 0.375rem;
+  border-radius: 9999px;
+  background: rgb(239 68 68);
+  color: white;
+  font-size: 0.6875rem;
+  font-weight: 600;
+  line-height: 1.25rem;
+  text-align: center;
+}
+
+.sidebar-nav-badge-collapsed {
+  position: absolute;
+  top: 0.4rem;
+  left: 1.85rem;
+  min-width: 0;
+  width: 0.5rem;
+  height: 0.5rem;
+  padding: 0;
 }
 
 .sidebar-label-collapsed {

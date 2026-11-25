@@ -9,12 +9,13 @@ import (
 // ReauthDiagnostic is derived from a bounded, validated worker error.
 // It contains no provider text and does not replace the task's ownership or state.
 type ReauthDiagnostic struct {
-	Engine     string `json:"engine,omitempty"`
-	Stage      string `json:"stage"`
-	Reason     string `json:"reason"`
-	ElapsedMS  int    `json:"elapsed_ms"`
-	ExitCode   *int   `json:"exit_code,omitempty"`
-	HTTPStatus int    `json:"http_status,omitempty"`
+	Identity   *ReauthIdentityChecks `json:"identity,omitempty"`
+	Engine     string                `json:"engine,omitempty"`
+	Stage      string                `json:"stage"`
+	Reason     string                `json:"reason"`
+	ElapsedMS  int                   `json:"elapsed_ms"`
+	ExitCode   *int                  `json:"exit_code,omitempty"`
+	HTTPStatus int                   `json:"http_status,omitempty"`
 }
 
 func localProtocolError(raw string) (string, *ReauthDiagnostic, bool) {
@@ -91,7 +92,7 @@ func sessionStudioError(raw string) (string, *ReauthDiagnostic, bool) {
 
 func validLocalProtocolStage(stage string) bool {
 	switch stage {
-	case "starting", "web_login", "password_accepted", "mfa_challenge", "mfa_accepted", "web_redirect",
+	case "starting", "web_login", "email_verification", "password_accepted", "mfa_challenge", "mfa_accepted", "web_redirect",
 		"oauth_authorize", "session_select", "workspace_select", "callback_validation", "token_exchange", "oauth_output", "completed":
 		return true
 	}

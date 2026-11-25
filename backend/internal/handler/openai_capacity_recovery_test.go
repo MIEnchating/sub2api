@@ -63,7 +63,8 @@ func newCapacityRecoveryHandler(t *testing.T, upstreamURL, mode string, passthro
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
 	gateway := service.NewOpenAIGatewayService(
-		accountRepo, usageRepo, nil, nil, nil, nil, testutil.NewRedisGatewayCache(t), cfg, nil, nil,
+		accountRepo,
+		nil, usageRepo, nil, nil, nil, nil, testutil.NewRedisGatewayCache(t), cfg, nil, nil,
 		service.NewBillingService(cfg, nil), nil, billing, &capacityRecoveryHTTPUpstream{}, &service.DeferredService{},
 		nil, nil, nil, nil, nil, nil, nil,
 	)
@@ -75,7 +76,12 @@ func newCapacityRecoveryHandler(t *testing.T, upstreamURL, mode string, passthro
 	h := NewOpenAIGatewayHandler(gateway, service.NewConcurrencyService(cache), billing, &service.APIKeyService{}, nil, nil, nil, nil, cfg)
 	h.maxAccountSwitches = 0
 	groupID := int64(9916)
-	apiKey := &service.APIKey{ID: 9917, GroupID: &groupID, User: &service.User{ID: 9918, Status: service.StatusActive}, Group: &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive}}
+	apiKey := &service.APIKey{
+		ID: 9917, GroupID: &groupID,
+		User:             &service.User{ID: 9918, Status: service.StatusActive},
+		Group:            &service.Group{ID: groupID, Platform: service.PlatformOpenAI, Status: service.StatusActive},
+		AllowLongContext: true,
+	}
 	apiKey = installWSFixtureKey(t, h, apiKey)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {

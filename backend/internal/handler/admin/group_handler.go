@@ -22,6 +22,7 @@ import (
 
 // GroupHandler handles admin group management
 type GroupHandler struct {
+	antiDistillation     *service.GroupAntiDistillationService
 	adminService         service.AdminService
 	dashboardService     *service.DashboardService
 	groupCapacityService *service.GroupCapacityService
@@ -200,6 +201,7 @@ type CreateGroupRequest struct {
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            bool                          `json:"allow_image_generation"`
 	ImageCountBilling               bool                          `json:"image_count_billing"`
+	AllowBatchImageGeneration       bool                          `json:"allow_batch_image_generation"`
 	ImageRateIndependent            bool                          `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                      `json:"image_rate_multiplier"`
 	VideoRateIndependent            bool                          `json:"video_rate_independent"`
@@ -214,6 +216,8 @@ type CreateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	BatchImageDiscountMultiplier    *float64                      `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        *float64                      `json:"batch_image_hold_multiplier"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p"`
 	VideoPrice720P                  *float64                      `json:"video_price_720p"`
 	VideoPrice1080P                 *float64                      `json:"video_price_1080p"`
@@ -224,6 +228,9 @@ type CreateGroupRequest struct {
 	AudioTtsPricePerMillionChars    *float64                      `json:"audio_tts_price_per_million_chars"`
 	AudioSttPricePerHour            *float64                      `json:"audio_stt_price_per_hour"`
 	ClaudeCodeOnly                  bool                          `json:"claude_code_only"`
+	StreamOnly                      bool                          `json:"stream_only"`
+	CodexCLIOnly                    bool                          `json:"codex_cli_only"`
+	BlockSubagents                  bool                          `json:"block_subagents"`
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
 	FallbackGroupIDOnUnavailable    *int64                        `json:"fallback_group_id_on_unavailable,omitempty"`
@@ -279,6 +286,7 @@ type UpdateGroupRequest struct {
 	ModelPricing              *[]service.ChannelModelPricing `json:"model_pricing"`
 	// 图片生成计费配置（antigravity 和 gemini 平台使用，负数表示清除配置）
 	AllowImageGeneration            *bool                         `json:"allow_image_generation"`
+	AllowBatchImageGeneration       *bool                         `json:"allow_batch_image_generation"`
 	ImageCountBilling               *bool                         `json:"image_count_billing"`
 	ImageRateIndependent            *bool                         `json:"image_rate_independent"`
 	ImageRateMultiplier             *float64                      `json:"image_rate_multiplier"`
@@ -294,6 +302,8 @@ type UpdateGroupRequest struct {
 	ImagePrice1K                    *float64                      `json:"image_price_1k"`
 	ImagePrice2K                    *float64                      `json:"image_price_2k"`
 	ImagePrice4K                    *float64                      `json:"image_price_4k"`
+	BatchImageDiscountMultiplier    *float64                      `json:"batch_image_discount_multiplier"`
+	BatchImageHoldMultiplier        *float64                      `json:"batch_image_hold_multiplier"`
 	VideoPrice480P                  *float64                      `json:"video_price_480p"`
 	VideoPrice720P                  *float64                      `json:"video_price_720p"`
 	VideoPrice1080P                 *float64                      `json:"video_price_1080p"`
@@ -304,6 +314,9 @@ type UpdateGroupRequest struct {
 	AudioTtsPricePerMillionChars    *float64                      `json:"audio_tts_price_per_million_chars"`
 	AudioSttPricePerHour            *float64                      `json:"audio_stt_price_per_hour"`
 	ClaudeCodeOnly                  *bool                         `json:"claude_code_only"`
+	StreamOnly                      *bool                         `json:"stream_only"`
+	CodexCLIOnly                    *bool                         `json:"codex_cli_only"`
+	BlockSubagents                  *bool                         `json:"block_subagents"`
 	FallbackGroupID                 *int64                        `json:"fallback_group_id"`
 	FallbackGroupIDOnInvalidRequest *int64                        `json:"fallback_group_id_on_invalid_request"`
 	FallbackGroupIDOnUnavailable    *int64                        `json:"fallback_group_id_on_unavailable,omitempty"`
@@ -576,6 +589,15 @@ func (h *GroupHandler) GetAll(c *gin.Context) {
 		return
 	}
 
+	if _, scoped := service.ObserverGroupIDs(c.Request.Context()); scoped {
+		visible := make([]service.Group, 0, len(groups))
+		for _, group := range groups {
+			if service.ObserverCanManageGroup(c.Request.Context(), group.ID) {
+				visible = append(visible, group)
+			}
+		}
+		groups = visible
+	}
 	if h.isSimpleMode() {
 		simpleGroups := make([]simpleModeGroupResponse, 0, len(groups))
 		for i := range groups {
@@ -689,6 +711,7 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ModelPricing:                    req.ModelPricing,
 		AllowImageGeneration:            req.AllowImageGeneration,
 		ImageCountBilling:               req.ImageCountBilling,
+		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
 		VideoRateIndependent:            req.VideoRateIndependent,
@@ -703,6 +726,8 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
 		VideoPrice480P:                  req.VideoPrice480P,
 		VideoPrice720P:                  req.VideoPrice720P,
 		VideoPrice1080P:                 req.VideoPrice1080P,
@@ -713,6 +738,9 @@ func (h *GroupHandler) Create(c *gin.Context) {
 		AudioTTSPricePerMillionChars:    req.AudioTtsPricePerMillionChars,
 		AudioSTTPricePerHour:            req.AudioSttPricePerHour,
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
+		StreamOnly:                      req.StreamOnly,
+		CodexCLIOnly:                    req.CodexCLIOnly,
+		BlockSubagents:                  req.BlockSubagents,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
 		FallbackGroupIDOnUnavailable:    req.FallbackGroupIDOnUnavailable,
@@ -839,6 +867,7 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		LongContextPricingEnabled:       req.LongContextPricingEnabled,
 		ModelPricing:                    req.ModelPricing,
 		AllowImageGeneration:            req.AllowImageGeneration,
+		AllowBatchImageGeneration:       req.AllowBatchImageGeneration,
 		ImageCountBilling:               req.ImageCountBilling,
 		ImageRateIndependent:            req.ImageRateIndependent,
 		ImageRateMultiplier:             req.ImageRateMultiplier,
@@ -854,6 +883,8 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		ImagePrice1K:                    req.ImagePrice1K,
 		ImagePrice2K:                    req.ImagePrice2K,
 		ImagePrice4K:                    req.ImagePrice4K,
+		BatchImageDiscountMultiplier:    req.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:        req.BatchImageHoldMultiplier,
 		VideoPrice480P:                  req.VideoPrice480P,
 		VideoPrice720P:                  req.VideoPrice720P,
 		VideoPrice1080P:                 req.VideoPrice1080P,
@@ -864,6 +895,9 @@ func (h *GroupHandler) Update(c *gin.Context) {
 		AudioTTSPricePerMillionChars:    req.AudioTtsPricePerMillionChars,
 		AudioSTTPricePerHour:            req.AudioSttPricePerHour,
 		ClaudeCodeOnly:                  req.ClaudeCodeOnly,
+		StreamOnly:                      req.StreamOnly,
+		CodexCLIOnly:                    req.CodexCLIOnly,
+		BlockSubagents:                  req.BlockSubagents,
 		FallbackGroupID:                 req.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: req.FallbackGroupIDOnInvalidRequest,
 		FallbackGroupIDOnUnavailable:    req.FallbackGroupIDOnUnavailable,
@@ -1133,6 +1167,57 @@ func (h *GroupHandler) ClearGroupRPMOverrides(c *gin.Context) {
 	}
 
 	response.Success(c, gin.H{"message": "RPM overrides cleared successfully"})
+}
+
+// BatchSetGroupUserDeniedModelsRequest represents batch set user denied models request
+type BatchSetGroupUserDeniedModelsRequest struct {
+	Entries []service.GroupUserDeniedModelsInput `json:"entries" binding:"required"`
+}
+
+// BatchSetGroupUserDeniedModels replaces the models each user may not use in a group
+// PUT /api/v1/admin/groups/:id/user-denied-models
+func (h *GroupHandler) BatchSetGroupUserDeniedModels(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+
+	var req BatchSetGroupUserDeniedModelsRequest
+	if err := c.ShouldBindJSON(&req); err != nil {
+		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	if err := h.adminService.BatchSetGroupUserDeniedModels(c.Request.Context(), groupID, req.Entries); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "User denied models updated successfully"})
+}
+
+// ClearGroupUserDeniedModels clears the denied models of every user in a group
+// DELETE /api/v1/admin/groups/:id/user-denied-models
+func (h *GroupHandler) ClearGroupUserDeniedModels(c *gin.Context) {
+	if h.rejectUnsupportedSimpleModeOperation(c, "advanced") {
+		return
+	}
+	groupID, err := strconv.ParseInt(c.Param("id"), 10, 64)
+	if err != nil {
+		response.BadRequest(c, "Invalid group ID")
+		return
+	}
+
+	if err := h.adminService.ClearGroupUserDeniedModels(c.Request.Context(), groupID); err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+
+	response.Success(c, gin.H{"message": "User denied models cleared successfully"})
 }
 
 // UpdateSortOrderRequest represents the request to update group sort orders

@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <QQCommunityNav />
     <div class="mx-auto max-w-5xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h1 class="text-2xl font-semibold">{{ t(groupMode ? 'qqbot.workspace.groups' : 'qqbot.basicConfig') }}</h1><p class="mt-1 text-sm text-gray-500">{{ t('qqbot.description') }}</p></div>
@@ -141,16 +142,9 @@
         <div v-show="activeTab === 'group-admins'" id="qqbot-settings-panel-group-admins" role="tabpanel" aria-labelledby="qqbot-settings-tab-group-admins">
           <QQBotGroupAdminSettings v-model="groupAdmins" :app-id="form.app_id" :group-labels="groupLabels" :groups="allowedGroups" :runtime="form.app_id === savedAppId ? runtime : null" :disabled="busy" />
         </div>
-        <section v-show="activeTab === 'images'" id="qqbot-settings-panel-images" role="tabpanel" aria-labelledby="qqbot-settings-tab-images" class="card space-y-4 p-6">
-          <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">{{ t('qqbot.images') }}</h2><label class="flex items-center gap-2"><input v-model="form.image_enabled" type="checkbox" />{{ t('common.enabled') }}</label></div>
-          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('qqbot.chatImageHelp') }}</p>
-          <QQBotImageAISettings v-if="activeTab === 'images'" ref="imageAISettings" v-model="form" v-model:quota="imageSiteQuota" v-model:regenerate="regenerateImageSiteKey" :saved-group-id="baseline?.image_site_group_id" />
-          <div class="grid gap-4 md:grid-cols-2">
-            <label class="space-y-1">{{ t('qqbot.imageSize') }}<select v-model="form.image_size" class="input"><option>1024x1024</option><option>1536x1024</option><option>1024x1536</option><option>auto</option></select></label>
-            <label class="space-y-1">{{ t('qqbot.imageOutputFormat') }}<select v-model="form.image_output_format" data-testid="image-output-format" class="input"><option value="">{{ t('qqbot.imageOutputDefault') }}</option><option value="png">PNG</option><option value="jpeg">JPEG</option><option value="webp">WebP</option><option value="gif">GIF</option></select></label>
-          </div>
-          <p class="text-sm text-gray-500">{{ t('qqbot.imageHelp') }}</p>
-          <p class="text-sm text-gray-500">{{ t('qqbot.imageGIFHelp') }}</p>
+        <section v-show="activeTab === 'vision'" id="qqbot-settings-panel-vision" role="tabpanel" aria-labelledby="qqbot-settings-tab-vision" class="card space-y-4 p-6">
+          <label class="flex items-center gap-2"><input v-model="form.remember_quoted_images" type="checkbox" />{{ t('qqbot.rememberQuotedImages') }}</label>
+          <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('qqbot.rememberQuotedImagesHelp') }}</p>
         </section>
         <section v-show="activeTab === 'limits'" id="qqbot-settings-panel-limits" role="tabpanel" aria-labelledby="qqbot-settings-tab-limits" class="card space-y-4 p-6">
           <label class="block space-y-1">{{ t('qqbot.workspace.rewardAlert') }}<input v-model.number="form.reward_alert_daily" class="input" type="number" min="0" max="1000000" step="0.01" /></label><p class="text-xs text-gray-500">{{ t('qqbot.workspace.rewardAlertHelp') }}</p>
@@ -178,11 +172,11 @@
 </template>
 
 <script setup lang="ts">
+import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useQQGroupNames } from '@/composables/useQQGroupNames'
 import { useRoute, useRouter, onBeforeRouteLeave, onBeforeRouteUpdate } from 'vue-router'
 import QQBotSiteAISettings from '@/components/admin/qqbot/QQBotSiteAISettings.vue'
-import QQBotImageAISettings from '@/components/admin/qqbot/QQBotImageAISettings.vue'
 import QQCommandInventory from '@/components/admin/qqbot/QQCommandInventory.vue'
 import QQGroupPicker from '@/components/admin/qqbot/QQGroupPicker.vue'
 import QQGroupPolicies from '@/components/admin/qqbot/QQGroupPolicies.vue'
@@ -207,7 +201,7 @@ const tabs = [
   { key: 'group-admins', label: 'qqbot.groupAdmins.title' },
   { key: 'moderation', label: 'qqbot.moderation.title' },
   { key: 'autonomous', label: 'qqbot.autonomous.workspaceTitle' },
-  { key: 'images', label: 'qqbot.images' },
+  { key: 'vision', label: 'qqbot.visionSettings' },
   { key: 'commands', label: 'qqbot.customCommands' },
   { key: 'notifications', label: 'qqbot.priceNotifications.title' },
   { key: 'limits', label: 'qqbot.limits' }
@@ -221,9 +215,9 @@ function resolveTab(value: unknown): SettingsTab {
 }
 const activeTab = ref<SettingsTab>(resolveTab(route?.query.tab))
 function tabSections(tab: SettingsTab): ConfigSection[] { return tab === 'autonomous' ? ['autonomous', 'knowledge'] : [tab] }
-function isTabDirty(tab: SettingsTab) { return (tab === 'chat' && regenerateSiteKey.value) || (tab === 'images' && regenerateImageSiteKey.value) || tabSections(tab).some(section => dirtySections.value.includes(section)) }
+function isTabDirty(tab: SettingsTab) { return (tab === 'chat' && regenerateSiteKey.value) || tabSections(tab).some(section => dirtySections.value.includes(section)) }
 const categories = computed(() => groupMode.value ? [{ key: 'groups', label: 'qqbot.workspace.groups', tabs: ['groups', 'group-admins', 'moderation'] }] : [
-  { key: 'connect', label: 'qqbot.workspace.connectCategory', tabs: ['connection', 'chat', 'images'] },
+  { key: 'connect', label: 'qqbot.workspace.connectCategory', tabs: ['connection', 'chat', 'vision'] },
   { key: 'behavior', label: 'qqbot.workspace.behaviorCategory', tabs: ['autonomous', 'commands'] },
   { key: 'operations', label: 'qqbot.workspace.operationsCategory', tabs: ['notifications', 'limits'] }
 ])
@@ -235,7 +229,6 @@ watch(() => route?.path, async () => { activeTab.value = resolveTab(route?.query
 watch(() => route?.query.tab, value => { if (value) activeTab.value = resolveTab(value) })
 const settingsForm = ref<HTMLFormElement | null>(null)
 const siteAISettings = ref<InstanceType<typeof QQBotSiteAISettings>>()
-const imageAISettings = ref<InstanceType<typeof QQBotImageAISettings>>()
 const form = ref<QQBotConfig | null>(null)
 const siteKnowledge = computed({
   get: () => form.value?.site_knowledge ?? defaultSiteKnowledgeConfig(),
@@ -283,26 +276,23 @@ const groupPolicies = computed({ get: () => form.value?.group_policies || [], se
 const notificationGroups = computed({ get: () => parseGroups(notificationGroupsText.value), set: value => { notificationGroupsText.value = value.join('\n') } })
 const healthGroups = computed({ get: () => parseGroups(healthGroupsText.value), set: value => { healthGroupsText.value = value.join('\n') } })
 const siteQuota = ref(0), regenerateSiteKey = ref(false)
-const imageSiteQuota = ref(0), regenerateImageSiteKey = ref(false)
 const busy = ref(false)
 const refreshingRuntime = ref(false)
 const error = ref('')
 const notice = ref('')
-type ProbeKind = 'qq' | 'chat' | 'vision' | 'tools' | 'image' | 'image_edit'
-const probeLabels: Record<ProbeKind, string> = { qq: 'qqbot.test_qq', chat: 'qqbot.test_chat', vision: 'qqbot.test_vision', tools: 'qqbot.test_tools', image: 'qqbot.test_image', image_edit: 'qqbot.test_image_edit' }
-const visibleProbeKinds = computed<ProbeKind[]>(() => activeTab.value === 'connection' ? ['qq'] : activeTab.value === 'chat' ? ['chat', 'vision', 'tools'] : activeTab.value === 'images' ? ['image', 'image_edit'] : [])
+type ProbeKind = 'qq' | 'chat' | 'vision' | 'tools'
+const probeLabels: Record<ProbeKind, string> = { qq: 'qqbot.test_qq', chat: 'qqbot.test_chat', vision: 'qqbot.test_vision', tools: 'qqbot.test_tools' }
+const visibleProbeKinds = computed<ProbeKind[]>(() => activeTab.value === 'connection' ? ['qq'] : activeTab.value === 'chat' ? ['chat', 'tools'] : activeTab.value === 'vision' ? ['vision'] : [])
 const limitFields = [
   { key: 'daily_chat_limit', label: 'dailyChat', max: 100000 },
-  { key: 'daily_image_limit', label: 'dailyImage', max: 100000 },
   { key: 'total_daily_chat_limit', label: 'totalChat', max: 100000 },
-  { key: 'total_daily_image_limit', label: 'totalImage', max: 100000 },
   { key: 'cooldown_seconds', label: 'cooldown', max: 3600 }
 ] as const
 function draft(): QQBotConfig {
  return { ...form.value!, custom_commands: form.value!.custom_commands.map(command => ({ ...command, command: command.command && !command.command.startsWith('/') ? `/${command.command}` : command.command })), allowed_groups: allowedGroups.value, group_policies: groupPolicies.value.filter(p => allowedGroups.value.includes(p.group_id)), autonomous: autonomous.value, moderation: moderation.value, price_notifications: { ...priceNotifications.value, groups: notificationGroups.value }, health_notifications: { ...healthNotifications.value, groups: healthGroups.value } }
 }
 const dirtySections = computed(() => !baseline.value || !form.value ? [] : (Object.keys(configSections) as ConfigSection[]).filter(section => JSON.stringify(pickSection(draft(), section)) !== JSON.stringify(pickSection(baseline.value!, section))))
-const dirty = computed(() => dirtySections.value.length > 0 || regenerateSiteKey.value || regenerateImageSiteKey.value)
+const dirty = computed(() => dirtySections.value.length > 0 || regenerateSiteKey.value)
 const changes = computed(() => {
  if (!baseline.value || !form.value) return []
  const current = draft()
@@ -332,7 +322,7 @@ function apply(c: QQBotConfig, updateBaseline = true) {
     savedAppId.value = c.app_id
     savedGroupNameSource.value = { appID: c.app_id, sandbox: c.sandbox, revision: c.section_versions?.connection || '', groups: [...c.allowed_groups] }
   }
-  form.value = cloneConfig({ ...c, image_output_format: c.image_output_format ?? '', notification_quiet_hours: c.notification_quiet_hours ?? { enabled: false, start_hour: 23, end_hour: 8 }, chat_disabled: c.chat_disabled ?? false, group_policies: c.group_policies ?? [], reward_alert_daily: c.reward_alert_daily ?? 0, custom_commands: (c.custom_commands ?? []).map(command => ({ ...command, command: command.command.replace(/^\//, '') })), site_knowledge: { ...defaultSiteKnowledgeConfig(), ...c.site_knowledge } })
+  form.value = cloneConfig({ ...c, notification_quiet_hours: c.notification_quiet_hours ?? { enabled: false, start_hour: 23, end_hour: 8 }, chat_disabled: c.chat_disabled ?? false, group_policies: c.group_policies ?? [], reward_alert_daily: c.reward_alert_daily ?? 0, custom_commands: (c.custom_commands ?? []).map(command => ({ ...command, command: command.command.replace(/^\//, '') })), site_knowledge: { ...defaultSiteKnowledgeConfig(), ...c.site_knowledge } })
   autonomous.value = { ...defaultAutonomousConfig(), ...c.autonomous }
   moderation.value = { ...defaultModerationConfig(), ...c.moderation }
   healthNotifications.value = { ...defaultHealthNotificationConfig(), ...c.health_notifications }
@@ -368,7 +358,6 @@ async function deleteDiscoveredGroup(id: string) {
 async function save() {
   if (!form.value || busy.value) return
   if (activeTab.value === 'chat' && siteAISettings.value && !siteAISettings.value.validate()) return
-  if (activeTab.value === 'images' && imageAISettings.value && !imageAISettings.value.validate()) return
   const invalidField = settingsForm.value?.querySelector<HTMLInputElement>(`#qqbot-settings-panel-${activeTab.value} input:invalid, #qqbot-settings-panel-${activeTab.value} textarea:invalid, #qqbot-settings-panel-${activeTab.value} select:invalid`)
   if (invalidField) { invalidField.closest('details')?.setAttribute('open', ''); invalidField.reportValidity(); return }
   const section = activeTab.value
@@ -383,11 +372,8 @@ async function save() {
       ? await qqbotAPI.saveSetup({ config: pending, sections, versions: baseline.value?.section_versions || {}, site_quota: 0 })
       : section === 'chat' && (pending.ai_connection === 'site' || baseline.value?.ai_connection === 'site' || pending.ai_connection !== baseline.value?.ai_connection)
       ? await qqbotAPI.saveSetup({ config: pending, sections: [section], versions: baseline.value?.section_versions || {}, site_quota: siteQuota.value, regenerate_site_key: regenerateSiteKey.value })
-      : section === 'images' && (pending.image_ai_connection === 'site' || baseline.value?.image_ai_connection === 'site' || pending.image_ai_connection !== baseline.value?.image_ai_connection)
-      ? await qqbotAPI.saveSetup({ config: pending, sections: [section], versions: baseline.value?.section_versions || {}, site_quota: 0, image_site_quota: imageSiteQuota.value, regenerate_image_site_key: regenerateImageSiteKey.value })
       : await qqbotAPI.saveSection(sections[0]!, baseline.value?.section_versions?.[sections[0]!] || '', pending)
     if (section === 'chat') regenerateSiteKey.value = false
-    if (section === 'images') regenerateImageSiteKey.value = false
     apply(saved)
     const merged = cloneConfig(draft())
     for (const key of otherDrafts) {
@@ -414,7 +400,6 @@ async function reloadModule() {
   baseline.value = oldBaseline
   apply(merged, false)
   if (activeTab.value === 'chat') regenerateSiteKey.value = false
-  if (activeTab.value === 'images') { regenerateImageSiteKey.value = false; await imageAISettings.value?.reload() }
   error.value = ''
  } catch (e) { error.value = message(e) } finally { busy.value = false }
 }

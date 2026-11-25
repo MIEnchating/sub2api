@@ -9,7 +9,6 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
-	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 // groupUsageRollupSnapshot 是一次汇总水位的快照。
@@ -62,7 +61,7 @@ func (r *usageLogRepository) readGroupUsageRollupSnapshot(ctx context.Context, t
 		return invalid, nil
 	}
 
-	tailStart, err := service.ParseGroupUsageDate(closedBefore.String)
+	tailStart, err := r.parseGroupUsageDate(closedBefore.String)
 	if err != nil {
 		// 水位值解析不出来，按无效处理：宁可多扫一次，也不要算错钱。
 		return invalid, nil //nolint:nilerr // 与上面的 valid 判定同语义，均降级为全量重算
@@ -71,8 +70,8 @@ func (r *usageLogRepository) readGroupUsageRollupSnapshot(ctx context.Context, t
 	if tailFloor.After(tailStart) {
 		tailStart = tailFloor
 	}
-	retainedDate := service.GroupUsageDate(retainedFrom.Time)
-	if expiredDate := service.GroupUsageDate(tailFloor); expiredDate > retainedDate {
+	retainedDate := r.groupUsageDate(retainedFrom.Time)
+	if expiredDate := r.groupUsageDate(tailFloor); expiredDate > retainedDate {
 		retainedDate = expiredDate
 	}
 	return groupUsageRollupSnapshot{
@@ -84,11 +83,11 @@ func (r *usageLogRepository) readGroupUsageRollupSnapshot(ctx context.Context, t
 }
 
 func (r *usageLogRepository) getAllGroupUsageSummaryFromRollups(ctx context.Context, todayStart time.Time) (results []usagestats.GroupUsageSummary, err error) {
-	todayStart = service.GroupUsageTodayStart(todayStart)
-	yesterdayStart := service.GroupUsageYesterdayStart(todayStart)
-	timezoneName := service.GroupUsageTimezoneName()
-	todayDate := service.GroupUsageDate(todayStart)
-	yesterdayDate := service.GroupUsageDate(yesterdayStart)
+	todayStart = r.groupUsageTodayStart(todayStart)
+	yesterdayStart := r.groupUsageYesterdayStart(todayStart)
+	timezoneName := r.timezoneLocation().String()
+	todayDate := r.groupUsageDate(todayStart)
+	yesterdayDate := r.groupUsageDate(yesterdayStart)
 
 	state, err := r.readGroupUsageRollupSnapshot(ctx, timezoneName, todayDate)
 	if err != nil {
@@ -214,15 +213,15 @@ func (r *dashboardAggregationRepository) SyncGroupUsageRollups(ctx context.Conte
 	if r == nil || r.sql == nil {
 		return nil
 	}
-	todayStart = service.GroupUsageTodayStart(todayStart)
+	todayStart = r.groupUsageTodayStart(todayStart)
 	db, ok := r.sql.(*sql.DB)
 	if !ok {
 		return syncGroupUsageRollupRounds(ctx, func(ctx context.Context, fn func(q sqlExecutor) error) error {
 			return fn(r.sql)
-		}, todayStart)
+		}, todayStart, r.configuredTimezone)
 	}
 
-	upToDate, err := groupUsageRollupsUpToDate(ctx, db, todayStart)
+	upToDate, err := groupUsageRollupsUpToDate(ctx, db, todayStart, r.configuredTimezone)
 	if err != nil {
 		return err
 	}
@@ -255,7 +254,7 @@ func (r *dashboardAggregationRepository) SyncGroupUsageRollups(ctx context.Conte
 			return err
 		}
 		return tx.Commit()
-	}, todayStart)
+	}, todayStart, r.configuredTimezone)
 }
 
 // releaseGroupUsageRollupBuildLock 释放重建锁；释放失败时丢弃该物理连接，由服务端随会话结束释放锁，
@@ -278,7 +277,11 @@ func discardGroupUsageRollupBuildConn(conn *sql.Conn) {
 }
 
 // groupUsageRollupsUpToDate 不加锁地判断今日以前的日桶是否已全部发布。
-func groupUsageRollupsUpToDate(ctx context.Context, q sqlQueryer, todayStart time.Time) (bool, error) {
+func groupUsageRollupsUpToDate(ctx context.Context, q sqlQueryer, todayStart time.Time, zones ...configuredTimezone) (bool, error) {
+	tz := configuredTimezone{}
+	if len(zones) > 0 {
+		tz = zones[0]
+	}
 	var closedBefore string
 	var stateTimezoneName string
 	var idle bool
@@ -294,16 +297,20 @@ func groupUsageRollupsUpToDate(ctx context.Context, q sqlQueryer, todayStart tim
 		return false, fmt.Errorf("读取分组用量汇总水位: %w", err)
 	}
 	return idle &&
-		closedBefore == service.GroupUsageDate(todayStart) &&
-		stateTimezoneName == service.GroupUsageTimezoneName(), nil
+		closedBefore == tz.groupUsageDate(todayStart) &&
+		stateTimezoneName == tz.timezoneLocation().String(), nil
 }
 
-func syncGroupUsageRollupRounds(ctx context.Context, run groupUsageRollupTxRunner, todayStart time.Time) error {
+func syncGroupUsageRollupRounds(ctx context.Context, run groupUsageRollupTxRunner, todayStart time.Time, zones ...configuredTimezone) error {
+	tz := configuredTimezone{}
+	if len(zones) > 0 {
+		tz = zones[0]
+	}
 	for range groupUsageRollupBuildMaxRounds {
 		var plan *groupUsageRollupBuildPlan
 		if err := run(ctx, func(q sqlExecutor) error {
 			var err error
-			plan, err = beginGroupUsageRollupBuild(ctx, q, todayStart)
+			plan, err = beginGroupUsageRollupBuild(ctx, q, todayStart, tz)
 			return err
 		}); err != nil {
 			return err
@@ -333,7 +340,11 @@ func syncGroupUsageRollupRounds(ctx context.Context, run groupUsageRollupTxRunne
 
 // beginGroupUsageRollupBuild 在 FOR UPDATE 下确定重建区间并登记 building_until。
 // 日桶已发布到今日时返回 nil。
-func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart time.Time) (*groupUsageRollupBuildPlan, error) {
+func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart time.Time, zones ...configuredTimezone) (*groupUsageRollupBuildPlan, error) {
+	tz := configuredTimezone{}
+	if len(zones) > 0 {
+		tz = zones[0]
+	}
 	var closedBefore string
 	var retainedFrom time.Time
 	var stateTimezoneName string
@@ -348,15 +359,15 @@ func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart t
 		return nil, fmt.Errorf("读取分组用量汇总水位: %w", err)
 	}
 
-	todayDate := service.GroupUsageDate(todayStart)
-	timezoneName := service.GroupUsageTimezoneName()
+	todayDate := tz.groupUsageDate(todayStart)
+	timezoneName := tz.timezoneLocation().String()
 	timezoneChanged := stateTimezoneName != timezoneName
 	if !timezoneChanged {
-		closedTime, err := service.ParseGroupUsageDate(closedBefore)
+		closedTime, err := tz.parseGroupUsageDate(closedBefore)
 		if err != nil {
 			return nil, fmt.Errorf("解析分组用量汇总水位 %q: %w", closedBefore, err)
 		}
-		todayDateTime, err := service.ParseGroupUsageDate(todayDate)
+		todayDateTime, err := tz.parseGroupUsageDate(todayDate)
 		if err != nil {
 			return nil, err
 		}
@@ -384,7 +395,7 @@ func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart t
 		retainedFrom = expiredBefore
 	}
 	// closed_before 不晚于保留起点时，可读日桶为空，按保留起点全量重建；否则从水位续建。
-	retainedDate := service.GroupUsageDate(retainedFrom)
+	retainedDate := tz.groupUsageDate(retainedFrom)
 	startDate := closedBefore
 	if timezoneChanged || closedBefore <= retainedDate {
 		var earliest sql.NullTime
@@ -399,7 +410,7 @@ func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart t
 		if earliest.Valid {
 			retainedFrom = earliest.Time.UTC()
 		}
-		retainedDate = service.GroupUsageDate(retainedFrom)
+		retainedDate = tz.groupUsageDate(retainedFrom)
 		startDate = retainedDate
 	}
 
@@ -416,7 +427,7 @@ func beginGroupUsageRollupBuild(ctx context.Context, q sqlExecutor, todayStart t
 		return nil, fmt.Errorf("登记分组用量汇总重建: %w", err)
 	}
 
-	startTime, err := service.ParseGroupUsageDate(startDate)
+	startTime, err := tz.parseGroupUsageDate(startDate)
 	if err != nil {
 		return nil, err
 	}
@@ -542,10 +553,14 @@ func expireGroupUsageRollupsBefore(ctx context.Context, q sqlExecutor, cutoff ti
 }
 
 // invalidateGroupUsageRollupsAt 使 affectedAt 所在自然日及之后的日桶失效；早于保留下界的时刻不生效。
-func invalidateGroupUsageRollupsAt(ctx context.Context, q sqlExecutor, affectedAt time.Time) error {
+func invalidateGroupUsageRollupsAt(ctx context.Context, q sqlExecutor, affectedAt time.Time, zones ...string) error {
+	name := configuredTimezone{}.timezoneLocation().String()
+	if len(zones) > 0 {
+		name = zones[0]
+	}
 	_, err := q.ExecContext(ctx,
 		"SELECT invalidate_group_usage_rollups_at($1, $2)",
-		affectedAt.UTC(), service.GroupUsageTimezoneName(),
+		affectedAt.UTC(), name,
 	)
 	return err
 }

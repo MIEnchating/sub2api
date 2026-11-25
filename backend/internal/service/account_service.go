@@ -2,7 +2,6 @@ package service
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"time"
 
@@ -11,9 +10,10 @@ import (
 )
 
 var (
-	ErrAccountNotFound      = infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found")
-	ErrAccountNilInput      = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
-	ErrAccountNotInFallback = infraerrors.BadRequest("ACCOUNT_NOT_IN_FALLBACK", "account is not in proxy fallback state")
+	ErrAccountUpdateConflict = infraerrors.Conflict("ACCOUNT_UPDATE_CONFLICT", "account changed during group sync; retry the sync")
+	ErrAccountNotFound       = infraerrors.NotFound("ACCOUNT_NOT_FOUND", "account not found")
+	ErrAccountNilInput       = infraerrors.BadRequest("ACCOUNT_NIL_INPUT", "account input cannot be nil")
+	ErrAccountNotInFallback  = infraerrors.BadRequest("ACCOUNT_NOT_IN_FALLBACK", "account is not in proxy fallback state")
 )
 
 const AccountListGroupUngrouped int64 = -1
@@ -86,6 +86,8 @@ type AccountRepository interface {
 	SetSchedulable(ctx context.Context, id int64, schedulable bool) error
 	AutoPauseExpiredAccounts(ctx context.Context, now time.Time) (int64, error)
 	BindGroups(ctx context.Context, accountID int64, groupIDs []int64) error
+	// SetGroupAllowedModels 覆盖账号在各已绑定分组内的模型限制，未列出的分组恢复为不限制。
+	SetGroupAllowedModels(ctx context.Context, accountID int64, allowed map[int64][]string) error
 
 	ListSchedulable(ctx context.Context) ([]Account, error)
 	ListSchedulableByGroupID(ctx context.Context, groupID int64) ([]Account, error)
@@ -150,15 +152,25 @@ type AccountPlatformCountRepository interface {
 	ListPlatformCounts(ctx context.Context) ([]AccountPlatformCount, error)
 }
 
+// GatewayAccountTransactionRepository keeps the new gateway's settings, exact
+// memberships and outbox writes in one transaction. Legacy accounts retain
+// their existing write paths. The callback receives the repository's tx context.
+type GatewayAccountTransactionRepository interface {
+	WithinGatewayAccountTransaction(ctx context.Context, accountID int64, groupIDs []int64, run func(context.Context) error) error
+}
+
 // AccountBillingSettingsUpdate carries explicit edits to fields shared with the billing probe.
 // Omitted fields retain the values in the locked row.
 type AccountBillingSettingsUpdate struct {
+	ExpectedUpdatedAt                               *time.Time
 	ProbeEnabled, RateSyncEnabled, GroupSyncEnabled *bool
 	RateMultiplier                                  *float64
 	SetName, SetNotes                               bool
 }
 
-// AccountBillingSettingsRepository applies explicit edits while preserving concurrent probe updates.
+// AccountBillingSettingsRepository applies an admin edit without overwriting a
+// rate_multiplier that a successful upstream probe synchronized after the edit
+// form was loaded. A nil rateMultiplier means the request did not edit it.
 type AccountBillingSettingsRepository interface {
 	UpdateWithAccountBillingSettings(context.Context, *Account, AccountBillingSettingsUpdate) error
 }
@@ -180,13 +192,16 @@ type AccountBulkUpdate struct {
 	Concurrency            *int
 	RateLimit429RetryCount *int
 	Priority               *int
+	GroupRateMultiplier    *float64
 	RateMultiplier         *float64
 	LoadFactor             *int
 	Status                 *string
 	Schedulable            *bool
 	Credentials            map[string]any
 	Extra                  map[string]any
-	ProbeEnabled           *bool
+	// Per-account preparation state is applied in the same bulk SQL update.
+	ExcelBPSAuthorizationPending map[int64]bool
+	ProbeEnabled                 *bool
 	// EnsureCodexFingerprintSeed asks the repository to atomically preserve an
 	// existing valid Codex fingerprint seed or create one for eligible rows.
 	EnsureCodexFingerprintSeed bool
@@ -252,8 +267,17 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 			return nil, err
 		}
 	}
-	if req.Platform == PlatformTypeSafe && req.Type != AccountTypeAPIKey {
-		return nil, errors.New("typesafe accounts only support apikey credentials")
+	if err := ValidateGatewayAccountIdentity(req.Platform, req.Type, req.Credentials); err != nil {
+		return nil, err
+	}
+	if err := validateGatewayAccountGroups(ctx, &Account{Platform: req.Platform, Type: req.Type}, s.groupRepo, req.GroupIDs); err != nil {
+		return nil, err
+	}
+	if err := ValidateModelMappingMode(req.Credentials); err != nil {
+		return nil, err
+	}
+	if (req.Platform == PlatformTypeSafe || req.Platform == PlatformMistral) && req.Type != AccountTypeAPIKey {
+		return nil, fmt.Errorf("%s accounts only support apikey credentials", req.Platform)
 	}
 	// 验证分组是否存在（如果指定了分组）
 	if len(req.GroupIDs) > 0 {
@@ -284,6 +308,18 @@ func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (
 		account.AutoPauseOnExpired = true
 	}
 
+	if account.IsGateway() {
+		if creator, ok := s.accountRepo.(AccountDuplicateRepository); ok {
+			groups := make([]AccountGroup, 0, len(req.GroupIDs))
+			for i, id := range req.GroupIDs {
+				groups = append(groups, AccountGroup{GroupID: id, Priority: i + 1})
+			}
+			if err := creator.CreateWithAccountGroups(ctx, account, groups); err != nil {
+				return nil, err
+			}
+			return account, nil
+		}
+	}
 	if err := s.accountRepo.Create(ctx, account); err != nil {
 		return nil, fmt.Errorf("create account: %w", err)
 	}
@@ -354,12 +390,47 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 			return nil, err
 		}
 	}
+	ctx = withAccountStatusPreservation(ctx, req.Status == nil)
+	var requestedExtra map[string]any
+	if req.Extra != nil {
+		requestedExtra = *req.Extra
+	}
+	ctx = withAccountExtraUpdateFields(ctx, requestedExtra)
 	account, err := s.accountRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, fmt.Errorf("get account: %w", err)
 	}
 
 	// 更新字段
+	if account.IsGateway() || account.Platform == PlatformGateway {
+		credentials := account.Credentials
+		if req.Credentials != nil {
+			credentials = mergeGatewayCredentials(account.Credentials, *req.Credentials)
+			req.Credentials = &credentials
+		}
+		if err := ValidateGatewayAccountIdentity(account.Platform, account.Type, credentials); err != nil {
+			return nil, err
+		}
+		ids := account.GroupIDs
+		if req.GroupIDs != nil {
+			ids = *req.GroupIDs
+		}
+		if err := validateGatewayAccountGroups(ctx, account, s.groupRepo, ids); err != nil {
+			return nil, err
+		}
+		if !gatewayAccountTransactionActive(ctx) {
+			var updated *Account
+			err := withinGatewayAccountTransaction(ctx, s.accountRepo, id, ids, func(txctx context.Context) error {
+				var err error
+				updated, err = s.Update(txctx, id, req)
+				return err
+			})
+			if err != nil {
+				return nil, err
+			}
+			return updated, err
+		}
+	}
 	if req.Name != nil {
 		account.Name = *req.Name
 	}
@@ -368,6 +439,9 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	}
 
 	if req.Credentials != nil {
+		if err := ValidateModelMappingMode(*req.Credentials); err != nil {
+			return nil, err
+		}
 		account.Credentials = SanitizeStoredCredentials(account.Platform, MergePreservingSensitiveCreds(account.Credentials, *req.Credentials))
 	}
 

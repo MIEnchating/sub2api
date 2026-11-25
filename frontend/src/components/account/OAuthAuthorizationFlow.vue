@@ -657,6 +657,7 @@
 
         <!-- Manual Authorization Flow -->
         <div v-if="inputMethod === 'manual'" class="space-y-4">
+          <p v-if="isExcelOAuth" class="text-sm text-blue-700 dark:text-blue-300">{{ t('admin.accounts.oauth.openai.excelLoginHint') }}</p>
           <p class="mb-4 text-sm text-blue-800 dark:text-blue-300">
             {{ oauthFollowSteps }}
           </p>
@@ -924,13 +925,13 @@ interface Props {
   /** Grok email----password login (admin; password never persisted). */
   showEmailPasswordOption?: boolean
   showManualOption?: boolean
+  excelOauth?: boolean
   initialInputMethod?: AuthInputMethod
   /**
    * Prefill for Grok email----password reauth. Password is never stored;
    * pass only the email (or "email----") so the operator types the password.
    */
   initialEmailPassword?: string
-  excelOauth?: boolean
   platform?: AccountPlatform // Platform type for different UI/text
   showProjectId?: boolean // New prop to control project ID visibility
 }
@@ -955,9 +956,9 @@ const props = withDefaults(defineProps<Props>(), {
   showSsoOption: false,
   showEmailPasswordOption: false,
   showManualOption: true,
+  excelOauth: false,
   initialInputMethod: 'manual',
   initialEmailPassword: '',
-  excelOauth: false,
   platform: 'anthropic',
   showProjectId: true
 })
@@ -978,6 +979,7 @@ const emit = defineEmits<{
 }>()
 
 const { t } = useI18n()
+const isExcelOAuth = computed(() => props.platform === 'openai' && props.excelOauth)
 const passwordAuthEnabled = ref(false)
 const emailPasswordOptionEnabled = computed(
   () => props.showEmailPasswordOption && props.platform === 'grok' && passwordAuthEnabled.value
@@ -994,7 +996,6 @@ const getOAuthKey = (key: string) => {
   return `admin.accounts.oauth.${key}`
 }
 
-const isExcelOAuth = computed(() => props.platform === 'openai' && props.excelOauth)
 
 // Computed translations for current platform
 const oauthTitle = computed(() => t(getOAuthKey(isExcelOAuth.value ? 'excelTitle' : 'title')))
@@ -1030,6 +1031,7 @@ const emailPasswordInput = ref(props.initialEmailPassword || '')
 const showHelpDialog = ref(false)
 const oauthState = ref('')
 const projectId = ref('')
+
 
 watch(
   () => [props.platform, props.showEmailPasswordOption] as const,
@@ -1181,7 +1183,8 @@ const handleCopyUrl = () => {
 
 const handleRegenerate = () => {
   authCodeInput.value = ''
-  emit('generate-url')
+  oauthState.value = ''
+  handleGenerateUrl()
 }
 
 const handleCookieAuth = () => {

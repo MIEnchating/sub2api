@@ -5,15 +5,14 @@ package admin
 import (
 	"context"
 	"encoding/json"
-	"net/http/httptest"
-	"testing"
-
 	"github.com/Wei-Shaw/sub2api/internal/pkg/adminaccess"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/usagestats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
+	"net/http/httptest"
+	"testing"
 )
 
 type scopedUsageResponseRepo struct {
@@ -24,6 +23,7 @@ type scopedUsageResponseRepo struct {
 func (r *scopedUsageResponseRepo) ListWithFilters(context.Context, pagination.PaginationParams, usagestats.UsageLogFilters) ([]service.UsageLog, *pagination.PaginationResult, error) {
 	return r.records, &pagination.PaginationResult{Total: int64(len(r.records))}, nil
 }
+
 func TestScopedAdminUsageListDoesNotGrantNestedResourceRead(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	privateUser := &service.User{ID: 7, Email: "private-email@example.invalid", Balance: 97531, Notes: "private-user-notes"}
@@ -83,6 +83,7 @@ func TestScopedAdminUsageListDoesNotGrantNestedResourceRead(t *testing.T) {
 		})
 	}
 }
+
 func TestScopedAdminUsageListEmptyRemainsArray(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	h := NewUsageHandler(service.NewUsageService(&scopedUsageResponseRepo{}, nil, nil, nil), nil, nil, nil)

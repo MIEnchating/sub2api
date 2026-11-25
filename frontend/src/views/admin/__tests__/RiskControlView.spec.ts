@@ -1,6 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, h } from 'vue'
-import { flushPromises, mount } from '@vue/test-utils'
+import { createPinia } from 'pinia'
+import { config, flushPromises, mount, RouterLinkStub } from '@vue/test-utils'
+import SecurityAuditNav from '@/components/admin/security/SecurityAuditNav.vue'
 import type { DOMWrapper, VueWrapper } from '@vue/test-utils'
 
 import RiskControlView from '../RiskControlView.vue'
@@ -21,6 +23,7 @@ const {
   allocateAPIKeyIPv6,
   showError,
   showSuccess,
+  listModerationUsers,
 } = vi.hoisted(() => ({
   getConfig: vi.fn(),
   updateConfig: vi.fn(),
@@ -36,6 +39,7 @@ const {
   allocateAPIKeyIPv6: vi.fn(),
   showError: vi.fn(),
   showSuccess: vi.fn(),
+  listModerationUsers: vi.fn(),
 }))
 
 vi.mock('@/api/admin', () => ({
@@ -65,6 +69,15 @@ vi.mock('@/api/admin', () => ({
     users: { getById: getUser },
   },
 }))
+
+// Exercise the real summary while keeping its API calls offline.
+vi.mock('@/api/admin/riskControl', () => ({
+  listModerationUsers,
+  getModerationUser: vi.fn(),
+  manageModerationUser: vi.fn(),
+}))
+config.global.stubs.RouterLink = RouterLinkStub
+config.global.plugins = [...(config.global.plugins ?? []), createPinia()]
 
 vi.mock('@/stores/app', () => ({
   useAppStore: () => ({
@@ -216,6 +229,8 @@ function findButtonByText(wrapper: VueWrapper, text: string): DOMWrapper<HTMLBut
 
 describe('admin RiskControlView', () => {
   beforeEach(() => {
+    listModerationUsers.mockReset()
+    listModerationUsers.mockResolvedValue({ items: [], total: 0 })
     getConfig.mockReset()
     updateConfig.mockReset()
     getStatus.mockReset()
@@ -249,6 +264,106 @@ describe('admin RiskControlView', () => {
       api_key_masks: [],
       api_key_statuses: [],
     }))
+  })
+
+  it('delegates content moderation navigation with the current route highlighted', async () => {
+    const wrapper = mount(RiskControlView, { attachTo: document.body, global: { stubs: { AppLayout: AppLayoutStub, Icon: true } } })
+    await flushPromises()
+    expect(wrapper.getComponent(SecurityAuditNav).props('active')).toBe('/admin/risk-control')
+    wrapper.unmount()
+  })
+
+  it('mounts and queries the user list only on first expansion and retains drafts across repeated collapse', async () => {
+    const wrapper = mount(RiskControlView, { attachTo: document.body, global: { stubs: { AppLayout: AppLayoutStub, Icon: true } } })
+    await flushPromises()
+    const toggle = wrapper.get<HTMLButtonElement>('[data-test="moderation-users-toggle"]')
+    expect(toggle.element.tagName).toBe('BUTTON') // Native Enter/Space activation.
+    expect(toggle.attributes('type')).toBe('button')
+    expect(toggle.attributes('aria-expanded')).toBe('false')
+    expect(wrapper.find('[data-test="moderation-user-summary"]').exists()).toBe(false)
+    expect(listModerationUsers).not.toHaveBeenCalled()
+    await toggle.trigger('click'); await flushPromises()
+    expect(toggle.attributes('aria-expanded')).toBe('true')
+    const region = wrapper.get(`#${toggle.attributes('aria-controls')}`)
+    expect(region.attributes('aria-labelledby')).toBe(toggle.attributes('id'))
+    const summary = wrapper.get('[data-test="moderation-user-summary"]')
+    const originalNode = summary.element
+    await summary.get('input').setValue('306') // Unsubmitted search draft.
+    for (let i = 0; i < 3; i++) {
+      await toggle.trigger('click')
+      expect(toggle.attributes('aria-expanded')).toBe('false')
+      expect(summary.isVisible()).toBe(false)
+      await toggle.trigger('click'); await flushPromises()
+      expect(summary.isVisible()).toBe(true)
+      expect(summary.element).toBe(originalNode)
+      expect(summary.get('input').element).toHaveProperty('value', '306')
+    }
+    expect(listModerationUsers).toHaveBeenCalledTimes(1)
+    expect(updateConfig).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('saves each key URL inline with readback, cancellation, validation and errors', async () => {
+    const rows = ['row-a', 'row-b'].map((key_hash, i) => ({
+      index: i + 1, key_hash, masked: '********fixture', status: 'frozen' as const,
+      failure_count: 1, success_count: 0, last_error: 'typesafe API status 401',
+      last_latency_ms: 10, last_http_status: 401, last_tested: false, configured: true,
+      base_url: `https://relay-${i}.example/v1`,
+    }))
+    let persisted = { ...baseConfig(), engine: 'typesafe' as const, api_key_statuses: rows }
+    getConfig.mockImplementation(async () => structuredClone(persisted))
+    getStatus.mockResolvedValue({ ...runtimeStatus(), engine: 'typesafe', api_key_statuses: rows })
+    updateConfig.mockImplementation(async (payload) => {
+      const change = payload.engine_configs.typesafe.key_url_updates[0]
+      persisted = { ...persisted, api_key_statuses: persisted.api_key_statuses.map(row => row.key_hash === change.key_hash ? { ...row, base_url: change.base_url.replace(/\/$/, '') } : row) }
+      return structuredClone(persisted)
+    })
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    const row = (id: string) => wrapper.get(`[data-key-url="${id}"]`)
+    expect(row('row-a').text()).toContain(rows[0].base_url)
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('https://cancelled.example')
+    await row('row-a').get('[data-test="key-url-cancel"]').trigger('click')
+    expect(updateConfig).not.toHaveBeenCalled()
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('')
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(updateConfig).not.toHaveBeenCalled()
+    for (const id of ['row-a', 'row-b']) {
+      if (id === 'row-b') await row(id).get('[data-test="key-url-edit"]').trigger('click')
+      await row(id).get('input').setValue(`https://${id}.example/v1/`)
+      await row(id).get('[data-test="key-url-save"]').trigger('click')
+      expect(row(id).get('[data-test="key-url-save"]').attributes('disabled')).toBeDefined()
+      await flushPromises()
+      expect(row(id).text()).toContain(`https://${id}.example/v1`)
+    }
+    expect(updateConfig).toHaveBeenNthCalledWith(1, { engine_configs: { typesafe: { key_url_updates: [{ key_hash: 'row-a', base_url: 'https://row-a.example/v1/', expected_base_url: rows[0].base_url }] } } })
+    expect(row('row-a').text()).toContain('https://row-a.example/v1')
+    expect(getConfig.mock.calls.length).toBeGreaterThanOrEqual(3)
+    updateConfig.mockRejectedValueOnce({ response: { data: { message: 'fixture save failure' } } })
+    await row('row-a').get('[data-test="key-url-edit"]').trigger('click')
+    await row('row-a').get('input').setValue('https://failed.example')
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').text()).toContain('admin.riskControl.keyUrlSaveFailed')
+    expect(row('row-b').text()).toContain('https://row-b.example/v1')
+    // A write without successful readback must not show a success confirmation.
+    getConfig.mockRejectedValueOnce(new Error('fixture readback failure'))
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(row('row-a').find('[role="status"]').exists()).toBe(false)
+    expect(row('row-a').find('input').exists()).toBe(true)
+    getConfig.mockResolvedValueOnce({ ...persisted, api_key_statuses: rows })
+    await row('row-a').get('[data-test="key-url-save"]').trigger('click')
+    await flushPromises()
+    expect(row('row-a').get('[role="alert"]').exists()).toBe(true)
+    expect(row('row-a').find('[role="status"]').exists()).toBe(false)
+    await row('row-a').get('[data-test="key-url-cancel"]').trigger('click')
+    wrapper.unmount()
   })
 
 
@@ -331,6 +446,53 @@ describe('admin RiskControlView', () => {
     expect(wrapper.get('[data-test="audit-key-statuses"]').text()).toContain('admin.riskControl.apiKeyHealthEmpty')
     expect(wrapper.get('[data-test="audit-key-statuses"]').text()).not.toContain('********oa01')
     expect(updateConfig).not.toHaveBeenCalled()
+    wrapper.unmount()
+  })
+
+  it('edits the TypeSafe URL from key availability and retains it after save and reload', async () => {
+    const frozenKey: ContentModerationAPIKeyStatus = {
+      index: 1, key_hash: 'fixture-hash', masked: '********ts01', status: 'frozen',
+      failure_count: 1, success_count: 0, last_error: 'typesafe API status 401',
+      last_latency_ms: 10, last_http_status: 401, last_tested: true, configured: true,
+      frozen_until: '2099-01-01T00:00:00Z',
+    }
+    let saved: ContentModerationConfig = {
+      ...baseConfig(), engine: 'typesafe', base_url: 'https://old.example/v1', model: 'jev-latest',
+      api_key_configured: true, api_key_count: 1, api_key_statuses: [frozenKey],
+    }
+    getConfig.mockImplementation(async () => saved)
+    getStatus.mockResolvedValue({ ...runtimeStatus(), engine: 'typesafe', api_key_statuses: [frozenKey] })
+    updateConfig.mockImplementation(async (payload: UpdateContentModerationConfig) => {
+      saved = { ...saved, base_url: payload.engine_configs!.typesafe!.base_url! }
+      return saved
+    })
+    const createWrapper = () => mount(RiskControlView, { attachTo: document.body, global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    let wrapper = createWrapper()
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    expect(wrapper.get('[data-test="audit-key-statuses"]').text()).toContain('401')
+    await wrapper.get('[data-test="audit-edit-base-url"]').trigger('click')
+    expect(document.activeElement).toBe(wrapper.get('[data-test="audit-base-url"]').element)
+    expect(wrapper.get('[data-test="audit-base-url-hint"]').text()).toContain('admin.riskControl.typeSafeBaseUrlHint')
+    await wrapper.get('[data-test="audit-base-url"]').setValue('https://new.example/relay/v1/')
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'openai')
+    await flushPromises()
+    wrapper.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    expect((wrapper.get('[data-test="audit-base-url"]').element as HTMLInputElement).value).toBe('https://new.example/relay/v1/')
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+    expect(updateConfig).toHaveBeenCalledWith(expect.objectContaining({ engine_configs: expect.objectContaining({
+      typesafe: expect.objectContaining({ base_url: 'https://new.example/relay/v1/', clear_api_key: false, delete_api_key_hashes: [] }),
+    }) }))
+    wrapper.unmount()
+    wrapper = createWrapper()
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    expect((wrapper.get('[data-test="audit-base-url"]').element as HTMLInputElement).value).toBe('https://new.example/relay/v1/')
+    expect(wrapper.get('[data-test="audit-key-statuses"]').text()).toContain('admin.riskControl.apiKeyStatusFrozen')
+    expect(testAPIKeys).not.toHaveBeenCalled()
+    expect(showError).not.toHaveBeenCalled()
     wrapper.unmount()
   })
 
@@ -689,4 +851,183 @@ describe('admin RiskControlView', () => {
       'overflow-y-auto',
     ]))
   })
+})
+
+describe('TypeSafe optional category contract', () => {
+  const mountView = () => mount(RiskControlView, { global: { stubs: {
+    AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true,
+    Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true,
+  } } })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    listModerationUsers.mockResolvedValue({ items: [], total: 0 })
+    getConfig.mockResolvedValue(baseConfig())
+    getStatus.mockResolvedValue(runtimeStatus())
+    listLogs.mockResolvedValue({ items: [], total: 0, page: 1, page_size: 20, pages: 1 })
+    getGroups.mockResolvedValue([])
+    getProxies.mockResolvedValue([])
+  })
+
+  it('defaults off, preserves both drafts and reloads saved category switches and thresholds', async () => {
+    let stored = { ...baseConfig(), engine: 'openai' as const } as ContentModerationConfig
+    updateConfig.mockImplementation(async (payload: UpdateContentModerationConfig) => {
+      const profiles = Object.fromEntries(Object.entries(payload.engine_configs!).map(([engine, profile]) => [engine, { ...baseConfig(), ...profile, engine }]))
+      stored = { ...baseConfig(), ...profiles[payload.engine!], engine: payload.engine!, engine_configs: profiles } as ContentModerationConfig
+      return stored
+    })
+    const wrapper = mountView()
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect(wrapper.find('[data-test="risk-enabled-jailbreak"]').exists()).toBe(false)
+    expect(wrapper.findAll('[data-test^="risk-threshold-"]')).toHaveLength(13)
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.basic').trigger('click')
+    const engine = () => wrapper.findComponent('[data-test="audit-engine-select"]')
+    engine().vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect(wrapper.findAll('[data-test^="risk-threshold-"]')).toHaveLength(15)
+    expect(wrapper.get<HTMLInputElement>('[data-test="risk-enabled-jailbreak"]').element.checked).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('[data-test="risk-enabled-control_bypass"]').element.checked).toBe(false)
+    expect(wrapper.get<HTMLInputElement>('[data-test="risk-threshold-jailbreak"]').element.disabled).toBe(true)
+    expect(wrapper.get<HTMLInputElement>('[data-test="risk-threshold-jailbreak"]').element.value).toBe('95')
+    await wrapper.get('[data-test="risk-enabled-jailbreak"]').setValue(true)
+    await wrapper.get('[data-test="risk-threshold-jailbreak"]').setValue('80')
+    await wrapper.get('[data-test="risk-enabled-control_bypass"]').setValue(true)
+    await wrapper.get('[data-test="risk-threshold-control_bypass"]').setValue('91')
+    await wrapper.get('[data-test="risk-enabled-control_bypass"]').setValue(false)
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.basic').trigger('click')
+    engine().vm.$emit('update:modelValue', 'openai')
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click')
+    await flushPromises()
+    const payload = updateConfig.mock.calls[0]![0] as UpdateContentModerationConfig
+    expect(Object.keys(payload.engine_configs!.openai!.thresholds!)).toHaveLength(13)
+    expect(payload.engine_configs!.openai!.category_settings).toEqual({})
+    expect(payload.engine_configs!.openai!.thresholds).not.toHaveProperty('jailbreak')
+    expect(payload.engine_configs!.typesafe!.category_settings).toEqual({ jailbreak: { enabled: true }, control_bypass: { enabled: false } })
+    expect(payload.engine_configs!.typesafe!.thresholds).toMatchObject({ jailbreak: 0.80, control_bypass: 0.91 })
+    wrapper.unmount()
+    getConfig.mockResolvedValue(stored)
+    const reloaded = mountView()
+    await flushPromises()
+    await findButtonByText(reloaded, 'admin.riskControl.openSettings').trigger('click')
+    reloaded.findComponent('[data-test="audit-engine-select"]').vm.$emit('update:modelValue', 'typesafe')
+    await flushPromises()
+    await findButtonByText(reloaded, 'admin.riskControl.tabs.riskThresholds').trigger('click')
+    expect(reloaded.get<HTMLInputElement>('[data-test="risk-enabled-jailbreak"]').element.checked).toBe(true)
+    expect(reloaded.get<HTMLInputElement>('[data-test="risk-enabled-control_bypass"]').element.checked).toBe(false)
+    expect(reloaded.get<HTMLInputElement>('[data-test="risk-threshold-jailbreak"]').element.value).toBe('80')
+    expect(reloaded.get<HTMLInputElement>('[data-test="risk-threshold-control_bypass"]').element.value).toBe('91')
+    reloaded.unmount()
+  })
+
+  it('sends draft enablement to the test API and distinguishes disabled scores of one', async () => {
+    getConfig.mockResolvedValue({ ...baseConfig(), engine: 'typesafe', category_settings: { jailbreak: { enabled: true }, control_bypass: { enabled: false } }, thresholds: { jailbreak: 0.80, control_bypass: 0.80 } })
+    testAPIKeys.mockResolvedValue({ items: [], image_count: 0, audit_result: {
+      engine_meta: { engine: 'typesafe', model: 'jev-fixture', rules_version: 'content-audit-15-zh-v2', skipped_images: 0 },
+      flagged: true, highest_category: 'control_bypass', highest_score: 1, composite_score: 1,
+      category_scores: { jailbreak: 0.80, control_bypass: 1 }, thresholds: { jailbreak: 0.80, control_bypass: 0.80 },
+      category_settings: { jailbreak: { enabled: true }, control_bypass: { enabled: false } }, matched_categories: ['jailbreak'],
+    } })
+    const wrapper = mountView()
+    await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await wrapper.get('textarea[autocomplete="new-password"]').setValue('offline-fixture')
+    await findButtonByText(wrapper, 'admin.riskControl.testInputApiKeys').trigger('click')
+    await flushPromises()
+    expect(testAPIKeys).toHaveBeenCalledWith(expect.objectContaining({ category_settings: { jailbreak: { enabled: true }, control_bypass: { enabled: false } }, thresholds: expect.objectContaining({ jailbreak: 0.80 }) }))
+    expect(wrapper.text()).toContain('content-audit-15-zh-v2')
+    expect(wrapper.text()).toContain('jailbreak · admin.riskControl.categoryHit')
+    expect(wrapper.text()).toContain('control_bypass · admin.riskControl.categoryDisabled')
+    wrapper.unmount()
+  })
+
+  it('renders log scores using the saved enablement and thresholds', async () => {
+    listLogs.mockResolvedValue({ total: 1, page: 1, page_size: 20, pages: 1, items: [{
+      id: 554, created_at: '2026-10-24T00:00:00Z', action: 'block', mode: 'pre_block', flagged: true,
+      highest_category: 'control_bypass', highest_score: 1, input_excerpt: 'synthetic fixture',
+      category_scores: { jailbreak: 0.80, control_bypass: 1 }, threshold_snapshot: { jailbreak: 0.80, control_bypass: 0.80 },
+      engine_meta: { engine: 'typesafe', model: 'jev-fixture', rules_version: 'content-audit-15-zh-v2', skipped_images: 0,
+        category_settings: { jailbreak: { enabled: true }, control_bypass: { enabled: false } }, matched_categories: ['jailbreak'] },
+    }] })
+    const wrapper = mountView()
+    await flushPromises()
+    await findButtonByText(wrapper, 'synthetic fixture').trigger('click')
+    expect(wrapper.get('[data-test="audit-engine-meta"]').text()).toContain('content-audit-15-zh-v2')
+    expect(wrapper.get('[data-test="audit-score-jailbreak"]').text()).toContain('admin.riskControl.categoryHit')
+    expect(wrapper.get('[data-test="audit-score-jailbreak"]').text()).toContain('80.0% / 80.0%')
+    expect(wrapper.get('[data-test="audit-score-control_bypass"]').text()).toContain('admin.riskControl.categoryDisabled')
+    wrapper.unmount()
+  })
+})
+
+
+describe('RiskControlView upstream scope parent integration', () => {
+  it('saves the full hidden selection, reloads persisted values, and discards cancelled edits', async () => {
+    getConfig.mockReset(); updateConfig.mockReset(); listAccounts.mockReset(); showError.mockReset()
+    let stored = { ...baseConfig(), upstream_account_scope: 'selected' as const, upstream_account_ids: [999, 121] }
+    getConfig.mockImplementation(async () => structuredClone(stored))
+    getStatus.mockResolvedValue(runtimeStatus())
+    getGroups.mockResolvedValue([{ id: 4301, name: 'Demo', platform: 'openai' }])
+    getProxies.mockResolvedValue([])
+    listLogs.mockResolvedValue({ items: [], total: 0, page: 1, pages: 1 })
+    listAccounts.mockResolvedValue({ items: [{ id: 1, name: 'One', platform: 'openai', type: 'oauth', moderation_scope_eligible: true }], page: 1, pages: 3, total: 125 })
+    updateConfig.mockImplementation(async payload => { stored = { ...stored, ...JSON.parse(JSON.stringify(payload)) }; return structuredClone(stored) })
+    const create = () => mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    let wrapper = create(); await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.scope').trigger('click'); await flushPromises()
+    await wrapper.get('[data-testid="quality-select-page"]').trigger('click')
+    await wrapper.get('#moderation-upstream-search').setValue('#125'); await flushPromises()
+    expect(listAccounts.mock.lastCall?.[2]).toMatchObject({ search: '#125' })
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click'); await flushPromises()
+    expect(showError).not.toHaveBeenCalled()
+    expect(stored.upstream_account_scope).toBe('selected')
+    expect(stored.upstream_account_ids).toEqual([999, 121, 1])
+    wrapper.unmount(); wrapper = create(); await flushPromises()
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.scope').trigger('click'); await flushPromises()
+    expect((wrapper.get('[data-account-id="1"] input').element as HTMLInputElement).checked).toBe(true)
+    await wrapper.get('[data-testid="quality-clear-selection"]').trigger('click')
+    await findButtonByText(wrapper, 'common.cancel').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click')
+    await findButtonByText(wrapper, 'admin.riskControl.tabs.scope').trigger('click'); await flushPromises()
+    expect((wrapper.get('[data-account-id="1"] input').element as HTMLInputElement).checked).toBe(true)
+    expect(stored.upstream_account_ids).toEqual([999, 121, 1])
+    wrapper.unmount()
+  })
+  it('locks save during batch and locks edits and close during PUT, then preserves draft after rejection', async () => {
+    getConfig.mockReset(); updateConfig.mockReset(); listAccounts.mockReset(); showError.mockReset()
+    getConfig.mockResolvedValue({ ...baseConfig(), upstream_account_scope: 'selected', upstream_account_ids: [999] })
+    getStatus.mockResolvedValue(runtimeStatus()); getGroups.mockResolvedValue([]); getProxies.mockResolvedValue([])
+    listLogs.mockResolvedValue({ items: [], total: 0, page: 1, pages: 1 })
+    const result = { items: [{ id: 1, name: 'Fixture', platform: 'openai', type: 'oauth', moderation_scope_eligible: true }], page: 1, pages: 1, total: 1 }
+    listAccounts.mockResolvedValue(result)
+    const wrapper = mount(RiskControlView, { global: { stubs: { AppLayout: AppLayoutStub, BaseDialog: BaseDialogStub, Icon: true, Select: true, Toggle: true, Pagination: true, ModelWhitelistSelector: ModelWhitelistSelectorStub, ProxySelector: true } } })
+    await flushPromises(); await findButtonByText(wrapper, 'admin.riskControl.openSettings').trigger('click'); await findButtonByText(wrapper, 'admin.riskControl.tabs.scope').trigger('click'); await flushPromises()
+    let releaseBatch!: (value: typeof result) => void
+    listAccounts.mockImplementationOnce(() => new Promise(resolve => { releaseBatch = resolve }))
+    await wrapper.get('[data-testid="quality-select-all"]').trigger('click')
+    expect(findButtonByText(wrapper, 'admin.riskControl.saveConfig').attributes('disabled')).toBeDefined()
+    releaseBatch(result); await flushPromises()
+    let rejectSave!: (error: Error) => void
+    updateConfig.mockImplementationOnce(() => new Promise((_resolve, reject) => { rejectSave = reject }))
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click'); await flushPromises()
+    expect(wrapper.get('[data-testid="moderation-upstream-selector"]').attributes('disabled')).toBeDefined()
+    expect(findButtonByText(wrapper, 'common.cancel').attributes('disabled')).toBeDefined()
+    wrapper.findComponent(BaseDialogStub).vm.$emit('close'); await flushPromises()
+    expect(wrapper.find('[data-testid="moderation-upstream-selector"]').exists()).toBe(true)
+    expect(updateConfig.mock.lastCall?.[0].upstream_account_ids).toEqual([999, 1])
+    rejectSave(new Error('fixture rejected')); await flushPromises()
+    expect(wrapper.get('[data-testid="moderation-upstream-selector"]').attributes('disabled')).toBeUndefined()
+    expect(wrapper.find('[data-testid="moderation-remove-999"]').exists()).toBe(true)
+    updateConfig.mockImplementation(async payload => ({ ...baseConfig(), ...JSON.parse(JSON.stringify(payload)) }))
+    await findButtonByText(wrapper, 'admin.riskControl.saveConfig').trigger('click'); await flushPromises()
+    expect(updateConfig.mock.lastCall?.[0].upstream_account_ids).toEqual([999, 1])
+    expect(wrapper.find('[data-testid="moderation-upstream-selector"]').exists()).toBe(false)
+    wrapper.unmount()
+  })
+
 })

@@ -36,6 +36,22 @@ export async function setSmartWS(id: number, policy: SmartWSPolicy): Promise<Sma
   return data
 }
 
+export interface GroupAntiDistillationConfig {
+  enabled: boolean
+  pause_minutes: number
+}
+
+/** Group protection is saved independently from billing and other group settings. */
+export async function getAntiDistillation(id: number): Promise<GroupAntiDistillationConfig> {
+  const { data } = await apiClient.get<GroupAntiDistillationConfig>(`/admin/groups/${id}/anti-distillation`)
+  return data
+}
+
+export async function saveAntiDistillation(id: number, config: GroupAntiDistillationConfig): Promise<GroupAntiDistillationConfig> {
+  const { data } = await apiClient.put<GroupAntiDistillationConfig>(`/admin/groups/${id}/anti-distillation`, config)
+  return data
+}
+
 /**
  * List all groups with pagination
  * @param page - Page number (default: 1)
@@ -74,9 +90,10 @@ export async function list(
  * @param platform - Optional platform filter
  * @returns List of all active groups
  */
-export async function getAll(platform?: GroupPlatform): Promise<AdminGroup[]> {
+export async function getAll(platform?: GroupPlatform, signal?: AbortSignal): Promise<AdminGroup[]> {
   const { data } = await apiClient.get<AdminGroup[]>('/admin/groups/all', {
-    params: platform ? { platform } : undefined
+    params: platform ? { platform } : undefined,
+    ...(signal ? { signal } : {})
   })
   return data
 }
@@ -353,6 +370,7 @@ export interface GroupRateMultiplierEntry {
   user_status: string
   rate_multiplier?: number | null
   rpm_override?: number | null
+  denied_models?: string[] | null
 }
 
 /**
@@ -460,6 +478,56 @@ export async function clearGroupRPMOverrides(id: number): Promise<{ message: str
   return data
 }
 
+export interface GroupUserDeniedModelsEntry {
+  user_id: number
+  user_name: string
+  user_email: string
+  user_notes: string
+  user_status: string
+  denied_models: string[]
+}
+
+/**
+ * Get the models each user may not use in a group (subset of rate-multipliers endpoint).
+ */
+export async function getGroupUserDeniedModels(id: number): Promise<GroupUserDeniedModelsEntry[]> {
+  const { data } = await apiClient.get<GroupRateMultiplierEntry[]>(
+    `/admin/groups/${id}/rate-multipliers`
+  )
+  return data
+    .filter(e => (e.denied_models?.length ?? 0) > 0)
+    .map(e => ({
+      user_id: e.user_id,
+      user_name: e.user_name,
+      user_email: e.user_email,
+      user_notes: e.user_notes,
+      user_status: e.user_status,
+      denied_models: [...(e.denied_models ?? [])]
+    }))
+}
+
+/**
+ * Replace the per-user denied models of a group; users not listed become unrestricted.
+ */
+export async function batchSetGroupUserDeniedModels(
+  id: number,
+  entries: Array<{ user_id: number; denied_models: string[] }>
+): Promise<{ message: string }> {
+  const { data } = await apiClient.put<{ message: string }>(
+    `/admin/groups/${id}/user-denied-models`,
+    { entries }
+  )
+  return data
+}
+
+/**
+ * Clear the denied models of every user in a group.
+ */
+export async function clearGroupUserDeniedModels(id: number): Promise<{ message: string }> {
+  const { data } = await apiClient.delete<{ message: string }>(`/admin/groups/${id}/user-denied-models`)
+  return data
+}
+
 /**
  * Get usage summary (today + yesterday + cumulative cost) for all groups
  * @returns Array of group usage summaries
@@ -486,6 +554,8 @@ export async function getCapacitySummary(): Promise<
 }
 
 export const groupsAPI = {
+  getAntiDistillation,
+  saveAntiDistillation,
   list,
   getAll,
   getByPlatform,
@@ -511,6 +581,9 @@ export const groupsAPI = {
   getGroupRPMOverrides,
   clearGroupRPMOverrides,
   batchSetGroupRPMOverrides,
+  getGroupUserDeniedModels,
+  batchSetGroupUserDeniedModels,
+  clearGroupUserDeniedModels,
   updateSortOrder,
   getUsageSummary,
   getCapacitySummary

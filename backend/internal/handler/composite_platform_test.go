@@ -127,7 +127,8 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 	require.NotNil(t, requested)
 	require.Equal(t, "max", *requested)
 
-	bindOpenAIReasoningEffortPolicyForMessagesRequest(openAICtx, apiKey, []byte(`{"output_config":{"effort":"max"}}`))
+	_, err = prepareOpenAIReasoningEffortPolicyForMessagesRequest(openAICtx, apiKey, []byte(`{"output_config":{"effort":"max"}}`))
+	require.NoError(t, err)
 	bound, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(openAICtx.Request.Context(), body)
 	require.NoError(t, err)
 	require.True(t, changed)
@@ -154,7 +155,7 @@ func TestOpenAIReasoningEffortPolicyForCompositeTarget(t *testing.T) {
 			omittedCtx, _ := gin.CreateTestContext(httptest.NewRecorder())
 			omittedCtx.Request = httptest.NewRequest("POST", "/v1/messages", nil)
 			omittedCtx.Request = omittedCtx.Request.WithContext(service.WithResolvedTargetPlatform(omittedCtx.Request.Context(), service.PlatformOpenAI))
-			bindOpenAIReasoningEffortPolicyForMessagesRequest(omittedCtx, synthesizedAPIKey, []byte(tc.request))
+			_, _ = prepareOpenAIReasoningEffortPolicyForMessagesRequest(omittedCtx, synthesizedAPIKey, []byte(tc.request))
 			got, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(omittedCtx.Request.Context(), []byte(tc.response))
 			require.NoError(t, err)
 			require.Equal(t, tc.want != "medium", changed)
@@ -266,6 +267,15 @@ func TestAnthropicCompositePolicyClampsUnsupportedMinimalToLow(t *testing.T) {
 	maxEffort, mappings := anthropicCompatibleReasoningEffortPolicy("minimal", []service.ReasoningEffortMapping{{From: "max", To: "minimal"}})
 	require.Equal(t, "low", maxEffort)
 	require.Equal(t, []service.ReasoningEffortMapping{{From: "max", To: "low"}}, mappings)
+}
+
+func TestAnthropicCompositePolicyDoesNotEmitUltra(t *testing.T) {
+	input := []service.ReasoningEffortMapping{{From: "high", To: "ultra"}, {From: "ultra", To: "deny"}}
+	maxEffort, mappings := anthropicCompatibleReasoningEffortPolicy("ultra", input)
+	require.Equal(t, "max", maxEffort)
+	require.Equal(t, "max", mappings[0].To)
+	require.Equal(t, "deny", mappings[1].To)
+	require.Equal(t, "ultra", input[0].To, "platform adaptation must not mutate the group policy")
 }
 
 func TestClientRequestedModelUsesCompositePublicModel(t *testing.T) {

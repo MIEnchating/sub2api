@@ -27,6 +27,21 @@ export const apiClient: AxiosInstance = axios.create({
   }
 })
 
+/**
+ * Reads a delay-seconds Retry-After header (the panel rate limiter sends one with
+ * every 429). HTTP-date values and malformed input yield undefined.
+ */
+export const parseRetryAfterSeconds = (headers: unknown): number | undefined => {
+  if (!headers || typeof headers !== 'object') return undefined
+  const getter = (headers as { get?: unknown }).get
+  const raw = typeof getter === 'function'
+    ? getter.call(headers, 'retry-after')
+    : (headers as Record<string, unknown>)['retry-after'] ?? (headers as Record<string, unknown>)['Retry-After']
+  const value = Array.isArray(raw) ? raw[0] : raw
+  const seconds = typeof value === 'string' && /^\s*\d+\s*$/.test(value) ? Number(value.trim()) : value
+  return typeof seconds === 'number' && Number.isSafeInteger(seconds) && seconds >= 0 ? seconds : undefined
+}
+
 // ==================== Request Interceptor ====================
 
 // Get user's timezone
@@ -40,6 +55,8 @@ const getUserTimezone = (): string => {
 
 apiClient.interceptors.request.use(
   (config: InternalAxiosRequestConfig) => {
+    const requestURL = String(config.url || '')
+
     // Attach token from localStorage
     const token = localStorage.getItem('auth_token')
     if (token && config.headers) {
@@ -51,8 +68,11 @@ apiClient.interceptors.request.use(
       config.headers['Accept-Language'] = getLocale()
     }
 
-    // Attach timezone for all GET requests (backend may use it for default date ranges)
-    if (config.method === 'get') {
+    // AI operations rejects query parameters; other GET APIs may use timezone
+    // for default date ranges. Preserve explicitly supplied parameters so the
+    // backend can still reject unsupported input.
+    const isAIOpsRequest = /^\/admin\/ops\/ai(?:\/|$)/.test(requestURL)
+    if (config.method === 'get' && !isAIOpsRequest) {
       if (!config.params) {
         config.params = {}
       }
@@ -60,7 +80,6 @@ apiClient.interceptors.request.use(
     }
 
     if (config.headers) {
-      const requestURL = String(config.url || '')
       if (shouldMarkAdminUIRequest(requestURL)) {
         config.headers[ADMIN_UI_REQUEST_HEADER] = '1'
       }
@@ -77,13 +96,6 @@ apiClient.interceptors.request.use(
 )
 
 // ==================== Response Interceptor ====================
-
-// Retry-After 只接受整数秒；跨域部署未暴露该头或为 HTTP-date 形式时返回 undefined。
-const parseRetryAfterSeconds = (headers: unknown): number | undefined => {
-  const raw = (headers as Record<string, unknown> | undefined)?.['retry-after']
-  if (typeof raw !== 'string' || !/^\d+$/.test(raw.trim())) return undefined
-  return Number(raw.trim())
-}
 
 apiClient.interceptors.response.use(
   (response: AxiosResponse) => {

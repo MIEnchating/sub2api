@@ -73,6 +73,30 @@ func NewUsageHandler(
 	}
 }
 
+// SettledDebits is a bounded, read-only lookup. It never initiates billing.
+func (h *UsageHandler) SettledDebits(c *gin.Context) {
+	c.Header("Cache-Control", "no-store")
+	subject, ok := middleware2.GetAuthSubjectFromContext(c)
+	if !ok {
+		response.Unauthorized(c, "User not authenticated")
+		return
+	}
+	var input struct {
+		IDs []int64 `json:"usage_ids"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 4096)
+	if err := c.ShouldBindJSON(&input); err != nil {
+		response.BadRequest(c, "Invalid usage IDs")
+		return
+	}
+	items, err := h.usageService.SettledDebits(c.Request.Context(), subject.UserID, input.IDs)
+	if err != nil {
+		response.ErrorFrom(c, err)
+		return
+	}
+	response.Success(c, gin.H{"items": items})
+}
+
 func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) (*userUsageFilters, bool) {
 	subject, ok := middleware2.GetAuthSubjectFromContext(c)
 	if !ok || subject.UserID <= 0 {
@@ -83,15 +107,13 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 	var apiKeyID int64
 	if apiKeyIDStr := strings.TrimSpace(c.Query("api_key_id")); apiKeyIDStr != "" {
 		id, err := strconv.ParseInt(apiKeyIDStr, 10, 64)
-		if err != nil {
+		if err != nil || id <= 0 {
 			response.BadRequest(c, "Invalid api_key_id")
 			return nil, false
 		}
-		if id <= 0 {
-			response.BadRequest(c, "Invalid api_key_id")
-			return nil, false
-		}
-		if !h.checkBillingKey(c, subject.UserID, id) {
+		// Observer queries are always scoped to the authenticated user and
+		// may include historical rows belonging to soft-deleted keys.
+		if !isObserverUsageRequest(c) && !h.checkBillingKey(c, subject.UserID, id) {
 			return nil, false
 		}
 		apiKeyID = id
@@ -207,7 +229,7 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 		}
 	}
 
-	return &userUsageFilters{
+	parsed := &userUsageFilters{
 		Filters: usagestats.UsageLogFilters{
 			UserID:             subject.UserID,
 			APIKeyID:           apiKeyID,
@@ -224,7 +246,11 @@ func (h *UsageHandler) parseUserUsageFilters(c *gin.Context, requireRange bool) 
 		},
 		StartTime: derefTime(startPtr),
 		EndTime:   derefTime(endPtr),
-	}, true
+	}
+	if !applyObserverUsageFilters(c, &parsed.Filters) {
+		return nil, false
+	}
+	return parsed, true
 }
 
 func derefTime(value *time.Time) time.Time {
@@ -256,9 +282,19 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
+	h.usageService.EnrichContentTiming(c.Request.Context(), records)
+	if isObserverUsageRequest(c) {
+		out := make([]dto.AdminUsageLog, 0, len(records))
+		for i := range records {
+			out = append(out, *dto.UsageLogFromServiceAdmin(&records[i]))
+		}
+		response.Paginated(c, out, result.Total, page, pageSize)
+		return
+	}
 	out := make([]dto.UsageLog, 0, len(records))
+	showResponseModel := h.userMaySeeUpstreamResponseModel(c)
 	for i := range records {
-		out = append(out, *dto.UsageLogFromService(&records[i]).Localized(c.GetHeader("Accept-Language")))
+		out = append(out, *h.userUsageLogDTO(c, &records[i], showResponseModel))
 	}
 	response.Paginated(c, out, result.Total, page, pageSize)
 }
@@ -340,6 +376,27 @@ func (h *UsageHandler) ListErrors(c *gin.Context) {
 	// 排序对齐用量明细:列白名单与方向归一在 repo 层,非法值回退 created_at DESC。
 	filter.SetSort(c.Query("sort_by"), c.Query("sort_order"))
 
+	if isObserverUsageRequest(c) {
+		for name, dest := range map[string]**int64{"account_id": &filter.AccountID, "group_id": &filter.GroupID} {
+			if value := strings.TrimSpace(c.Query(name)); value != "" {
+				id, err := strconv.ParseInt(value, 10, 64)
+				if err != nil || id <= 0 {
+					response.BadRequest(c, "Invalid "+name)
+					return
+				}
+				*dest = &id
+			}
+		}
+		filter.Phase = strings.TrimSpace(c.Query("phase"))
+		result, err := h.opsService.ListObserverErrorRequests(c.Request.Context(), subject.UserID, filter)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		response.Paginated(c, result.Items, int64(result.Total), result.Page, result.PageSize)
+		return
+	}
+
 	ctx := service.WithUpstreamErrorMessage(c.Request.Context(), h.settingService.GetUpstreamErrorMessage(c.Request.Context()))
 	result, err := h.opsService.ListUserErrorRequests(ctx, subject.UserID, filter)
 	if err != nil {
@@ -368,6 +425,15 @@ func (h *UsageHandler) GetErrorDetail(c *gin.Context) {
 	id, err := strconv.ParseInt(strings.TrimSpace(c.Param("id")), 10, 64)
 	if err != nil || id <= 0 {
 		response.BadRequest(c, "Invalid id")
+		return
+	}
+	if isObserverUsageRequest(c) {
+		detail, err := h.opsService.GetObserverErrorRequestDetail(c.Request.Context(), subject.UserID, id)
+		if err != nil {
+			response.ErrorFrom(c, err)
+			return
+		}
+		response.Success(c, detail)
 		return
 	}
 	ctx := service.WithUpstreamErrorMessage(c.Request.Context(), h.settingService.GetUpstreamErrorMessage(c.Request.Context()))
@@ -416,7 +482,19 @@ func (h *UsageHandler) GetByID(c *gin.Context) {
 			record.APIKey = &service.APIKey{ID: key.ID, UserID: subject.UserID, Name: key.Name, Status: key.Status}
 		}
 	}
-	response.Success(c, dto.UsageLogFromService(record).Localized(c.GetHeader("Accept-Language")))
+	if isObserverUsageRequest(c) {
+		response.Success(c, dto.UsageLogFromServiceAdmin(record))
+		return
+	}
+	response.Success(c, h.userUsageLogDTO(c, record, h.userMaySeeUpstreamResponseModel(c)))
+}
+
+func (h *UsageHandler) userMaySeeUpstreamResponseModel(c *gin.Context) bool {
+	return h.settingService != nil && h.settingService.IsUserUpstreamResponseModelVisible(c.Request.Context())
+}
+
+func (h *UsageHandler) userUsageLogDTO(c *gin.Context, record *service.UsageLog, showResponseModel bool) *dto.UsageLog {
+	return dto.UsageLogFromServiceForUser(record, showResponseModel).Localized(c.GetHeader("Accept-Language"))
 }
 
 // Stats handles getting usage statistics
@@ -432,12 +510,14 @@ func (h *UsageHandler) Stats(c *gin.Context) {
 		response.ErrorFrom(c, err)
 		return
 	}
-	stats.TotalAccountCost = nil
-	for i := range stats.Endpoints {
-		stats.Endpoints[i].AccountCost = 0
+	if !isObserverUsageRequest(c) {
+		stats.TotalAccountCost = nil
+		for i := range stats.Endpoints {
+			stats.Endpoints[i].AccountCost = 0
+		}
+		stats.UpstreamEndpoints = nil
+		stats.EndpointPaths = nil
 	}
-	stats.UpstreamEndpoints = nil
-	stats.EndpointPaths = nil
 
 	response.Success(c, stats)
 }
@@ -515,19 +595,26 @@ func (h *UsageHandler) DashboardModels(c *gin.Context) {
 	}
 
 	modelSource := strings.TrimSpace(c.Query("model_source"))
-	if modelSource != "" && modelSource != usagestats.ModelSourceRequested {
+	if modelSource == "" {
+		modelSource = usagestats.ModelSourceRequested
+	}
+	if modelSource != usagestats.ModelSourceRequested && (!isObserverUsageRequest(c) || (modelSource != usagestats.ModelSourceUpstream && modelSource != usagestats.ModelSourceMapping)) {
 		response.BadRequest(c, "Invalid model_source, user usage only supports requested")
 		return
 	}
 
-	stats, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, usagestats.ModelSourceRequested)
+	stats, err := h.usageService.GetModelStatsWithFiltersBySource(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters, modelSource)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
 
+	var models any = userModelStatsFromUsageStats(stats)
+	if isObserverUsageRequest(c) {
+		models = stats
+	}
 	response.Success(c, gin.H{
-		"models":     userModelStatsFromUsageStats(stats),
+		"models":     models,
 		"start_date": parsed.StartTime.Format("2006-01-02"),
 		"end_date":   parsed.EndTime.Add(-24 * time.Hour).Format("2006-01-02"),
 	})
@@ -579,7 +666,11 @@ func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		resp["models"] = userModelStatsFromUsageStats(models)
+		if isObserverUsageRequest(c) {
+			resp["models"] = models
+		} else {
+			resp["models"] = userModelStatsFromUsageStats(models)
+		}
 	}
 	if includeGroups {
 		groups, err := h.usageService.GetGroupStatsWithFilters(c.Request.Context(), parsed.StartTime, parsed.EndTime, parsed.Filters)
@@ -587,7 +678,11 @@ func (h *UsageHandler) DashboardSnapshotV2(c *gin.Context) {
 			response.ErrorFrom(c, err)
 			return
 		}
-		resp["groups"] = userGroupStatsFromUsageStats(groups)
+		if isObserverUsageRequest(c) {
+			resp["groups"] = groups
+		} else {
+			resp["groups"] = userGroupStatsFromUsageStats(groups)
+		}
 	}
 
 	response.Success(c, resp)
@@ -642,6 +737,9 @@ func parseBoolQueryWithDefault(c *gin.Context, key string, fallback bool) (bool,
 // BatchAPIKeysUsageRequest represents the request for batch API keys usage
 type BatchAPIKeysUsageRequest struct {
 	APIKeyIDs []int64 `json:"api_key_ids" binding:"required"`
+	StartDate string  `json:"start_date"`
+	EndDate   string  `json:"end_date"`
+	Timezone  string  `json:"timezone"`
 }
 
 // DashboardAPIKeysUsage handles getting usage stats for user's own API keys
@@ -656,6 +754,14 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 	var req BatchAPIKeysUsageRequest
 	if err := c.ShouldBindJSON(&req); err != nil {
 		response.BadRequest(c, "Invalid request: "+err.Error())
+		return
+	}
+
+	// Omitted dates preserve the existing rolling 30-day total. Explicit dates
+	// include both calendar days in the caller's timezone, including DST changes.
+	startTime, endTime, err := parseAPIKeyUsageRange(req.StartDate, req.EndDate, req.Timezone)
+	if err != nil {
+		response.BadRequest(c, err.Error())
 		return
 	}
 
@@ -681,7 +787,7 @@ func (h *UsageHandler) DashboardAPIKeysUsage(c *gin.Context) {
 		return
 	}
 
-	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, time.Time{}, time.Time{})
+	stats, err := h.usageService.GetBatchAPIKeyUsageStats(c.Request.Context(), validAPIKeyIDs, startTime, endTime)
 	if err != nil {
 		response.ErrorFrom(c, err)
 		return

@@ -25,6 +25,7 @@ type billingFixture struct {
 	filters   usagestats.UsageLogFilters
 	position  service.UsageSyncPosition
 	exportErr error
+	exportRow *service.CustomerUsageRow
 }
 
 func (f *billingFixture) Key(_ context.Context, uid, id int64) (*service.CustomerUsageKey, error) {
@@ -40,6 +41,12 @@ func (f *billingFixture) Sync(_ context.Context, filters usagestats.UsageLogFilt
 }
 func (f *billingFixture) Export(_ context.Context, filters usagestats.UsageLogFilters, _ pagination.PaginationParams, visit func(service.CustomerUsageRow) error) error {
 	f.filters = filters
+	if f.exportRow != nil {
+		if err := visit(*f.exportRow); err != nil {
+			return err
+		}
+		return f.exportErr
+	}
 	code := 206
 	if err := visit(service.CustomerUsageRow{ID: 1, RequestID: "req", APIKeyID: 9, KeyName: " =1+1", Model: "model,with\nquotes\"", ActualCost: "0.0000000001", HTTPStatus: &code, IPAddress: "192.0.2.1"}); err != nil {
 		return err

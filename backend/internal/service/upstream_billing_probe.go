@@ -20,6 +20,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
@@ -52,7 +53,8 @@ const (
 	upstreamBillingProbeUnsupportedDelayFactor = 8
 	upstreamBillingProbeAccountRateScale       = 10000.0
 	upstreamBillingProbeLeaderLockKey          = "upstream:billing:probe:leader"
-	upstreamBillingProbeLeaderLockTTL          = 2 * time.Minute
+	// A full batch can run five waves of sequential rate and balance GETs.
+	upstreamBillingProbeLeaderLockTTL = 4 * time.Minute
 )
 
 // UpstreamBillingProbeMaxBatchSize limits one manual batch and one runner cycle.
@@ -124,6 +126,9 @@ type UpstreamBillingProbeSnapshot struct {
 	// stored snapshot always answers "did this probe move the account rate, and
 	// to what" without a separate history table.
 	SyncedRateMultiplier *float64 `json:"synced_rate_multiplier,omitempty"`
+	// Balance is the upstream balance queried by the same probe. The top-level
+	// status, failure count and schedule describe the rate request only.
+	Balance *UpstreamBalanceSnapshot `json:"balance,omitempty"`
 }
 
 // UpstreamBillingProbeResult is returned by manual probe endpoints.
@@ -140,6 +145,7 @@ type UpstreamBillingRateSnapshotItem struct {
 	AccountID                  int64                         `json:"account_id"`
 	Snapshot                   *UpstreamBillingProbeSnapshot `json:"snapshot"`
 	UpstreamBillingRateLimited bool                          `json:"upstream_billing_rate_limited,omitempty"`
+	CostMultiplier             float64                       `json:"cost_multiplier"`
 }
 
 // BuildUpstreamBillingRateSnapshotItems projects account rows into the
@@ -152,13 +158,14 @@ func BuildUpstreamBillingRateSnapshotItems(accounts []Account) []UpstreamBilling
 		// The billing endpoint is supported by every API-key platform; limiting
 		// this projection to OpenAI would make the background refresh erase the
 		// other platforms' persisted snapshots from the table.
-		if account.Type == AccountTypeAPIKey {
+		if account.Type == AccountTypeAPIKey || account.IsGateway() {
 			snapshot = decodeUpstreamBillingProbeSnapshot(account.Extra)
 		}
 		items = append(items, UpstreamBillingRateSnapshotItem{
 			AccountID:                  account.ID,
 			Snapshot:                   snapshot,
 			UpstreamBillingRateLimited: account.IsUpstreamBillingRateLimited(),
+			CostMultiplier:             account.CostMultiplier(),
 		})
 	}
 	return items
@@ -245,6 +252,9 @@ func normalizeUpstreamBillingProbeSettings(settings *UpstreamBillingProbeSetting
 
 // UpstreamBillingProbeService discovers a remote Sub2API billing snapshot.
 type UpstreamBillingProbeService struct {
+	newAPIRepo         NewAPIAuthorizationRepository
+	newAPIEncryptor    SecretEncryptor
+	newAPIFixedKey     bool
 	accountRepo        AccountRepository
 	accountTestService *AccountTestService
 	settingService     *SettingService
@@ -309,10 +319,14 @@ func ProvideUpstreamBillingProbeService(
 	settingService *SettingService,
 	lockCache LeaderLockCache,
 	db *sql.DB,
+	cfg *config.Config,
+	newAPIRepo NewAPIAuthorizationRepository,
+	encryptor SecretEncryptor,
 ) *UpstreamBillingProbeService {
 	svc := NewUpstreamBillingProbeService(accountRepo, accountTestService, settingService)
 	svc.SetLeaderLock(lockCache, db)
-	svc.Start()
+	svc.SetNewAPIAuthorization(newAPIRepo, encryptor, cfg != nil && cfg.Totp.EncryptionKeyConfigured)
+	startBackgroundService(cfg, svc)
 	return svc
 }
 
@@ -650,24 +664,18 @@ func (s *UpstreamBillingProbeService) SetAccountEnabled(ctx context.Context, acc
 	return s.accountRepo.UpdateExtra(ctx, accountID, updates)
 }
 
-type upstreamBillingReply struct {
-	body       []byte
-	status     int
-	retryAfter time.Duration
-}
-
 var errBillingUnsupported = errors.New("unsupported")
 
-func (s *UpstreamBillingProbeService) fetchBilling(ctx context.Context, account *Account, includeGroup bool, now time.Time) (upstreamBillingReply, error) {
-	var result upstreamBillingReply
+func (s *UpstreamBillingProbeService) billingProbeTarget(account *Account) (upstreamBillingProbeTarget, string, error) {
+	var result upstreamBillingProbeTarget
 	if s.accountTestService == nil || s.accountTestService.httpUpstream == nil {
-		return result, errors.New("transport_unavailable")
+		return result, "", errors.New("transport_unavailable")
 	}
 	// 平台放宽后取数直读 credentials：所有 API-key 平台的密钥与自定义上游
 	// 统一存放在 credentials.api_key / credentials.base_url。
 	apiKey := account.GetCredential("api_key")
 	if apiKey == "" {
-		return result, errors.New("missing_api_key")
+		return result, "", errors.New("missing_api_key")
 	}
 	baseURL := account.GetCredential("base_url")
 	if account.RoutesProtocolByInbound() && account.IsAdaptiveAPIProtocol() {
@@ -683,74 +691,23 @@ func (s *UpstreamBillingProbeService) fetchBilling(ctx context.Context, account 
 		// 填成官方默认域，且提供 us-east-1.api.x.ai 等官方区域预设）⇒
 		// 必无 /v1/sub2api/billing；不发请求，直接记 unsupported，避免
 		// 拿账号 Key 周期性请求官方域的不存在路径。
-		return result, errBillingUnsupported
+		return result, "", errBillingUnsupported
 	}
 	normalizedBaseURL, err := s.accountTestService.validateUpstreamBaseURL(baseURL)
 	if err != nil {
-		return result, errors.New("invalid_base_url")
+		return result, "", errors.New("invalid_base_url")
 	}
 	proxyURL := ""
 	if account.ProxyID != nil {
 		if account.Proxy == nil {
-			return result, errors.New("proxy_unavailable")
+			return result, "", errors.New("proxy_unavailable")
 		}
 		if account.Proxy.ID != *account.ProxyID {
-			return result, ErrUpstreamBillingProbeIdentityChanged
+			return result, "", ErrUpstreamBillingProbeIdentityChanged
 		}
 		proxyURL = account.Proxy.URL()
 	}
-	probeURL := buildOpenAIEndpointURL(normalizedBaseURL, "/v1/sub2api/billing")
-	probeCtx, cancel := context.WithTimeout(ctx, upstreamBillingProbeRequestTimeout)
-	defer cancel()
-	probeCtx = WithAccountProtectionOutcomeExcluded(probeCtx)
-	req, err := http.NewRequestWithContext(probeCtx, http.MethodGet, probeURL, nil)
-	if err != nil {
-		return result, errors.New("request_build_failed")
-	}
-	if includeGroup {
-		query := req.URL.Query()
-		query.Set("include", "group")
-		req.URL.RawQuery = query.Encode()
-	}
-	// OpenAI 账号保持官方 openai 传输画像；其他平台探测走默认画像。
-	profile := HTTPUpstreamProfileDefault
-	if account.Platform == PlatformOpenAI {
-		profile = HTTPUpstreamProfileOpenAI
-	}
-	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
-	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Authorization", "Bearer "+apiKey)
-	account.ApplyHeaderOverrides(req.Context(), req.Header)
-	var tlsProfile *tlsfingerprint.Profile
-	if s.accountTestService.tlsFPProfileService != nil {
-		tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)
-	}
-	resp, err := s.accountTestService.httpUpstream.DoWithTLS(req, proxyURL, account.ID, account.Concurrency, tlsProfile)
-	if err != nil {
-		return result, errors.New("request_failed")
-	}
-	if resp == nil || resp.Body == nil {
-		return result, errors.New("empty_response")
-	}
-	defer func() { _ = resp.Body.Close() }()
-	result.status = resp.StatusCode
-	result.retryAfter = retryAfter(resp.Header, now)
-	body, readErr := io.ReadAll(io.LimitReader(resp.Body, upstreamBillingProbeMaxBodyBytes+1))
-	if readErr != nil {
-		return result, errors.New("response_read_failed")
-	}
-	if len(body) > upstreamBillingProbeMaxBodyBytes {
-		return result, errors.New("response_too_large")
-	}
-	if resp.StatusCode == http.StatusNotFound || resp.StatusCode == http.StatusMethodNotAllowed {
-		return result, errBillingUnsupported
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return result, errors.New("http_error")
-	}
-	result.body = body
-	return result, nil
+	return upstreamBillingProbeTarget{apiKey: apiKey, proxyURL: proxyURL}, normalizedBaseURL, nil
 }
 
 // PreviewGroup fetches only the display text for the account editor. It does not persist probe results.
@@ -760,11 +717,18 @@ func (s *UpstreamBillingProbeService) PreviewGroup(ctx context.Context, account 
 	if !isUpstreamBillingProbeAccount(account) && !legacyRelay {
 		return nil, ErrUpstreamBillingProbeAccountInvalid
 	}
-	reply, err := s.fetchBilling(ctx, account, true, s.currentTime())
+	target, baseURL, err := s.billingProbeTarget(account)
 	if errors.Is(err, errBillingUnsupported) {
 		return &BillingGroupInfo{}, nil
 	}
 	if err != nil {
+		return nil, infraerrors.New(http.StatusBadGateway, "UPSTREAM_GROUP_PREVIEW_FAILED", "Could not read group information from the upstream")
+	}
+	reply := s.fetchUpstreamProbeBody(ctx, account, target, upstreamBillingProbeURL(baseURL, true), upstreamBillingProbeMaxBodyBytes, upstreamBillingProbeRequestTimeout)
+	if reply.failure == "" && (reply.statusCode == http.StatusNotFound || reply.statusCode == http.StatusMethodNotAllowed) {
+		return &BillingGroupInfo{}, nil
+	}
+	if reply.failure != "" || reply.statusCode < 200 || reply.statusCode >= 300 {
 		return nil, infraerrors.New(http.StatusBadGateway, "UPSTREAM_GROUP_PREVIEW_FAILED", "Could not read group information from the upstream")
 	}
 	var info struct {
@@ -815,18 +779,178 @@ func upstreamBillingGroupInfo(body []byte) BillingGroupInfo {
 
 func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, account *Account, intervalMinutes int) (*UpstreamBillingProbeSnapshot, error) {
 	now := s.currentTime().UTC()
+	if s.newAPIRepo != nil && (!account.IsGateway() || account.GetCredential(GatewayUpstreamKindCredentialKey) == "new_api") {
+		binding, err := s.newAPIRepo.GetBinding(ctx, account.ID)
+		if err != nil {
+			return nil, newAPIError("storage_unavailable")
+		}
+		if binding != nil && binding.Fingerprint == NewAPIAccountFingerprint(account) {
+			return s.probeNewAPIAccount(ctx, account, binding, intervalMinutes)
+		}
+	}
+	if account.IsGateway() && account.GetCredential(GatewayUpstreamKindCredentialKey) == "new_api" {
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, "new_api_authorization_required", 0)
+	}
+	target, normalizedBaseURL, err := s.billingProbeTarget(account)
 	groupSync, _ := account.Extra[UpstreamBillingGroupSyncEnabledExtraKey].(bool)
 	includeGroup := groupSync && upstreamBillingProbeEnabled(account)
-	reply, err := s.fetchBilling(ctx, account, includeGroup, now)
 	if errors.Is(err, ErrUpstreamBillingProbeIdentityChanged) {
 		return nil, err
 	}
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, reply.status, err.Error(), reply.retryAfter)
+		return s.persistProbeFailure(ctx, account, intervalMinutes, now, 0, err.Error(), 0)
 	}
-	data, err := parseUpstreamBillingProbeResponse(reply.body)
+	billingURL := upstreamBillingProbeURL(normalizedBaseURL, includeGroup)
+	rateResult := s.fetchUpstreamProbeBody(ctx, account, target, billingURL, upstreamBillingProbeMaxBodyBytes, upstreamBillingProbeRequestTimeout)
+	previousRate := account.BillingRateMultiplier()
+	snapshot, syncRate := upstreamBillingRateSnapshotFromResult(account, intervalMinutes, now, rateResult, previousRate)
+	if ctx.Err() == nil && upstreamBalanceProbeAllowed(normalizedBaseURL, rateResult) {
+		balanceResult := s.fetchUpstreamProbeBody(ctx, account, target,
+			upstreamBalanceProbeURL(normalizedBaseURL, now), upstreamBalanceProbeMaxBodyBytes, upstreamBalanceProbeTimeout)
+		snapshot.Balance = upstreamBalanceSnapshotFromResult(balanceResult, snapshot.Balance, intervalMinutes, now)
+		// Sub2API upstreams that predate /v1/sub2api/billing still answer
+		// /v1/usage. The stretched unsupported delay is for upstreams that return
+		// nothing useful; stretching one with a readable balance would leave that
+		// balance stale for most of every cycle.
+		if snapshot.Status == UpstreamBillingProbeStatusUnsupported && snapshot.Balance.Status == UpstreamBillingProbeStatusOK {
+			snapshot.NextProbeAt = now.Add(nextProbeDelay(intervalMinutes, retryAfter(rateResult.header, now)))
+		}
+	}
+	var group BillingGroupInfo
+	if includeGroup && snapshot.Status == UpstreamBillingProbeStatusOK {
+		group = upstreamBillingGroupInfo(rateResult.body)
+	}
+	if err := s.updateSnapshot(ctx, account, snapshot, syncRate, group); err != nil {
+		return nil, err
+	}
+	if syncRate != nil && previousRate != *syncRate {
+		// 写回是后台任务的裸 SQL，不经过管理端路由，因此不会产生 audit_logs 行。
+		// old_rate_multiplier 是本次探测开始时读到的值（写回的 CAS 不比对该列）。
+		slog.Info("upstream_billing_rate_sync_applied",
+			"source", "upstream_billing_probe",
+			"account_id", account.ID,
+			"old_rate_multiplier", previousRate,
+			"new_rate_multiplier", *syncRate,
+		)
+	}
+	return snapshot, nil
+}
+
+// upstreamBillingProbeTarget is the credential and route one probe uses for
+// both of its upstream requests.
+type upstreamBillingProbeTarget struct {
+	apiKey   string
+	proxyURL string
+}
+
+// baseURL has already passed the existing upstream URL validation. Preserve
+// routing and authentication parameters when requesting group text. Fragment
+// handling remains owned by buildOpenAIEndpointURL (never sent upstream).
+func upstreamBillingProbeURL(baseURL string, includeGroup bool) string {
+	endpoint := buildOpenAIEndpointURL(baseURL, "/v1/sub2api/billing")
+	if !includeGroup {
+		return endpoint
+	}
+	parsed, err := url.Parse(endpoint)
 	if err != nil {
-		return s.persistProbeFailure(ctx, account, intervalMinutes, now, reply.status, "invalid_response", reply.retryAfter)
+		return endpoint // The request builder retains its existing failure path.
+	}
+	query := parsed.Query()
+	query.Set("include", "group")
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+// upstreamBillingProbeHTTPResult is one upstream GET. failure is set when no
+// complete body was read; statusCode and header are kept whenever the
+// upstream answered at all.
+type upstreamBillingProbeHTTPResult struct {
+	statusCode int
+	header     http.Header
+	body       []byte
+	failure    string
+	timedOut   bool
+}
+
+func (s *UpstreamBillingProbeService) fetchUpstreamProbeBody(
+	ctx context.Context,
+	account *Account,
+	target upstreamBillingProbeTarget,
+	requestURL string,
+	maxBodyBytes int,
+	timeout time.Duration,
+) upstreamBillingProbeHTTPResult {
+	probeCtx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	req, err := http.NewRequestWithContext(WithAccountProtectionOutcomeExcluded(probeCtx), http.MethodGet, requestURL, nil)
+	if err != nil {
+		return upstreamBillingProbeHTTPResult{failure: "request_build_failed"}
+	}
+	// OpenAI 账号保持官方 openai 传输画像；其他平台探测走默认画像。
+	profile := HTTPUpstreamProfileDefault
+	if account.Platform == PlatformOpenAI {
+		profile = HTTPUpstreamProfileOpenAI
+	}
+	reqCtx := WithHTTPUpstreamProfile(req.Context(), profile)
+	req = req.WithContext(WithHTTPUpstreamRedirectsDisabled(reqCtx))
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+target.apiKey)
+	account.ApplyHeaderOverrides(req.Context(), req.Header)
+	var tlsProfile *tlsfingerprint.Profile
+	if s.accountTestService.tlsFPProfileService != nil {
+		tlsProfile = s.accountTestService.tlsFPProfileService.ResolveTLSProfile(account)
+	}
+	resp, err := s.accountTestService.httpUpstream.DoWithTLS(req, target.proxyURL, account.ID, account.Concurrency, tlsProfile)
+	if err != nil {
+		return upstreamBillingProbeHTTPResult{failure: "request_failed", timedOut: errors.Is(err, context.DeadlineExceeded)}
+	}
+	if resp == nil || resp.Body == nil {
+		return upstreamBillingProbeHTTPResult{failure: "empty_response"}
+	}
+	defer func() { _ = resp.Body.Close() }()
+	result := upstreamBillingProbeHTTPResult{statusCode: resp.StatusCode, header: resp.Header}
+	body, readErr := io.ReadAll(io.LimitReader(resp.Body, int64(maxBodyBytes)+1))
+	if readErr != nil {
+		result.failure = "response_read_failed"
+		return result
+	}
+	if len(body) > maxBodyBytes {
+		result.failure = "response_too_large"
+		return result
+	}
+	result.body = body
+	return result
+}
+
+// upstreamBillingRateSnapshotFromResult turns one /v1/sub2api/billing response
+// into the snapshot to store, plus the rate to write back when the account
+// opted into rate sync. The previous balance is carried over; the caller
+// replaces it when the same probe also reads the balance.
+func upstreamBillingRateSnapshotFromResult(
+	account *Account,
+	intervalMinutes int,
+	now time.Time,
+	result upstreamBillingProbeHTTPResult,
+	previousRate float64,
+) (*UpstreamBillingProbeSnapshot, *float64) {
+	reason := result.failure
+	if reason == "" {
+		switch {
+		case result.statusCode == http.StatusNotFound || result.statusCode == http.StatusMethodNotAllowed:
+			reason = "unsupported"
+		case result.statusCode < 200 || result.statusCode >= 300:
+			reason = "http_error"
+		}
+	}
+	var data map[string]any
+	if reason == "" {
+		var err error
+		if data, err = parseUpstreamBillingProbeResponse(result.body); err != nil {
+			reason = "invalid_response"
+		}
+	}
+	if reason != "" {
+		return upstreamBillingProbeFailureSnapshot(account, intervalMinutes, now, result.statusCode, reason, retryAfter(result.header, now)), nil
 	}
 	snapshot := &UpstreamBillingProbeSnapshot{
 		Status:        UpstreamBillingProbeStatusOK,
@@ -835,14 +959,16 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 		FreshUntil:    probeTimePtr(now.Add(2 * time.Duration(intervalMinutes) * time.Minute)),
 		LastAttemptAt: now,
 		NextProbeAt:   now.Add(nextProbeDelay(intervalMinutes, 0)),
-		HTTPStatus:    reply.status,
+		HTTPStatus:    result.statusCode,
+	}
+	if previous := decodeUpstreamBillingProbeSnapshot(account.Extra); previous != nil {
+		snapshot.Balance = previous.Balance
 	}
 	// 账号级值域与精度只在真要写回时才有影响：只观察上游声明、未开启同步的
 	// 账号不因声明值不适配 accounts.rate_multiplier 而被记成探测失败并进入
 	// 指数退避——探测本身成功了，原始声明照常存进快照供展示。
 	var syncRate *float64
-	previousRate := account.BillingRateMultiplier()
-	if upstreamBillingRateSyncEnabled(account) {
+	if upstreamBillingRateSyncEnabled(account) && data["billing_mode"] != "multi_group" {
 		if value, valid := upstreamBillingProbeSyncRate(data); valid {
 			syncRate = &value
 			snapshot.SyncedRateMultiplier = &value
@@ -857,24 +983,7 @@ func (s *UpstreamBillingProbeService) probeLoadedAccount(ctx context.Context, ac
 			)
 		}
 	}
-	var group BillingGroupInfo
-	if includeGroup {
-		group = upstreamBillingGroupInfo(reply.body)
-	}
-	if err := s.updateSnapshot(ctx, account, snapshot, syncRate, group); err != nil {
-		return nil, err
-	}
-	if syncRate != nil {
-		// 写回是后台任务的裸 SQL，不经过管理端路由，因此不会产生 audit_logs 行。
-		// old_rate_multiplier 是本次探测开始时读到的值（写回的 CAS 不比对该列）。
-		slog.Info("upstream_billing_rate_sync_applied",
-			"source", "upstream_billing_probe",
-			"account_id", account.ID,
-			"old_rate_multiplier", previousRate,
-			"new_rate_multiplier", *syncRate,
-		)
-	}
-	return snapshot, nil
+	return snapshot, syncRate
 }
 
 func (s *UpstreamBillingProbeService) persistProbeFailure(
@@ -886,6 +995,21 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 	reason string,
 	retryAfterDuration time.Duration,
 ) (*UpstreamBillingProbeSnapshot, error) {
+	snapshot := upstreamBillingProbeFailureSnapshot(account, intervalMinutes, now, statusCode, reason, retryAfterDuration)
+	if err := s.updateSnapshot(ctx, account, snapshot, nil, BillingGroupInfo{}); err != nil {
+		return nil, err
+	}
+	return snapshot, nil
+}
+
+func upstreamBillingProbeFailureSnapshot(
+	account *Account,
+	intervalMinutes int,
+	now time.Time,
+	statusCode int,
+	reason string,
+	retryAfterDuration time.Duration,
+) *UpstreamBillingProbeSnapshot {
 	previous := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	failureCount := 1
 	if previous != nil {
@@ -912,11 +1036,9 @@ func (s *UpstreamBillingProbeService) persistProbeFailure(
 		if snapshot.FreshUntil == nil && previous.Status == UpstreamBillingProbeStatusOK && previous.ReceivedAt != nil {
 			snapshot.FreshUntil = probeTimePtr(previous.ReceivedAt.Add(2 * time.Duration(intervalMinutes) * time.Minute))
 		}
+		snapshot.Balance = previous.Balance
 	}
-	if err := s.updateSnapshot(ctx, account, snapshot, nil, BillingGroupInfo{}); err != nil {
-		return nil, err
-	}
-	return snapshot, nil
+	return snapshot
 }
 
 func (s *UpstreamBillingProbeService) updateSnapshot(
@@ -937,6 +1059,9 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 	var response upstreamBillingProbeResponse
 	if err := json.Unmarshal(body, &response); err != nil {
 		return nil, err
+	}
+	if response.SchemaVersion == 2 {
+		return parseMultiGroupUpstreamBillingResponse(body)
 	}
 	if response.Object != "sub2api.key_billing" || response.SchemaVersion != 1 || response.BillingScope != "token" {
 		return nil, fmt.Errorf("unexpected billing response schema")
@@ -1014,6 +1139,9 @@ func parseUpstreamBillingProbeResponse(body []byte) (map[string]any, error) {
 }
 
 func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
+	if data["billing_mode"] == "multi_group" {
+		return 0, false
+	}
 	if scope, _ := data["billing_scope"].(string); scope != "token" {
 		return 0, false
 	}
@@ -1052,6 +1180,9 @@ func upstreamBillingRateAt(data map[string]any, now time.Time) (float64, bool) {
 // A rejected declaration leaves the current multiplier untouched; the probe
 // still records an OK snapshot carrying the raw declaration for display.
 func upstreamBillingProbeSyncRate(data map[string]any) (float64, bool) {
+	if data["billing_mode"] == "multi_group" {
+		return 0, false
+	}
 	value, ok := resolveAccountExtraNumber(data, "resolved_rate_multiplier")
 	if !ok || math.IsNaN(value) || math.IsInf(value, 0) {
 		return 0, false
@@ -1119,12 +1250,19 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 	if err := json.Unmarshal(raw, &snapshot); err != nil || snapshot.Status == "" {
 		return nil
 	}
-	if snapshot.Status != UpstreamBillingProbeStatusOK &&
-		snapshot.Status != UpstreamBillingProbeStatusUnsupported &&
-		snapshot.Status != UpstreamBillingProbeStatusFailed {
+	if !isUpstreamBillingProbeStatus(snapshot.Status) {
 		return nil
 	}
+	if snapshot.Balance != nil && !isUpstreamBillingProbeStatus(snapshot.Balance.Status) {
+		snapshot.Balance = nil
+	}
 	return &snapshot
+}
+
+func isUpstreamBillingProbeStatus(status string) bool {
+	return status == UpstreamBillingProbeStatusOK ||
+		status == UpstreamBillingProbeStatusUnsupported ||
+		status == UpstreamBillingProbeStatusFailed
 }
 
 // IsUpstreamBillingProbeIdentity reports whether an account identity may opt
@@ -1133,14 +1271,11 @@ func decodeUpstreamBillingProbeSnapshot(extra map[string]any) *UpstreamBillingPr
 // CN providers, whose official-domain accounts are short-circuited to
 // "unsupported" by upstreamBillingProbeTargetIsOfficialAPI).
 // Non-sub2api upstreams return 404 and the snapshot records "unsupported".
-// Only AccountTypeAPIKey is in scope. OAuth/Bedrock hold no static API key to
-// present at all; AccountTypeUpstream (antigravity relay accounts) does carry
-// a base_url plus a static api_key, but it is deliberately left out of the
-// current supported set. New antigravity relay accounts are created with
-// type=apikey by the admin form, so only pre-existing type=upstream rows
-// cannot turn the probe on.
+// Explicit gateway accounts use either the configured New API authorization
+// or the Sub2API declaration endpoint. Other relay types retain their policy.
 func IsUpstreamBillingProbeIdentity(platform, accountType string) bool {
-	return accountType == AccountTypeAPIKey && domain.IsConcretePlatform(platform)
+	return (accountType == AccountTypeAPIKey && domain.IsConcretePlatform(platform)) ||
+		(accountType == AccountTypeGateway && platform == PlatformGateway)
 }
 
 func isUpstreamBillingProbeAccount(account *Account) bool {
@@ -1178,6 +1313,7 @@ var upstreamBillingProbeOfficialAPIDomains = []string{
 	"typesafe.ai",
 	"commandcode.ai",
 	"cline.bot",
+	"mistral.ai",
 }
 
 func upstreamBillingProbeTargetIsOfficialAPI(baseURL string) bool {

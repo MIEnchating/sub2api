@@ -11,6 +11,8 @@ import (
 type CustomMenuItem struct {
 	ID             string `json:"id"`
 	Label          string `json:"label"`
+	LabelZh        string `json:"label_zh,omitempty"`
+	LabelEn        string `json:"label_en,omitempty"`
 	IconSVG        string `json:"icon_svg"`
 	URL            string `json:"url"`
 	PageSlug       string `json:"page_slug,omitempty"`
@@ -74,6 +76,12 @@ type SystemSettings struct {
 	LoginAgreementMode                  string                   `json:"login_agreement_mode"`
 	LoginAgreementUpdatedAt             string                   `json:"login_agreement_updated_at"`
 	LoginAgreementDocuments             []LoginAgreementDocument `json:"login_agreement_documents"`
+	LoginRateLimitEnabled               bool                     `json:"login_rate_limit_enabled"`
+	RegistrationIPLimitEnabled          bool                     `json:"registration_ip_limit_enabled"`
+	PrismBrowserEnabled                 bool                     `json:"prism_browser_enabled"`
+	PrismBrowserBaseURL                 string                   `json:"prism_browser_base_url"`
+	PrismBrowserAPIKeyConfigured        bool                     `json:"prism_browser_api_key_configured"`
+	RegistrationEmailAliasBlockEnabled  bool                     `json:"registration_email_alias_block_enabled"`
 
 	SMTPHost               string `json:"smtp_host"`
 	SMTPPort               int    `json:"smtp_port"`
@@ -255,6 +263,8 @@ type SystemSettings struct {
 	ClaudeCodeClientVersion                   string          `json:"claude_code_client_version"`
 	ClaudeCodeClientVersionSynced             string          `json:"claude_code_client_version_synced"`
 	ClaudeCodeVersionAutoSyncEnabled          bool            `json:"claude_code_version_auto_sync_enabled"`
+	OpenAIRequestTimezoneEnabled              bool            `json:"openai_request_timezone_enabled"`
+	OpenAIRequestTimezoneAuto                 bool            `json:"openai_request_timezone_auto"`
 
 	// codex_cli_only 加固
 	MinCodexVersion                      string `json:"min_codex_version"`
@@ -353,9 +363,12 @@ type SystemSettings struct {
 	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
 
 	// Grok model mapping policy (admin settings; empty account mapping falls back to these).
-	GrokDefaultTextModel           string `json:"grok_default_text_model"`
-	GrokCrossClientModelMapEnabled bool   `json:"grok_cross_client_model_map_enabled"`
-	GrokDefaultBaseURLMode         string `json:"grok_default_base_url_mode"`
+	GrokDefaultTextModel                 string `json:"grok_default_text_model"`
+	GrokCrossClientModelMapEnabled       bool   `json:"grok_cross_client_model_map_enabled"`
+	GrokDefaultBaseURLMode               string `json:"grok_default_base_url_mode"`
+	GrokVideoSourceURLEnabled            bool   `json:"grok_video_source_url_enabled"`
+	OpenAI409OmitEncryptedHistoryEnabled bool   `json:"openai_409_omit_encrypted_history_enabled"`
+	OpenAI400OmitEncryptedHistoryEnabled bool   `json:"openai_400_omit_encrypted_history_enabled"`
 
 	// Available Channels feature switch (user-facing aggregate view)
 	AvailableChannelsEnabled      bool            `json:"available_channels_enabled"`
@@ -363,23 +376,34 @@ type SystemSettings struct {
 	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
 	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
 
+	// Pelican showcase (user-facing gallery of scheduled Pelican HTML results)
+	PelicanShowcaseEnabled bool                          `json:"pelican_showcase_enabled"`
+	PelicanShowcase        service.PelicanShowcaseConfig `json:"pelican_showcase_config"`
+
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header badge, /subscriptions route).
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription   string `json:"model_plaza_description"`
-	PluginManagementEnabled bool   `json:"plugin_management_enabled"`
+	ModelPlazaEnabled       bool                               `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth   bool                               `json:"model_plaza_require_auth"`
+	ModelPlazaDescription   string                             `json:"model_plaza_description"`
+	ModelPlazaUSDToCNYRate  float64                            `json:"model_plaza_usd_to_cny_rate"`
+	ModelPlazaCurrency      service.ModelPlazaCurrencySettings `json:"model_plaza_currency"`
+	PluginManagementEnabled bool                               `json:"plugin_management_enabled"`
+
+	// Support tickets ("网站工单") switch + form config
+	SupportTicketEnabled bool                        `json:"support_ticket_enabled"`
+	SupportTicket        service.SupportTicketConfig `json:"support_ticket_config"`
 
 	// 风控中心功能开关
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	// cyber 会话屏蔽开关 + TTL
-	CyberSessionBlockEnabled    bool   `json:"cyber_session_block_enabled"`
-	CyberPolicyUserAllowlist    string `json:"cyber_policy_user_allowlist"`
-	CyberSessionBlockTTLSeconds int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionBlockEnabled          bool   `json:"cyber_session_block_enabled"`
+	CyberPolicyUserAllowlist          string `json:"cyber_policy_user_allowlist"`
+	CyberSessionBlockTTLSeconds       int    `json:"cyber_session_block_ttl_seconds"`
+	CyberSessionIdentityStrictEnabled bool   `json:"cyber_session_identity_strict_enabled"`
 
 	// Affiliate (邀请返利) feature switch
 	AffiliateEnabled bool `json:"affiliate_enabled"`
@@ -394,7 +418,19 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds,omitempty"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+	AllowUserViewErrorRequests            bool   `json:"allow_user_view_error_requests"`
+	UsageShowLongContextBadge             bool   `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate                    bool   `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers             bool   `json:"usage_show_cache_rate_to_users"`
+	UsageShowUpstreamResponseModelToUsers bool   `json:"usage_show_upstream_response_model_to_users"`
+	RequestCaptureEnabled                 bool   `json:"request_capture_enabled"`
+	RequestCaptureQuotaMiB                int64  `json:"request_capture_quota_mib"`
+	RequestCaptureRetentionDays           int    `json:"request_capture_retention_days"`
+	ExcelBPSImageLimitPolicy              string `json:"excel_bps_image_limit_policy"`
+	ExcelBPSImageWarningRemaining         int    `json:"excel_bps_image_warning_remaining"`
+	ExcelBPSImageCompactReserve           int    `json:"excel_bps_image_compact_reserve"`
+
+	SmartOpsHiddenMenuItems []string `json:"smart_ops_hidden_menu_items"`
 }
 
 type DefaultSubscriptionSetting struct {
@@ -472,6 +508,8 @@ type PublicSettings struct {
 	BalanceLowNotifyThreshold   float64 `json:"balance_low_notify_threshold"`
 	BalanceLowNotifyRechargeURL string  `json:"balance_low_notify_recharge_url"`
 
+	PrismBrowserEnabled bool `json:"prism_browser_enabled"`
+
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
 	ChannelMonitorDefaultIntervalSeconds int    `json:"channel_monitor_default_interval_seconds"`
@@ -483,6 +521,7 @@ type PublicSettings struct {
 	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
 	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
 	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
+	PelicanShowcaseEnabled        bool            `json:"pelican_showcase_enabled"`
 
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
@@ -490,11 +529,21 @@ type PublicSettings struct {
 	ModelPlazaRequireAuth   bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled bool `json:"plugin_management_enabled"`
 
+	SupportTicketEnabled bool `json:"support_ticket_enabled"`
+	LotteryEnabled       bool `json:"lottery_enabled"`
+
 	AffiliateEnabled bool `json:"affiliate_enabled"`
 
 	RiskControlEnabled bool `json:"risk_control_enabled"`
 
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
+	UsageShowCacheRate        bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers bool `json:"usage_show_cache_rate_to_users"`
+
+	// 是否向终端用户展示上游响应里声明的实际模型。默认关闭。
+	UsageShowUpstreamResponseModelToUsers bool `json:"usage_show_upstream_response_model_to_users"`
 }
 
 type LoginAgreementDocument struct {

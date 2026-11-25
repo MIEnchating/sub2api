@@ -1,0 +1,69 @@
+name: Balance forecast removal
+on:
+  pull_request:
+    branches: [production]
+    paths:
+      - 'backend/internal/service/*forecast*'
+      - 'backend/internal/service/balance_notify_service.go'
+      - 'backend/internal/service/notification_email_service.go'
+      - 'backend/internal/handler/admin/setting*'
+      - 'frontend/src/views/admin/SettingsView.vue'
+      - 'frontend/src/views/admin/__tests__/SettingsView.spec.ts'
+      - '.github/workflows/balance-forecast.yml'
+      - '.github/scripts/balance-forecast-screenshot.mjs'
+permissions:
+  contents: read
+jobs:
+  compatibility:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          cache-dependency-path: backend/go.sum
+      - name: Retired settings and notification compatibility
+        working-directory: backend
+        run: go test -race -tags=unit ./internal/service ./internal/handler/admin ./cmd/server -run 'TestBalanceForecastRetired|TestProvideCleanup|TestResolveBalanceThreshold|TestNotificationEmail' -count=1 -v -timeout=10m
+  ui:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+        with:
+          version: 9
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          cache: pnpm
+          cache-dependency-path: frontend/pnpm-lock.yaml
+      - run: pnpm --dir frontend install --frozen-lockfile
+      - run: pnpm --dir frontend exec vitest run src/views/admin/__tests__/SettingsView.spec.ts
+      - name: Prepare baseline and isolated browser
+        env:
+          # Parent of the forecast-removal commit; the PR base already lacks the control.
+          SOURCE_BASE: 4c660794b89279dcbf699275091340eb2c87959a
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/forecast-before" "$SOURCE_BASE"
+          pnpm --dir "$RUNNER_TEMP/forecast-before/frontend" install --frozen-lockfile
+          npm install --prefix "$RUNNER_TEMP/forecast-browser" --no-save --ignore-scripts playwright@1.56.1
+          "$RUNNER_TEMP/forecast-browser/node_modules/.bin/playwright" install --with-deps chromium
+      - name: Render actual settings page before and after removal
+        env:
+          SOURCE_BASE: 4c660794b89279dcbf699275091340eb2c87959a
+          BASELINE_ROOT: ${{ runner.temp }}/forecast-before/frontend
+          PLAYWRIGHT_ROOT: ${{ runner.temp }}/forecast-browser/node_modules/playwright
+          SCREENSHOT_DIR: ${{ runner.temp }}/forecast-ui
+        run: node .github/scripts/balance-forecast-screenshot.mjs
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: balance-forecast-removal-ui-${{ github.event.pull_request.head.sha }}
+          path: ${{ runner.temp }}/forecast-ui

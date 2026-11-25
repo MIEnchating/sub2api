@@ -77,10 +77,10 @@ func newGroupRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor) *groupRep
 }
 
 func (r *groupRepository) Create(ctx context.Context, groupIn *service.Group) error {
-	if err := createGroupRecord(ctx, r.client, groupIn); err != nil {
+	if err := createGroupRecord(ctx, clientFromContext(ctx, r.client), groupIn); err != nil {
 		return err
 	}
-	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+	if err := enqueueSchedulerOutbox(ctx, txAwareSQLExecutor(ctx, r.sql, r.client), service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group create failed: group=%d err=%v", groupIn.ID, err)
 	}
 	return nil
@@ -107,12 +107,15 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
+		SetAllowBatchImageGeneration(groupIn.AllowBatchImageGeneration).
 		SetImageCountBilling(groupIn.ImageCountBilling).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
 		SetImageRateMultiplier(groupIn.ImageRateMultiplier).
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetBatchImageDiscountMultiplier(groupIn.BatchImageDiscountMultiplier).
+		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
 		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
@@ -128,6 +131,9 @@ func createGroupRecord(ctx context.Context, client *dbent.Client, groupIn *servi
 		SetModelPricing(modelPricing).
 		SetDefaultValidityDays(groupIn.DefaultValidityDays).
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
+		SetStreamOnly(groupIn.StreamOnly).
+		SetCodexCliOnly(groupIn.CodexCLIOnly).
+		SetBlockSubagents(groupIn.BlockSubagents).
 		SetNillableFallbackGroupID(groupIn.FallbackGroupID).
 		SetNillableFallbackGroupIDOnInvalidRequest(groupIn.FallbackGroupIDOnInvalidRequest).
 		SetNillableFallbackGroupIDOnUnavailable(groupIn.FallbackGroupIDOnUnavailable).
@@ -204,7 +210,8 @@ func (r *groupRepository) FindByDuplicateOperationID(ctx context.Context, operat
 }
 
 // CreateFromSource atomically persists a copied group, clones the source
-// account bindings with their exact priorities, and writes its scheduler event.
+// account bindings with their exact priorities and per-group model limits,
+// and writes its scheduler event.
 func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service.Group, sourceGroupID int64) error {
 	if groupIn == nil {
 		return errors.New("group is nil")
@@ -228,13 +235,13 @@ func (r *groupRepository) CreateFromSource(ctx context.Context, groupIn *service
 	}
 	result, err := txClient.ExecContext(
 		ctx,
-		`INSERT INTO account_groups (account_id, group_id, priority, created_at)
-		 SELECT ag.account_id, $2, ag.priority, NOW()
+		`INSERT INTO account_groups (account_id, group_id, priority, allowed_models, created_at)
+		 SELECT ag.account_id, $2, ag.priority, ag.allowed_models, NOW()
 		 FROM account_groups ag
 		 JOIN accounts a ON a.id = ag.account_id
 		 WHERE ag.group_id = $1
 		   AND a.deleted_at IS NULL
-		   AND (NOT $3 OR a.type <> $4)
+		   AND (NOT $3 OR (a.type <> $4 AND a.type <> 'gateway' AND a.platform <> 'gateway'))
 		 ON CONFLICT (account_id, group_id) DO NOTHING`,
 		sourceGroupID,
 		groupIn.ID,
@@ -286,11 +293,53 @@ func (r *groupRepository) GetByIDLite(ctx context.Context, id int64) (*service.G
 }
 
 func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) error {
+	client := r.client
+	var gatewayTx *dbent.Tx
+	if groupIn.RequireOAuthOnly {
+		var err error
+		gatewayTx, err = client.Tx(ctx)
+		if err != nil && !errors.Is(err, dbent.ErrTxStarted) {
+			return err
+		}
+		if gatewayTx != nil {
+			defer func() { _ = gatewayTx.Rollback() }()
+			client = gatewayTx.Client()
+		}
+		// Membership writers hold FOR SHARE on this group. Serialize an OAuth
+		// restriction edit with them so neither side can bypass the new policy.
+		rows, err := client.QueryContext(ctx, `SELECT id FROM groups WHERE id=$1 AND deleted_at IS NULL FOR UPDATE`, groupIn.ID)
+		if err != nil {
+			return err
+		}
+		found := rows.Next()
+		rowErr := rows.Err()
+		_ = rows.Close()
+		if rowErr != nil {
+			return rowErr
+		}
+		if !found {
+			return service.ErrGroupNotFound
+		}
+		rows, err = client.QueryContext(ctx, `SELECT 1 FROM account_groups ag JOIN accounts a ON a.id=ag.account_id
+			WHERE ag.group_id=$1 AND a.deleted_at IS NULL AND (a.type='gateway' OR a.platform='gateway') LIMIT 1`, groupIn.ID)
+		if err != nil {
+			return err
+		}
+		hasGateway := rows.Next()
+		rowErr = rows.Err()
+		_ = rows.Close()
+		if rowErr != nil {
+			return rowErr
+		}
+		if hasGateway {
+			return service.ErrGatewayAccountGroup
+		}
+	}
 	modelPricing, err := json.Marshal(groupIn.ModelPricing)
 	if err != nil {
 		return fmt.Errorf("marshal group model pricing: %w", err)
 	}
-	builder := r.client.Group.UpdateOneID(groupIn.ID).
+	builder := client.Group.UpdateOneID(groupIn.ID).
 		SetName(groupIn.Name).
 		SetDescription(groupIn.Description).
 		SetPlatform(groupIn.Platform).
@@ -302,12 +351,15 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetNillableWeeklyLimitUsd(groupIn.WeeklyLimitUSD).
 		SetNillableMonthlyLimitUsd(groupIn.MonthlyLimitUSD).
 		SetAllowImageGeneration(groupIn.AllowImageGeneration).
+		SetAllowBatchImageGeneration(groupIn.AllowBatchImageGeneration).
 		SetImageCountBilling(groupIn.ImageCountBilling).
 		SetImageRateIndependent(groupIn.ImageRateIndependent).
 		SetImageRateMultiplier(groupIn.ImageRateMultiplier).
 		SetNillableImagePrice1k(groupIn.ImagePrice1K).
 		SetNillableImagePrice2k(groupIn.ImagePrice2K).
 		SetNillableImagePrice4k(groupIn.ImagePrice4K).
+		SetBatchImageDiscountMultiplier(groupIn.BatchImageDiscountMultiplier).
+		SetBatchImageHoldMultiplier(groupIn.BatchImageHoldMultiplier).
 		SetVideoRateIndependent(groupIn.VideoRateIndependent).
 		SetVideoRateMultiplier(groupIn.VideoRateMultiplier).
 		SetNillableVideoPrice480p(groupIn.VideoPrice480P).
@@ -318,6 +370,9 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		SetModelPricing(modelPricing).
 		SetDefaultValidityDays(groupIn.DefaultValidityDays).
 		SetClaudeCodeOnly(groupIn.ClaudeCodeOnly).
+		SetStreamOnly(groupIn.StreamOnly).
+		SetCodexCliOnly(groupIn.CodexCLIOnly).
+		SetBlockSubagents(groupIn.BlockSubagents).
 		SetModelRoutingEnabled(groupIn.ModelRoutingEnabled).
 		SetMcpXMLInject(groupIn.MCPXMLInject).
 		SetAllowMessagesDispatch(groupIn.AllowMessagesDispatch).
@@ -458,6 +513,12 @@ func (r *groupRepository) Update(ctx context.Context, groupIn *service.Group) er
 		return translatePersistenceError(err, service.ErrGroupNotFound, service.ErrGroupExists)
 	}
 	groupIn.UpdatedAt = updated.UpdatedAt
+	if gatewayTx != nil {
+		if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
+			return err
+		}
+		return gatewayTx.Commit()
+	}
 	if err := enqueueSchedulerOutbox(ctx, r.sql, service.SchedulerOutboxEventGroupChanged, nil, &groupIn.ID, nil); err != nil {
 		logger.LegacyPrintf("repository.group", "[SchedulerOutbox] enqueue group update failed: group=%d err=%v", groupIn.ID, err)
 	}
@@ -1020,6 +1081,13 @@ func (r *groupRepository) deleteCascade(ctx context.Context, id int64, requireEm
 		return nil, err
 	}
 
+	// Soft deletion does not trigger the join table's ON DELETE CASCADE.
+	// Remove additional key bindings in this transaction so editing a key does
+	// not submit an inaccessible group left behind by the deletion.
+	if _, err := exec.ExecContext(ctx, "DELETE FROM api_key_groups WHERE group_id = $1", id); err != nil {
+		return nil, err
+	}
+
 	// 5. Soft-delete group itself.
 	if _, err := txClient.Group.Delete().Where(group.IDEQ(id)).Exec(ctx); err != nil {
 		return nil, err
@@ -1183,6 +1251,22 @@ func (r *groupRepository) BindAccountsToGroup(ctx context.Context, groupID int64
 	if err := lockLiveGroups(ctx, exec, []int64{groupID}); err != nil {
 		return err
 	}
+
+	// Account locks serialize bulk binding with a concurrently committed
+	// degradation action. Use a stable order for overlapping bulk operations.
+	accountIDs = uniquePositiveInt64s(accountIDs)
+	sort.Slice(accountIDs, func(i, j int) bool { return accountIDs[i] < accountIDs[j] })
+	allowedAccounts := make([]int64, 0, len(accountIDs))
+	for _, id := range accountIDs {
+		allowed, err := lockOAuthDegradationGroupBindings(ctx, exec, id, []int64{groupID})
+		if err != nil {
+			return err
+		}
+		if len(allowed) > 0 {
+			allowedAccounts = append(allowedAccounts, id)
+		}
+	}
+	accountIDs = allowedAccounts
 
 	// 使用 INSERT ... ON CONFLICT DO NOTHING 忽略已存在的绑定
 	_, err = exec.ExecContext(

@@ -2,6 +2,7 @@
 package dto
 
 import (
+	"context"
 	"strconv"
 	"strings"
 	"time"
@@ -23,6 +24,7 @@ func UserFromServiceShallow(u *service.User) *User {
 		Concurrency:                u.Concurrency,
 		Status:                     u.Status,
 		AllowedGroups:              u.AllowedGroups,
+		ObserverGroupIDs:           u.ObserverGroupIDs,
 		LastActiveAt:               u.LastActiveAt,
 		CreatedAt:                  u.CreatedAt,
 		UpdatedAt:                  u.UpdatedAt,
@@ -86,9 +88,14 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		UserID:             k.UserID,
 		Key:                service.MaskAPIKey(k.Key),
 		Name:               k.Name,
+		GroupIDs:           k.ConfiguredGroupIDs(),
 		GroupID:            k.GroupID,
 		FallbackGroupID:    k.FallbackGroupID,
 		Status:             k.Status,
+		ModelMapping:       k.ModelMapping,
+		ReasoningEffort:    k.ReasoningEffort,
+		AllowLongContext:   k.AllowLongContext,
+		ContextTokenLimit:  k.ContextTokenLimit,
 		IPWhitelist:        k.IPWhitelist,
 		IPBlacklist:        k.IPBlacklist,
 		LastUsedAt:         k.LastUsedAt,
@@ -100,6 +107,7 @@ func APIKeyFromService(k *service.APIKey) *APIKey {
 		UpdatedAt:          k.UpdatedAt,
 		CurrentConcurrency: k.CurrentConcurrency,
 		RateLimit5h:        k.RateLimit5h,
+		ConcurrencyLimit:   k.ConcurrencyLimit,
 		RateLimit1d:        k.RateLimit1d,
 		RateLimit7d:        k.RateLimit7d,
 		Usage5h:            k.EffectiveUsage5h(),
@@ -173,6 +181,9 @@ func GroupFromServiceAdmin(g *service.Group) *AdminGroup {
 		RateLimitedAccountCount:      g.RateLimitedAccountCount,
 		SortOrder:                    g.SortOrder,
 		ForceOpenAIUltrafast:         g.ForceOpenAIUltrafast,
+		StreamOnly:                   g.StreamOnly,
+		CodexCLIOnly:                 g.CodexCLIOnly,
+		BlockSubagents:               g.BlockSubagents,
 	}
 	if len(g.AccountGroups) > 0 {
 		out.AccountGroups = make([]AccountGroup, 0, len(g.AccountGroups))
@@ -200,6 +211,7 @@ func groupFromServiceBase(g *service.Group) Group {
 		MonthlyLimitUSD:                 g.MonthlyLimitUSD,
 		LongContextPricingEnabled:       g.LongContextPricingEnabled,
 		AllowImageGeneration:            g.AllowImageGeneration,
+		AllowBatchImageGeneration:       g.AllowBatchImageGeneration,
 		ImageCountBilling:               g.ImageCountBilling,
 		ImageRateIndependent:            g.ImageRateIndependent,
 		ImageRateMultiplier:             g.ImageRateMultiplier,
@@ -212,6 +224,8 @@ func groupFromServiceBase(g *service.Group) Group {
 		ImagePrice1K:                    g.ImagePrice1K,
 		ImagePrice2K:                    g.ImagePrice2K,
 		ImagePrice4K:                    g.ImagePrice4K,
+		BatchImageDiscountMultiplier:    g.BatchImageDiscountMultiplier,
+		BatchImageHoldMultiplier:        g.BatchImageHoldMultiplier,
 		VideoPrice480P:                  g.VideoPrice480P,
 		VideoPrice720P:                  g.VideoPrice720P,
 		VideoPrice1080P:                 g.VideoPrice1080P,
@@ -293,9 +307,10 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 		ParentAccountID:            a.ParentAccountID,
 		QuotaDimension:             a.QuotaDimension,
 		ExcelBPSCredentialState:    service.ExcelBPSCredentialStateFromAccount(a, time.Now()),
+		GroupRateMultiplier:        a.UserGroupRateMultiplier(),
 	}
 
-	// 提取 5h 窗口费用控制和会话数量控制配置（仅 Anthropic OAuth/SetupToken 账号有效）
+	// 提取 Anthropic OAuth/SetupToken 的配额控制配置。
 	if a.IsAnthropicOAuthOrSetupToken() {
 		if limit := a.GetWindowCostLimit(); limit > 0 {
 			out.WindowCostLimit = &limit
@@ -348,6 +363,12 @@ func AccountFromServiceShallow(a *service.Account) *Account {
 			if customURL := a.GetCustomBaseURL(); customURL != "" {
 				out.CustomBaseURL = &customURL
 			}
+		}
+	}
+	// OpenAI OAuth uses only a strict per-minute request ceiling.
+	if a.IsOpenAIOAuth() {
+		if rpm := a.GetBaseRPM(); rpm > 0 {
+			out.BaseRPM = &rpm
 		}
 	}
 
@@ -476,7 +497,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		return nil
 	}
 	return &AccountListItem{
-		ID: a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
+		UpstreamChannelBinding: a.UpstreamChannelBinding,
+		ID:                     a.ID, Name: a.Name, Notes: a.Notes, Platform: a.Platform, Type: a.Type,
 		Credentials: a.Credentials, CredentialsStatus: a.CredentialsStatus, Extra: a.Extra,
 		OllamaCloudUsage:  a.OllamaCloudUsage,
 		OpenCodeGoUsage:   a.OpenCodeGoUsage,
@@ -486,7 +508,8 @@ func AccountListItemFromAccount(a *Account) *AccountListItem {
 		ProxyID:           a.ProxyID, ProxyFallbackOriginID: a.ProxyFallbackOriginID, ProxyFallbackOriginName: a.ProxyFallbackOriginName,
 		ExcelBPSCredentialState: a.ExcelBPSCredentialState,
 		Concurrency:             a.Concurrency, LoadFactor: a.LoadFactor, Priority: a.Priority, RateMultiplier: a.RateMultiplier,
-		Status: a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
+		GroupRateMultiplier: a.GroupRateMultiplier,
+		Status:              a.Status, ErrorMessage: a.ErrorMessage, LastUsedAt: a.LastUsedAt, ExpiresAt: a.ExpiresAt,
 		AutoPauseOnExpired: a.AutoPauseOnExpired, CreatedAt: a.CreatedAt, UpdatedAt: a.UpdatedAt,
 		Schedulable: a.Schedulable, RateLimitedAt: a.RateLimitedAt, RateLimitResetAt: a.RateLimitResetAt,
 		UpstreamBillingRateLimited: a.UpstreamBillingRateLimited,
@@ -528,12 +551,13 @@ func AccountGroupFromService(ag *service.AccountGroup) *AccountGroup {
 		return nil
 	}
 	return &AccountGroup{
-		AccountID: ag.AccountID,
-		GroupID:   ag.GroupID,
-		Priority:  ag.Priority,
-		CreatedAt: ag.CreatedAt,
-		Account:   AccountFromServiceShallow(ag.Account),
-		Group:     GroupFromServiceShallow(ag.Group),
+		AccountID:     ag.AccountID,
+		GroupID:       ag.GroupID,
+		Priority:      ag.Priority,
+		AllowedModels: ag.AllowedModels,
+		CreatedAt:     ag.CreatedAt,
+		Account:       AccountFromServiceShallow(ag.Account),
+		Group:         GroupFromServiceShallow(ag.Group),
 	}
 }
 
@@ -663,6 +687,7 @@ func RedeemCodeFromServiceAdmin(rc *service.RedeemCode) *AdminRedeemCode {
 	return &AdminRedeemCode{
 		RedeemCode: redeemCodeFromServiceBase(rc),
 		Notes:      rc.Notes,
+		AutoCredit: rc.AutoCredit,
 	}
 }
 
@@ -773,17 +798,39 @@ func usageLogFromServiceUser(l *service.UsageLog) UsageLog {
 		APIKey:                     APIKeyFromService(l.APIKey),
 		Group:                      GroupFromServiceShallow(l.Group),
 		Subscription:               UserSubscriptionFromService(l.Subscription),
+		QueueWaitMs:                l.QueueWaitMs,
+		QueueTiming:                l.QueueTiming,
+		ContentTiming:              l.ContentTiming,
+		CustomerCostDetails:        l.CustomerCostDetails,
 	}
 }
 
 // UsageLogFromService converts a service UsageLog to DTO for regular users.
 // It excludes admin-only account/upstream internals while keeping user billing and request metadata.
 func UsageLogFromService(l *service.UsageLog) *UsageLog {
+	return UsageLogFromServiceForUser(l, false)
+}
+
+// UsageLogFromServiceForUser converts a usage log for an end user.
+// showUpstreamResponseModel reveals only the model declared by the upstream
+// response. Mapped request models, mismatch flags, and account internals stay hidden.
+func UsageLogFromServiceForUser(l *service.UsageLog, showUpstreamResponseModel bool) *UsageLog {
 	if l == nil {
 		return nil
 	}
 	u := usageLogFromServiceUser(l)
+	if showUpstreamResponseModel {
+		u.UpstreamResponseModel = visibleUpstreamResponseModel(l.UpstreamResponseModel)
+	}
 	return &u
+}
+
+func visibleUpstreamResponseModel(value *string) *string {
+	trimmed := strings.TrimSpace(derefString(value))
+	if trimmed == "" {
+		return nil
+	}
+	return &trimmed
 }
 
 // UsageLogFromServiceAdmin converts a service UsageLog to DTO for admin users.
@@ -806,6 +853,7 @@ func UsageLogFromServiceAdmin(l *service.UsageLog) *AdminUsageLog {
 		BillingTier:             l.BillingTier,
 		AccountRateMultiplier:   l.AccountRateMultiplier,
 		AccountStatsCost:        l.AccountStatsCost,
+		ProcurementCostSnapshot: l.ProcurementCostSnapshot,
 		IPAddress:               l.IPAddress,
 		Account:                 AccountSummaryFromService(l.Account),
 	}
@@ -992,4 +1040,28 @@ func PromoCodeUsageFromService(u *service.PromoCodeUsage) *PromoCodeUsage {
 		UsedAt:      u.UsedAt,
 		User:        UserFromServiceShallow(u.User),
 	}
+}
+
+// AccountForObserver filters only the freshly allocated response DTO. Never
+// mutate service accounts: they also feed credential refresh and scheduler caches.
+func AccountForObserver(ctx context.Context, account *Account) *Account {
+	if _, scoped := service.ObserverGroupIDs(ctx); !scoped || account == nil {
+		return account
+	}
+	account.GroupIDs = service.ObserverVisibleGroups(ctx, account.GroupIDs)
+	groups := account.Groups[:0]
+	for _, group := range account.Groups {
+		if group != nil && service.ObserverCanManageGroup(ctx, group.ID) {
+			groups = append(groups, group)
+		}
+	}
+	account.Groups = groups
+	links := account.AccountGroups[:0]
+	for _, link := range account.AccountGroups {
+		if service.ObserverCanManageGroup(ctx, link.GroupID) {
+			links = append(links, link)
+		}
+	}
+	account.AccountGroups = links
+	return account
 }

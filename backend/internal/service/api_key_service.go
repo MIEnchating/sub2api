@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"html"
 	"math"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -66,12 +67,18 @@ const (
 // 若编辑 Key 时无条件整行回写，并发累计的配额与限流计数就会被旧快照覆盖。
 // 因此调用方必须显式声明要改的列。
 type APIKeyUpdateFields struct {
-	Name            bool
-	Status          bool
-	Quota           bool
-	GroupID         bool
-	FallbackGroupID bool
-	ExpiresAt       bool
+	// Administrator-only policy fields have independent masks to preserve concurrent edits.
+	ModelMapping      bool
+	ReasoningEffort   bool
+	ContextTokenLimit bool
+	AllowLongContext  bool
+	ConcurrencyLimit  bool
+	Name              bool
+	Status            bool
+	Quota             bool
+	GroupID           bool
+	FallbackGroupID   bool
+	ExpiresAt         bool
 	// QuotaUsed 仅供"重置配额用量"路径声明；常规计费走 IncrementQuotaUsed。
 	QuotaUsed bool
 	// RateLimits 覆盖 rate_limit_5h / _1d / _7d 三个阈值。
@@ -79,7 +86,10 @@ type APIKeyUpdateFields struct {
 	// RateLimitUsage 覆盖 usage_5h/_1d/_7d 与三个窗口起点，
 	// 仅供"重置限流用量"路径声明；常规计费走 IncrementRateLimitUsage。
 	RateLimitUsage bool
-	// IPRules 覆盖 ip_whitelist 与 ip_blacklist。
+	// IPWhitelist / IPBlacklist only write the explicitly requested ACL column.
+	IPWhitelist bool
+	IPBlacklist bool
+	// IPRules retains the legacy opt-in to write both ACL columns.
 	IPRules bool
 }
 
@@ -217,12 +227,14 @@ type APIKeyAuthCacheInvalidator interface {
 
 // CreateAPIKeyRequest 创建API Key请求
 type CreateAPIKeyRequest struct {
-	Name            string   `json:"name"`
-	GroupID         *int64   `json:"group_id"`
-	FallbackGroupID *int64   `json:"fallback_group_id"`
-	CustomKey       *string  `json:"custom_key"`   // 可选的自定义key
-	IPWhitelist     []string `json:"ip_whitelist"` // IP 白名单
-	IPBlacklist     []string `json:"ip_blacklist"` // IP 黑名单
+	ConcurrencyLimit int      `json:"concurrency_limit"`
+	Name             string   `json:"name"`
+	GroupIDs         []int64  `json:"group_ids"`
+	GroupID          *int64   `json:"group_id"`
+	FallbackGroupID  *int64   `json:"fallback_group_id"`
+	CustomKey        *string  `json:"custom_key"`   // 可选的自定义key
+	IPWhitelist      []string `json:"ip_whitelist"` // IP 白名单
+	IPBlacklist      []string `json:"ip_blacklist"` // IP 黑名单
 
 	// Quota fields
 	Quota         float64 `json:"quota"`           // Quota limit in USD (0 = unlimited)
@@ -236,7 +248,9 @@ type CreateAPIKeyRequest struct {
 
 // UpdateAPIKeyRequest 更新API Key请求
 type UpdateAPIKeyRequest struct {
+	ConcurrencyLimit   *int      `json:"concurrency_limit"` // nil = no change, 0 = no additional limit
 	Name               *string   `json:"name"`
+	GroupIDs           *[]int64  `json:"group_ids"`
 	GroupID            *int64    `json:"group_id"`
 	FallbackGroupID    *int64    `json:"fallback_group_id"`
 	FallbackGroupIDSet bool      `json:"-"`
@@ -294,8 +308,16 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
+	groupAntiDistillation     *GroupAntiDistillationService
+	autoCredit                AutoCreditRepository
+	autoCreditBilling         *BillingCacheService
+	balanceRejectionNotifier  BalanceRejectionNotifier
+	localAuth                 *RegionalAuthReader
+	regionalAuthRuntime       *regionalSchedulerRuntime
 	apiKeyRepo                APIKeyRepository
 	userRepo                  UserRepository
+	groupRouter               APIKeyGroupRouter
+	securityPenalties         *SecurityPenaltyService
 	groupRepo                 GroupRepository
 	userSubRepo               UserSubscriptionRepository
 	userGroupRateRepo         UserGroupRateRepository
@@ -317,6 +339,7 @@ type APIKeyService struct {
 	authInvalidationCancel    context.CancelFunc
 	authInvalidationWG        sync.WaitGroup
 	authInvalidationConnected atomic.Bool
+	authCacheL1Epoch          atomic.Uint64
 	authInvalidationFailures  atomic.Uint64
 	lastUsedTouchL1           sync.Map // keyID -> nextAllowedAt(time.Time)
 	lastUsedTouchSF           singleflight.Group
@@ -534,6 +557,9 @@ func validateAPIKeyFallbackGroup(primary, fallback *Group) error {
 
 // Create 创建API Key
 func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIKeyRequest) (*APIKey, error) {
+	if req.ConcurrencyLimit < 0 {
+		return nil, infraerrors.BadRequest("INVALID_CONCURRENCY_LIMIT", "concurrency_limit must be nonnegative")
+	}
 	if err := validateCreateAPIKeyRequest(req); err != nil {
 		return nil, err
 	}
@@ -557,16 +583,22 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
-	var primaryGroup *Group
-	// 验证分组权限（如果指定了分组）
-	if req.GroupID != nil {
-		primaryGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *req.GroupID)
-		if err != nil {
-			return nil, err
-		}
+	groupIDs, err := normalizeAPIKeyGroupIDs(req.GroupID, req.GroupIDs)
+	if err != nil {
+		return nil, err
+	}
+	primaryGroup, err := s.validateAPIKeyGroups(ctx, user, groupIDs)
+	if err != nil {
+		return nil, err
+	}
+	if len(groupIDs) > 0 {
+		req.GroupID = &groupIDs[0]
 	}
 	var fallbackGroup *Group
 	if req.FallbackGroupID != nil {
+		if slices.Contains(groupIDs, *req.FallbackGroupID) {
+			return nil, ErrFallbackGroupInvalid
+		}
 		fallbackGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *req.FallbackGroupID)
 		if err != nil {
 			return nil, err
@@ -617,19 +649,22 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 
 	// 创建API Key记录
 	apiKey := &APIKey{
-		UserID:          userID,
-		Key:             key,
-		Name:            html.EscapeString(req.Name),
-		GroupID:         req.GroupID,
-		FallbackGroupID: req.FallbackGroupID,
-		Status:          StatusActive,
-		IPWhitelist:     req.IPWhitelist,
-		IPBlacklist:     req.IPBlacklist,
-		Quota:           req.Quota,
-		QuotaUsed:       0,
-		RateLimit5h:     req.RateLimit5h,
-		RateLimit1d:     req.RateLimit1d,
-		RateLimit7d:     req.RateLimit7d,
+		UserID:           userID,
+		Key:              key,
+		Name:             html.EscapeString(req.Name),
+		GroupIDs:         groupIDs,
+		GroupID:          req.GroupID,
+		FallbackGroupID:  req.FallbackGroupID,
+		Status:           StatusActive,
+		AllowLongContext: true,
+		IPWhitelist:      req.IPWhitelist,
+		IPBlacklist:      req.IPBlacklist,
+		Quota:            req.Quota,
+		QuotaUsed:        0,
+		ConcurrencyLimit: req.ConcurrencyLimit,
+		RateLimit5h:      req.RateLimit5h,
+		RateLimit1d:      req.RateLimit1d,
+		RateLimit7d:      req.RateLimit7d,
 	}
 
 	// Set expiration time if specified
@@ -757,6 +792,24 @@ func (s *APIKeyService) currentConcurrencyForAPIKey(ctx context.Context, apiKeyI
 	return counts[apiKeyID]
 }
 
+// APIKeyQueuePolicy exposes the immutable key-queue policy of this process for
+// read-only metadata. It never consults the database.
+func (s *APIKeyService) APIKeyQueuePolicy() APIKeyQueuePolicy {
+	if s == nil || s.concurrencyService == nil {
+		return APIKeyQueuePolicy{}
+	}
+	return s.concurrencyService.APIKeyQueuePolicy()
+}
+
+// GetAPIKeyQueueStatsBatch returns active/waiting counts for the given keys.
+// An error means the snapshot is unknown; callers must not render zeroes.
+func (s *APIKeyService) GetAPIKeyQueueStatsBatch(ctx context.Context, apiKeyIDs []int64) (map[int64]APIKeyQueueCounts, error) {
+	if s == nil || s.concurrencyService == nil {
+		return nil, fmt.Errorf("api key queue statistics unavailable")
+	}
+	return s.concurrencyService.GetAPIKeyQueueStatsBatch(ctx, apiKeyIDs)
+}
+
 func (s *APIKeyService) VerifyOwnership(ctx context.Context, userID int64, apiKeyIDs []int64) ([]int64, error) {
 	if len(apiKeyIDs) == 0 {
 		return []int64{}, nil
@@ -784,10 +837,15 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 
 // GetByKey 根据Key字符串获取API Key（用于认证）
 func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, error) {
-	// 非 UTF-8 的 key 不可能存在（生成和自定义的 key 都是 ASCII），且 Postgres 会以
-	// invalid byte sequence 拒绝该参数；直接按不存在处理，避免返回 500。
+	// Reject malformed credentials before any cache or PostgreSQL lookup.
 	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) || strings.HasPrefix(key, apiKeyDigestPrefix) {
 		return nil, ErrAPIKeyNotFound
+	}
+	if s.localAuth != nil {
+		return s.localAuth.GetByKey(ctx, key)
+	}
+	if s.cfg != nil && s.cfg.Runtime.Role == config.RuntimeRoleGateway && s.cfg.Runtime.RegionalAuthFile != "" {
+		return nil, ErrRegionalAuthUnavailable
 	}
 	cacheKey := s.authCacheKey(key)
 
@@ -848,8 +906,41 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 	return apiKey, nil
 }
 
+// GetByKeyUncached reads current authorization state without consuming or
+// populating auth caches (or joining a possibly stale singleflight lookup).
+// Long-lived WS sessions use it at turn boundaries so cache invalidation is
+// not a prerequisite for revocation. The normal auth lookup concurrency bound
+// and the caller's admission timeout still apply.
+func (s *APIKeyService) GetByKeyUncached(ctx context.Context, key string) (*APIKey, error) {
+	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) || strings.HasPrefix(key, apiKeyDigestPrefix) {
+		return nil, ErrAPIKeyNotFound
+	}
+	if s.localAuth != nil {
+		return s.localAuth.GetByKey(ctx, key)
+	}
+	if s.cfg != nil && s.cfg.Runtime.Role == config.RuntimeRoleGateway && s.cfg.Runtime.RegionalAuthFile != "" {
+		return nil, ErrRegionalAuthUnavailable
+	}
+	apiKey, err := s.lookupAPIKeyForAuth(ctx, key)
+	if err != nil {
+		return nil, fmt.Errorf("get api key: %w", err)
+	}
+	if apiKey == nil {
+		return nil, ErrAPIKeyNotFound
+	}
+	apiKey.Key = key
+	if err := s.loadUserGroupDeniedModels(ctx, apiKey); err != nil {
+		return nil, fmt.Errorf("get api key: load user group denied models: %w", err)
+	}
+	s.compileAPIKeyIPRules(apiKey)
+	return apiKey, nil
+}
+
 // Update 更新API Key
 func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req UpdateAPIKeyRequest) (*APIKey, error) {
+	if req.ConcurrencyLimit != nil && *req.ConcurrencyLimit < 0 {
+		return nil, infraerrors.BadRequest("INVALID_CONCURRENCY_LIMIT", "concurrency_limit must be nonnegative")
+	}
 	if err := validateUpdateAPIKeyRequest(req); err != nil {
 		return nil, err
 	}
@@ -890,42 +981,67 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 		fields.Name = true
 	}
 
-	if req.GroupID != nil || req.FallbackGroupIDSet {
+	groupsChanged := req.GroupID != nil || req.GroupIDs != nil
+	if groupsChanged || req.FallbackGroupIDSet {
 		user, err := s.userRepo.GetByID(ctx, userID)
 		if err != nil {
 			return nil, fmt.Errorf("get user: %w", err)
 		}
-
-		primaryGroup := apiKey.Group
-		if req.GroupID != nil {
-			primaryGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *req.GroupID)
+		primary := apiKey.Group
+		groupIDs := apiKey.ConfiguredGroupIDs()
+		if groupsChanged {
+			var requested []int64
+			if req.GroupIDs != nil {
+				requested = *req.GroupIDs
+			}
+			groupIDs, err = normalizeAPIKeyGroupIDs(req.GroupID, requested)
 			if err != nil {
 				return nil, err
 			}
+			primary, err = s.validateAPIKeyGroups(ctx, user, groupIDs)
+			if err != nil {
+				return nil, err
+			}
+			apiKey.GroupIDs, apiKey.GroupID, apiKey.Group = groupIDs, nil, primary
+			if len(groupIDs) > 0 {
+				apiKey.GroupID = &groupIDs[0]
+			}
+			fields.GroupID = true
 		}
 
-		fallbackGroup := apiKey.FallbackGroup
+		fallback := apiKey.FallbackGroup
 		if req.FallbackGroupIDSet {
-			fallbackGroup = nil
+			fallback = nil
 			if req.FallbackGroupID != nil {
-				fallbackGroup, err = s.loadBindableAPIKeyGroup(ctx, user, *req.FallbackGroupID)
+				fallback, err = s.loadBindableAPIKeyGroup(ctx, user, *req.FallbackGroupID)
 				if err != nil {
 					return nil, err
 				}
 			}
-		}
-		if err := validateAPIKeyFallbackGroup(primaryGroup, fallbackGroup); err != nil {
-			return nil, err
-		}
-		if req.GroupID != nil {
-			apiKey.GroupID = req.GroupID
-			apiKey.Group = primaryGroup
-			fields.GroupID = true
-		}
-		if req.FallbackGroupIDSet {
-			apiKey.FallbackGroupID = req.FallbackGroupID
-			apiKey.FallbackGroup = fallbackGroup
+			apiKey.FallbackGroupID, apiKey.FallbackGroup = req.FallbackGroupID, fallback
 			fields.FallbackGroupID = true
+		}
+		// Some repositories return IDs without hydrated edges. Validate the
+		// intended persisted pair even in that case.
+		if apiKey.FallbackGroupID != nil {
+			if fallback == nil {
+				fallback, err = s.loadBindableAPIKeyGroup(ctx, user, *apiKey.FallbackGroupID)
+				if err != nil {
+					return nil, err
+				}
+			}
+			if primary == nil && len(groupIDs) > 0 {
+				primary, err = s.loadBindableAPIKeyGroup(ctx, user, groupIDs[0])
+				if err != nil {
+					return nil, err
+				}
+			}
+			if slices.Contains(groupIDs, *apiKey.FallbackGroupID) {
+				return nil, ErrFallbackGroupInvalid
+			}
+			if err := validateAPIKeyFallbackGroup(primary, fallback); err != nil {
+				return nil, err
+			}
 		}
 	}
 
@@ -970,14 +1086,18 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 	// 更新 IP 限制（nil 不修改，空数组清空设置）
 	if req.IPWhitelist != nil {
 		apiKey.IPWhitelist = *req.IPWhitelist
-		fields.IPRules = true
+		fields.IPWhitelist = true
 	}
 	if req.IPBlacklist != nil {
 		apiKey.IPBlacklist = *req.IPBlacklist
-		fields.IPRules = true
+		fields.IPBlacklist = true
 	}
 
 	// Update rate limit configuration
+	if req.ConcurrencyLimit != nil {
+		apiKey.ConcurrencyLimit = *req.ConcurrencyLimit
+		fields.ConcurrencyLimit = true
+	}
 	if req.RateLimit5h != nil {
 		apiKey.RateLimit5h = *req.RateLimit5h
 		fields.RateLimits = true
@@ -1231,6 +1351,18 @@ func (s *APIKeyService) GetUserGroupRates(ctx context.Context, userID int64) (ma
 		return nil, fmt.Errorf("get user group rates: %w", err)
 	}
 	return rates, nil
+}
+
+// GetUserGroupDeniedModels 获取用户在各分组被禁用的模型，返回 map[groupID]models。
+func (s *APIKeyService) GetUserGroupDeniedModels(ctx context.Context, userID int64) (map[int64][]string, error) {
+	if s.userGroupRateRepo == nil {
+		return nil, nil
+	}
+	denied, err := s.userGroupRateRepo.GetDeniedModelsByUserID(ctx, userID)
+	if err != nil {
+		return nil, fmt.Errorf("get user group denied models: %w", err)
+	}
+	return denied, nil
 }
 
 // CheckAPIKeyQuotaAndExpiry checks if the API key is valid for use (not expired, quota not exhausted)

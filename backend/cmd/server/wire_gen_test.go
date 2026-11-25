@@ -50,9 +50,15 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 	idempotencyCleanupSvc := service.NewIdempotencyCleanupService(nil, cfg)
 	schedulerSnapshotSvc := service.NewSchedulerSnapshotService(nil, nil, nil, nil, cfg)
 	opsSystemLogSinkSvc := service.NewOpsSystemLogSink(nil)
+	accountPerformanceSvc := service.NewAccountPerformanceService(nil)
 
-	cleanup := provideCleanup(nil, // gptDirect
+	cleanup := provideCleanup(
+		nil, // gptDirect
 		nil, // qqBot
+		nil, // providerChannels
+		nil, // autoCreditEmail
+		cfg,
+		nil, // requestCaptures
 		nil, // entClient
 		nil, // redis
 		&service.OpsMetricsCollector{},
@@ -64,6 +70,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // opsService
 		nil, // opsIngressRejectAggregator
 		nil, // apiKeyService
+		nil, // concurrencyService
 		nil, // authCacheInvalidationWorker
 		schedulerSnapshotSvc,
 		tokenRefreshSvc,
@@ -76,6 +83,8 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		&service.UsageCleanupService{},
 		idempotencyCleanupSvc,
 		service.NewGeminiCachedContentService(nil, nil, cfg),
+		&service.BatchImageCleanupService{},
+		nil, // batchImageWorker
 		pricingSvc,
 		emailQueueSvc,
 		billingCacheSvc,
@@ -94,11 +103,16 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // openAIGateway
 		nil, // accountHealth
 		nil, // scheduledTestRunner
-		nil, // account performance monitor
+		nil, // controlledExperiment
+		nil, // accountOps
+		accountPerformanceSvc,
+		nil, // openAIRelogin
+		nil, // accountTokenGuardV2
 		nil, // backupSvc
 		nil, // paymentOrderExpiry
 		nil, // channelMonitorRunner
 		nil, // channelMonitorV2Aggregator
+		nil, // channelMonitorV3Prober
 		nil, // quotaFlusher
 		nil, // upstreamBillingProbe
 		nil, // ollamaCloudUsage
@@ -107,6 +121,7 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // openAIAutoReset
 		nil, // promptAudit
 		nil, // pluginManager
+		nil, // cyberModeration
 	)
 
 	require.NotPanics(t, func() {

@@ -71,10 +71,10 @@ func TestUpstreamErrorRetryResponsesRecoversWithinOneClientRequest(t *testing.T)
 		t.Run(name, func(t *testing.T) {
 			cfg := &config.Config{RunMode: config.RunModeSimple}
 			cfg.Gateway.MaxAccountSwitches = 0
-			repo := &grokCredentialHandlerRepo{accounts: []service.Account{{ID: 801, Name: "test", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"api_key": "test"}}}}
+			repo := openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 801, Name: "test", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey, Status: service.StatusActive, Schedulable: true, Concurrency: 1, Credentials: map[string]any{"api_key": "test"}}}}
 			upstream := &configuredRetryHTTPUpstream{streamFailure: streamFailure}
 			billingCache := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
-			gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+			gateway := service.NewOpenAIGatewayService(repo, nil, nil, nil, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
 			defer billingCache.Stop()
 			defer gateway.CloseOpenAIWSPool()
 			acquired := 0

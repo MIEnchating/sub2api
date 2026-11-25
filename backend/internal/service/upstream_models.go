@@ -58,6 +58,10 @@ type UpstreamModelCatalog struct {
 	Warnings             []UpstreamModelSyncWarning       `json:"warnings,omitempty"`
 	DiscoverySource      string                           `json:"discovery_source,omitempty"`
 	GrokModelDiagnostics *GrokModelDiagnostics            `json:"grok_model_diagnostics,omitempty"`
+	Applied              bool                             `json:"applied,omitempty"`
+	Changed              bool                             `json:"changed,omitempty"`
+	Skipped              string                           `json:"skipped,omitempty"`
+	NextSyncAt           *time.Time                       `json:"next_sync_at,omitempty"`
 }
 
 // upstreamModelListFetchResult is the live model list plus an optional Grok
@@ -221,6 +225,16 @@ func (s *AccountTestService) ReplaceModelMappingWithUpstream(ctx context.Context
 	return s.syncUpstreamModelCatalog(ctx, account, true)
 }
 
+func visibleUpstreamModelIDs(account *Account, models []string) []string {
+	filtered := make([]string, 0, len(models))
+	for _, model := range models {
+		if !isHiddenOpenAISubscriptionModel(account, model) {
+			filtered = append(filtered, model)
+		}
+	}
+	return filtered
+}
+
 // SyncUpstreamModelCatalog fetches the account's live model list, enriches
 // missing capability fields from the provider registry used by the upstream,
 // and persists a normalized account snapshot when complete metadata is available.
@@ -235,6 +249,14 @@ func (s *AccountTestService) SyncUpstreamModelCatalog(ctx context.Context, accou
 }
 
 func (s *AccountTestService) syncUpstreamModelCatalog(ctx context.Context, account *Account, replaceMapping bool) (*UpstreamModelCatalog, error) {
+	// A gateway aggregates providers. Discovery must neither infer provider
+	// capabilities nor write metadata/health state; only explicit apply saves IDs.
+	if account != nil && (account.IsGateway() || account.Platform == PlatformGateway) {
+		if !replaceMapping {
+			return s.fetchWhitelistCatalog(ctx, account)
+		}
+		return s.replaceGatewayModelMapping(ctx, account)
+	}
 	fetched, err := s.fetchUpstreamModelListWithObservation(ctx, account)
 	var (
 		models          []string
@@ -272,10 +294,17 @@ func (s *AccountTestService) syncUpstreamModelCatalog(ctx context.Context, accou
 	} else if saveErr := s.saveGrokCatalogObservation(ctx, account, grokObservation); saveErr != nil {
 		return nil, newUpstreamModelSyncInternalError("Failed to save upstream model catalog", saveErr)
 	}
+	models = visibleUpstreamModelIDs(account, models)
 	if replaceMapping && len(models) == 0 {
 		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no supported models", nil)
 	}
-	catalog := &UpstreamModelCatalog{Models: models, Metadata: make(map[string]UpstreamModelMetadata)}
+	catalog := &UpstreamModelCatalog{Models: models, Metadata: make(map[string]UpstreamModelMetadata), DiscoverySource: "upstream"}
+	if !liveListAvailable {
+		// Every provider can use configured IDs when its list endpoint is absent.
+		// Callers must distinguish that fallback from an authoritative live list
+		// before replacing the account's model declaration.
+		catalog.DiscoverySource = "configured_fallback"
+	}
 	if account != nil && account.IsGrok() {
 		if grokObservation != nil && grokObservation.Attempt.Status == grokCatalogStatusConfiguredFallback {
 			catalog.DiscoverySource = "configured_fallback"
@@ -409,6 +438,47 @@ func (s *AccountTestService) syncUpstreamModelCatalog(ctx context.Context, accou
 			})
 		}
 	}
+	// Capability metadata may be incomplete even when the live ID list is
+	// authoritative. Only that live list can invalidate old quality rejections;
+	// configured-model fallback after an unsupported endpoint must not do so.
+	if liveListAvailable {
+		if err := s.resetSyncedQualityModelRejections(ctx, account, models); err != nil {
+			return nil, newUpstreamModelSyncInternalError("Failed to reset synced quality model rejections", err)
+		}
+	}
+	return catalog, nil
+}
+
+// Gateway catalogs contain IDs from multiple providers. Explicit replacement
+// keeps the existing identity-mapping semantics without inferring capabilities.
+func (s *AccountTestService) replaceGatewayModelMapping(ctx context.Context, account *Account) (*UpstreamModelCatalog, error) {
+	if account.ID <= 0 {
+		return nil, newUpstreamModelSyncConfigError("A saved account is required to replace upstream models", nil)
+	}
+	repo, ok := s.accountRepo.(UpstreamModelMappingSyncRepository)
+	if !ok {
+		return nil, newUpstreamModelSyncInternalError("Upstream model mapping persistence is not configured", nil)
+	}
+	catalog, err := s.fetchWhitelistCatalog(ctx, account)
+	if err != nil {
+		return nil, err
+	}
+	if catalog.DiscoverySource != "upstream" || len(catalog.Models) == 0 {
+		return nil, newUpstreamModelSyncUpstreamError("Upstream returned no complete model list", nil)
+	}
+	mapping := make(map[string]string, len(catalog.Models))
+	for _, modelID := range catalog.Models {
+		mapping[modelID] = modelID
+	}
+	applied, err := repo.UpdateUpstreamModelMappingIfUnchanged(ctx, account, mapping)
+	if err != nil {
+		return nil, newUpstreamModelSyncInternalError("Failed to save upstream model list", err)
+	}
+	if !applied {
+		return nil, newUpstreamModelSyncConfigError("Account changed during model discovery; retry the replacement", nil)
+	}
+	catalog.Applied = true
+	catalog.Changed = true
 	return catalog, nil
 }
 
@@ -859,6 +929,23 @@ func (s *AccountTestService) fetchUpstreamModelListRequest(ctx context.Context, 
 		models, body, err := s.fetchAntigravityOAuthUpstreamModels(ctx, account)
 		return models, body, nil, err
 	}
+	if account.IsExcelBPSEnabled() && s.openaiGatewayService != nil && s.openaiGatewayService.excelBPSGloballyEnabled(ctx) {
+		// Model sync may apply this catalog as a whitelist. Require every
+		// active source even when the client display endpoint can degrade.
+		response, err := s.openaiGatewayService.fetchExcelBPSAccountModelsWithPolicy(ctx, account, true, openAIModelsReadDefault)
+		if err != nil {
+			return nil, nil, nil, newUpstreamModelSyncUpstreamError("Excel BPS model discovery failed", err)
+		}
+		models, _, err := extractUpstreamModelCatalog(response.Body, false)
+		if err != nil {
+			return nil, nil, nil, newUpstreamModelSyncUpstreamError("Invalid Excel BPS model catalog", err)
+		}
+		return models, response.Body, nil, nil
+	}
+
+	if account.IsExcelOAuth() {
+		return nil, nil, nil, newUpstreamModelSyncUnsupportedError("An enabled Excel BPS route is required to discover this account's models", errExcelOAuthRouteUnavailable)
+	}
 
 	if s.httpUpstream == nil {
 		return nil, nil, nil, newUpstreamModelSyncConfigError("Upstream HTTP client is not configured", nil)
@@ -1043,6 +1130,8 @@ func listVertexGeminiPublisherModels(location string, fetchPage func(page int, l
 
 func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
 	switch {
+	case account.IsGateway() || account.Platform == PlatformGateway:
+		return s.buildGatewayUpstreamModelsRequest(ctx, account)
 	case account.Platform == PlatformAntigravity:
 		return s.buildAntigravityAPIKeyModelsRequest(ctx, account)
 	case account.IsGrok():
@@ -1059,6 +1148,26 @@ func (s *AccountTestService) buildUpstreamModelsRequest(ctx context.Context, acc
 			fmt.Sprintf("Unsupported platform for upstream model sync: %s", account.Platform), nil,
 		)
 	}
+}
+
+func (s *AccountTestService) buildGatewayUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {
+	if err := ValidateGatewayAccountIdentity(account.Platform, account.Type, account.Credentials); err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid gateway account credentials", err)
+	}
+	if account.ProxyID != nil && *account.ProxyID > 0 && account.Proxy == nil {
+		return nil, newUpstreamModelSyncConfigError("Selected proxy is unavailable", nil)
+	}
+	baseURL, err := s.validateUpstreamBaseURL(account.GetCredential("base_url"))
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid gateway base URL", err)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, buildV1ModelsURL(baseURL), nil)
+	if err != nil {
+		return nil, newUpstreamModelSyncConfigError("Invalid gateway model list URL", err)
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(account.GetCredential("api_key")))
+	return req, nil
 }
 
 func (s *AccountTestService) buildGrokUpstreamModelsRequest(ctx context.Context, account *Account) (*http.Request, error) {

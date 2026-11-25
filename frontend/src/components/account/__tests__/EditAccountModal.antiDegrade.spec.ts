@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { defineComponent, ref } from 'vue'
+import { createPinia } from 'pinia'
 import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import type { Account } from '@/types'
 
@@ -22,6 +23,7 @@ vi.mock('@/api/admin', () => ({
   adminAPI: {
     accounts: {
       update: mocks.update,
+      getManagementCapabilities: vi.fn().mockResolvedValue({ web_search_enabled: false, account_quota_notify_enabled: false }),
       applyAntiDegrade: mocks.apply,
       revertAntiDegrade: mocks.revert,
       previewAntiDegrade: mocks.preview,
@@ -93,6 +95,7 @@ function mountModal(account = buildAccount()) {
   return mount(EditAccountModal, {
     props: { show: true, account, proxies: [], groups: [] },
     global: {
+      plugins: [createPinia()],
       stubs: {
         BaseDialog: BaseDialogStub,
         ConfirmDialog: ConfirmDialogStub,

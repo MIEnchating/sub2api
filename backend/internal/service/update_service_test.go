@@ -114,23 +114,16 @@ func (s *updateServiceGitHubClientStub) FetchChecksumFile(_ context.Context, url
 }
 
 func TestUpdateServicePerformUpdateNoUpdateReturnsSentinel(t *testing.T) {
-	svc := NewUpdateService(
-		&updateServiceCacheStub{},
-		&updateServiceGitHubClientStub{
-			release: &GitHubRelease{
-				TagName: "v0.1.132",
-				Name:    "v0.1.132",
-			},
-		},
-		"0.1.132",
-		"release",
-	)
+	release, manifest := publishedFixture("2026.10.20")
+	githubClient := &updateServiceGitHubClientStub{
+		recentReleases: []*GitHubRelease{release},
+		manifests:      map[string][]byte{release.Assets[0].BrowserDownloadURL: manifest},
+	}
+	svc := NewUpdateService(&updateServiceCacheStub{}, githubClient, "2026.10.20", "release")
 
 	err := svc.PerformUpdate(context.Background())
-
-	require.Error(t, err)
-	require.True(t, errors.Is(err, ErrNoUpdateAvailable))
 	require.ErrorIs(t, err, ErrNoUpdateAvailable)
+	require.Equal(t, releaseRepo, githubClient.recentRepo)
 }
 
 func publishedFixture(version string) (*GitHubRelease, []byte) {

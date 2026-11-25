@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/claude"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
 	"github.com/tidwall/gjson"
 
@@ -126,6 +127,22 @@ func sleepWithContext(ctx context.Context, d time.Duration) error {
 
 // Forward 转发请求到Claude API
 func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *Account, parsed *ParsedRequest) (result *ForwardResult, err error) {
+	if account.gatewayProtocolsPending() {
+		if parsed != nil && parsed.GroupID != nil {
+			if group, ok := ctx.Value(ctxkey.Group).(*Group); !ok || group == nil || group.ID != *parsed.GroupID {
+				return nil, ErrGatewayAccountGroup
+			}
+		}
+		view, err := s.gatewayProtocolAccount(ctx, account, "anthropic", gatewayProtocolParsedModel(parsed))
+		if err != nil {
+			return nil, err
+		}
+		account = view
+	}
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
+
 	startTime := time.Now()
 	if parsed == nil {
 		return nil, fmt.Errorf("parse request: empty request")
@@ -141,12 +158,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			validationModel = account.GetMappedModel(validationModel)
 		}
 	}
-	if account != nil && account.Platform == PlatformAnthropic {
-		if err := validateClaude55Request(parsed.Body.Bytes(), validationModel); err != nil {
-			c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
-			return nil, err
-		}
+	// 按请求 TTL 计费：在任何请求体改写之前读取客户端原始的 cache_control.ttl。
+	requestedCacheTTL := ""
+	if account.IsCacheTTLBillingFromRequestEnabled() {
+		requestedCacheTTL = requestedAnthropicCacheTTL(parsed.Body.Bytes())
 	}
+	prepared, err := prepareClaudeMessagesRequest(account, parsed, validationModel)
+	if err != nil {
+		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{"type": "invalid_request_error", "message": err.Error()}})
+		return nil, err
+	}
+	parsed = prepared
 	// Anthropic Fast is requested with speed=fast rather than OpenAI's
 	// service_tier. Attach it at this shared boundary so passthrough, OAuth and
 	// partial-stream results all use the same billing and usage-log path.
@@ -155,6 +177,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			if tier := anthropicSpeedServiceTier(account, parsed.Speed, anthropicSpeedModel(parsed, result)); tier != nil {
 				result.ServiceTier = tier
 			}
+			result.RequestedCacheTTL = requestedCacheTTL
+			attachClaudeCodeMimicInjection(c, account, result)
 		}
 	}()
 	beginUpstreamResponseModelObservation(c)
@@ -420,6 +444,8 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		}
 	}
 
+	// Claude requests retain downstream cancellation, including header waits and retries.
+	// Detached billing tasks still persist any usage observed before disconnect.
 	// 重试循环
 	var resp *http.Response
 	lastWireBody := body
@@ -428,9 +454,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	retriedRotatedToken := false
 	for attempt := 1; attempt <= maxRetryAttempts; attempt++ {
 		// 构建上游请求（每次重试需要重新构建，因为请求体需要重新读取）
-		upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, reqStream)
-		upstreamReq, wireBody, err := s.buildUpstreamRequest(upstreamCtx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-		releaseUpstreamCtx()
+		upstreamReq, wireBody, err := s.buildUpstreamRequest(ctx, c, account, body, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 		if err != nil {
 			return nil, err
 		}
@@ -439,6 +463,7 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 
 		// 发送请求
 		resp, err = doAccountHTTPUpstreamWithTLS(s.httpUpstream, upstreamReq, proxyURL, account, tlsProfile)
+		s.rateLimitService.observeQualityResponse(upstreamReq.Context(), account, resp, err)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -446,6 +471,19 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err, OpsUpstreamErrorEvent{
 				UpstreamURL: safeUpstreamURL(upstreamReq.URL.String()),
 			})
+		}
+		if isAnthropicRequestTooLarge(account, resp) {
+			return handleAnthropicRequestTooLarge(c, resp)
+		}
+
+		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken &&
+			attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed {
+			if rotatedToken := s.rotatedClaudeAccessToken(ctx, account, token); rotatedToken != "" {
+				_ = resp.Body.Close()
+				token = rotatedToken
+				retriedRotatedToken = true
+				continue
+			}
 		}
 
 		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken &&
@@ -463,6 +501,12 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			respBody, readErr := s.readUpstreamErrorBody(resp)
 			if readErr == nil {
 				_ = resp.Body.Close()
+
+				if aiwanwuThinkingRoute(account, reqModel) {
+					if failure := aiwanwuThinkingFailover(c, account, resp, respBody); failure != nil {
+						return nil, failure
+					}
+				}
 
 				if s.shouldRectifySignatureError(ctx, account, respBody, reqModel) {
 					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -507,12 +551,14 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					//    also downgrade tool_use/tool_result blocks to text.
 
 					filteredBody := FilterThinkingBlocksForRetry(body, reqModel)
-					retryCtx, releaseRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
-					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(retryCtx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-					releaseRetryCtx()
+					retryReq, retryWireBody, buildErr := s.buildUpstreamRequest(ctx, c, account, filteredBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 					if buildErr == nil {
 						retryResp, retryErr := doAccountHTTPUpstreamWithTLS(s.httpUpstream, retryReq, proxyURL, account, tlsProfile)
+						s.rateLimitService.observeQualityResponse(retryReq.Context(), account, retryResp, retryErr)
 						if retryErr == nil {
+							if isAnthropicRequestTooLarge(account, retryResp) {
+								return handleAnthropicRequestTooLarge(c, retryResp)
+							}
 							if retryResp.StatusCode < 400 {
 								// 重试请求被上游接受后同步 ParsedRequest，保证 usage/日志看到真实请求体。
 								lastWireBody = retryWireBody
@@ -550,11 +596,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 								if looksLikeToolSignatureError(msg2) && time.Since(retryStart) < maxRetryElapsed {
 									logger.LegacyPrintf("service.gateway", "Account %d: signature retry still failing and looks tool-related, retrying with tool blocks downgraded", account.ID)
 									filteredBody2 := FilterSignatureSensitiveBlocksForRetry(body, reqModel)
-									retryCtx2, releaseRetryCtx2 := detachStreamUpstreamContext(ctx, reqStream)
-									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(retryCtx2, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-									releaseRetryCtx2()
+									retryReq2, retryWireBody2, buildErr2 := s.buildUpstreamRequest(ctx, c, account, filteredBody2, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 									if buildErr2 == nil {
 										retryResp2, retryErr2 := doAccountHTTPUpstreamWithTLS(s.httpUpstream, retryReq2, proxyURL, account, tlsProfile)
+										s.rateLimitService.observeQualityResponse(retryReq2.Context(), account, retryResp2, retryErr2)
 										if retryErr2 == nil {
 											if retryResp2.StatusCode < 400 {
 												// 二阶段工具块降级成功时也必须更新当前 body。
@@ -634,11 +679,10 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 					rectifiedBody, applied := RectifyThinkingBudget(body)
 					if applied && time.Since(retryStart) < maxRetryElapsed {
 						logger.LegacyPrintf("service.gateway", "Account %d: detected budget_tokens constraint error, retrying with rectified budget (budget_tokens=%d, max_tokens=%d)", account.ID, BudgetRectifyBudgetTokens, BudgetRectifyMaxTokens)
-						budgetRetryCtx, releaseBudgetRetryCtx := detachStreamUpstreamContext(ctx, reqStream)
-						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(budgetRetryCtx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
-						releaseBudgetRetryCtx()
+						budgetRetryReq, budgetWireBody, buildErr := s.buildUpstreamRequest(ctx, c, account, rectifiedBody, token, tokenType, reqModel, reqStream, shouldMimicClaudeCode)
 						if buildErr == nil {
 							budgetRetryResp, retryErr := doAccountHTTPUpstreamWithTLS(s.httpUpstream, budgetRetryReq, proxyURL, account, tlsProfile)
+							s.rateLimitService.observeQualityResponse(budgetRetryReq.Context(), account, budgetRetryResp, retryErr)
 							if retryErr == nil {
 								if budgetRetryResp.StatusCode < 400 {
 									// budget 修正请求成功后，ParsedRequest 也要描述被接受的修正版。
@@ -729,6 +773,11 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 			}
 		}
 		break
+	}
+	// A signature/budget repair above can also receive 413. Stop before the
+	// retry-exhausted and account-policy paths, regardless of custom error codes.
+	if isAnthropicRequestTooLarge(account, resp) {
+		return handleAnthropicRequestTooLarge(c, resp)
 	}
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("upstream request failed: empty response")
@@ -1124,13 +1173,38 @@ func (s *GatewayService) isStickyAccountUpstreamRestricted(ctx context.Context, 
 	return s.isUpstreamModelRestrictedByChannel(ctx, *groupID, account, requestedModel)
 }
 
+// anthropicStreamErrorStatus 把 Claude SSE error.type 映射到临时不可调度规则使用的状态码。
+// 无法识别的类型返回 0，避免用臆造状态码误匹配规则。
+func anthropicStreamErrorStatus(body []byte) int {
+	switch strings.TrimSpace(gjson.GetBytes(body, "error.type").String()) {
+	case "overloaded_error":
+		return 529
+	case "rate_limit_error":
+		return http.StatusTooManyRequests
+	case "authentication_error":
+		return http.StatusUnauthorized
+	case "permission_error":
+		return http.StatusForbidden
+	case "api_error":
+		return http.StatusInternalServerError
+	case "timeout_error":
+		return http.StatusGatewayTimeout
+	default:
+		return 0
+	}
+}
+
 // sseStreamErrorEventFailover 把上游 HTTP 200 + SSE 流体内的 event:error 帧转为
 // UpstreamFailoverError：尚未向客户端写出内容且错误类型为 overloaded_error 时按 529
 // 处理；余额耗尽优先按上游计费错误处理，其余按 403。同时登记 stream_error 运维记录。
 func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, rawData, model string, outputStarted bool) *UpstreamFailoverError {
 	body := []byte(rawData)
 	semanticStatus := http.StatusForbidden
+	status := anthropicStreamErrorStatus(body)
 	billingStatus := upstreamBillingStatusCode(http.StatusOK, body)
+	if billingStatus == 0 {
+		s.rateLimitService.observeQualityStatus(ctx, account, status)
+	}
 	if billingStatus != 0 {
 		semanticStatus = billingStatus
 		if s.rateLimitService != nil {
@@ -1140,7 +1214,7 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 				Body:       io.NopCloser(bytes.NewReader(body)),
 			}, account, model)
 		}
-	} else if !outputStarted && gjson.GetBytes(body, "error.type").String() == "overloaded_error" {
+	} else if !outputStarted && status == 529 {
 		semanticStatus = 529
 		syntheticResp := &http.Response{
 			StatusCode: semanticStatus,
@@ -1149,6 +1223,9 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 			Request:    resp.Request,
 		}
 		s.handleFailoverSideEffects(ctx, syntheticResp, account, model)
+	} else if outputStarted && status > 0 && s.rateLimitService != nil && account != nil {
+		phaseCtx := withTempUnschedStreamPhase(ctx, tempUnschedPhaseMidStreamOptIn)
+		_ = s.rateLimitService.attemptTempUnschedulable(phaseCtx, account, status, body, model)
 	}
 
 	upstreamMsg := sanitizeUpstreamErrorMessage(
@@ -1178,9 +1255,8 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 	})
 
 	logger.LegacyPrintf("service.gateway",
-		"[Forward] SSE error event in stream: Account=%d(%s) RequestID=%s Body=%s",
-		account.ID, account.Name, resp.Header.Get("x-request-id"),
-		truncateString(rawData, 1000),
+		"[Forward] SSE error event in stream: account_id=%d request_id=%s status=%d output_started=%t",
+		account.ID, resp.Header.Get("x-request-id"), semanticStatus, outputStarted,
 	)
 
 	if billingStatus != 0 {
@@ -1196,11 +1272,18 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 // finishSSEStreamError preserves billing classification for all Anthropic entry points.
 // Once output is committed, retain observed usage and never replay the request.
 func (s *GatewayService) finishSSEStreamError(ctx context.Context, c *gin.Context, account *Account, resp *http.Response, rawData, model string, outputStarted bool, result *ForwardResult) (*ForwardResult, error) {
-	failover := s.sseStreamErrorEventFailover(ctx, c, account, resp, rawData, model, outputStarted)
+	committed := outputStarted || c.Writer.Written()
+	failover := s.sseStreamErrorEventFailover(ctx, c, account, resp, rawData, model, committed)
+	if err := ctx.Err(); err != nil {
+		return result, err
+	}
+	if c.Request != nil && c.Request.Context().Err() != nil {
+		return result, c.Request.Context().Err()
+	}
+	if committed || result != nil {
+		return result, errors.New("stream usage incomplete: upstream semantic stream failure")
+	}
 	if upstreamBillingStatusCode(http.StatusOK, []byte(rawData)) != 0 {
-		if outputStarted || c.Writer.Written() {
-			return result, errors.New("upstream stream error")
-		}
 		c.Writer.Header().Del("Content-Type")
 	}
 	return nil, failover

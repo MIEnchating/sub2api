@@ -26,11 +26,13 @@ type accountTestUsageCollector struct {
 }
 
 func (s *AccountTestService) doAccountTestHTTP(req *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
-	return executeQualityTestHTTP(req, id, func(r *http.Request) (*http.Response, error) { return s.httpUpstream.Do(r, proxy, id, concurrency) })
+	return executeQualityTestHTTP(req, id, func(r *http.Request) (*http.Response, error) {
+		return timedAccountTestUpstream(s.httpUpstream).Do(r, proxy, id, concurrency)
+	})
 }
 func (s *AccountTestService) doAccountTestHTTPWithTLS(req *http.Request, proxy string, id int64, concurrency int, profile *tlsfingerprint.Profile) (*http.Response, error) {
 	return executeQualityTestHTTP(req, id, func(r *http.Request) (*http.Response, error) {
-		return s.httpUpstream.DoWithTLS(r, proxy, id, concurrency, profile)
+		return timedAccountTestUpstream(s.httpUpstream).DoWithTLS(r, proxy, id, concurrency, profile)
 	})
 }
 

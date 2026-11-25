@@ -88,6 +88,7 @@ type AccountStatsPricingRule struct {
 
 // ChannelModelPricing 渠道模型定价条目
 type ChannelModelPricing struct {
+	// Group-only final charge floor; persisted in groups.model_pricing JSON.
 	ID                         int64               `json:"id,omitempty"`
 	ChannelID                  int64               `json:"channel_id,omitempty"`
 	Platform                   string              `json:"platform"` // 所属平台（anthropic/openai/gemini/...）
@@ -446,8 +447,12 @@ type ChannelUsageFields struct {
 	ChannelID          int64  // 渠道 ID（0 = 无渠道）
 	OriginalModel      string // 用户原始请求模型（渠道映射前）
 	ChannelMappedModel string // 渠道映射后的模型名（无映射时等于 OriginalModel）
-	BillingModelSource string // 计费模型来源："requested" / "upstream" / "channel_mapped"
-	ModelMappingChain  string // 映射链描述，如 "a→b→c"
+	// APIKeyMappedModel records the target actually applied to this request.
+	// Empty means no key rewrite; billing must not infer it from current settings.
+	APIKeyMappedModel     string
+	ChannelMappingApplied bool   // Preserves explicit channel mappings back to OriginalModel.
+	BillingModelSource    string // 计费模型来源："requested" / "upstream" / "channel_mapped"
+	ModelMappingChain     string // 映射链描述，如 "a→b→c"
 }
 
 // SupportedModel 渠道的一个支持模型条目（无通配符、可直接展示给用户）

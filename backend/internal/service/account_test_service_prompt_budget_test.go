@@ -91,7 +91,7 @@ func TestProcessOpenAIChatCompletionsRejectsLengthFinishReason(t *testing.T) {
 	svc := &AccountTestService{}
 	c, recorder := newTestContext()
 	body := strings.NewReader("data: {\"choices\":[{\"delta\":{\"content\":\"partial\"},\"finish_reason\":\"length\"}]}\n\ndata: [DONE]\n\n")
-	err := svc.processOpenAIChatCompletionsStream(c, body)
+	err := svc.processOpenAIChatCompletionsStream(c, body, nil)
 	require.Error(t, err)
 	require.Contains(t, err.Error(), "truncated")
 	require.NotContains(t, recorder.Body.String(), `"success":true`)

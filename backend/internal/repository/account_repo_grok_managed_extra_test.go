@@ -151,9 +151,8 @@ func TestLockAndMergeAccountProbeExtraKeepsLatestGrokManagedKeys(t *testing.T) {
 					"enabled", "rate_sync_enabled", "snapshot",
 					"ollama_session", "ollama_auto", "ollama_snapshot",
 					"opencode_group_unchanged", "opencode_auto", "opencode_snapshot",
-					"current_extra", "status", "schedulable", "error_message",
-					"grok_observed_models", "upstream_model_metadata", "group_sync_enabled",
-				}).AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, currentExtraJSON, service.StatusActive, true, "", tt.databaseModels, tt.databaseMetadata, nil))
+					"current_extra", "concurrency", "status", "schedulable", "error_message",
+				}).AddRow(false, false, true, nil, nil, nil, nil, nil, nil, false, nil, nil, currentExtraJSON, 3, service.StatusActive, true, ""))
 
 			account := &service.Account{
 				ID:          41,

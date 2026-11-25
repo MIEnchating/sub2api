@@ -6,7 +6,6 @@ import (
 	"bytes"
 	"context"
 	"database/sql"
-	"encoding/base64"
 	"encoding/json"
 	"image"
 	"image/png"
@@ -232,7 +231,7 @@ func testDB(t *testing.T) *sql.DB {
 }
 func savedBot(t *testing.T, db *sql.DB) *Service {
 	t.Helper()
-	s := New(db, testEncryptor{}, true, nil)
+	s := newMatureFixtureService(db, testEncryptor{}, true, nil)
 	c := DefaultConfig()
 	c.Enabled = true
 	c.AppID = "app"
@@ -496,7 +495,7 @@ func TestQQBotMembershipEventsMayArriveOutOfOrder(t *testing.T) {
 	require.True(t, left, "late join must not undo a newer departure")
 }
 
-func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
+func TestQQBotWorkerTextAndVisionDelivery(t *testing.T) {
 	db := testDB(t)
 	s := savedBot(t, db)
 	ctx := context.Background()
@@ -504,34 +503,34 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 	require.NoError(t, err)
 	uid := user(t, db)
 	bind(t, db, uid, "member")
-	var chatCalls, imageCalls, replies int
+	var chatCalls, replies int
 	var picture bytes.Buffer
 	require.NoError(t, png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 16, 16))))
+	s.imageDownload = func(context.Context, string) ([]byte, error) { return picture.Bytes(), nil }
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
 		case "/v1/chat/completions":
 			chatCalls++
-			require.Zero(t, replies, "do not send a placeholder before generating the answer")
+			var raw json.RawMessage
+			require.NoError(t, json.NewDecoder(r.Body).Decode(&raw))
+			require.NotContains(t, string(raw), "generate_image")
+			if chatCalls == 1 {
+				require.Zero(t, replies, "ordinary text gets no processing notice")
+			} else {
+				require.Equal(t, 2, replies, "image processing notice precedes model input")
+				require.Contains(t, string(raw), "data:image/png;base64,")
+			}
 			require.Equal(t, "Bearer operator-key", r.Header.Get("Authorization"))
 			_, _ = w.Write(textToolTestJSON(t, "chat_completions", "free response"))
-		case "/v1/images/generations":
-			imageCalls++
-			require.Equal(t, 2, replies, "image generation starts after its processing notice")
-			require.Equal(t, "Bearer operator-key", r.Header.Get("Authorization"))
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]string{"b64_json": base64.StdEncoding.EncodeToString(picture.Bytes())}}})
 		case "/token":
 			_, _ = w.Write([]byte(`{"access_token":"qq-test-token","expires_in":7200}`))
-		case "/v2/groups/group/files":
-			_, _ = w.Write([]byte(`{"file_info":"saved-image"}`))
 		case "/v2/groups/group/messages":
 			body := readQQTestReply(t, r)
-			if body.MsgType == 7 {
-				require.Equal(t, 3, body.Sequence)
-			} else if body.text() == "图片已生成。" {
-				require.Equal(t, 2, body.Sequence)
-			} else {
+			require.Equal(t, 2, body.MsgType)
+			if replies == 0 || replies == 1 {
 				require.Equal(t, 1, body.Sequence)
-				require.NotContains(t, body.text(), "正在思考")
+			} else {
+				require.Equal(t, 2, body.Sequence)
 			}
 			replies++
 			_, _ = w.Write([]byte(`{"id":"sent"}`))
@@ -542,14 +541,13 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 	}))
 	defer upstream.Close()
 	c.BaseURL = upstream.URL + "/v1"
-	c.ImageEnabled = true
-	c.ImageModel = "image-model"
+	c.RememberQuotedImages = true
 	_, err = s.SaveConfig(ctx, c)
 	require.NoError(t, err)
 	s.qqURL = upstream.URL
 	s.tokenURL = upstream.URL + "/token"
-	enqueue := func(id, content string) Payload {
-		e := Event{ID: id, GroupID: "group", Content: content}
+	enqueue := func(id, content string, attachments ...Attachment) Payload {
+		e := Event{ID: id, GroupID: "group", Content: content, Attachments: attachments}
 		e.Author.MemberID = "member"
 		raw, _ := json.Marshal(e)
 		p := Payload{ID: id, Type: "GROUP_AT_MESSAGE_CREATE", Data: raw}
@@ -566,16 +564,26 @@ func TestQQBotWorkerChatAndImageDelivery(t *testing.T) {
 	require.NoError(t, s.Enqueue(ctx, c, p))
 	s.runOne(ctx)
 	require.Equal(t, 1, chatCalls)
-	p = enqueue("message2", "/生图 cat")
+	p = enqueue("message2", "描述这张图片", Attachment{URL: "https://example.invalid/image.png", ContentType: "image/png"})
 	s.runOne(ctx)
-	var size int
-	require.NoError(t, db.QueryRow(`SELECT status,octet_length(result_image) FROM qq_bot_jobs WHERE message_id='message2'`).Scan(&status, &size))
+	require.NoError(t, db.QueryRow(`SELECT status,kind,result_text FROM qq_bot_jobs WHERE message_id='message2'`).Scan(&status, &kind, &result))
 	require.Equal(t, "completed", status)
-	require.Positive(t, size)
+	require.Equal(t, "chat", kind)
+	require.Equal(t, "free response", result)
 	require.NoError(t, s.Enqueue(ctx, c, p))
 	s.runOne(ctx)
-	require.Equal(t, 1, imageCalls)
-	require.Equal(t, 4, replies)
+	require.Equal(t, 2, chatCalls)
+	require.Equal(t, 3, replies)
+	enqueue("legacy-image", "/生图 a tree")
+	_, err = db.Exec(`UPDATE qq_bot_jobs SET kind='image',result_image=$1 WHERE message_id='legacy-image'`, picture.Bytes())
+	require.NoError(t, err)
+	s.runOne(ctx)
+	var historicalImage []byte
+	require.NoError(t, db.QueryRow(`SELECT status,result_image FROM qq_bot_jobs WHERE message_id='legacy-image'`).Scan(&status, &historicalImage))
+	require.Equal(t, "skipped", status)
+	require.Equal(t, picture.Bytes(), historicalImage)
+	require.Equal(t, 2, chatCalls)
+	require.Equal(t, 3, replies)
 	var balance float64
 	require.NoError(t, db.QueryRow(`SELECT balance FROM users WHERE id=$1`, uid).Scan(&balance))
 	require.Zero(t, balance)

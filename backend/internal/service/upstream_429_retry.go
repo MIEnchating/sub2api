@@ -141,7 +141,9 @@ func doAccount429Retry(req *http.Request, account *Account, do account429RetryDo
 	}
 
 	retryLimit := account.GetRateLimit429RetryCount()
-	if retryLimit <= 0 {
+	// Continuations carrying provider history must reach the protocol's quota
+	// classifier before a retry. It can prove a refusal and switch accounts.
+	if retryLimit <= 0 || req.Context().Value(qualityProbeSingleAttemptKey{}) == true || OpenAIAgentRecoveryNoReplay(req.Context()) {
 		return do(req)
 	}
 	retryCtx, retryBudget := ensureAccount429RetryBudget(req.Context())
@@ -225,7 +227,7 @@ func doAccountHTTPUpstream(
 		return nil, errors.New("upstream 429 retry: account is nil")
 	}
 	return doAccount429Retry(req, account, func(attemptReq *http.Request) (*http.Response, error) {
-		return upstream.Do(attemptReq, proxyURL, account.ID, account.Concurrency)
+		return upstream.Do(attemptReq, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
 	})
 }
 
@@ -243,7 +245,7 @@ func doAccountHTTPUpstreamWithTLS(
 		return nil, errors.New("upstream 429 retry: account is nil")
 	}
 	return doAccount429Retry(req, account, func(attemptReq *http.Request) (*http.Response, error) {
-		return upstream.DoWithTLS(attemptReq, proxyURL, account.ID, account.Concurrency, profile)
+		return upstream.DoWithTLS(attemptReq, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
 	})
 }
 
@@ -263,6 +265,9 @@ func dialAccount429Retry(
 	}
 	ctx, retryBudget := ensureAccount429RetryBudget(ctx)
 	retryLimit := account.GetRateLimit429RetryCount()
+	if ctx.Value(qualityProbeSingleAttemptKey{}) == true {
+		retryLimit = 0
+	}
 	for {
 		conn, status, headers, err := dial(ctx)
 		if status != http.StatusTooManyRequests {

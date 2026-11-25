@@ -42,11 +42,8 @@ func normalizeCodexUntrustedContext(body []byte) ([]byte, bool) {
 		if readString("type") != "function_call_output" || readString("namespace") != "agent" {
 			continue
 		}
-		if callID, exists := item["call_id"]; exists {
-			var value string
-			if bytes.Equal(bytes.TrimSpace(callID), []byte("null")) || json.Unmarshal(callID, &value) != nil || strings.TrimSpace(value) != "" {
-				continue
-			}
+		if !isCodexStandaloneContextOutput(item) {
+			continue
 		}
 		name := readString("name")
 		var output *string
@@ -143,4 +140,17 @@ func validCodexPageSnapshot(text string) bool {
 	}
 	var value string
 	return json.Unmarshal(id, &value) == nil && strings.TrimSpace(value) != ""
+}
+
+// Keep outputs with real call identities on the tool-output validation path.
+func isCodexStandaloneContextOutput(item map[string]json.RawMessage) bool {
+	for _, field := range []string{"call_id", "tool_call_id"} {
+		if raw, exists := item[field]; exists {
+			var value *string
+			if json.Unmarshal(raw, &value) != nil || value == nil || strings.TrimSpace(*value) != "" {
+				return false
+			}
+		}
+	}
+	return true
 }

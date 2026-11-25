@@ -15,7 +15,7 @@ spec = importlib.util.spec_from_file_location("sync_email", SCRIPT_DIR / "render
 email_report = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(email_report)
 
-REPORT = """sub2api 双上游同步报告
+REPORT = """sub2api 三上游同步报告
 ========================
 
 结果：失败，未推送
@@ -61,7 +61,7 @@ class SyncEmailTest(unittest.TestCase):
         self.assertIn("overdraft/sub2api-custom", html)
         self.assertNotIn("历史报告排版预览", html)
         self.assertNotIn("{{REPORT_NAME}}", html)
-        self.assertIn("sub2api · 双上游同步报告</title>", html)
+        self.assertIn("sub2api · 三上游同步报告</title>", html)
 
     def test_post_push_failure_does_not_claim_code_was_not_pushed(self):
         text = REPORT.replace("失败，未推送", "发布失败，代码已推送")
@@ -76,7 +76,7 @@ class SyncEmailTest(unittest.TestCase):
 
     def test_success_review_release_and_preview(self):
         text = """结果：成功
-结论：双上游合并完成
+结论：三上游合并完成
 已推送版本：1234567abcdef
 全量验证：第 1 轮全部通过
 版本发布：已触发发布

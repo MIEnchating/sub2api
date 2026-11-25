@@ -47,7 +47,6 @@ func TestNaturalBalanceRequestsReadSenderWithoutChatQuotaOrModels(t *testing.T) 
 					query.WillReturnError(sql.ErrConnDone)
 					want = "账户信息查询失败，请稍后重试。"
 				}
-				mock.ExpectExec("INSERT INTO qq_bot_message_references").WithArgs("app", "group", "sent", "", sqlmock.AnyArg(), false, false, "", "").WillReturnResult(sqlmock.NewResult(0, 1))
 				var replies []string
 				server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 					switch r.URL.Path {
@@ -64,11 +63,14 @@ func TestNaturalBalanceRequestsReadSenderWithoutChatQuotaOrModels(t *testing.T) 
 					}
 				}))
 				t.Cleanup(server.Close)
-				s := New(db, nil, false, nil)
+				s := newMatureFixtureService(db, nil, false, nil)
 				s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 				c := DefaultConfig()
 				c.AppID, c.BaseURL, c.ChatDisabled = "app", server.URL+"/v1", true
 				c.DailyChatLimit, c.TotalDailyChatLimit = 0, 0
+				c.Enabled, c.AllowedGroups = true, []string{"group"}
+				expectRepairDeliverySnapshot(t, mock, c, 1)
+				mock.ExpectExec("INSERT INTO qq_bot_message_references").WithArgs("app", "group", "sent", "", sqlmock.AnyArg(), false, false, "", "").WillReturnResult(sqlmock.NewResult(0, 1))
 				e := Event{GroupID: "group", Content: "<@this-bot> 帮我看一下我的余额"}
 				e.Author.MemberID = "sender"
 				j := Job{AppID: c.AppID, EventType: eventType, GroupID: "group", MemberID: "sender", MessageID: "question", CreatedAt: time.Now()}

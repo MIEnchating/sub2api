@@ -48,6 +48,25 @@ func (r *runnerPlanRepoStub) UpdateNextRun(context.Context, *ScheduledTestPlan, 
 	return errors.New("unexpected reschedule")
 }
 
+func (*runnerPlanRepoStub) FinishTriggeredQuality(context.Context, *ScheduledTestPlan, time.Time, time.Time, time.Time) error {
+	return errors.New("unexpected triggered quality completion")
+}
+func (*runnerPlanRepoStub) ListQualityPlans(context.Context) ([]*ScheduledTestPlan, error) {
+	return nil, nil
+}
+func (*runnerPlanRepoStub) ApplyQualityOutcome(context.Context, *ScheduledTestPlan, time.Time, string) (string, error) {
+	return "", errors.New("unexpected quality outcome")
+}
+func (*runnerPlanRepoStub) TriggerQuality(context.Context, int64) error {
+	return errors.New("unexpected quality trigger")
+}
+func (*runnerPlanRepoStub) ClaimPelican(context.Context, *ScheduledTestPlan, time.Time, time.Time, time.Time) (bool, error) {
+	return false, errors.New("unexpected Pelican claim")
+}
+func (*runnerPlanRepoStub) FinishPelican(context.Context, int64, time.Time, time.Time) error {
+	return errors.New("unexpected Pelican completion")
+}
+
 type runnerResultRepoStub struct {
 	mu              sync.Mutex
 	created         []*ScheduledTestResult
@@ -98,7 +117,7 @@ func (r *runnerResultRepoStub) Update(ctx context.Context, result *ScheduledTest
 	}
 	return nil
 }
-func (r *runnerResultRepoStub) ListByPlanID(context.Context, int64, int) ([]*ScheduledTestResult, error) {
+func (r *runnerResultRepoStub) ListByPlanID(context.Context, int64, int, ...bool) ([]*ScheduledTestResult, error) {
 	return nil, nil
 }
 func (r *runnerResultRepoStub) ListVisible(context.Context, int64, int) ([]*ScheduledTestResult, error) {
@@ -110,6 +129,19 @@ func (r *runnerResultRepoStub) ListVisibleHistory(context.Context, int64, int64,
 func (r *runnerResultRepoStub) Delete(context.Context, int64) error { return nil }
 func (r *runnerResultRepoStub) PruneOldResults(ctx context.Context, _ int64, _ int) error {
 	return ctx.Err()
+}
+
+func (*runnerResultRepoStub) GetResult(context.Context, int64, int64) (*ScheduledTestResult, error) {
+	return nil, errors.New("unexpected result lookup")
+}
+func (*runnerResultRepoStub) ListQualityHistory(context.Context, int64, int) ([]*QualityHistoryResult, error) {
+	return nil, nil
+}
+func (*runnerResultRepoStub) ListPelicanHistory(context.Context, int64, int, int64) ([]*PelicanHistoryResult, error) {
+	return nil, nil
+}
+func (*runnerResultRepoStub) PruneExpiredPelican(context.Context, time.Time) error {
+	return nil
 }
 
 func TestExtractScheduledTestHTMLRejectsPlainTextAndDropsTrailingExplanation(t *testing.T) {

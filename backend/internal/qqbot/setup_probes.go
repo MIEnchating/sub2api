@@ -23,23 +23,20 @@ type setupProbeState struct {
 }
 
 func probeFingerprint(c Config) string {
-	return ConfigVersion([]any{c.AppID, c.AppSecret, c.Sandbox, c.BaseURL, c.APIKey, c.ChatModel, c.ChatProtocol, c.MaxOutputTokens, c.ChatDisabled, c.ImageEnabled, c.ImageAIConnection, c.ImageBaseURL, c.ImageAPIKey, c.ImageModel, c.ImageSize, c.ImageOutputFormat})
+	return ConfigVersion([]any{c.AppID, c.AppSecret, c.Sandbox, c.BaseURL, c.APIKey, c.ChatModel, c.ChatProtocol, c.MaxOutputTokens, c.ChatDisabled, c.RememberQuotedImages})
 }
 func requiredSetupProbes(c Config) []string {
 	out := []string{"qq"}
 	if !c.ChatDisabled {
 		out = append(out, "chat_flow")
 	}
-	if c.ImageEnabled {
-		out = append(out, "image", "image_edit")
-		if !c.ChatDisabled {
-			out = append(out, "vision")
-		}
+	if c.RememberQuotedImages && !c.ChatDisabled {
+		out = append(out, "vision")
 	}
 	return out
 }
 func (s *Service) SetupProbe(ctx context.Context, kind string) (SetupProbe, error) {
-	allowed := map[string]bool{"qq": true, "chat_flow": true, "chat": true, "vision": true, "tools": true, "image": true, "image_edit": true}
+	allowed := map[string]bool{"qq": true, "chat_flow": true, "chat": true, "vision": true, "tools": true}
 	if !allowed[kind] {
 		return SetupProbe{}, errors.New("未知能力测试")
 	}
@@ -67,7 +64,7 @@ func (s *Service) SetupProbe(ctx context.Context, kind string) (SetupProbe, erro
 		result.Status = "blocked"
 		result.Message = err.Error()
 	}
-	for _, secret := range []string{c.AppSecret, c.APIKey, c.ImageAPIKey} {
+	for _, secret := range []string{c.AppSecret, c.APIKey} {
 		if secret != "" {
 			result.Message = strings.ReplaceAll(result.Message, secret, "[redacted]")
 		}

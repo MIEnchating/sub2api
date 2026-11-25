@@ -20,6 +20,8 @@ declare module 'vue-router' {
     requiresAdmin?: boolean
     /** Opt-in ticket management; hidden and unavailable until enabled. */
     requiresCodexTicket?: boolean
+    requiresAccountManagement?: boolean
+    requiresRequestCapture?: boolean
 
     /**
      * Page title for this route
@@ -56,6 +58,12 @@ declare module 'vue-router' {
      * @default false
      */
     requiresRiskControl?: boolean
+
+    /**
+     * Whether the support ticket (网站工单) switch must be on
+     * @default false
+     */
+    requiresSupportTickets?: boolean
 
     /**
      * 是否要求订阅功能开关（subscription_enabled，opt-out）未被显式关闭

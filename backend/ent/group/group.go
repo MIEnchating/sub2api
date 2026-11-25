@@ -58,6 +58,8 @@ const (
 	FieldDefaultValidityDays = "default_validity_days"
 	// FieldAllowImageGeneration holds the string denoting the allow_image_generation field in the database.
 	FieldAllowImageGeneration = "allow_image_generation"
+	// FieldAllowBatchImageGeneration holds the string denoting the allow_batch_image_generation field in the database.
+	FieldAllowBatchImageGeneration = "allow_batch_image_generation"
 	// FieldImageCountBilling holds the string denoting the image_count_billing field in the database.
 	FieldImageCountBilling = "image_count_billing"
 	// FieldImageRateIndependent holds the string denoting the image_rate_independent field in the database.
@@ -70,6 +72,10 @@ const (
 	FieldImagePrice2k = "image_price_2k"
 	// FieldImagePrice4k holds the string denoting the image_price_4k field in the database.
 	FieldImagePrice4k = "image_price_4k"
+	// FieldBatchImageDiscountMultiplier holds the string denoting the batch_image_discount_multiplier field in the database.
+	FieldBatchImageDiscountMultiplier = "batch_image_discount_multiplier"
+	// FieldBatchImageHoldMultiplier holds the string denoting the batch_image_hold_multiplier field in the database.
+	FieldBatchImageHoldMultiplier = "batch_image_hold_multiplier"
 	// FieldVideoRateIndependent holds the string denoting the video_rate_independent field in the database.
 	FieldVideoRateIndependent = "video_rate_independent"
 	// FieldVideoRateMultiplier holds the string denoting the video_rate_multiplier field in the database.
@@ -104,6 +110,12 @@ const (
 	FieldFallbackGroupIDOnUnavailable = "fallback_group_id_on_unavailable"
 	// FieldFallbackGroupIDOnInvalidRequest holds the string denoting the fallback_group_id_on_invalid_request field in the database.
 	FieldFallbackGroupIDOnInvalidRequest = "fallback_group_id_on_invalid_request"
+	// FieldBlockSubagents holds the string denoting the block_subagents field in the database.
+	FieldBlockSubagents = "block_subagents"
+	// FieldCodexCliOnly holds the string denoting the codex_cli_only field in the database.
+	FieldCodexCliOnly = "codex_cli_only"
+	// FieldStreamOnly holds the string denoting the stream_only field in the database.
+	FieldStreamOnly = "stream_only"
 	// FieldModelRouting holds the string denoting the model_routing field in the database.
 	FieldModelRouting = "model_routing"
 	// FieldStrictFailover holds the string denoting the strict_failover field in the database.
@@ -121,10 +133,11 @@ const (
 	// FieldAllowLive holds the string denoting the allow_live field in the database.
 	FieldAllowLive = "allow_live"
 	// FieldForceOpenaiFast holds the string denoting the force_openai_fast field in the database.
-	FieldForceOpenaiFast      = "force_openai_fast"
-	FieldForceOpenaiUltrafast = "force_openai_ultrafast"
+	FieldForceOpenaiFast = "force_openai_fast"
 	// FieldForceOpenaiServiceTier holds the string denoting the force_openai_service_tier field in the database.
 	FieldForceOpenaiServiceTier = "force_openai_service_tier"
+	// FieldForceOpenaiUltrafast holds the string denoting the force_openai_ultrafast field in the database.
+	FieldForceOpenaiUltrafast = "force_openai_ultrafast"
 	// FieldFreeOpenaiFast holds the string denoting the free_openai_fast field in the database.
 	FieldFreeOpenaiFast = "free_openai_fast"
 	// FieldFreeOpenaiUltrafast holds the string denoting the free_openai_ultrafast field in the database.
@@ -262,12 +275,15 @@ var Columns = []string{
 	FieldMonthlyLimitUsd,
 	FieldDefaultValidityDays,
 	FieldAllowImageGeneration,
+	FieldAllowBatchImageGeneration,
 	FieldImageCountBilling,
 	FieldImageRateIndependent,
 	FieldImageRateMultiplier,
 	FieldImagePrice1k,
 	FieldImagePrice2k,
 	FieldImagePrice4k,
+	FieldBatchImageDiscountMultiplier,
+	FieldBatchImageHoldMultiplier,
 	FieldVideoRateIndependent,
 	FieldVideoRateMultiplier,
 	FieldVideoPrice480p,
@@ -285,6 +301,9 @@ var Columns = []string{
 	FieldFallbackGroupID,
 	FieldFallbackGroupIDOnUnavailable,
 	FieldFallbackGroupIDOnInvalidRequest,
+	FieldBlockSubagents,
+	FieldCodexCliOnly,
+	FieldStreamOnly,
 	FieldModelRouting,
 	FieldStrictFailover,
 	FieldModelRoutingEnabled,
@@ -385,12 +404,18 @@ var (
 	DefaultDefaultValidityDays int
 	// DefaultAllowImageGeneration holds the default value on creation for the "allow_image_generation" field.
 	DefaultAllowImageGeneration bool
+	// DefaultAllowBatchImageGeneration holds the default value on creation for the "allow_batch_image_generation" field.
+	DefaultAllowBatchImageGeneration bool
 	// DefaultImageCountBilling holds the default value on creation for the "image_count_billing" field.
 	DefaultImageCountBilling bool
 	// DefaultImageRateIndependent holds the default value on creation for the "image_rate_independent" field.
 	DefaultImageRateIndependent bool
 	// DefaultImageRateMultiplier holds the default value on creation for the "image_rate_multiplier" field.
 	DefaultImageRateMultiplier float64
+	// DefaultBatchImageDiscountMultiplier holds the default value on creation for the "batch_image_discount_multiplier" field.
+	DefaultBatchImageDiscountMultiplier float64
+	// DefaultBatchImageHoldMultiplier holds the default value on creation for the "batch_image_hold_multiplier" field.
+	DefaultBatchImageHoldMultiplier float64
 	// DefaultVideoRateIndependent holds the default value on creation for the "video_rate_independent" field.
 	DefaultVideoRateIndependent bool
 	// DefaultVideoRateMultiplier holds the default value on creation for the "video_rate_multiplier" field.
@@ -407,6 +432,12 @@ var (
 	DefaultLongContextPricingEnabled bool
 	// DefaultClaudeCodeOnly holds the default value on creation for the "claude_code_only" field.
 	DefaultClaudeCodeOnly bool
+	// DefaultBlockSubagents holds the default value on creation for the "block_subagents" field.
+	DefaultBlockSubagents bool
+	// DefaultCodexCliOnly holds the default value on creation for the "codex_cli_only" field.
+	DefaultCodexCliOnly bool
+	// DefaultStreamOnly holds the default value on creation for the "stream_only" field.
+	DefaultStreamOnly bool
 	// DefaultStrictFailover holds the default value on creation for the "strict_failover" field.
 	DefaultStrictFailover domain.StrictFailoverConfig
 	// DefaultModelRoutingEnabled holds the default value on creation for the "model_routing_enabled" field.
@@ -422,12 +453,13 @@ var (
 	// DefaultAllowLive holds the default value on creation for the "allow_live" field.
 	DefaultAllowLive bool
 	// DefaultForceOpenaiFast holds the default value on creation for the "force_openai_fast" field.
-	DefaultForceOpenaiFast      bool
-	DefaultForceOpenaiUltrafast bool
+	DefaultForceOpenaiFast bool
 	// DefaultForceOpenaiServiceTier holds the default value on creation for the "force_openai_service_tier" field.
 	DefaultForceOpenaiServiceTier string
 	// ForceOpenaiServiceTierValidator is a validator for the "force_openai_service_tier" field. It is called by the builders before save.
 	ForceOpenaiServiceTierValidator func(string) error
+	// DefaultForceOpenaiUltrafast holds the default value on creation for the "force_openai_ultrafast" field.
+	DefaultForceOpenaiUltrafast bool
 	// DefaultFreeOpenaiFast holds the default value on creation for the "free_openai_fast" field.
 	DefaultFreeOpenaiFast bool
 	// DefaultFreeOpenaiUltrafast holds the default value on creation for the "free_openai_ultrafast" field.
@@ -576,6 +608,11 @@ func ByAllowImageGeneration(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldAllowImageGeneration, opts...).ToFunc()
 }
 
+// ByAllowBatchImageGeneration orders the results by the allow_batch_image_generation field.
+func ByAllowBatchImageGeneration(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldAllowBatchImageGeneration, opts...).ToFunc()
+}
+
 // ByImageCountBilling orders the results by the image_count_billing field.
 func ByImageCountBilling(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImageCountBilling, opts...).ToFunc()
@@ -604,6 +641,16 @@ func ByImagePrice2k(opts ...sql.OrderTermOption) OrderOption {
 // ByImagePrice4k orders the results by the image_price_4k field.
 func ByImagePrice4k(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldImagePrice4k, opts...).ToFunc()
+}
+
+// ByBatchImageDiscountMultiplier orders the results by the batch_image_discount_multiplier field.
+func ByBatchImageDiscountMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBatchImageDiscountMultiplier, opts...).ToFunc()
+}
+
+// ByBatchImageHoldMultiplier orders the results by the batch_image_hold_multiplier field.
+func ByBatchImageHoldMultiplier(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBatchImageHoldMultiplier, opts...).ToFunc()
 }
 
 // ByVideoRateIndependent orders the results by the video_rate_independent field.
@@ -681,6 +728,21 @@ func ByFallbackGroupIDOnInvalidRequest(opts ...sql.OrderTermOption) OrderOption 
 	return sql.OrderByField(FieldFallbackGroupIDOnInvalidRequest, opts...).ToFunc()
 }
 
+// ByBlockSubagents orders the results by the block_subagents field.
+func ByBlockSubagents(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldBlockSubagents, opts...).ToFunc()
+}
+
+// ByCodexCliOnly orders the results by the codex_cli_only field.
+func ByCodexCliOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldCodexCliOnly, opts...).ToFunc()
+}
+
+// ByStreamOnly orders the results by the stream_only field.
+func ByStreamOnly(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldStreamOnly, opts...).ToFunc()
+}
+
 // ByModelRoutingEnabled orders the results by the model_routing_enabled field.
 func ByModelRoutingEnabled(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldModelRoutingEnabled, opts...).ToFunc()
@@ -711,14 +773,14 @@ func ByForceOpenaiFast(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldForceOpenaiFast, opts...).ToFunc()
 }
 
-// ByForceOpenaiUltrafast orders the results by the force_openai_ultrafast field.
-func ByForceOpenaiUltrafast(opts ...sql.OrderTermOption) OrderOption {
-	return sql.OrderByField(FieldForceOpenaiUltrafast, opts...).ToFunc()
-}
-
 // ByForceOpenaiServiceTier orders the results by the force_openai_service_tier field.
 func ByForceOpenaiServiceTier(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldForceOpenaiServiceTier, opts...).ToFunc()
+}
+
+// ByForceOpenaiUltrafast orders the results by the force_openai_ultrafast field.
+func ByForceOpenaiUltrafast(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldForceOpenaiUltrafast, opts...).ToFunc()
 }
 
 // ByFreeOpenaiFast orders the results by the free_openai_fast field.

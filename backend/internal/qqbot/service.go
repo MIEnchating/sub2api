@@ -17,6 +17,7 @@ import (
 )
 
 type Service struct {
+	managedSiteBase       string
 	siteAI                SiteAIProvider
 	db                    *sql.DB
 	encryptor             Encryptor
@@ -48,7 +49,9 @@ func New(db *sql.DB, encryptor Encryptor, ready bool, invalidate func(context.Co
 	if invalidate == nil {
 		invalidate = func(context.Context, int64) {}
 	}
-	return &Service{db: db, encryptor: encryptor, encryptionReady: ready, invalidate: invalidate, priceWake: make(chan struct{}, 1), tokenGate: make(chan struct{}, 1), http: &http.Client{Timeout: 210 * time.Second, CheckRedirect: noRedirect}, imageDownload: downloadImage, tokenURL: "https://bots.qq.com/app/getAppAccessToken", qqURL: "https://api.sgroup.qq.com"}
+	s := &Service{db: db, encryptor: encryptor, encryptionReady: ready, invalidate: invalidate, priceWake: make(chan struct{}, 1), tokenGate: make(chan struct{}, 1), imageDownload: downloadImage, tokenURL: "https://bots.qq.com/app/getAppAccessToken", qqURL: "https://api.sgroup.qq.com"}
+	s.http = newBotHTTPClient(s)
+	return s
 }
 func (s *Service) Start() {
 	ctx, cancel := context.WithCancel(context.Background())
@@ -94,9 +97,9 @@ func (s *Service) Stop() {
 		s.cancel()
 	}
 	s.wg.Wait()
+	s.http.CloseIdleConnections()
 }
 func (s *Service) maintenance(ctx context.Context) {
-	_, _ = s.db.ExecContext(ctx, `DELETE FROM qq_bot_pending_image_plans WHERE expires_at<NOW() OR EXISTS(SELECT 1 FROM qq_bot_jobs j WHERE j.id=job_id AND j.status NOT IN ('running','completed'))`)
 	s.maintainModeration(ctx)
 	s.maintainSpamReports(ctx)
 	// An interrupted model request may already have cost money. Preserve its
@@ -123,6 +126,10 @@ func (s *Service) maintenance(ctx context.Context) {
 func (s *Service) runOne(parent context.Context) {
 	j, err := s.claimJob(parent)
 	if err != nil {
+		return
+	}
+	if j.Kind == "image" {
+		s.finish(j, "skipped", "QQ 生图任务已停用")
 		return
 	}
 	ctx, cancel := jobContext(parent, j)
@@ -451,14 +458,6 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 		}
 	}
 	j.ReplyReference = e.MessageScene.value("msg_idx")
-	if j.Kind == "image" && len(j.Image) > 0 {
-		if !c.ImageEnabled || c.groupPolicy(j.GroupID).DisableImages {
-			return ErrDisabled
-		}
-		// A delivery retry must never enter quota reservation or a paid model
-		// call again. Reuse the original media sequence for QQ idempotency.
-		return s.send(ctx, c, *j, j.ResultText, j.Image, 3)
-	}
 	parts, attachments := eventParts(e)
 	hasImages := len(imageAttachments(attachments)) > 0
 	cmd, arg := command(e.Content, c.CustomCommands...)
@@ -485,8 +484,6 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 		}
 	}
 	text := ""
-	var img []byte
-	imageEdited := false
 	seq := 1
 	progressAttempted := false
 	sendImageProgress := func(notice string) {
@@ -646,34 +643,19 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 			text = reply
 			break
 		}
-		if cmd != "" && cmd != "生图" {
+		if cmd != "" {
 			text = "未知指令，请发送 帮助。"
 			break
 		}
-		kind := "chat"
-		imageConfig := c
 		prompt := strings.TrimSpace(mentionPrefix.ReplaceAllString(strings.TrimSpace(e.Content), ""))
 		if prompt == "" && (hasImages || parts != "" || e.referenceID() != "") {
 			prompt = "请分析这条消息的内容。"
-		}
-		if cmd == "生图" {
-			kind = "image"
-			imageConfig, prompt = imageCommandOptions(c, arg)
-			if !c.ImageEnabled {
-				text = "生图功能未启用。"
-			}
-			if prompt == "" {
-				text = "用法：生图 图片描述；GIF：生图 --gif 动画描述"
-			}
-		}
-		if text != "" {
-			break
 		}
 		if prompt == "" || len([]rune(prompt)) > 6000 {
 			text = "内容长度须为 1～6000 字。"
 			break
 		}
-		if err := s.reserveUsage(ctx, c, *j, kind); err != nil {
+		if err := s.reserveUsage(ctx, c, *j, "chat"); err != nil {
 			if errors.Is(err, errReplyWindow) || errors.Is(err, context.DeadlineExceeded) {
 				return err
 			}
@@ -683,131 +665,44 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 			}
 			break
 		}
-		j.Kind = kind
-		var err error
-		if kind == "image" {
-			err = s.clearPendingImagePlan(ctx, c, *j)
-			if err == nil {
-				err = s.saveImageDecision(ctx, j, imageDecision{Tool: chatImageToolName, Review: "command", Basis: "explicit", Reason: "slash_command", Execution: "started", MessageRef: groupHistoryID(c.AppID, j.GroupID, e.ID)})
-			}
-			if err == nil {
-				sendImageProgress("正在生成图片，请稍候。")
-				img, err = s.generateImage(ctx, imageConfig, prompt)
-				status := "succeeded"
-				if err != nil {
-					status = "failed"
-				}
-				if recordErr := s.imageExecution(ctx, j, status); err == nil {
-					err = recordErr
-				}
-			}
+		j.Kind = "chat"
+		messages := s.historyForQuestion(ctx, c, *j, prompt)
+		messages = withGroupAdminChatInstructions(messages, c, *j, addressed)
+		messages = withChatCapabilities(messages, c, *j)
+		input, err := s.chatMessageWithImageProgress(ctx, c, e, prompt, ref, func() {
+			sendImageProgress("正在处理图片，请稍候。")
+		})
+		if err != nil {
+			text = err.Error()
 		} else {
-			messages := s.historyForQuestion(ctx, c, *j, prompt)
-			messages = withGroupAdminChatInstructions(messages, c, *j, addressed)
-			messages = withChatCapabilities(messages, c, *j)
-			var input Message
-			input, err = s.chatMessageWithImageProgress(ctx, c, e, prompt, ref, func() {
-				sendImageProgress("正在处理图片，请稍候。")
-			})
-			if err == nil {
-				var pending *pendingImagePlan
-				if c.ImageEnabled && !c.groupPolicy(j.GroupID).DisableImages {
-					pending, err = s.pendingImagePlan(ctx, c, *j)
-				}
-				messages = withPendingImagePlan(messages, pending)
-				messages = append(messages, groupUserMessage(c, e, input))
-				j.ShareHistory = shareableGroupEvent(e, ref, c.CustomCommands...)
-				var turn chatTurnResult
-				turnConfig := c
-				turnConfig.ImageEnabled = c.ImageEnabled && !c.groupPolicy(j.GroupID).DisableImages
+			messages = append(messages, groupUserMessage(c, e, input))
+			j.ShareHistory = shareableGroupEvent(e, ref, c.CustomCommands...)
+			var turn chatTurnResult
+			if ref == nil && e.referenceID() == "" && !hasImages && parts == "" && len(attachments) == 0 {
+				turn.SiteQuery, err = s.resolveSiteQueryFollowup(ctx, c, *j, prompt)
+			}
+			if err == nil && turn.SiteQuery == nil {
+				turn, err = s.siteChatTurn(ctx, c, messages)
+			}
+			if err == nil && turn.SiteQuery != nil {
+				// Do not share personal data with conversational or group history.
+				j.ShareHistory = false
+				var result SiteQueryResult
+				result, err = s.querySiteInfoDetailed(ctx, c, *j, *turn.SiteQuery)
 				if err == nil {
-					var followup *siteQuery
-					if ref == nil && e.referenceID() == "" && !hasImages && parts == "" && len(attachments) == 0 {
-						followup, err = s.resolveSiteQueryFollowup(ctx, c, *j, prompt)
-					}
-					if err == nil && followup != nil {
-						turn.SiteQuery = followup
-					} else if err == nil {
-						turn, err = s.siteChatTurn(ctx, turnConfig, messages)
-					}
+					turn.Text = result.Text
+					err = s.recordSiteQuery(ctx, j, result.Decision)
 				}
-				if err == nil && turn.SiteQuery != nil {
-					// Return the read-only backend result directly. Personal quotes
-					// must not be copied into conversational or shared history.
-					j.ShareHistory = false
-					var result SiteQueryResult
-					result, err = s.querySiteInfoDetailed(ctx, c, *j, *turn.SiteQuery)
-					if err == nil {
-						turn.Text = result.Text
-						err = s.recordSiteQuery(ctx, j, result.Decision)
-					}
-				}
-				if err == nil && (turn.ImagePrompt != "" || turn.ImagePlan != nil) {
-					turn, err = s.reviewImageTurn(ctx, turnConfig, j, e, prompt, input, ref, pending, turn)
-				} else if err == nil {
-					// Ordinary chat/cancellation invalidates an old plan even while
-					// images are disabled and the plan was not loaded into context.
-					err = s.clearPendingImagePlan(ctx, c, *j)
-				}
-				text, j.InputTokens, j.OutputTokens = turn.Text, turn.InputTokens, turn.OutputTokens
-				if turn.ChatExecution.Attempts > 0 {
-					j.ChatExecution, _ = json.Marshal(turn.ChatExecution)
-				}
-				if err == nil && turn.ImagePrompt != "" {
-					// The independent review approved; recheck policy and reserve
-					// image usage separately from chat and review token usage.
-					if usageErr := s.reserveUsage(ctx, c, *j, "image"); usageErr != nil {
-						if errors.Is(usageErr, errReplyWindow) || errors.Is(usageErr, context.DeadlineExceeded) {
-							return usageErr
-						}
-						err = s.imageExecution(ctx, j, "quota_blocked")
-						text = "生图服务暂时不可用，请稍后重试。"
-						if errors.Is(usageErr, errFeatureUnavailable) || errors.Is(usageErr, errUsageCooldown) || errors.Is(usageErr, errUsageLimit) {
-							text = "无法生成图片：" + usageErr.Error()
-						}
-					} else {
-						kind, j.Kind = "image", "image"
-						err = s.imageExecution(ctx, j, "started")
-						if err == nil && turn.EditImageIndex > 0 {
-							imageEdited = true
-							sendImageProgress("正在修改图片，请稍候。")
-							img, err = s.editImage(ctx, imageOutputConfig(c, turn.ImageOutputFormat), turn.ImagePrompt, input.Images[turn.EditImageIndex-1])
-						} else if err == nil {
-							sendImageProgress("正在生成图片，请稍候。")
-							img, err = s.generateImage(ctx, imageOutputConfig(c, turn.ImageOutputFormat), turn.ImagePrompt)
-						}
-						status := "succeeded"
-						if err != nil {
-							status = "failed"
-						}
-						if recordErr := s.imageExecution(ctx, j, status); err == nil {
-							err = recordErr
-						}
-						if err == nil {
-							text = "图片已生成。"
-							if imageEdited {
-								text = "图片已修改。"
-							}
-						}
-					}
-				}
-			} else {
-				text = err.Error()
+			}
+			text, j.InputTokens, j.OutputTokens = turn.Text, turn.InputTokens, turn.OutputTokens
+			if turn.ChatExecution.Attempts > 0 {
+				j.ChatExecution, _ = json.Marshal(turn.ChatExecution)
 			}
 		}
 		if err != nil {
 			// Record upstream failure distinctly from delivery failures. Never expose raw upstream bodies.
 			if text == "" {
 				text = "回复生成失败，请稍后重试。"
-			}
-			if kind == "image" {
-				text = "图片生成失败，请稍后重试。"
-				if imageEdited {
-					text = "图片编辑失败，请稍后重试。"
-				}
-			}
-			if outputMessage := imageOutputMessage(err); outputMessage != "" {
-				text = outputMessage
 			}
 			j.Error = err.Error()
 			_, _ = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET error=$2,input_tokens=$3,output_tokens=$4,chat_execution=$5 WHERE id=$1`, j.ID, j.Error, j.InputTokens, j.OutputTokens, nullableChatExecution(j.ChatExecution))
@@ -817,19 +712,9 @@ func (s *Service) message(ctx context.Context, c Config, j *Job, e Event) error 
 			return fmt.Errorf("模型调用失败：%w", err)
 		}
 		// Persist before sending to QQ. Delivery retries only reuse this saved result.
-		if _, err = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET result_text=$2,result_image=$3,image_type=$4,input_tokens=$5,output_tokens=$6,chat_execution=$7 WHERE id=$1`, j.ID, text, img, generatedImageType(img), j.InputTokens, j.OutputTokens, nullableChatExecution(j.ChatExecution)); err != nil {
-			return errors.New("生成成功但结果保存失败；未自动重新生成")
+		if _, err = s.db.ExecContext(ctx, `UPDATE qq_bot_jobs SET result_text=$2,input_tokens=$3,output_tokens=$4,chat_execution=$5 WHERE id=$1`, j.ID, text, j.InputTokens, j.OutputTokens, nullableChatExecution(j.ChatExecution)); err != nil {
+			return errors.New("回复生成成功但结果保存失败；未自动重新生成")
 		}
-	}
-	if len(img) > 0 {
-		notice := "图片已生成。"
-		if imageEdited {
-			notice = "图片已修改。"
-		}
-		if err := s.send(ctx, c, *j, notice, nil, seq); err != nil {
-			return err
-		}
-		return s.send(ctx, c, *j, text, img, seq+1)
 	}
 	chunks := splitReply(normalizeReplyLineBreaks(text), 5-seq+1)
 	for _, chunk := range chunks {

@@ -17,15 +17,15 @@ export function normalizeAstraGateway(value: AstraGatewaySettings): AstraGateway
     scheduling_group_ids: [...(value.scheduling_group_ids || [])],
     cookie_pool: {
       enabled: value.cookie_pool.enabled,
-      ip_affinity: true,
-      rotate_nodes: false,
+      ip_affinity: value.cookie_pool.ip_affinity ?? false,
+      rotate_nodes: value.cookie_pool.rotate_nodes ?? false,
       max_node_attempts: value.cookie_pool.max_node_attempts || 3,
       node_cooldown_seconds: value.cookie_pool.node_cooldown_seconds || 3600,
       ttl_seconds: value.cookie_pool.ttl_seconds || 230,
       source_account_ids: [...(value.cookie_pool.source_account_ids || [])],
       target_account_ids: [...(value.cookie_pool.target_account_ids || [])]
     },
-    ws_session: { ttl_seconds: value.ws_session.ttl_seconds || 3600, enabled: false, account_ids: [] },
+    ws_session: { ttl_seconds: value.ws_session.ttl_seconds || 3600, enabled: value.ws_session.enabled, account_ids: [...(value.ws_session.account_ids || [])] },
     revision: value.revision || ''
   }
 }
@@ -73,11 +73,12 @@ export async function getAstraGatewayHistory(host = '', passed = true, page = 1)
 export async function getAstraGatewayRuntime(): Promise<AstraGatewayRuntime> {
   return (await apiClient.get<AstraGatewayRuntime>('/admin/accounts/astra-gateway/status')).data
 }
-export async function testAstraGateway(action: 'prepare' | 'verify', account_id = 0, test_kind = 'state_probe'): Promise<AstraTestResult> {
+export async function testAstraGateway(action: 'prepare' | 'verify' | 'ws', account_id = 0, test_kind = 'state_probe'): Promise<AstraTestResult> {
   return (await apiClient.post<AstraTestResult>('/admin/accounts/astra-gateway/test', { action, account_id, test_kind }, { timeout: 305000 })).data
 }
 
 export function resolveAstraDependencies(value: AstraGatewaySettings): AstraGatewaySettings {
   const next = normalizeAstraGateway(value)
+  if (next.cookie_pool.rotate_nodes) next.cookie_pool.ip_affinity = true
   return next
 }

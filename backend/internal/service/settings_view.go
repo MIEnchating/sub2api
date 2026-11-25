@@ -36,8 +36,11 @@ type SystemSettings struct {
 	ExcelBPSImageTTLMinutes           int
 
 	RegistrationEnabled                 bool
+	LoginRateLimitEnabled               bool // 登录频率限制与失败 IP 封禁（默认开启）
+	RegistrationIPLimitEnabled          bool // 同一 IP 最多注册两个账号（默认开启）
 	EmailVerifyEnabled                  bool
 	RegistrationEmailSuffixWhitelist    []string
+	RegistrationEmailAliasBlockEnabled  bool // 屏蔽 Gmail 点号、+标签及域名尾点注册（默认开启）
 	RegistrationEmailDomainQuotaEnabled bool // 白名单非空时放行非白名单域名限量注册（默认关闭）
 	PromoCodeEnabled                    bool
 	PasswordResetEnabled                bool
@@ -189,20 +192,21 @@ type SystemSettings struct {
 	CustomMenuItems             string // JSON array of custom menu items
 	CustomEndpoints             string // JSON array of custom endpoints
 
-	DefaultConcurrency           int
-	DefaultBalance               float64
-	RiskControlEnabled           bool
-	CyberSessionBlockEnabled     bool
-	CyberPolicyUserAllowlist     string
-	CyberSessionBlockTTLSeconds  int
-	AffiliateEnabled             bool
-	AffiliateRebateRate          float64
-	AffiliateRebateFreezeHours   int
-	AffiliateRebateDurationDays  int
-	AffiliateRebatePerInviteeCap float64
-	AdminRechargeRebateEnabled   bool
-	DefaultUserRPMLimit          int
-	DefaultSubscriptions         []DefaultSubscriptionSetting
+	DefaultConcurrency                int
+	DefaultBalance                    float64
+	RiskControlEnabled                bool
+	CyberSessionBlockEnabled          bool
+	CyberPolicyUserAllowlist          string
+	CyberSessionBlockTTLSeconds       int
+	AffiliateEnabled                  bool
+	AffiliateRebateRate               float64
+	AffiliateRebateFreezeHours        int
+	AffiliateRebateDurationDays       int
+	AffiliateRebatePerInviteeCap      float64
+	AdminRechargeRebateEnabled        bool
+	DefaultUserRPMLimit               int
+	DefaultSubscriptions              []DefaultSubscriptionSetting
+	CyberSessionIdentityStrictEnabled bool
 
 	// Model fallback configuration
 	EnableModelFallback      bool   `json:"enable_model_fallback"`
@@ -228,17 +232,28 @@ type SystemSettings struct {
 	ChannelMonitorHideThroughput         bool   `json:"channel_monitor_hide_throughput"`
 	ChannelMonitorShowQuota              bool   `json:"channel_monitor_show_quota"`
 	ChannelMonitorHideUserRanking        bool   `json:"channel_monitor_hide_user_ranking"`
+	PrismBrowserEnabled                  bool   `json:"prism_browser_enabled"`
+	PrismBrowserBaseURL                  string `json:"prism_browser_base_url"`
+	PrismBrowserAPIKeyConfigured         bool   `json:"prism_browser_api_key_configured"`
+	PrismBrowserAPIKey                   string `json:"-"`
 
 	// Grok model mapping policy (admin settings; empty mapping falls back to these).
-	GrokDefaultTextModel           string `json:"grok_default_text_model"`
-	GrokCrossClientModelMapEnabled bool   `json:"grok_cross_client_model_map_enabled"`
-	GrokDefaultBaseURLMode         string `json:"grok_default_base_url_mode"`
+	GrokDefaultTextModel                 string `json:"grok_default_text_model"`
+	GrokCrossClientModelMapEnabled       bool   `json:"grok_cross_client_model_map_enabled"`
+	GrokDefaultBaseURLMode               string `json:"grok_default_base_url_mode"`
+	GrokVideoSourceURLEnabled            bool   `json:"grok_video_source_url_enabled"`
+	OpenAI409OmitEncryptedHistoryEnabled bool   `json:"openai_409_omit_encrypted_history_enabled"`
+	OpenAI400OmitEncryptedHistoryEnabled bool   `json:"openai_400_omit_encrypted_history_enabled"`
 
 	// Available Channels feature (user-facing aggregate view)
 	AvailableChannelsEnabled      bool            `json:"available_channels_enabled"`
 	NavigationItemVisibility      map[string]bool `json:"navigation_item_visibility"`
 	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
 	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
+
+	// Pelican showcase (user-facing gallery of scheduled Pelican HTML results)
+	PelicanShowcaseEnabled bool                  `json:"pelican_showcase_enabled"`
+	PelicanShowcase        PelicanShowcaseConfig `json:"pelican_showcase_config"`
 
 	// Subscription feature switch: gates the whole user-facing subscription surface
 	// (sidebar entries, purchase-page subscription tab, header progress badge,
@@ -247,10 +262,16 @@ type SystemSettings struct {
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
 	// Model Plaza feature (public group/model pricing showcase)
-	ModelPlazaEnabled       bool   `json:"model_plaza_enabled"`
-	ModelPlazaRequireAuth   bool   `json:"model_plaza_require_auth"`
-	ModelPlazaDescription   string `json:"model_plaza_description"`
-	PluginManagementEnabled bool   `json:"plugin_management_enabled"`
+	ModelPlazaEnabled       bool                       `json:"model_plaza_enabled"`
+	ModelPlazaRequireAuth   bool                       `json:"model_plaza_require_auth"`
+	ModelPlazaDescription   string                     `json:"model_plaza_description"`
+	ModelPlazaUSDToCNYRate  float64                    `json:"model_plaza_usd_to_cny_rate"`
+	ModelPlazaCurrency      ModelPlazaCurrencySettings `json:"model_plaza_currency"`
+	PluginManagementEnabled bool                       `json:"plugin_management_enabled"`
+
+	// Support tickets ("网站工单") switch + form config
+	SupportTicketEnabled bool                `json:"support_ticket_enabled"`
+	SupportTicket        SupportTicketConfig `json:"support_ticket_config"`
 
 	// Claude Code version check
 	MinClaudeCodeVersion string
@@ -297,6 +318,8 @@ type SystemSettings struct {
 	ClaudeCodeClientVersion                   string          // 出站声明的 Claude Code CLI 客户端版本号（管理员覆写）；空值跟随自动同步值
 	ClaudeCodeClientVersionSynced             string          // 自动同步到的官方最新版本号（只读展示）
 	ClaudeCodeVersionAutoSyncEnabled          bool            // 是否启用 Claude Code 客户端版本号自动同步（默认 true）
+	OpenAIRequestTimezoneEnabled              bool            // Rewrite request timezones; enabled by default.
+	OpenAIRequestTimezoneAuto                 bool            // Resolve timezone through actual egress by default; false retains manual mode.
 
 	// Web Search Emulation
 	WebSearchEmulationEnabled bool // 是否启用 web search 模拟
@@ -355,7 +378,19 @@ type SystemSettings struct {
 	AccountSchedulingThresholds map[string]int `json:"account_scheduling_thresholds"`
 
 	// 允许终端用户在用量页查看自己的失败请求
-	AllowUserViewErrorRequests bool
+	AllowUserViewErrorRequests  bool
+	SmartOpsHiddenMenuItems     []string // Sidebar presentation only; does not disable jobs or routes.
+	RequestCaptureEnabled       bool
+	RequestCaptureQuotaMiB      int64
+	RequestCaptureRetentionDays int
+	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
+	UsageShowLongContextBadge             bool
+	UsageShowCacheRate                    bool
+	UsageShowCacheRateToUsers             bool
+	UsageShowUpstreamResponseModelToUsers bool
+	ExcelBPSImageLimitPolicy              string
+	ExcelBPSImageWarningRemaining         int
+	ExcelBPSImageCompactReserve           int
 }
 
 type DefaultSubscriptionSetting struct {
@@ -429,6 +464,9 @@ type PublicSettings struct {
 	BalanceLowNotifyThreshold   float64
 	BalanceLowNotifyRechargeURL string
 
+	// Protocol feature switches, exposed so account editors follow global controls.
+	PrismBrowserEnabled bool `json:"prism_browser_enabled"`
+
 	// Channel Monitor feature
 	ChannelMonitorEnabled                bool   `json:"channel_monitor_enabled"`
 	ChannelMonitorMode                   string `json:"channel_monitor_mode"`
@@ -448,6 +486,9 @@ type PublicSettings struct {
 	UserSubscriptionsPageEnabled  bool            `json:"user_subscriptions_page_enabled"`
 	AdminSubscriptionsPageEnabled bool            `json:"admin_subscriptions_page_enabled"`
 
+	// Pelican showcase feature (user-facing gallery; limits stay admin-only)
+	PelicanShowcaseEnabled bool `json:"pelican_showcase_enabled"`
+
 	// Subscription feature switch (see SystemSettings.SubscriptionEnabled)
 	SubscriptionEnabled bool `json:"subscription_enabled"`
 
@@ -455,6 +496,10 @@ type PublicSettings struct {
 	ModelPlazaEnabled       bool `json:"model_plaza_enabled"`
 	ModelPlazaRequireAuth   bool `json:"model_plaza_require_auth"`
 	PluginManagementEnabled bool `json:"plugin_management_enabled"`
+
+	// Support tickets ("网站工单") feature switch
+	SupportTicketEnabled bool `json:"support_ticket_enabled"`
+	LotteryEnabled       bool `json:"lottery_enabled"`
 
 	// Affiliate (邀请返利) feature toggle
 	AffiliateEnabled bool `json:"affiliate_enabled"`
@@ -464,6 +509,16 @@ type PublicSettings struct {
 
 	// 允许终端用户在用量页查看自己的失败请求
 	AllowUserViewErrorRequests bool `json:"allow_user_view_error_requests"`
+
+	// 使用详情中长上下文计费 x2 徽标的展示开关（默认开启）
+	UsageShowLongContextBadge bool `json:"usage_show_long_context_badge"`
+
+	// 使用记录单条缓存率。功能默认开启；向用户展示默认关闭。
+	UsageShowCacheRate        bool `json:"usage_show_cache_rate"`
+	UsageShowCacheRateToUsers bool `json:"usage_show_cache_rate_to_users"`
+
+	// 是否向终端用户展示上游响应里声明的实际模型。默认关闭。
+	UsageShowUpstreamResponseModelToUsers bool `json:"usage_show_upstream_response_model_to_users"`
 }
 
 type LoginAgreementDocument struct {
@@ -579,6 +634,7 @@ func DefaultRectifierSettings() *RectifierSettings {
 		Enabled:                  true,
 		ThinkingSignatureEnabled: true,
 		ThinkingBudgetEnabled:    true,
+		APIKeySignatureEnabled:   true,
 	}
 }
 

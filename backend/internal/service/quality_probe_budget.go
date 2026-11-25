@@ -14,12 +14,14 @@ import (
 
 type qualityOperationsKey struct{}
 type qualitySettlementKey struct{}
+type qualityProbeSingleAttemptKey struct{}
 
 // All background quality transports enter here, including compatibility
 // attempts and Antigravity's test-only transport path. Customer traffic has no
 // qualityOperationsKey and never touches this budget.
 func executeQualityTestHTTP(req *http.Request, account int64, send func(*http.Request) (*http.Response, error)) (*http.Response, error) {
-	ctx := req.Context()
+	// The caller owns any probe retry so each transport attempt has its own reservation and usage record.
+	ctx := context.WithValue(req.Context(), qualityProbeSingleAttemptKey{}, true)
 	repo, _ := ctx.Value(qualityOperationsKey{}).(QualityOperationsRepository)
 	if repo != nil {
 		collector, _ := ctx.Value(accountTestUsageKey{}).(*accountTestUsageCollector)
@@ -89,10 +91,9 @@ func executeQualityTestHTTP(req *http.Request, account int64, send func(*http.Re
 				settlement.finish("")
 			}
 		})
-		req = req.WithContext(ctx)
 	}
 	started := time.Now().UTC()
-	resp, err := send(req)
+	resp, err := send(req.WithContext(ctx))
 	if err == nil && resp == nil {
 		err = errors.New("upstream returned nil response")
 	}

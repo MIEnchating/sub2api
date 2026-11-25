@@ -23,6 +23,9 @@ func NewScheduledTestPlanRepository(db *sql.DB) service.ScheduledTestPlanReposit
 }
 
 func (r *scheduledTestPlanRepository) Create(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
+	if plan.TargetAccountID() > 0 {
+		return insertScheduledTestPlan(ctx, r.db, plan)
+	}
 	if err := r.validateTarget(ctx, plan); err != nil {
 		return nil, err
 	}
@@ -74,28 +77,31 @@ func (r *scheduledTestPlanRepository) Create(ctx context.Context, plan *service.
 
 func (r *scheduledTestPlanRepository) GetByID(ctx context.Context, id int64) (*service.ScheduledTestPlan, error) {
 	row := r.db.QueryRowContext(ctx, `
-		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids
+		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids, CASE WHEN target_mode='account' THEN pelican_config END, running_until
 		FROM scheduled_test_plans WHERE id = $1
 	`, id)
-	return scanPlan(row)
+	return scanPlan(row, true)
 }
 
 func (r *scheduledTestPlanRepository) ListByAccountID(ctx context.Context, accountID int64) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids
-		FROM scheduled_test_plans p WHERE NOT ($1 = ANY(p.excluded_account_ids)) AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id=$1 AND ag.group_id=ANY(p.group_ids))
+		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids, CASE WHEN target_mode='account' THEN pelican_config END, running_until
+		FROM scheduled_test_plans p
+		WHERE (p.target_mode='account' AND p.account_id=$1)
+		   OR (p.target_mode='all_accounts' AND NOT ($1 = ANY(p.excluded_account_ids))
+		       AND EXISTS (SELECT 1 FROM account_groups ag WHERE ag.account_id=$1 AND ag.group_id=ANY(p.group_ids)))
 		ORDER BY created_at DESC
 	`, accountID)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	return scanPlans(rows)
+	return scanPlans(rows, true)
 }
 
 func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time) ([]*service.ScheduledTestPlan, error) {
 	rows, err := r.db.QueryContext(ctx, `
-		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids
+		SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids, CASE WHEN target_mode='account' THEN pelican_config END, running_until
 		FROM scheduled_test_plans
 		WHERE enabled = true AND next_run_at <= $1
 		ORDER BY next_run_at ASC
@@ -104,10 +110,13 @@ func (r *scheduledTestPlanRepository) ListDue(ctx context.Context, now time.Time
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	return scanPlans(rows)
+	return scanPlans(rows, true)
 }
 
 func (r *scheduledTestPlanRepository) Update(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
+	if plan.TargetMode == "account" || plan.TargetAccountID() > 0 {
+		return r.updatePelicanPlan(ctx, plan)
+	}
 	if plan != nil {
 		plan.MigrationNote = ""
 	}
@@ -239,8 +248,17 @@ func (r *scheduledTestPlanRepository) Delete(ctx context.Context, id int64) erro
 		return err
 	}
 	plan, err := scanPlan(tx.QueryRowContext(ctx, `SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids FROM scheduled_test_plans WHERE id=$1 FOR NO KEY UPDATE`, id))
-	if err != nil && err != sql.ErrNoRows {
+	if err == sql.ErrNoRows {
+		return nil
+	}
+	if err != nil {
 		return err
+	}
+	if plan.TargetMode == "account" {
+		if err := deleteScheduledTestPlanTx(ctx, tx, id); err != nil {
+			return err
+		}
+		return tx.Commit()
 	}
 	projectionIDs, err := scheduledTestProjectionAccountIDs(ctx, tx, plan)
 	if err != nil {
@@ -296,7 +314,7 @@ func (r *scheduledTestPlanRepository) UpdateNextRun(ctx context.Context, plan *s
 }
 
 func (r *scheduledTestPlanRepository) List(ctx context.Context) ([]*service.ScheduledTestPlan, error) {
-	rows, err := r.db.QueryContext(ctx, `SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids FROM scheduled_test_plans ORDER BY created_at DESC`)
+	rows, err := r.db.QueryContext(ctx, `SELECT id, name, sort_order, account_id, group_id, test_definition_id, test_type, target_mode, model_id, reasoning_effort, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, test_definition_ids, protection, group_ids, migration_note, schedule_config, excluded_account_ids, model_ids FROM scheduled_test_plans WHERE target_mode='all_accounts' ORDER BY created_at DESC`)
 	if err != nil {
 		return nil, err
 	}
@@ -447,6 +465,9 @@ func (r *scheduledTestDefinitionRepository) scan(row scannable) (*service.Schedu
 }
 
 func (r *scheduledTestResultRepository) Create(ctx context.Context, result *service.ScheduledTestResult) (*service.ScheduledTestResult, error) {
+	if result.PelicanConfig != nil || result.QualityJudgment != nil || result.QualityAction != "" || result.QualityRoundID != "" {
+		return insertScheduledTestResult(ctx, r.db, result)
+	}
 	return createScheduledTestResult(ctx, r.db, result)
 }
 
@@ -550,7 +571,10 @@ func (r *scheduledTestResultRepository) RestartFailed(ctx context.Context, resul
 // test type can hide every result of earlier types. Latest view is restricted
 // to the last full execution snapshot when one has been recorded, excluding
 // deleted accounts. History retains their results and display names for audit.
-func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID int64, limit int) ([]*service.ScheduledTestResult, error) {
+func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID int64, limit int, includeContent ...bool) ([]*service.ScheduledTestResult, error) {
+	if len(includeContent) > 0 {
+		return r.listPelicanResults(ctx, planID, limit, includeContent[0])
+	}
 	rows, err := r.db.QueryContext(ctx, `
 		WITH ranked_results AS (
 			SELECT id, ROW_NUMBER() OVER (
@@ -564,7 +588,8 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 				SELECT latest_run_id FROM scheduled_test_plans WHERE id=$1
 			) OR (SELECT latest_run_id FROM scheduled_test_plans WHERE id=$1) = '')
 		)
-		SELECT r.id, r.plan_id, p.name, COALESCE(d.name, ''), COALESCE(d.sort_order, 0), COALESCE(g.name, ''), COALESCE(p.sort_order, 2147483647), r.target_mode, r.status, r.response_text, r.output_kind, r.output_html, r.output_numeric, r.account_id, r.model_id, r.reasoning_effort, r.group_id, r.error_message, r.latency_ms, r.started_at, r.finished_at, r.created_at, r.test_definition_id, COALESCE(a.name, '')
+		SELECT r.id, r.plan_id, p.name, COALESCE(d.name, ''), COALESCE(d.sort_order, 0), COALESCE(g.name, ''), COALESCE(p.sort_order, 2147483647), r.target_mode, r.status, r.response_text, r.output_kind, r.output_html, r.output_numeric, r.account_id, r.model_id, r.reasoning_effort, r.group_id, r.error_message, r.latency_ms, r.started_at, r.finished_at, r.created_at, r.test_definition_id, COALESCE(a.name, ''),
+		       r.pelican_config, r.quality_action, r.quality_judgment, r.quality_round_id
 		FROM scheduled_test_results r
 		JOIN ranked_results ranked ON ranked.id = r.id
 		JOIN scheduled_test_plans p ON p.id = r.plan_id
@@ -583,11 +608,23 @@ func (r *scheduledTestResultRepository) ListByPlanID(ctx context.Context, planID
 	var results []*service.ScheduledTestResult
 	for rows.Next() {
 		r := &service.ScheduledTestResult{}
+		var config, judgment []byte
 		if err := rows.Scan(
 			&r.ID, &r.PlanID, &r.PlanName, &r.TestName, &r.TestOrder, &r.GroupName, &r.PlanOrder, &r.TargetMode, &r.Status, &r.ResponseText, &r.OutputKind, &r.OutputHTML, &r.OutputNumeric, &r.AccountID, &r.ModelID, &r.ReasoningEffort, &r.GroupID, &r.ErrorMessage,
 			&r.LatencyMs, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &r.TestDefinitionID, &r.AccountName,
+			&config, &r.QualityAction, &judgment, &r.QualityRoundID,
 		); err != nil {
 			return nil, err
+		}
+		if len(config) > 0 {
+			if err := json.Unmarshal(config, &r.PelicanConfig); err != nil {
+				return nil, err
+			}
+		}
+		if len(judgment) > 0 {
+			if err := json.Unmarshal(judgment, &r.QualityJudgment); err != nil {
+				return nil, err
+			}
 		}
 		results = append(results, r)
 	}
@@ -1066,13 +1103,20 @@ type scannable interface {
 	Scan(dest ...any) error
 }
 
-func scanPlan(row scannable) (*service.ScheduledTestPlan, error) {
+func scanPlan(row scannable, includePelican ...bool) (*service.ScheduledTestPlan, error) {
 	p := &service.ScheduledTestPlan{}
-	var protection, schedule []byte
-	if err := row.Scan(
+	var protection, schedule, pelican []byte
+	fields := []any{
 		&p.ID, &p.Name, &p.SortOrder, &p.AccountID, &p.GroupID, &p.TestDefinitionID, &p.TestType, &p.TargetMode, &p.ModelID, &p.ReasoningEffort, &p.CronExpression, &p.Enabled, &p.MaxResults, &p.AutoRecover,
 		&p.LastRunAt, &p.NextRunAt, &p.CreatedAt, &p.UpdatedAt, pq.Array(&p.TestDefinitionIDs), &protection, pq.Array(&p.GroupIDs), &p.MigrationNote, &schedule, pq.Array(&p.ExcludedAccountIDs), pq.Array(&p.ModelIDs),
-	); err != nil {
+	}
+	if len(includePelican) > 0 && includePelican[0] {
+		fields = append(fields, &pelican, &p.RunningUntil)
+	}
+	if err := row.Scan(fields...); err != nil {
+		return nil, err
+	}
+	if err := decodePelicanPlan(p, pelican); err != nil {
 		return nil, err
 	}
 	if len(p.ModelIDs) == 0 && p.ModelID != "" {
@@ -1091,14 +1135,452 @@ func scanPlan(row scannable) (*service.ScheduledTestPlan, error) {
 	return p, nil
 }
 
-func scanPlans(rows *sql.Rows) ([]*service.ScheduledTestPlan, error) {
+func scanPlans(rows *sql.Rows, includePelican ...bool) ([]*service.ScheduledTestPlan, error) {
 	var plans []*service.ScheduledTestPlan
 	for rows.Next() {
-		p, err := scanPlan(rows)
+		p, err := scanPlan(rows, includePelican...)
 		if err != nil {
 			return nil, err
 		}
 		plans = append(plans, p)
 	}
 	return plans, rows.Err()
+}
+
+type planRowQuerier interface {
+	QueryRowContext(ctx context.Context, query string, args ...any) *sql.Row
+}
+
+// insertScheduledTestPlan is shared with group rules, which insert inside their own transaction.
+func insertScheduledTestPlan(ctx context.Context, q planRowQuerier, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
+	if err := validateQualityGroupReferences(ctx, q, plan.PelicanConfig); err != nil {
+		return nil, err
+	}
+	row := q.QueryRowContext(ctx, `
+		INSERT INTO scheduled_test_plans (account_id, model_id, cron_expression, enabled, max_results, auto_recover, next_run_at, created_at, updated_at, pelican_config, target_mode)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW(), $8, 'account')
+		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, pelican_config, running_until
+	`, plan.AccountID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt, marshalPelicanConfig(plan.PelicanConfig))
+	return scanPelicanPlan(row)
+}
+
+func (r *scheduledTestPlanRepository) updatePelicanPlan(ctx context.Context, plan *service.ScheduledTestPlan) (*service.ScheduledTestPlan, error) {
+	// Configuration saves cannot cancel a newer pending manual run or revive
+	// one already consumed by a claimant. Read its intent from the locked row.
+	// Explicitly pausing/removing quality configuration still cancels it.
+	const query = `
+		UPDATE scheduled_test_plans
+		SET model_id = $2, cron_expression = $3, enabled = $4, max_results = $5, auto_recover = $6,
+ next_run_at = CASE WHEN $4 AND $8::jsonb->'quality' IS NOT NULL AND pelican_config->>'_manual_quality_run'='true'
+ THEN next_run_at ELSE $7 END, updated_at = NOW(),
+ pelican_config = CASE WHEN $4 AND $8::jsonb->'quality' IS NOT NULL AND pelican_config->>'_manual_quality_run'='true'
+ THEN $8::jsonb || jsonb_build_object('_manual_quality_run',true,'_manual_quality_run_id',pelican_config->'_manual_quality_run_id') ELSE $8::jsonb END
+		WHERE id = $1 AND target_mode='account' AND COALESCE(pelican_config->'quality'->>'action','') <> 'openai_two_fa_admission'
+		RETURNING id, account_id, model_id, cron_expression, enabled, max_results, auto_recover, last_run_at, next_run_at, created_at, updated_at, pelican_config, running_until
+	`
+	args := []any{plan.ID, plan.ModelID, plan.CronExpression, plan.Enabled, plan.MaxResults, plan.AutoRecover, plan.NextRunAt, marshalPelicanConfig(plan.PelicanConfig)}
+
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	updated, err := scanPelicanPlan(tx.QueryRowContext(ctx, query, args...))
+	if err != nil {
+		return nil, err
+	}
+	state, err := readQualityState(ctx, tx, plan.ID)
+	if err != nil {
+		return nil, err
+	}
+	// Importing configuration cannot implicitly undo account restrictions or
+	// discard their ownership. Incompatible live isolation still rejects below.
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil &&
+		updated.PelicanConfig.Quality.Action == service.QualityActionIsolateModels &&
+		(state.Action == "remove_groups" || state.Action == "disable_scheduling") {
+		if err = restoreQualityAccountActionForIsolation(ctx, tx, updated, &state); err != nil {
+			return nil, err
+		}
+	}
+	if err = checkQualityIsolationScope(updated, &state); err != nil {
+		return nil, err
+	}
+	if hasQualityCooldownOwnership(&state) {
+		account := &service.Account{}
+		var credentials, extra []byte
+		// Use the persisted account ID, never the caller's copy. This follows
+		// detection's plan -> account lock order and fences concurrent remapping.
+		if err = tx.QueryRowContext(ctx, `SELECT platform,type,COALESCE(credentials,'{}'::jsonb),COALESCE(extra,'{}'::jsonb) FROM accounts WHERE id=$1 FOR UPDATE`, updated.AccountID).Scan(&account.Platform, &account.Type, &credentials, &extra); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(credentials, &account.Credentials); err != nil {
+			return nil, err
+		}
+		if err = json.Unmarshal(extra, &account.Extra); err != nil {
+			return nil, err
+		}
+		if err = checkQualityCooldownTargets(updated, account, &state); err != nil {
+			return nil, err
+		}
+	}
+	if err = validateQualityGroupReferences(ctx, tx, updated.PelicanConfig); err != nil {
+		return nil, err
+	}
+	if !plan.PreserveQualityState && updated.PelicanConfig != nil && updated.PelicanConfig.Quality != nil && updated.PelicanConfig.Quality.Action == service.QualityActionObserveOnly {
+		if _, err = tx.ExecContext(ctx, `DELETE FROM account_quality_states WHERE plan_id=$1`, plan.ID); err != nil {
+			return nil, err
+		}
+	}
+
+	if err = tx.Commit(); err != nil {
+		return nil, err
+	}
+	return updated, nil
+}
+
+// The caller holds the plan lock. Manual and automated deletion share exactly
+// the same ownership checks and never restore or modify the account.
+func deleteScheduledTestPlanTx(ctx context.Context, tx *sql.Tx, id int64) error {
+	state, err := readQualityState(ctx, tx, id)
+	if err != nil {
+		return err
+	}
+	if state.Action == service.QualityActionIsolateModels || state.Models != nil || state.Groups != nil {
+		return service.QualityScopeConflict("restore this rule's isolated models and groups before deleting it")
+	}
+	if hasQualityCooldownOwnership(&state) {
+		return service.QualityScopeConflict("restore this rule's cooled models and concurrency before deleting it")
+	}
+	// Revalidate live ownership as well as durable snapshots. A stale/cleared
+	// snapshot must not let deletion leave a marker pointing at a missing rule.
+	var liveIsolation, liveCooldowns []byte
+	err = tx.QueryRowContext(ctx, `SELECT COALESCE(extra->'quality_model_isolation','{}'::jsonb),COALESCE(extra->'model_rate_limits','{}'::jsonb) FROM accounts WHERE id=(SELECT account_id FROM scheduled_test_plans WHERE id=$1) FOR UPDATE`, id).Scan(&liveIsolation, &liveCooldowns)
+	if err != nil && err != sql.ErrNoRows {
+		return err
+	}
+	for _, live := range [][]byte{liveIsolation, liveCooldowns} {
+		if len(live) == 0 {
+			continue
+		}
+		var entries map[string]json.RawMessage
+		if json.Unmarshal(live, &entries) != nil {
+			return service.QualityScopeConflict("review unreadable model ownership before deleting this rule")
+		}
+		for _, raw := range entries {
+			owner, _ := qualityEntryOwner(raw, id)
+			if owner == "this_rule" {
+				return service.QualityScopeConflict("review remaining model ownership before deleting this rule")
+			}
+		}
+	}
+
+	if _, err = tx.ExecContext(ctx, `DELETE FROM scheduled_test_plans WHERE id=$1`, id); err != nil {
+		return err
+	}
+	return nil
+}
+
+func insertScheduledTestResult(ctx context.Context, q planRowQuerier, result *service.ScheduledTestResult) (*service.ScheduledTestResult, error) {
+	row := q.QueryRowContext(ctx, `
+		INSERT INTO scheduled_test_results (plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at, pelican_config, quality_action, quality_judgment, quality_round_id)
+		VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), $8, $9, $10, $11)
+		RETURNING id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at, pelican_config, quality_action, quality_judgment, quality_round_id
+	`, result.PlanID, result.Status, result.ResponseText, result.ErrorMessage, result.LatencyMs, result.StartedAt, result.FinishedAt, marshalPelicanConfig(result.PelicanConfig), result.QualityAction, marshalQualityJudgment(result.QualityJudgment), result.QualityRoundID)
+
+	out := &service.ScheduledTestResult{}
+	var judgment []byte
+	var config []byte
+	if err := row.Scan(
+		&out.ID, &out.PlanID, &out.Status, &out.ResponseText, &out.ErrorMessage,
+		&out.LatencyMs, &out.StartedAt, &out.FinishedAt, &out.CreatedAt, &config, &out.QualityAction, &judgment, &out.QualityRoundID,
+	); err != nil {
+		return nil, err
+	}
+	if len(config) > 0 {
+		if err := json.Unmarshal(config, &out.PelicanConfig); err != nil {
+			return nil, err
+		}
+	}
+	if len(judgment) > 0 {
+		if err := json.Unmarshal(judgment, &out.QualityJudgment); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+func (r *scheduledTestResultRepository) listPelicanResults(ctx context.Context, planID int64, limit int, includeContent bool) ([]*service.ScheduledTestResult, error) {
+	rows, err := r.db.QueryContext(ctx, `
+		SELECT id, plan_id, status, CASE WHEN $3 THEN response_text ELSE '' END, error_message, latency_ms, started_at, finished_at, created_at, pelican_config, quality_action, quality_judgment, quality_round_id
+		FROM scheduled_test_results
+		WHERE plan_id = $1 AND EXISTS (
+		  SELECT 1 FROM scheduled_test_plans p WHERE p.id=$1 AND p.target_mode='account'
+		)
+		ORDER BY created_at DESC, id DESC
+		LIMIT $2
+	`, planID, limit, includeContent)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+
+	var results []*service.ScheduledTestResult
+	for rows.Next() {
+		r := &service.ScheduledTestResult{}
+		var judgment []byte
+		var config []byte
+		if err := rows.Scan(
+			&r.ID, &r.PlanID, &r.Status, &r.ResponseText, &r.ErrorMessage,
+			&r.LatencyMs, &r.StartedAt, &r.FinishedAt, &r.CreatedAt, &config, &r.QualityAction, &judgment, &r.QualityRoundID,
+		); err != nil {
+			return nil, err
+		}
+		if len(config) > 0 {
+			if err := json.Unmarshal(config, &r.PelicanConfig); err != nil {
+				return nil, err
+			}
+		}
+		if len(judgment) > 0 {
+			if err := json.Unmarshal(judgment, &r.QualityJudgment); err != nil {
+				return nil, err
+			}
+		}
+		results = append(results, r)
+	}
+	return results, rows.Err()
+}
+
+func scanPelicanPlan(row scannable, withAccountName ...bool) (*service.ScheduledTestPlan, error) {
+	p := &service.ScheduledTestPlan{}
+	var config []byte
+	dest := []any{
+		&p.ID, &p.AccountID, &p.ModelID, &p.CronExpression, &p.Enabled, &p.MaxResults, &p.AutoRecover,
+		&p.LastRunAt, &p.NextRunAt, &p.CreatedAt, &p.UpdatedAt, &config, &p.RunningUntil,
+	}
+	if len(withAccountName) > 0 && withAccountName[0] {
+		dest = append(dest, &p.AccountName)
+	}
+	if err := row.Scan(dest...); err != nil {
+		return nil, err
+	}
+	p.TargetMode = "account"
+	if err := decodePelicanPlan(p, config); err != nil {
+		return nil, err
+	}
+	return p, nil
+}
+
+func decodePelicanPlan(p *service.ScheduledTestPlan, config []byte) error {
+	if len(config) > 0 {
+		if err := json.Unmarshal(config, &p.PelicanConfig); err != nil {
+			return err
+		}
+		var internal struct {
+			ManualQualityRun   bool   `json:"_manual_quality_run"`
+			ManualQualityRunID string `json:"_manual_quality_run_id"`
+		}
+		if err := json.Unmarshal(config, &internal); err != nil {
+			return err
+		}
+		p.ManualQualityRun = internal.ManualQualityRun
+		p.ManualQualityRunID = internal.ManualQualityRunID
+	}
+	return nil
+}
+
+func scanPelicanPlans(rows *sql.Rows, withAccountName ...bool) ([]*service.ScheduledTestPlan, error) {
+	var plans []*service.ScheduledTestPlan
+	for rows.Next() {
+		p, err := scanPelicanPlan(rows, withAccountName...)
+		if err != nil {
+			return nil, err
+		}
+		plans = append(plans, p)
+	}
+	return plans, rows.Err()
+}
+
+func marshalPelicanConfig(config *service.PelicanTestConfig) any {
+	if config == nil {
+		return nil
+	}
+	data, _ := json.Marshal(config)
+	return string(data)
+}
+
+// Compare the saved version as well as the due time: a concurrent pause/edit wins.
+func (r *scheduledTestPlanRepository) ClaimPelican(ctx context.Context, plan *service.ScheduledTestPlan, now, until, next time.Time) (bool, error) {
+	accountID := plan.TargetAccountID()
+	if accountID <= 0 {
+		return false, nil
+	}
+	tx, err := r.db.BeginTx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	var locked bool
+	if err := tx.QueryRowContext(ctx, `SELECT pg_try_advisory_xact_lock(hashtextextended('pelican-account:' || $1::text, 0))`, accountID).Scan(&locked); err != nil {
+		return false, err
+	}
+	if !locked {
+		return false, nil
+	}
+	var manualQualityRun bool
+	var manualQualityRunID string
+	err = tx.QueryRowContext(ctx, `WITH candidate AS (
+ SELECT id AS candidate_id, COALESCE(pelican_config->>'_manual_quality_run','false')='true' AS manual_quality_run,
+ COALESCE(pelican_config->>'_manual_quality_run_id','') AS manual_quality_run_id
+ FROM scheduled_test_plans WHERE id=$1 FOR UPDATE
+ ) UPDATE scheduled_test_plans
+ SET running_until = $3, next_run_at = $4, pelican_config = pelican_config - '_manual_quality_run' - '_manual_quality_run_id'
+ FROM candidate
+ WHERE id = $1 AND target_mode='account' AND enabled = true
+ AND id=candidate_id
+ AND manual_quality_run=$9 AND manual_quality_run_id=$10
+ -- A 5xx probe may substitute a different question/configuration. Only the
+ -- scheduled claimant may consume an explicit manual request.
+ AND (NOT $7 OR NOT manual_quality_run)
+ AND (next_run_at <= $2 OR ($7 AND pelican_config->'quality'->>'trigger_on_upstream_5xx'='true'))
+ AND (NOT $7 OR (pelican_config->'quality'->>'trigger_on_upstream_5xx'='true'
+   AND EXISTS (SELECT 1 FROM accounts WHERE accounts.id=account_id AND type='oauth')
+   AND ($8::timestamptz IS NULL OR last_run_at IS NULL OR last_run_at < $8 OR pelican_config->'quality'->>'action'='remove_models')))
+ AND (running_until IS NULL OR running_until < $2) AND updated_at = $5 AND next_run_at = $6
+ AND NOT EXISTS (SELECT 1 FROM account_quality_states rest WHERE rest.plan_id=scheduled_test_plans.id
+ AND COALESCE((pelican_config->'quality'->>'retest_rest_minutes')::int,0)>0
+ AND (rest.state->>'retest_after')::timestamptz>$2)
+ AND EXISTS (SELECT 1 FROM accounts WHERE accounts.id = account_id AND deleted_at IS NULL)
+ AND NOT EXISTS (SELECT 1 FROM scheduled_test_plans other WHERE other.account_id = scheduled_test_plans.account_id
+ AND other.id <> scheduled_test_plans.id AND other.pelican_config IS NOT NULL AND other.running_until > $2)
+ RETURNING manual_quality_run,manual_quality_run_id`, plan.ID, now, until, next, plan.UpdatedAt, plan.NextRunAt, plan.TriggerSource == "upstream_5xx", plan.TriggerObservedAt, plan.ManualQualityRun, plan.ManualQualityRunID).Scan(&manualQualityRun, &manualQualityRunID)
+	claimed := err == nil
+	if err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
+	var bpsRecoveryPending bool
+	if claimed && plan.PelicanConfig != nil && plan.PelicanConfig.Quality != nil {
+		if err := tx.QueryRowContext(ctx, `SELECT EXISTS(
+ SELECT 1 FROM account_quality_states WHERE plan_id=$1 AND state->>'action'=$2)`,
+			plan.ID, service.QualityActionEnableBPS).Scan(&bpsRecoveryPending); err != nil {
+			return false, err
+		}
+	}
+	if claimed && plan.PelicanConfig != nil && plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.Action == service.QualityActionRemoveModel {
+		if err := tx.QueryRowContext(ctx, `SELECT COALESCE((SELECT (state->>'quality_5xx_episode')::bigint FROM account_quality_states WHERE plan_id=$1),0)`, plan.ID).Scan(&plan.Quality5xxEpisode); err != nil {
+			return false, err
+		}
+	}
+	if claimed && plan.PelicanConfig != nil && plan.PelicanConfig.Quality != nil && plan.PelicanConfig.Quality.OAuth401MaxRounds > 0 {
+		if err := claimQualityOAuth401Tx(ctx, tx, plan, until); err != nil {
+			return false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return false, err
+	}
+	if claimed {
+		// The bypass belongs to the marker actually consumed under this lease,
+		// never to an earlier in-memory selection or an input configuration.
+		plan.ManualQualityRun = manualQualityRun
+		plan.ManualQualityRunID = manualQualityRunID
+	}
+	if claimed && plan.PelicanConfig != nil {
+		config := *plan.PelicanConfig
+		config.BPSRecoveryPending = bpsRecoveryPending
+		plan.PelicanConfig = &config
+	}
+	return claimed, nil
+}
+
+func (r *scheduledTestPlanRepository) FinishPelican(ctx context.Context, id int64, until, finished time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until = NULL, last_run_at = $3,
+ next_run_at=CASE WHEN pelican_config->'quality'->>'action'='openai_two_fa_admission'
+ THEN $3::timestamptz+make_interval(secs => (pelican_config->'quality'->'admission'->>'wait_seconds')::int) ELSE next_run_at END
+ WHERE id = $1 AND running_until = $2`, id, until, finished)
+	return err
+}
+
+func (r *scheduledTestPlanRepository) FinishTriggeredQuality(ctx context.Context, plan *service.ScheduledTestPlan, until, finished, next time.Time) error {
+	_, err := r.db.ExecContext(ctx, `UPDATE scheduled_test_plans SET running_until=NULL,last_run_at=$3,
+ next_run_at=CASE WHEN updated_at=$4 AND next_run_at=$5 AND next_run_at<=$3 THEN $6 ELSE next_run_at END
+ WHERE id=$1 AND running_until=$2`, plan.ID, until, finished, plan.UpdatedAt, plan.NextRunAt, next)
+	return err
+}
+
+// Also prunes paused plans; bounded batches avoid long transactions on large histories.
+func (r *scheduledTestResultRepository) PruneExpiredPelican(ctx context.Context, before time.Time) error {
+	_, err := r.db.ExecContext(ctx, `DELETE FROM scheduled_test_results WHERE id IN (
+ SELECT results.id FROM scheduled_test_results results
+ JOIN scheduled_test_plans plans ON plans.id = results.plan_id
+ WHERE plans.pelican_config IS NOT NULL AND results.created_at < $1
+ ORDER BY results.created_at LIMIT 1000)`, before)
+	return err
+}
+
+func (r *scheduledTestResultRepository) GetResult(ctx context.Context, planID, resultID int64) (*service.ScheduledTestResult, error) {
+	out := &service.ScheduledTestResult{}
+	var judgment []byte
+	var config []byte
+	err := r.db.QueryRowContext(ctx, `SELECT id, plan_id, status, response_text, error_message, latency_ms, started_at, finished_at, created_at, pelican_config, quality_action, quality_judgment, quality_round_id
+ FROM scheduled_test_results WHERE plan_id = $1 AND id = $2`, planID, resultID).Scan(
+		&out.ID, &out.PlanID, &out.Status, &out.ResponseText, &out.ErrorMessage,
+		&out.LatencyMs, &out.StartedAt, &out.FinishedAt, &out.CreatedAt, &config, &out.QualityAction, &judgment, &out.QualityRoundID)
+	if err != nil {
+		return nil, err
+	}
+	if len(config) > 0 {
+		if err := json.Unmarshal(config, &out.PelicanConfig); err != nil {
+			return nil, err
+		}
+	}
+	if len(judgment) > 0 {
+		if err := json.Unmarshal(judgment, &out.QualityJudgment); err != nil {
+			return nil, err
+		}
+	}
+	return out, nil
+}
+
+// ListPelicanHistory lists every retained output, including failures and paused plans.
+// Cursor pagination is independent of account-table filters or pages. Bodies are lazy-loaded.
+// A non-zero accountID narrows the same history to that account's plans.
+func (r *scheduledTestResultRepository) ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) ([]*service.PelicanHistoryResult, error) {
+	rows, err := r.db.QueryContext(ctx, `SELECT r.id, r.plan_id, r.status, r.error_message,
+ r.latency_ms, r.started_at, r.finished_at, r.created_at, r.pelican_config, a.id, a.name
+ FROM scheduled_test_results r
+ JOIN scheduled_test_plans p ON p.id = r.plan_id
+ JOIN accounts a ON a.id = p.account_id
+ WHERE p.pelican_config IS NOT NULL AND p.pelican_config->'quality' IS NULL AND a.deleted_at IS NULL
+ AND ($1::bigint = 0 OR r.id < $1)
+ AND ($3::bigint = 0 OR p.account_id = $3)
+ ORDER BY r.id DESC LIMIT $2`, beforeID, limit, accountID)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	results := make([]*service.PelicanHistoryResult, 0)
+	for rows.Next() {
+		result := &service.PelicanHistoryResult{}
+		var config []byte
+		if err := rows.Scan(&result.ID, &result.PlanID, &result.Status, &result.ErrorMessage,
+			&result.LatencyMs, &result.StartedAt, &result.FinishedAt, &result.CreatedAt,
+			&config, &result.AccountID, &result.AccountName); err != nil {
+			return nil, err
+		}
+		if len(config) > 0 {
+			if err := json.Unmarshal(config, &result.PelicanConfig); err != nil {
+				return nil, err
+			}
+		}
+		results = append(results, result)
+	}
+	return results, rows.Err()
+}
+
+func marshalQualityJudgment(judgment *service.QualityJudgment) any {
+	if judgment == nil {
+		return nil
+	}
+	data, _ := json.Marshal(judgment)
+	return string(data)
 }

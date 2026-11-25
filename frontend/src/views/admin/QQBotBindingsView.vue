@@ -1,5 +1,6 @@
 <template>
-  <AppLayout><div class="mx-auto max-w-5xl space-y-5">
+  <AppLayout>
+    <QQCommunityNav /><div class="mx-auto max-w-5xl space-y-5">
     <h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.members') }}</h1>
     <nav class="flex flex-wrap gap-2"><RouterLink v-for="item in tabs" :key="item.key" :to="{ query: { tab: item.key } }" class="btn" :class="tab === item.key ? 'btn-primary' : 'btn-secondary'">{{ t(item.label) }}</RouterLink></nav>
     <QQBotBindings v-if="tab === 'members'" />
@@ -8,6 +9,7 @@
   </div></AppLayout>
 </template>
 <script setup lang="ts">
+import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

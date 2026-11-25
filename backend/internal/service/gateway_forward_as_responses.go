@@ -1,7 +1,6 @@
 package service
 
 import (
-	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -35,6 +34,10 @@ func (s *GatewayService) ForwardAsResponses(
 	body []byte,
 	parsed *ParsedRequest,
 ) (*ForwardResult, error) {
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
+
 	startTime := time.Now()
 
 	normalizedBody, normalized, err := normalizeOpenAIResponsesLegacyIngressWithConfig(s.cfg, body)
@@ -81,9 +84,10 @@ func (s *GatewayService) ForwardAsResponses(
 		return nil, err
 	}
 	responsesReq.Model = mappedModel
-	anthropicReq, err := apicompat.ResponsesToAnthropicRequest(&responsesReq)
+	anthropicReq, err := apicompat.ResponsesToAnthropicRequestWithOptions(&responsesReq, apicompat.ResponsesToAnthropicOptions{StrictMedia: true})
 	if err != nil {
-		if isClaude55SignedThinkingModel(mappedModel) {
+		var mediaErr *apicompat.AnthropicMediaError
+		if errors.As(err, &mediaErr) || isClaude55SignedThinkingModel(mappedModel) {
 			writeResponsesError(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		}
 		return nil, fmt.Errorf("convert responses to anthropic: %w", err)
@@ -145,6 +149,7 @@ func (s *GatewayService) ForwardAsResponses(
 			return nil, fmt.Errorf("build upstream request: %w", err)
 		}
 		resp, err = doAccountHTTPUpstreamWithTLS(s.httpUpstream, upstreamReq, proxyURL, account, s.tlsFPProfileService.ResolveTLSProfile(account))
+		s.rateLimitService.observeQualityResponse(upstreamReq.Context(), account, resp, err)
 		if err != nil {
 			if resp != nil && resp.Body != nil {
 				_ = resp.Body.Close()
@@ -178,6 +183,12 @@ func (s *GatewayService) ForwardAsResponses(
 
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
+
+		if isAnthropicCompatSafetyRejection(respBody) {
+			writeResponsesError(c, http.StatusForbidden, "permission_error", upstreamMsg)
+			MarkResponseCommitted(c)
+			return nil, fmt.Errorf("upstream safety rejection: %s", upstreamMsg)
+		}
 
 		// Apply account policies even for statuses outside the default failover list.
 		shouldDisable := false
@@ -227,9 +238,15 @@ func (s *GatewayService) ForwardAsResponses(
 			s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 		}
 	} else {
+		writerSizeBeforeBody := c.Writer.Size()
 		result, handleErr = s.handleResponsesBufferedStreamingResponse(resp, c, originalModel, mappedModel, reasoningEffort, startTime, clientToolMapping)
+		var sseErr *sseStreamErrorEventError
+		if errors.As(handleErr, &sseErr) {
+			return s.finishSSEStreamError(ctx, c, account, resp, sseErr.RawData, mappedModel, c.Writer.Size() != writerSizeBeforeBody, result)
+		}
 	}
 
+	attachClaudeCodeMimicInjection(c, account, result)
 	return result, handleErr
 }
 
@@ -430,17 +447,6 @@ func normalizeAnthropicEventUsageForResponses(event *apicompat.AnthropicStreamEv
 	}
 }
 
-// parseAnthropicSSEField parses an SSE field line in the form "field:value" or "field: value".
-// According to the SSE spec (https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation),
-// the space after the colon is optional. This function handles both formats.
-func parseAnthropicSSEField(line, field string) (string, bool) {
-	prefix := field + ":"
-	if !strings.HasPrefix(line, prefix) {
-		return "", false
-	}
-	return strings.TrimSpace(strings.TrimPrefix(line, prefix)), true
-}
-
 // handleResponsesBufferedStreamingResponse reads all Anthropic SSE events from
 // the upstream streaming response, assembles them into a complete Anthropic
 // response, converts to Responses API JSON format, and writes it to the client.
@@ -456,53 +462,23 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	observer := beginUpstreamResponseModelObservation(c)
 	requestID := resp.Header.Get("x-request-id")
 
-	scanner := bufio.NewScanner(resp.Body)
-	maxLineSize := defaultMaxLineSize
-	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
-		maxLineSize = s.cfg.Gateway.MaxLineSize
-	}
-	scanner.Buffer(make([]byte, 0, 64*1024), maxLineSize)
-	scanner.Split(newBoundedSSESplit(s.cfg, maxLineSize, nil))
-
-	// Accumulate the final Anthropic response from streaming events
 	var finalResp *apicompat.AnthropicResponse
 	var usage ClaudeUsage
-	streamStatus := &anthropicCompatStream{body: resp.Body}
+	streamStatus := s.newAnthropicCompatStream(c, resp, "anthropic buffered", requestID)
+	defer streamStatus.stop()
 
-	for scanner.Scan() {
-		line := scanner.Text()
-		eventType, ok := parseAnthropicSSEField(line, "event")
+	for {
+		event, payload, ok := streamStatus.nextEvent()
 		if !ok {
-			continue
-		}
-
-		// Read the data line
-		if !scanner.Scan() {
 			break
 		}
-		dataLine := scanner.Text()
-		payload, ok := parseAnthropicSSEField(dataLine, "data")
-		if !ok {
-			continue
-		}
-
-		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			logger.L().Warn("forward_as_responses buffered: failed to parse event",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-				zap.String("event_type", eventType),
-			)
-			continue
-		}
-
 		observer.ObserveAnthropic([]byte(payload))
 		streamStatus.observe(&event, payload)
-		if streamStatus.upstreamErrType != "" {
+		// Stop queued success events after a terminal safety rejection.
+		if event.Type == "error" {
 			break
 		}
 
-		// message_start carries the initial response structure
 		if event.Type == "message_start" && event.Message != nil {
 			finalResp = event.Message
 			mergeAnthropicUsage(&usage, event.Message.Usage)
@@ -539,27 +515,39 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		}
 	}
 
-	if err := scanner.Err(); err != nil {
-		if !errors.Is(err, context.Canceled) && !errors.Is(err, context.DeadlineExceeded) {
-			logger.L().Warn("forward_as_responses buffered: read error",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-			)
-		}
-	}
-
-	streamStatus.readErr = scanner.Err()
 	if failure := streamStatus.failure(); failure != nil {
-		_ = resp.Body.Close()
-		writeResponsesError(c, http.StatusBadGateway, "server_error", failure.message)
-		return &ForwardResult{
-			UpstreamResponseModel:         observer.Model(),
-			UpstreamResponseModelConflict: observer.Conflict(),
-			UpstreamResponseServiceTier:   observer.ServiceTier(),
-			RequestID:                     requestID, UpstreamHeaders: resp.Header, Usage: usage,
-			Model: originalModel, UpstreamModel: mappedModel, ReasoningEffort: reasoningEffort,
-			Duration: time.Since(startTime),
-		}, failure.err
+		var sseErr *sseStreamErrorEventError
+		if errors.As(failure.err, &sseErr) && !usage.hasObservedTokens() && !isAnthropicCompatSafetyRejection([]byte(sseErr.RawData)) {
+			return nil, failure.err
+		}
+
+		result := &ForwardResult{
+			UpstreamResponseServiceTier: observer.ServiceTier(),
+			RequestID:                   requestID,
+			UpstreamHeaders:             resp.Header,
+			Usage:                       usage,
+			Model:                       originalModel,
+			UpstreamModel:               mappedModel,
+			ReasoningEffort:             reasoningEffort,
+			Stream:                      false,
+			ClientDisconnect:            streamStatus.clientDisconnected,
+			Duration:                    time.Since(startTime),
+		}
+		applyObservedGatewayResponseModel(c, result)
+		if !streamStatus.clientDisconnected {
+			if isAnthropicCompatSafetyRejection([]byte(extractCompatFailurePayload(failure.err))) {
+				writeResponsesError(c, http.StatusForbidden, "permission_error", failure.message)
+				if !usage.hasObservedTokens() {
+					result = nil
+				}
+				return result, fmt.Errorf("upstream safety rejection: %s", failure.message)
+			}
+			writeResponsesError(c, http.StatusBadGateway, failure.errType, failure.message)
+		}
+		if !usage.hasObservedTokens() {
+			result = nil
+		}
+		return result, failure.err
 	}
 
 	if finalResp == nil {
@@ -586,6 +574,7 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 	// 无法覆盖已存在的 SSE 头。这里显式 Set 强制改回 JSON，避免下游中间层
 	// （如 new-api）按 Content-Type 误判为流式。
 	c.Writer.Header().Set("Content-Type", "application/json; charset=utf-8")
+	renderErrorsBefore := len(c.Errors)
 	if respBytes, err := json.Marshal(responsesResp); err == nil {
 		respBytes = reverseToolNamesIfPresent(c, respBytes)
 		respBytes, _, err = apicompat.RestoreResponsesClientToolPayload(respBytes, clientToolMapping)
@@ -597,19 +586,24 @@ func (s *GatewayService) handleResponsesBufferedStreamingResponse(
 		c.JSON(http.StatusOK, responsesResp)
 	}
 
-	return &ForwardResult{
-		UpstreamResponseModel:         observer.Model(),
-		UpstreamResponseModelConflict: observer.Conflict(),
-		UpstreamResponseServiceTier:   observer.ServiceTier(),
-		RequestID:                     requestID,
-		UpstreamHeaders:               resp.Header,
-		Usage:                         usage,
-		Model:                         originalModel,
-		UpstreamModel:                 mappedModel,
-		ReasoningEffort:               reasoningEffort,
-		Stream:                        false,
-		Duration:                      time.Since(startTime),
-	}, nil
+	result := &ForwardResult{
+		UpstreamResponseServiceTier: observer.ServiceTier(),
+		RequestID:                   requestID,
+		UpstreamHeaders:             resp.Header,
+		Usage:                       usage,
+		Model:                       originalModel,
+		UpstreamModel:               mappedModel,
+		ReasoningEffort:             reasoningEffort,
+		Stream:                      false,
+		ClientDisconnect:            streamStatus.clientDisconnected,
+		Duration:                    time.Since(startTime),
+	}
+	applyObservedGatewayResponseModel(c, result)
+	if err := anthropicBufferedWriteFailure(c, streamStatus, renderErrorsBefore); err != nil {
+		result.ClientDisconnect = true
+		return result, err
+	}
+	return result, nil
 }
 
 // handleResponsesStreamingResponse reads Anthropic SSE events from upstream,
@@ -648,21 +642,21 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	defer stream.stop()
 
 	resultWithUsage := func() *ForwardResult {
-		return &ForwardResult{
-			UpstreamResponseModel:         observer.Model(),
-			UpstreamResponseModelConflict: observer.Conflict(),
-			UpstreamResponseServiceTier:   observer.ServiceTier(),
-			RequestID:                     requestID,
-			UpstreamHeaders:               resp.Header,
-			Usage:                         usage,
-			Model:                         originalModel,
-			UpstreamModel:                 mappedModel,
-			ReasoningEffort:               reasoningEffort,
-			Stream:                        true,
-			Duration:                      time.Since(startTime),
-			FirstTokenMs:                  firstTokenMs,
-			ClientDisconnect:              stream.clientDisconnected,
+		result := &ForwardResult{
+			UpstreamResponseServiceTier: observer.ServiceTier(),
+			RequestID:                   requestID,
+			UpstreamHeaders:             resp.Header,
+			Usage:                       usage,
+			Model:                       originalModel,
+			UpstreamModel:               mappedModel,
+			ReasoningEffort:             reasoningEffort,
+			Stream:                      true,
+			Duration:                    time.Since(startTime),
+			FirstTokenMs:                firstTokenMs,
+			ClientDisconnect:            stream.clientDisconnected,
 		}
+		applyObservedGatewayResponseModel(c, result)
+		return result
 	}
 
 	// processEvent handles a single parsed Anthropic SSE event.
@@ -720,7 +714,9 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 			}
 		}
 		if len(events) > 0 {
-			c.Writer.Flush()
+			if err := FlushGatewayResponse(c.Writer); err != nil {
+				stream.markClientDisconnected()
+			}
 		}
 	}
 
@@ -735,51 +731,43 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 		if finalEvents := apicompat.FinalizeAnthropicResponsesStream(state); len(finalEvents) > 0 {
 			for _, evt := range finalEvents {
-				sse, err := apicompat.ResponsesEventToSSE(evt)
+				payload, err := json.Marshal(evt)
 				if err != nil {
-					continue
+					return resultWithUsage(), err
 				}
-				out := reverseToolNamesIfPresentString(c, sse)
-				fmt.Fprint(c.Writer, out) //nolint:errcheck
+				payload = reverseToolNamesIfPresent(c, payload)
+				payloads, _, err := clientToolRestorer.RestoreEvent(payload)
+				if err != nil {
+					return resultWithUsage(), err
+				}
+				for _, restored := range payloads {
+					if _, err := fmt.Fprintf(c.Writer, "event: %s\ndata: %s\n\n", gjson.GetBytes(restored, "type").String(), restored); err != nil {
+						stream.markClientDisconnected()
+						return resultWithUsage(), stream.failure().err
+					}
+				}
 			}
-			c.Writer.Flush()
+			if err := FlushGatewayResponse(c.Writer); err != nil {
+				stream.markClientDisconnected()
+			}
+		}
+		if stream.clientDisconnected {
+			return resultWithUsage(), stream.failure().err
 		}
 		return resultWithUsage(), nil
 	}
 
 	// Read Anthropic SSE events
 	for {
-		line, ok := stream.nextLine()
+		event, payload, ok := stream.nextEvent()
 		if !ok {
 			break
 		}
-		eventType, ok := parseAnthropicSSEField(line, "event")
-		if !ok {
-			continue
-		}
-
-		// Read data line
-		dataLine, ok := stream.nextLine()
-		if !ok {
-			break
-		}
-		payload, ok := parseAnthropicSSEField(dataLine, "data")
-		if !ok {
-			continue
-		}
-
-		var event apicompat.AnthropicStreamEvent
-		if err := json.Unmarshal([]byte(payload), &event); err != nil {
-			logger.L().Warn("forward_as_responses stream: failed to parse event",
-				zap.Error(err),
-				zap.String("request_id", requestID),
-				zap.String("event_type", eventType),
-			)
-			continue
-		}
-
 		observer.ObserveAnthropic([]byte(payload))
 		stream.observe(&event, payload)
+		if event.Type == "message_stop" {
+			continue
+		}
 		if stream.upstreamErrType != "" {
 			break
 		}

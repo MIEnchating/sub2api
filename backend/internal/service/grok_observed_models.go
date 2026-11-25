@@ -23,7 +23,9 @@ const (
 
 type grokObservedModelsSnapshot = GrokObservedModelsSnapshot
 
-var grokObservedModelsFlight sync.Map // accountID -> *singleflight-ish in-flight
+var grokObservedModelsFlight sync.Map
+
+// accountID -> *singleflight-ish in-flight
 
 // scheduleGrokObservedModelsSync best-effort fetches upstream /v1/models for a
 // Grok OAuth account and stores IDs in Extra. Never blocks request path long;

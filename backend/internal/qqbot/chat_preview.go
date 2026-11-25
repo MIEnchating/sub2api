@@ -53,7 +53,7 @@ func validateChatPreviewRequest(req ChatPreviewRequest) error {
 
 // PreviewChat exercises the same explicit-chat model routing and read-only site
 // query providers as QQ messages, without enqueuing jobs, sending messages,
-// reserving member quotas, loading conversations, or executing image actions.
+// reserving member quotas, or loading conversations.
 func (s *Service) PreviewChat(ctx context.Context, req ChatPreviewRequest) (ChatPreviewResult, error) {
 	started := time.Now()
 	out := ChatPreviewResult{KnowledgeSources: []KnowledgeSource{}}
@@ -101,7 +101,7 @@ func (s *Service) PreviewChat(ctx context.Context, req ChatPreviewRequest) (Chat
 	if c.BaseURL == "" || c.APIKey == "" || c.ChatModel == "" {
 		return out, errors.New("请先保存聊天连接和模型")
 	}
-	c.ImageEnabled, c.HistoryMessages = false, 0
+	c.HistoryMessages = 0
 	j := Job{AppID: c.AppID, GroupID: req.GroupID, MemberID: req.MemberID, CreatedAt: started}
 	messages := s.historyForQuestion(ctx, c, j, req.Question)
 	out.KnowledgeSources = siteKnowledgeSourcesForQuestion(c.SiteKnowledge, req.Question)

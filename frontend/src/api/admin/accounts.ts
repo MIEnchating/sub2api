@@ -15,6 +15,7 @@ import type {
   AccountListItem,
   CreateAccountRequest,
   UpdateAccountRequest,
+  UpstreamGroupSyncGuard,
   PaginatedResponse,
   AccountUsageInfo,
   WindowStats,
@@ -29,6 +30,9 @@ import type {
   OpenAICodexPATCreateRequest,
   CheckMixedChannelRequest,
   CheckMixedChannelResponse,
+  NewAPIUpstreamConfig,
+  NewAPIUpstreamConfigRequest,
+  NewAPIUpstreamPreview,
   UpstreamBillingProbeResult,
   UpstreamBillingProbeSettings,
   UpstreamBillingRatesResponse,
@@ -40,6 +44,14 @@ import type {
   OpenCodeGoUsageSettings,
   OpenCodeGoUsageState
 } from '@/types'
+
+/** Current account slots in use, independent of dashboard history and ops settings. */
+export async function getConcurrencySummary(): Promise<{ current_concurrency: number }> {
+  const { data } = await apiClient.get<{ current_concurrency: number }>(
+    '/admin/accounts/concurrency-summary'
+  )
+  return data
+}
 
 /**
  * List all accounts with pagination
@@ -490,9 +502,9 @@ export async function resetTempUnschedulable(id: number): Promise<{ message: str
  */
 export async function generateAuthUrl(
   endpoint: string,
-  config: { proxy_id?: number }
-): Promise<{ auth_url: string; session_id: string }> {
-  const { data } = await apiClient.post<{ auth_url: string; session_id: string }>(endpoint, config)
+  config: { proxy_id?: number; proxy_mode?: 'single' | 'request'; proxy_ids?: number[] }
+): Promise<{ auth_url: string; session_id: string; proxy_mode?: 'single' | 'request'; proxy_id?: number }> {
+  const { data } = await apiClient.post<{ auth_url: string; session_id: string; proxy_mode?: 'single' | 'request'; proxy_id?: number }>(endpoint, config)
   return data
 }
 
@@ -504,7 +516,7 @@ export async function generateAuthUrl(
  */
 export async function exchangeCode(
   endpoint: string,
-  exchangeData: { session_id: string; code: string; state?: string; proxy_id?: number }
+  exchangeData: { session_id: string; code: string; state?: string; proxy_id?: number; proxy_mode?: 'single' | 'request'; proxy_ids?: number[] }
 ): Promise<Record<string, unknown>> {
   const { data } = await apiClient.post<Record<string, unknown>>(endpoint, exchangeData)
   return data
@@ -633,12 +645,35 @@ export async function getAvailableModels(id: number): Promise<ClaudeModel[]> {
   return data
 }
 
+export interface AccountTestReasoning {
+  supported_reasoning_levels: string[]
+  default_reasoning_level: string
+}
+
+export async function getModelReasoning(id: number, modelId: string): Promise<AccountTestReasoning> {
+  const { data } = await apiClient.get<AccountTestReasoning>(`/admin/accounts/${id}/models/reasoning`, {
+    params: { model_id: modelId }
+  })
+  return data
+}
+
 export interface SyncUpstreamModelsResult {
   models: string[]
   metadata?: Record<string, UpstreamModelMetadata>
   warnings?: UpstreamModelSyncWarning[]
   discovery_source?: 'upstream' | 'configured_fallback'
   grok_model_diagnostics?: GrokModelDiagnostics
+  applied?: boolean
+  changed?: boolean
+  skipped?: string
+  next_sync_at?: string
+}
+
+export interface SyncUpstreamModelsOptions {
+  replace?: boolean
+  whitelist_only?: boolean
+  apply?: boolean
+  automatic?: boolean
 }
 
 export interface UpstreamModelSyncWarning {
@@ -664,10 +699,17 @@ export interface UpstreamModelMetadata {
  * @param id - Account ID
  * @returns List of model IDs returned by the upstream
  */
-export async function syncUpstreamModels(id: number, options?: { replace: boolean }): Promise<SyncUpstreamModelsResult> {
-  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, undefined, {
-    params: options,
-    timeout: 180000
+export async function syncUpstreamModels(
+  id: number,
+  options?: SyncUpstreamModelsOptions,
+  request?: { signal?: AbortSignal; timeout?: number }
+): Promise<SyncUpstreamModelsResult> {
+  const { replace, ...syncOptions } = options ?? {}
+  const body = Object.keys(syncOptions).length > 0 ? syncOptions : undefined
+  const { data } = await apiClient.post<SyncUpstreamModelsResult>(`/admin/accounts/${id}/models/sync-upstream`, body, {
+    ...request,
+    params: replace === undefined ? undefined : { replace },
+    timeout: request?.timeout ?? 180000
   })
   return data
 }
@@ -693,8 +735,11 @@ export async function batchSyncUpstreamModels(accountIds: number[]): Promise<Bat
 export interface SyncUpstreamPreviewParams {
   platform: string
   type: string
+  upstream_kind?: 'sub2api' | 'new_api'
+  account_id?: number
   base_url?: string
   api_key: string
+  proxy_id?: number
   model_mapping?: Record<string, string>
 }
 
@@ -806,19 +851,22 @@ export async function importData(payload: {
   proxy_mode?: AccountProxyMode
   proxy_id?: number | null
   data: AdminDataPayload
+  group_ids?: number[]
   skip_default_group_bind?: boolean
 }): Promise<AdminDataImportResult> {
   const { data } = await apiClient.post<AdminDataImportResult>('/admin/accounts/data', {
     data: payload.data,
+    group_ids: payload.group_ids,
     skip_default_group_bind: payload.skip_default_group_bind,
     ...(payload.proxy_mode ? { proxy_mode: payload.proxy_mode, proxy_id: payload.proxy_id ?? null } : {})
   })
   return data
 }
 
-export async function importCodexSession(payload: CodexSessionImportRequest): Promise<CodexSessionImportResult> {
+export async function importCodexSession(payload: CodexSessionImportRequest, options?: { signal?: AbortSignal }): Promise<CodexSessionImportResult> {
   const { data } = await apiClient.post<CodexSessionImportResult>('/admin/accounts/import/codex-session', payload, {
-    timeout: 120000 // 120s timeout for large session imports
+    timeout: 120000, // 120s timeout for large session imports
+    signal: options?.signal
   })
   return data
 }
@@ -1075,6 +1123,26 @@ export async function createSparkShadow(parentId: number, payload: SparkShadowCr
   return data
 }
 
+export async function getNewAPIUpstreamConfig(id: number): Promise<NewAPIUpstreamConfig> {
+  const { data } = await apiClient.get<NewAPIUpstreamConfig>(`/admin/accounts/${id}/upstream-billing-probe/config`)
+  return data
+}
+
+export async function previewNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  const { data } = await apiClient.post<NewAPIUpstreamPreview>(`/admin/accounts/${id}/upstream-billing-probe/config/preview`, request)
+  return data
+}
+
+export async function saveNewAPIUpstreamConfig(id: number, request: NewAPIUpstreamConfigRequest): Promise<NewAPIUpstreamPreview> {
+  const { data } = await apiClient.put<NewAPIUpstreamPreview>(`/admin/accounts/${id}/upstream-billing-probe/config`, request)
+  return data
+}
+
+export async function deleteNewAPIUpstreamConfig(id: number): Promise<{ account_id: number; configured: false }> {
+  const { data } = await apiClient.delete<{ account_id: number; configured: false }>(`/admin/accounts/${id}/upstream-billing-probe/config`)
+  return data
+}
+
 export async function getUpstreamBillingProbeSettings(): Promise<UpstreamBillingProbeSettings> {
   const { data } = await apiClient.get<UpstreamBillingProbeSettings>('/admin/accounts/upstream-billing-probe/settings')
   return data
@@ -1095,7 +1163,9 @@ export async function setUpstreamBillingProbeEnabled(id: number, enabled: boolea
 }
 
 export async function probeUpstreamBilling(id: number): Promise<UpstreamBillingProbeResult> {
-  const { data } = await apiClient.post<UpstreamBillingProbeResult>(`/admin/accounts/${id}/upstream-billing-probe`)
+  const { data } = await apiClient.post<UpstreamBillingProbeResult>(
+    `/admin/accounts/${id}/upstream-billing-probe`, undefined, { timeout: 45_000 }
+  )
   return data
 }
 
@@ -1107,21 +1177,63 @@ export type UpstreamGroupSource = { account_id: number } | {
 }
 
 export async function previewUpstreamGroup(source: UpstreamGroupSource, signal?: AbortSignal) {
-  const { data } = await apiClient.post<{ group_name?: string; group_description?: string }>(
+  const { data } = await apiClient.post<{ group_name?: string; group_description?: string; sync_guard?: UpstreamGroupSyncGuard }>(
     '/admin/accounts/upstream-billing-probe/group-preview', source, { signal }
   )
-  const fields: { name?: string; notes?: string } = {}
+  const fields: { name?: string; notes?: string; upstream_group_guard?: UpstreamGroupSyncGuard } = {}
   if (data.group_name?.trim()) fields.name = data.group_name
   if (data.group_description?.trim()) fields.notes = data.group_description
+  if (data.sync_guard) fields.upstream_group_guard = data.sync_guard
   return fields
 }
 
 export async function probeUpstreamBillingBatch(accountIds: number[]): Promise<UpstreamBillingProbeResult[]> {
   const { data } = await apiClient.post<{ results: UpstreamBillingProbeResult[] }>(
     '/admin/accounts/upstream-billing-probe/batch',
-    { account_ids: accountIds }
+    { account_ids: accountIds },
+    // Up to five waves of four accounts, each doing a rate and a balance GET.
+    { timeout: 225_000 }
   )
   return data.results
+}
+
+export type OpenAICodexStateVerdict = 'healthy' | 'degraded' | 'inconclusive'
+
+export interface OpenAICodexStateProbeResult {
+  account_id: number
+  model: string
+  verdict: OpenAICodexStateVerdict
+  reason: string
+  failure?: string
+  detail?: string
+  mint_status: number
+  continue_status: number
+  minted: boolean
+  new_ticket: boolean
+  ticket_length: number
+  continue_ticket_length: number
+  reported_model?: string
+  latency_ms: number
+  started_at: string
+  finished_at: string
+}
+
+/**
+ * Two-shot Codex turn-state probe: mint a ticket, then continue with it. A new
+ * ticket on the continuation means the account is degraded. Each shot may take
+ * up to 45s upstream, so the default client timeout is too short.
+ */
+export async function probeOpenAICodexState(
+  id: number,
+  modelId?: string,
+  options?: { signal?: AbortSignal }
+): Promise<OpenAICodexStateProbeResult> {
+  const { data } = await apiClient.post<OpenAICodexStateProbeResult>(
+    `/admin/accounts/${id}/state-probe`,
+    { model_id: modelId?.trim() || undefined },
+    { timeout: 120_000, signal: options?.signal }
+  )
+  return data
 }
 
 export async function getOllamaCloudUsageSettings(): Promise<OllamaCloudUsageSettings> {
@@ -1448,12 +1560,22 @@ export async function streamManualCodexHarvest(
 }
 
 
+export async function getOpenAIRequestTimezones(): Promise<{ default: string; timezones: string[] }> {
+  const { data } = await apiClient.get<{ default: string; timezones: string[] }>('/admin/accounts/openai-request-timezones')
+  return data
+}
+
 export const accountsAPI = {
   getCodexTicketHistory,
   getCodexHarvestFlow,
   updateCodexSkipHarvest,
   streamManualCodexHarvest,
- getPerformance, savePerformance, releasePerformance, getPerformanceEvents,
+  getConcurrencySummary,
+  getPerformance,
+  savePerformance,
+  releasePerformance,
+  getPerformanceEvents,
+  getOpenAIRequestTimezones,
   list,
   listWithEtag,
   getPlatformCounts,
@@ -1484,6 +1606,7 @@ export const accountsAPI = {
   resetTempUnschedulable,
   setSchedulable,
   getAvailableModels,
+  getModelReasoning,
   syncUpstreamModels,
   batchSyncUpstreamModels,
   syncUpstreamModelsPreview,
@@ -1497,6 +1620,7 @@ export const accountsAPI = {
   syncFromCrs,
   exportData,
   importData,
+  getManagementCapabilities,
   importCodexSession,
   createOpenAICodexPAT,
   getAntigravityDefaultModelMapping,
@@ -1508,12 +1632,17 @@ export const accountsAPI = {
   refreshOpenAIQuota,
   resetOpenAIQuota,
   createSparkShadow,
+  getNewAPIUpstreamConfig,
+  previewNewAPIUpstreamConfig,
+  saveNewAPIUpstreamConfig,
+  deleteNewAPIUpstreamConfig,
   getUpstreamBillingProbeSettings,
   updateUpstreamBillingProbeSettings,
   setUpstreamBillingProbeEnabled,
   probeUpstreamBilling,
   previewUpstreamGroup,
   probeUpstreamBillingBatch,
+  probeOpenAICodexState,
   getOllamaCloudUsageSettings,
   updateOllamaCloudUsageSettings,
   getOllamaCloudUsage,
@@ -1529,6 +1658,11 @@ export const accountsAPI = {
 }
 
 export default accountsAPI
+
+export async function getManagementCapabilities(): Promise<{ web_search_enabled: boolean; account_quota_notify_enabled: boolean; concurrency_upgrade_enabled?: boolean }> {
+  const { data } = await apiClient.get('/admin/accounts/management-capabilities')
+  return data
+}
 
 export async function getPerformance(accountIds: number[], signal?: AbortSignal): Promise<Record<number, AccountPerformance>> {
  const {data}=await apiClient.post<Record<number, AccountPerformance>>('/admin/accounts/performance',{account_ids:accountIds},{signal})

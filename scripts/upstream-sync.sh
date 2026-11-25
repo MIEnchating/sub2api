@@ -19,6 +19,8 @@ PRIMARY_REMOTE="${SUB2API_PRIMARY_REMOTE:-upstream}"
 PRIMARY_BRANCH="${SUB2API_PRIMARY_BRANCH:-main}"
 SECOND_REMOTE="${SUB2API_SECOND_REMOTE:-overdraft}"
 SECOND_BRANCH="${SUB2API_SECOND_BRANCH:-sub2api-custom}"
+THIRD_REMOTE="${SUB2API_THIRD_REMOTE:-ranxi}"
+THIRD_BRANCH="${SUB2API_THIRD_BRANCH:-production}"
 CODEX_BIN="${SUB2API_CODEX_BIN:-/usr/bin/codex}"
 # Empty means resolve from the candidate, including after a repair changes go.mod.
 GO_IMAGE="${SUB2API_GO_IMAGE:-}"
@@ -68,6 +70,7 @@ REVIEW_DECISION_FILE="$STATE_DIR/$RUN_ID-review-decision.json"
 RELEASE_NOTES_FILE="$STATE_DIR/$RUN_ID-release-notes.txt"
 PRIMARY_REF="$PRIMARY_REMOTE/$PRIMARY_BRANCH"
 SECOND_REF="$SECOND_REMOTE/$SECOND_BRANCH"
+THIRD_REF="$THIRD_REMOTE/$THIRD_BRANCH"
 ORIGIN_REF="$ORIGIN_REMOTE/$TARGET_BRANCH"
 SYNC_BRANCH="automation/sub2api-upstream-sync-$RUN_ID"
 WORKTREE_CREATED=false
@@ -81,6 +84,7 @@ PUSH_STATE='未执行'
 ORIGIN_HEAD=''
 PRIMARY_HEAD=''
 SECOND_HEAD=''
+THIRD_HEAD=''
 CANDIDATE_COMMIT=''
 PUSHED_COMMIT=''
 VALIDATION_RESULT='未执行'
@@ -579,7 +583,7 @@ write_report() {
     reason="${reason%"；$RELEASE_REASON"}"
   fi
   {
-    printf 'sub2api 双上游同步报告\n'
+    printf 'sub2api 三上游同步报告\n'
     printf '========================\n\n'
     printf '结果：%s\n' "$status_label"
     printf '结论：%s\n' "$reason"
@@ -632,10 +636,12 @@ write_report() {
     printf '\n同步范围与版本\n'
     printf '目标分支：%s\n' "$ORIGIN_REF"
     printf '主上游：%s\n' "$PRIMARY_REF"
-    printf '第二上游：%s（排除共享账号池和批量生图）\n' "$SECOND_REF"
+    printf '第二上游：%s（排除共享账号池及生图二开）\n' "$SECOND_REF"
+    printf '第三上游：%s（排除共享账号池及生图二开）\n' "${THIRD_REF:-ranxi/production}"
     [[ -n "$ORIGIN_HEAD" ]] && printf '合并前版本：%s\n' "$ORIGIN_HEAD"
     [[ -n "$PRIMARY_HEAD" ]] && printf '主上游版本：%s\n' "$PRIMARY_HEAD"
     [[ -n "$SECOND_HEAD" ]] && printf '第二上游版本：%s\n' "$SECOND_HEAD"
+    [[ -n "${THIRD_HEAD:-}" ]] && printf '第三上游版本：%s\n' "$THIRD_HEAD"
     [[ -n "$CANDIDATE_COMMIT" ]] && printf '候选版本：%s\n' "$CANDIDATE_COMMIT"
     printf '\n完整日志：%s\n' "$LOG_FILE"
   } > "$REPORT_FILE"
@@ -663,7 +669,7 @@ generate_failure_summary() {
     return 0
   fi
   cat > "$prompt_file" <<EOF
-只读分析本次 sub2api 双上游自动同步为什么失败，并生成简体中文故障摘要。
+只读分析本次 sub2api 三上游自动同步为什么失败，并生成简体中文故障摘要。
 
 完整日志：$LOG_FILE
 最终失败检查清单：$VALIDATION_FAILURES_FILE
@@ -687,7 +693,7 @@ EOF
 }
 
 notify_failure() {
-  local reason="$1" status="${2:-失败，未推送}" subject='【sub2api】双上游同步失败，代码未推送'
+  local reason="$1" status="${2:-失败，未推送}" subject='【sub2api】三上游同步失败，代码未推送'
   [[ "$NOTIFIED" == 'true' ]] && return 0
   NOTIFIED=true
   if [[ -n "$PUSHED_COMMIT" ]]; then
@@ -795,7 +801,7 @@ prepare_primary_worktree() {
 }
 
 run_codex_merge_review() {
-  local phase="${1:-最终双上游合并}" prompt_file="$STATE_DIR/$RUN_ID-review-prompt.txt"
+  local phase="${1:-最终三上游合并}" prompt_file="$STATE_DIR/$RUN_ID-review-prompt.txt"
   local attempt attempt_decision review_resolved=false
   [[ "$REVIEW_REPAIR_ATTEMPTS" =~ ^[1-9][0-9]*$ ]] || fail 'SUB2API_REVIEW_REPAIR_ATTEMPTS 必须为正整数'
   for ((attempt = 1; attempt <= REVIEW_REPAIR_ATTEMPTS; attempt++)); do
@@ -808,25 +814,26 @@ run_codex_merge_review() {
 本项目基准：$ORIGIN_REF
 主上游：$PRIMARY_REF
 第二上游：$SECOND_REF
+第三上游：${THIRD_REF:-ranxi/production}
 发布累计基准：${RELEASE_BASE_TAG:-未启用发布}（${RELEASE_BASE_COMMIT:-无}）。除本轮合并外，审查该基准到候选的全部累计差异；报告和风险必须覆盖之前合并但尚未发布的更新。
 
 产品决策：
-1. $PRIMARY_REF 的所有代码和功能都保留并合并，但不得重新引入已退役的批量生图。
-2. $SECOND_REF 的所有代码和功能都无条件保留并合并，例外是共享账号池、批量生图功能及其支持实现。
-3. 共享账号池包括其用户/管理员页面、API、数据库迁移、账号调度、权限、计费支持、测试、文档和专属资源；普通账号池和同名但无关功能必须保留。
+1. 完整保留 $PRIMARY_REF 的原生功能，包括普通生图、编辑、异步单图和点名属于主上游的批量生图。
+2. 合并 $SECOND_REF 和 ${THIRD_REF:-ranxi/production} 的非排除功能。排除共享账号池及这两个 fork 自定义的生图实现，包括生成/编辑路由、专属界面、能力开关、调度、计费、队列、文档和测试。保留图片输入/视觉理解和非生图功能。
+3. 用主上游当前树逐段核对生图相关改动，避免覆盖共同文件里的非生图修复。保留已发布的迁移和校验和，拒绝将重复编号、变更过的迁移或冲突 DDL 原样合入。
 
 要求：
-- 阅读 AGENTS.md、两上游提交记录、双方差异和当前合并结果。
+- 阅读 AGENTS.md、三个上游的提交记录、双方差异和当前合并结果。
 - 处理所有文本及语义冲突，禁止简单选择 ours/theirs。
-- 按 docs/UPSTREAM_EXCLUSIONS.md 删除或恢复仅属于共享账号池、批量生图的实现，保留第二上游的其他全部更新。
-- 批量生图的历史 SQL 迁移及校验和兼容记录必须保留；不得删除历史数据或冻结余额。普通生图和异步单图任务必须保留。
+- 按 docs/UPSTREAM_EXCLUSIONS.md 逐项核对生图来源，清除两个 fork 的生图二开和共享账号池。保留 Wei-Shaw 原生实现。
+- 批量生图的历史 SQL 迁移及校验和兼容记录必须保留；不得删除历史数据或冻结余额。主上游普通生图、异步单图和批量生图须保留。
 - 保留本项目已有功能、权限、计费、数据库兼容性和测试不变量。
 - 不要 fetch、commit、push、打 tag、发布或重启服务；直接修改工作树。不要 git add，外层以临时索引检查后再暂存；保留 :2/:3 供下一轮核对双方实现。
-- 最终答复用中文列出：上游变化、冲突处理、共享账号池和批量生图排除的文件/代码位置、保留的第二上游功能和剩余风险。
+- 最终答复用中文列出：上游变化、冲突处理、共享账号池和生图二开排除的文件/代码位置、保留的第二和第三上游功能和剩余风险。
 - decision 仅可为 resolved 或 blocked；只有所有冲突已解决且产品规则均满足时才可 resolved。
 - risks 只记录合并后仍未消除的具体风险，没有风险时必须返回空数组。
 - 沙箱缺少 Go/Bun/Docker、无法监听本地端口、远程工作流尚未启动或工具不可用都不是合并风险；不要因此返回 blocked，也不要将这些环境限制写入 risks。仅记录产品、代码、安全、权限、计费或数据库风险。
-- excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的批量生图路径；没有则返回空数组。
+- excluded_batch_image_paths 必须列出本轮删除、恢复或明确排除的生图二开路径（沿用该字段兼容旧报告）；没有则返回空数组。
 - excluded_shared_account_pool_paths 必须列出本轮删除、恢复或明确排除的共享账号池专属路径；没有则返回空数组。
 - 这是第 $attempt/$REVIEW_REPAIR_ATTEMPTS 轮集中冲突修复。若上一轮已修改工作树，必须继续逐文件核对并修复，不要仅返回 blocked。
 - 严格遵守 $REPO_DIR/.github/upstream-sync-decision-schema.json 的字段和类型；上一轮输出与校验错误见 $STATE_DIR/$RUN_ID-review-decision-* 和 ${LOG_FILE}。输出结构错误也要自行修复，只有结构完整且冲突已解决才能通过外层检查。
@@ -909,18 +916,19 @@ run_codex_validation_repair() {
   local attempt="$1"
   local prompt_file="$STATE_DIR/$RUN_ID-validation-repair-$attempt.txt"
   cat > "$prompt_file" <<EOF
-对 sub2api 候选双上游合并执行一次集中修复。本轮必须处理失败清单中的全部问题，不得只修第一个错误。
+对 sub2api 候选三上游合并执行一次集中修复。本轮必须处理失败清单中的全部问题，不得只修第一个错误。
 
 工作目录：$WORKTREE
 完整日志：$LOG_FILE
 本轮全量失败清单：$VALIDATION_FAILURES_FILE
 这是第 $attempt/$VALIDATION_REPAIR_ATTEMPTS 次集中修复。
-主上游：${PRIMARY_REF}（保留全部非退役功能）
-第二上游：${SECOND_REF}（除共享账号池和批量生图外全部保留）
+主上游：${PRIMARY_REF}（保留全部原生功能）
+第二上游：${SECOND_REF}（排除共享账号池及生图二开）
+第三上游：${THIRD_REF:-ranxi/production}（排除共享账号池及生图二开）
 
 要求：
 1. 先读取失败清单中每个检查的独立日志，归纳共同原因后一次性修复全部可修问题，包括 Release 工作流、打包和发布元数据。
-2. 按 docs/UPSTREAM_EXCLUSIONS.md 保留两个上游的非排除功能；不得重新引入共享账号池或批量生图；保留历史数据库迁移和校验和兼容记录。
+2. 按 docs/UPSTREAM_EXCLUSIONS.md 核对生图来源，保留主上游原生功能并排除其他两路的生图二开和共享账号池。保留历史数据库迁移和校验和兼容记录。
 3. 保留本项目权限、计费、数据库兼容、账号调度、日志隐私和测试不变量。
 4. 可运行针对性检查辅助定位，但外层脚本会在修复结束后重新执行整套验证。
 5. 不要 fetch、commit、push、打 tag、发布、重启服务或访问密钥。直接修改工作树并检查 diff。
@@ -988,6 +996,10 @@ create_final_merge_commit() {
   if [[ "$SECOND_HEAD" != "$ORIGIN_HEAD" && "$SECOND_HEAD" != "$PRIMARY_HEAD" ]]; then
     parents+=(-p "$SECOND_HEAD")
   fi
+  if [[ -n "${THIRD_HEAD:-}" && "$THIRD_HEAD" != "$ORIGIN_HEAD" &&
+        "$THIRD_HEAD" != "$PRIMARY_HEAD" && "$THIRD_HEAD" != "$SECOND_HEAD" ]]; then
+    parents+=(-p "$THIRD_HEAD")
+  fi
   commit="$(printf '%s\n' 'merge: synchronize primary and custom upstreams' | \
     git -C "$WORKTREE" commit-tree "$tree" "${parents[@]}")"
   git -C "$WORKTREE" reset --hard "$commit" >/dev/null
@@ -1009,7 +1021,7 @@ evaluate_release_eligibility() {
   local metrics
   metrics="$(python3 "$SCRIPT_DIR/../.github/upstream-release-window.py" measure \
     --repo "$WORKTREE" --baseline "$RELEASE_BASE_COMMIT" --candidate "$CANDIDATE_COMMIT" \
-    --upstream "$PRIMARY_HEAD" --upstream "$SECOND_HEAD")" || fail '累计发布统计失败'
+    --upstream "$PRIMARY_HEAD" --upstream "$SECOND_HEAD" --upstream "$THIRD_HEAD")" || fail '累计发布统计失败'
   read -r upstream_commits changed_files diff_lines <<< "$metrics"
   read -r review_decision risk_count merged_behavior_count ignored_risk_count < <(
     python3 - "$REVIEW_DECISION_FILE" "$RELEASE_IGNORE_ENVIRONMENT_RISKS" <<'PY'
@@ -1290,18 +1302,22 @@ main() {
   CURRENT_STAGE='检查主工作区'
   validate_primary_worktree
 
-  CURRENT_STAGE='获取三个远程仓库'
+  CURRENT_STAGE='获取目标仓库及三个上游'
   FETCH_STATE='进行中'
-  log "fetching $ORIGIN_REMOTE, $PRIMARY_REMOTE and $SECOND_REMOTE"
+  log "fetching $ORIGIN_REMOTE, $PRIMARY_REMOTE, $SECOND_REMOTE and $THIRD_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$ORIGIN_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$PRIMARY_REMOTE"
   git -C "$REPO_DIR" fetch --prune "$SECOND_REMOTE"
+  git -C "$REPO_DIR" fetch --prune --no-tags "$THIRD_REMOTE" "refs/heads/$THIRD_BRANCH:refs/remotes/$THIRD_REF"
   FETCH_STATE='通过'
   prepare_primary_worktree
   FINALIZATION_ENABLED=true
   ORIGIN_HEAD="$(git -C "$REPO_DIR" rev-parse "$ORIGIN_REF")"
   PRIMARY_HEAD="$(git -C "$REPO_DIR" rev-parse "$PRIMARY_REF")"
   SECOND_HEAD="$(git -C "$REPO_DIR" rev-parse "$SECOND_REF")"
+  THIRD_HEAD="$(git -C "$REPO_DIR" rev-parse "$THIRD_REF")"
+  export SUB2API_PRIMARY_IMAGE_REF="$PRIMARY_HEAD"
+  export SUB2API_MIGRATION_BASE="$ORIGIN_HEAD"
 
   if recover_pending_release; then
     log "recovered pending release $RELEASE_TAG successfully"
@@ -1317,7 +1333,8 @@ main() {
   fi
 
   if git -C "$REPO_DIR" merge-base --is-ancestor "$PRIMARY_HEAD" "$ORIGIN_HEAD" && \
-    git -C "$REPO_DIR" merge-base --is-ancestor "$SECOND_HEAD" "$ORIGIN_HEAD"; then
+    git -C "$REPO_DIR" merge-base --is-ancestor "$SECOND_HEAD" "$ORIGIN_HEAD" && \
+    git -C "$REPO_DIR" merge-base --is-ancestor "$THIRD_HEAD" "$ORIGIN_HEAD"; then
     no_upstream_updates=true
     if [[ "$RELEASE_ENABLED" != true || "$RELEASE_BASE_COMMIT" == "$ORIGIN_HEAD" ]]; then
       RELEASE_STATE='不发布'
@@ -1328,7 +1345,7 @@ main() {
     fi
   fi
 
-  CURRENT_STAGE='生成双上游候选合并'
+  CURRENT_STAGE='生成三上游候选合并'
   MERGE_STATE='进行中'
   git -C "$REPO_DIR" worktree add --detach "$WORKTREE" "$ORIGIN_HEAD"
   WORKTREE_CREATED=true
@@ -1346,8 +1363,14 @@ main() {
   fi
   finish_merge_stage "$SECOND_REF"
 
-  CURRENT_STAGE='Codex 最终双上游兼容审查'
-  run_codex_merge_review '最终双上游兼容审查'
+  log "merging third upstream changes from $THIRD_REF"
+  if ! git -C "$WORKTREE" merge --no-ff --no-commit "$THIRD_HEAD"; then
+    git -C "$WORKTREE" rev-parse -q --verify MERGE_HEAD >/dev/null || fail "无法开始合并 $THIRD_REF"
+  fi
+  finish_merge_stage "$THIRD_REF"
+
+  CURRENT_STAGE='Codex 最终三上游兼容审查'
+  run_codex_merge_review '最终三上游兼容审查'
   git -C "$WORKTREE" add --all
   [[ -z "$(git -C "$WORKTREE" diff --name-only --diff-filter=U)" ]] || fail 'Codex 最终审查后仍有未解决冲突'
   assert_no_conflict_markers || fail 'Codex 最终审查后仍有冲突标记'
@@ -1363,7 +1386,7 @@ main() {
     exit 0
   fi
 
-  CURRENT_STAGE='生成保留双上游祖先关系的候选提交'
+  CURRENT_STAGE='生成保留三上游祖先关系的候选提交'
   create_final_merge_commit
   evaluate_release_eligibility
   if [[ "$RELEASE_STATE" == '待发布' ]]; then
@@ -1403,7 +1426,7 @@ main() {
   finalize_sync
   CURRENT_STAGE='完成'
   write_report '成功' "两个上游已按规则合并，全部检查通过，代码已推送；$RELEASE_REASON"
-  send_email '【sub2api】双上游代码合并成功报告' "$REPORT_FILE" || \
+  send_email '【sub2api】三上游代码合并成功报告' "$REPORT_FILE" || \
     log "success email delivery failed; report retained at $REPORT_FILE"
   log "upstream sync completed: $PUSHED_COMMIT"
 }
@@ -1415,7 +1438,7 @@ if [[ "${1:-}" == '--test-email' ]]; then
   CURRENT_STAGE='邮件投递测试'
   VALIDATION_RESULT='未执行（仅测试邮件）'
   write_report '邮件测试' 'SMTP 配置和中文报告投递测试，不包含代码合并'
-  send_email '【sub2api】双上游同步邮件测试' "$REPORT_FILE"
+  send_email '【sub2api】三上游同步邮件测试' "$REPORT_FILE"
   log 'email test completed successfully'
   exit 0
 fi

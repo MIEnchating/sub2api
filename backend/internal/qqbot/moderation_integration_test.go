@@ -82,6 +82,7 @@ func newModerationHarness(t *testing.T) *moderationHarness {
 	return h
 }
 func (h *moderationHarness) configure(s *Service) {
+	s.http = &http.Client{Timeout: 210 * time.Second, CheckRedirect: noRedirect, Transport: matureFixtureTransport{base: &http.Transport{Proxy: nil}}}
 	s.qqURL = h.server.URL
 	s.tokenURL = h.server.URL + "/token"
 }
@@ -164,7 +165,7 @@ func TestModerationRepeatDedupeRestartAndEscalation(t *testing.T) {
 	require.NoError(t, h.db.QueryRow(`SELECT COUNT(*) FROM qq_bot_jobs WHERE status='queued' AND message_id<>'msg0'`).Scan(&queued))
 	require.Zero(t, queued)
 	// A new service instance claims durable work; never waits for AI workers.
-	h.s = New(h.db, testEncryptor{}, true, nil)
+	h.s = newMatureFixtureService(h.db, testEncryptor{}, true, nil)
 	h.configure(h.s)
 	h.drain(t)
 	h.mu.Lock()
@@ -291,7 +292,7 @@ func TestModerationFailuresExpiryAndRateLimits(t *testing.T) {
 	h.s.runModeration(context.Background())
 	// First mute and first recall use different shared limits. A second recall
 	// is blocked across two service instances during the same 200 ms window.
-	other := New(h.db, testEncryptor{}, true, nil)
+	other := newMatureFixtureService(h.db, testEncryptor{}, true, nil)
 	h.configure(other)
 	var wg sync.WaitGroup
 	for i := 0; i < 8; i++ {

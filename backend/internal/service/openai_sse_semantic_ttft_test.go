@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"github.com/gin-gonic/gin"
 	"github.com/stretchr/testify/require"
 )
@@ -56,8 +57,8 @@ func TestOpenAIResponsesTTFTSharedSemanticForwarders(t *testing.T) {
 				wire := "data: " + strings.Join(events, "\n\ndata: ") + "\n\n"
 				recorder := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(recorder)
-
-				ctx := context.Background()
+				collector := requesttiming.New(time.Now(), 0)
+				ctx := requesttiming.With(context.Background(), collector)
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
 				resp := &http.Response{StatusCode: 200, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(wire)), Request: c.Request}
 				svc := &OpenAIGatewayService{cfg: &config.Config{}}
@@ -94,10 +95,11 @@ func TestOpenAIResponsesTTFTSharedSemanticForwarders(t *testing.T) {
 					dialer := &wsSSETestDialer{conn: conn}
 					upstream := &httpUpstreamRecorder{}
 					svc = wsSSETestService(t, dialer, upstream)
-					r, e := forwardSemanticWSAdapter(t, svc, c)
+					SetOpenAIClientTransport(c, OpenAIClientTransportHTTP)
+					r, e := svc.Forward(context.Background(), c, wsSSETestAccount(), []byte(wsSSETestRequest))
 					err = e
 					require.NotNil(t, r)
-					require.EqualValues(t, 1, dialer.calls.Load(), "WS adapter must really dial the WS upstream")
+					require.EqualValues(t, 1, dialer.calls.Load(), "HTTP SSE ingress must really dial the WS upstream")
 					require.Empty(t, upstream.requests, "WS-to-SSE must not fall back to HTTP")
 					if r != nil {
 						first = r.FirstTokenMs
@@ -121,6 +123,13 @@ func TestOpenAIResponsesTTFTSharedSemanticForwarders(t *testing.T) {
 					require.NotNil(t, first, "typed reasoning/content must establish semantic TTFT")
 				} else {
 					require.Nil(t, first, "metadata, untyped/empty payload and terminal must not establish semantic TTFT")
+				}
+				if path == "native" || path == "native_guarded" || path == "passthrough" {
+					collector.Finish(200, false)
+					collector.WhenFinished(func(snapshot requesttiming.Snapshot) {
+						_, recorded := snapshot.Events["first_semantic"]
+						require.Equal(t, tc.want, recorded, "request timing must use the same semantic endpoint")
+					})
 				}
 			})
 		}
@@ -151,8 +160,8 @@ func TestOpenAIResponsesTTFTMultilineSemanticEvent(t *testing.T) {
 				}
 				multiline := prefix + first + "\ndata: \"delta\":\"hello\"}\n\n"
 				wire := multiline + `data: {"type":"response.completed","response":{"created_at":1700000000,"output":[],"usage":{"input_tokens":3,"output_tokens":2}}}` + "\n\n"
-
-				ctx := context.Background()
+				collector := requesttiming.New(time.Now(), 0)
+				ctx := requesttiming.With(context.Background(), collector)
 				recorder := httptest.NewRecorder()
 				c, _ := gin.CreateTestContext(recorder)
 				c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
@@ -177,9 +186,46 @@ func TestOpenAIResponsesTTFTMultilineSemanticEvent(t *testing.T) {
 				require.True(t, strings.HasPrefix(recorder.Body.String(), multiline), "metric accumulation must preserve the exact multiline SSE bytes")
 				require.Equal(t, wire, recorder.Body.String(), "existing terminal normalization must preserve this complete fixture")
 				require.NotNil(t, firstToken, "valid multiline SSE event must establish semantic TTFT")
-
+				collector.Finish(200, false)
+				collector.WhenFinished(func(s requesttiming.Snapshot) {
+					require.Contains(t, s.Events, "first_semantic", "valid multiline SSE event must reach requesttiming.Output")
+				})
 			})
 		}
+	}
+}
+
+func TestPriorityResponsesSemanticEventContext(t *testing.T) {
+	cases := []struct {
+		name, wire string
+		want       bool
+	}{
+		{"header_text", "event: response.output_text.delta\ndata: {\"delta\":\"hello\"}\n\n", true},
+		{"header_reasoning", "event: response.output_item.added\ndata: {\"item\":{\"type\":\"reasoning\",\"summary\":[]}}\n\n", true},
+		{"multiline", "event: response.output_text.delta\ndata: {\ndata: \"delta\":\"hello\"}\n\n", true},
+		{"payload_precedence", "event: response.created\ndata: {\"type\":\"response.output_text.delta\",\"delta\":\"hello\"}\n\n", true},
+		{"payload_metadata_precedence", "event: response.output_text.delta\ndata: {\"type\":\"response.created\",\"delta\":\"diagnostic\"}\n\n", false},
+		{"blank_resets", "event: response.output_text.delta\n\ndata: {\"delta\":\"untyped\"}\n\n", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			origin := time.Now()
+			now := origin
+			stats := newOpenAIAccountRuntimeStats()
+			stats.now = func() time.Time { return now }
+			body := newPriorityAttemptBody(io.NopCloser(strings.NewReader(tc.wire)), stats, priorityAttemptKey{endpoint: "/v1/responses"}, context.Background(), 200, true)
+			now = origin.Add(100 * time.Millisecond)
+			actual, err := io.ReadAll(body)
+			require.NoError(t, err)
+			require.Equal(t, tc.wire, string(actual))
+			if tc.want {
+				require.NotNil(t, body.firstSemanticMS, "priority observer must use effective SSE event type and complete payload")
+				require.Equal(t, 100.0, *body.firstSemanticMS)
+			} else {
+				require.Nil(t, body.firstSemanticMS)
+			}
+			require.NoError(t, body.Close())
+		})
 	}
 }
 
@@ -270,8 +316,8 @@ func TestOpenAIResponsesTTFTControlledEventClock(t *testing.T) {
 			synctest.Test(t, func(t *testing.T) {
 				for request := 0; request < 2; request++ {
 					origin := time.Now()
-
-					ctx := context.Background()
+					collector := requesttiming.New(origin, 0)
+					ctx := requesttiming.With(context.Background(), collector)
 					rec := newOpenAIResponseFlushRecorder()
 					c, _ := gin.CreateTestContext(rec)
 					c.Request = httptest.NewRequest(http.MethodPost, "/v1/responses", nil).WithContext(ctx)
@@ -297,7 +343,16 @@ func TestOpenAIResponsesTTFTControlledEventClock(t *testing.T) {
 					require.NotNil(t, first)
 					require.Equal(t, 100, *first, "later content and completion must not overwrite first token; next request starts fresh")
 					require.Equal(t, 900*time.Millisecond, time.Since(origin), "completion remains independent of first token")
-
+					collector.Finish(200, false)
+					collector.WhenFinished(func(s requesttiming.Snapshot) {
+						for _, key := range []string{"first_semantic", "first_visible", "terminal"} {
+							require.Contains(t, s.Events, key)
+						}
+						require.Equal(t, 100.0, s.Events["first_semantic"])
+						require.Equal(t, 400.0, s.Events["first_visible"], "this fixture's nonempty body establishes the existing visible endpoint")
+						require.Equal(t, 900.0, s.Events["terminal"])
+						require.Equal(t, 900.0, s.TotalMS)
+					})
 				}
 			})
 		})

@@ -6,10 +6,7 @@
     @close="handleClose"
   >
     <form id="bulk-edit-account-form" class="space-y-5" @submit.prevent="() => handleSubmit()">
-      <div v-if="allOpenAIOAuthOnly" class="space-y-3">
-        <label class="flex items-center gap-2 text-sm"><input v-model="enableExcelBPS" type="checkbox" data-testid="bulk-enable-excel-bps" />{{ t('admin.accounts.openai.excelBPS') }}</label>
-        <ExcelBPSSettings v-if="enableExcelBPS" v-model="excelBPSConfig" :groups="groups" :allow-composite="!authStore.isSimpleMode" />
-      </div>
+      <AccountUpstreamChannelBinding v-if="show" :account-ids="targetMode === 'selected' ? targetAccountIds : []" />
       <!-- Info -->
       <div class="rounded-lg bg-blue-50 p-4 dark:bg-blue-900/20">
         <p class="text-sm text-blue-700 dark:text-blue-400">
@@ -21,7 +18,7 @@
               d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"
             />
           </svg>
-          {{ t('admin.accounts.bulkEdit.selectionInfo', { count: targetMode === 'filtered' ? targetPreviewCount : accountIds.length }) }}
+          {{ t('admin.accounts.bulkEdit.selectionInfo', { count: targetMode === 'filtered' ? targetPreviewCount : targetAccountIds.length }) }}
         </p>
       </div>
 
@@ -33,6 +30,150 @@
           </svg>
           {{ t('admin.accounts.bulkEdit.mixedPlatformWarning', { platforms: targetSelectedPlatforms.join(', ') }) }}
         </p>
+      </div>
+
+      <!-- Excel / BPS protocol (ChatGPT OAuth only) -->
+      <div v-if="allOpenAIOAuthOnly && globalBpsEnabled" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <div class="mb-3 flex items-center justify-between">
+          <div class="flex-1 pr-4">
+            <label id="bulk-edit-excel-bps-label" class="input-label mb-0" for="bulk-edit-excel-bps-enabled">
+              {{ t('admin.accounts.openai.excelBPS') }}
+            </label>
+            <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+              {{ t('admin.accounts.openai.excelBPSDesc') }}
+            </p>
+          </div>
+          <input v-model="enableExcelBPS" id="bulk-edit-excel-bps-enabled" type="checkbox"
+            aria-controls="bulk-edit-excel-bps-body"
+            class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+        </div>
+        <fieldset id="bulk-edit-excel-bps-body" :disabled="!enableExcelBPS"
+          :class="!enableExcelBPS && 'pointer-events-none opacity-50'"
+          aria-labelledby="bulk-edit-excel-bps-label">
+          <ExcelBPSModeSwitches :enabled="excelBPSEnabled" :mode="excelBPSMode"
+            :loading="bpsDefaults.loading.value" :failed="bpsDefaults.failed.value" :applied="bpsDefaults.applied.value"
+            :available="!authStore.isObserver" prefix="bulk-excel-bps" @toggle="bpsDefaults.toggle" />
+          <div v-if="excelBPSEnabled" class="mt-3 space-y-3">
+            <label class="flex items-center gap-2 text-sm">
+              <input v-model="excelBPSAllModels" type="checkbox" data-testid="bulk-excel-bps-all-models" />
+              <span>{{ t('admin.accounts.openai.excelBPSAllModels') }}</span>
+            </label>
+            <div v-if="!excelBPSAllModels" data-testid="bulk-excel-bps-model-selection">
+              <label class="input-label">{{ t('admin.accounts.openai.excelBPSModels') }}</label>
+              <ModelWhitelistSelector v-model="excelBPSModels" platform="openai" />
+              <button type="button" class="btn btn-secondary" data-testid="bulk-excel-bps-astra-only"
+                @click="excelBPSModels = ['gpt-6-astra']">{{ t('admin.accounts.openai.excelBPSAstraOnly') }}</button>
+              <p class="input-hint">{{ t('admin.accounts.openai.excelBPSModelsHint') }}</p>
+            </div>
+            <p class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.excelBPSNotice') }}</p>
+            <ExcelBPSSearchOptions v-model:enabled="excelBPSWebSearch" v-model:automatic="excelBPSWebSearchAuto" />
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSOmitUnsupportedTools" type="checkbox"
+                  data-testid="bulk-excel-bps-omit-unsupported-tools"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSOmitUnsupportedTools') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSOmitUnsupportedToolsDesc') }}</p>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSIgnoreImages" type="checkbox"
+                  data-testid="bulk-excel-bps-ignore-images"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreImages') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSIgnoreImagesDesc') }}</p>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
+                  data-testid="bulk-excel-bps-ignore-encrypted-content"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContent') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContentDesc') }}</p>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSAutoDisableOn403" type="checkbox"
+                  data-testid="bulk-excel-bps-auto-disable-on-403"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoDisableOn403') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSAutoDisableOn403Desc') }}</p>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSAutoRecoverOn403" type="checkbox" :disabled="!excelBPSAutoDisableOn403"
+                  data-testid="bulk-excel-bps-auto-recover-on-403"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 disabled:opacity-50" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoRecoverOn403') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSAutoRecoverOn403Desc') }}</p>
+              <div v-if="excelBPSAutoRecoverOn403 && excelBPSAutoDisableOn403" class="mt-2">
+                <label class="block space-y-1">
+                  <span class="text-sm">{{ t('admin.accounts.openai.excelBPS403RecoveryInterval') }}</span>
+                  <input v-model.number="excelBPSRecoveryIntervalMinutes" type="number" min="1" :max="MAX_BPS_RECOVERY_INTERVAL_MINUTES" step="1" required
+                    data-testid="bulk-excel-bps-recovery-interval" class="input w-40" />
+                </label>
+                <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPS403RecoveryIntervalHint') }}</p>
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSAutoMoveOn403" type="checkbox"
+                  data-testid="bulk-excel-bps-auto-move-on-403"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoMoveOn403') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSAutoMoveOn403Desc') }}</p>
+              <div v-if="excelBPSAutoMoveOn403" class="mt-2">
+                <label class="input-label">{{ t('admin.accounts.openai.excelBPS403TargetGroup') }}</label>
+                <Select v-model="excelBPS403TargetGroupID" :options="excelBPS403GroupOptions"
+                  :aria-label="t('admin.accounts.openai.excelBPS403TargetGroup')"
+                  data-testid="bulk-excel-bps-403-target-group" />
+              </div>
+            </div>
+            <div class="mt-3">
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSMihomo') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSMihomoDesc') }}</p>
+              <div v-if="excelBPSMihomo" class="mt-2 flex flex-wrap items-center gap-4" role="radiogroup"
+                :aria-label="t('admin.accounts.openai.excelBPSProxySource')">
+                <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSProxySource') }}</span>
+                <label class="flex items-center gap-1.5 text-sm">
+                  <input v-model="excelBPSProxySource" type="radio" value="mihomo"
+                    data-testid="bulk-excel-bps-proxy-source-mihomo"
+                    class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                  {{ t('admin.accounts.openai.excelBPSProxySourceMihomo') }}
+                </label>
+                <label class="flex items-center gap-1.5 text-sm">
+                  <input v-model="excelBPSProxySource" type="radio" value="ip_pool"
+                    data-testid="bulk-excel-bps-proxy-source-ip-pool"
+                    class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                  {{ t('admin.accounts.openai.excelBPSProxySourceIPPool') }}
+                </label>
+              </div>
+              <p v-if="excelBPSMihomo && excelBPSProxySource === 'ip_pool'"
+                class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+                {{ t('admin.accounts.openai.excelBPSProxySourceIPPoolDesc') }}
+              </p>
+            </div>
+            <div>
+              <label class="flex items-center gap-2">
+                <input v-model="excelBPSCacheCreationAsInput" type="checkbox"
+                  data-testid="bulk-excel-bps-cache-creation-as-input"
+                  class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
+                <span class="text-sm">{{ t('admin.accounts.openai.excelBPSCacheCreationAsInput') }}</span>
+              </label>
+              <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSCacheCreationAsInputDesc') }}</p>
+            </div>
+          </div>
+        </fieldset>
       </div>
 
       <!-- OpenAI passthrough -->
@@ -127,6 +268,7 @@
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
             {{ t('common.enabled') }}
+            <NewFeatureBadge v-if="authStore.user?.id != null" :notice-id="NEW_FEATURE_NOTICES.passthroughModelFilter" :user-id="authStore.user?.id" />
           </label>
         </div>
       </div>
@@ -317,6 +459,12 @@
         </p>
       </div>
 
+      <div v-if="allOpenAIOAuthOnly" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+        <label class="flex items-center gap-2 text-sm"><input v-model="enableOpenAIModelAliases" type="checkbox" data-testid="enable-model-aliases" />{{ t('priorityScheduling.changeModelScope') }}</label>
+        <label class="mt-3 flex items-center gap-2 text-sm"><input v-model="openaiModelAliases" :disabled="!enableOpenAIModelAliases" type="checkbox" data-testid="bulk-model-aliases" />{{ t('priorityScheduling.modelAliases') }}</label>
+        <p class="input-hint">{{ t('priorityScheduling.bulkModelAliasesHint') }}</p>
+      </div>
+
       <!-- Model restriction -->
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
@@ -330,12 +478,20 @@
           <input
             v-model="enableModelRestriction"
             id="bulk-edit-model-restriction-enabled"
+            :disabled="syncBusy"
             type="checkbox"
             aria-controls="bulk-edit-model-restriction-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
 
+        <BatchUpstreamWhitelist
+          v-if="syncAdminId != null"
+          v-show="syncBusy || syncRows.length > 0 || (modelRestrictionMode === 'whitelist' && !isOpenAIModelRestrictionDisabled)"
+          :rows="syncRows" :busy="syncBusy" :valid="syncValid" :user-id="syncAdminId"
+          :disabled="submitting || checkingSubmit || showMixedChannelWarning"
+          @run="startWhitelistSync" @stop="stopSync"
+        />
         <div
           id="bulk-edit-model-restriction-body"
           :class="!enableModelRestriction && 'pointer-events-none opacity-50'"
@@ -742,6 +898,8 @@
             </p>
 
             <HeaderOverrideEditor
+
+              :user-id="authStore.user?.id"
               :rows="headerOverrideRows"
               :allow-variables="headerOverrideAllowVariables"
               @update:rows="headerOverrideRows = $event"
@@ -814,6 +972,16 @@
             aria-labelledby="bulk-edit-concurrency-label"
             @input="concurrency = Math.max(1, concurrency || 1)"
           />
+        </div>
+        <div>
+          <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0" for="bulk-edit-group-rate-multiplier-enabled">
+              {{ t('admin.accounts.groupBillingRateMultiplier') }}
+            </label>
+            <input v-model="enableGroupRateMultiplier" id="bulk-edit-group-rate-multiplier-enabled" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <input v-model.number="groupRateMultiplier" id="bulk-edit-group-rate-multiplier" type="number" min="0" step="0.01" :disabled="!enableGroupRateMultiplier" class="input" :class="!enableGroupRateMultiplier && 'cursor-not-allowed opacity-50'" />
+          <p class="input-hint">{{ t('admin.accounts.groupBillingRateMultiplierHint') }}</p>
         </div>
         <div>
           <div class="mb-3 flex items-center justify-between">
@@ -910,6 +1078,14 @@
             <Icon name="exclamationTriangle" size="xs" class="mt-0.5 flex-shrink-0" />
             <span>{{ t('admin.accounts.bulkEdit.rateSyncWarning') }}</span>
           </p>
+        </div>
+        <div>
+          <div class="mb-3 flex items-center justify-between">
+            <label class="input-label mb-0" for="bulk-edit-cost-multiplier-enabled">{{ t('admin.accounts.costMultiplier') }}</label>
+            <input id="bulk-edit-cost-multiplier-enabled" v-model="enableCostMultiplier" type="checkbox" aria-controls="bulk-edit-cost-multiplier" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+          </div>
+          <input id="bulk-edit-cost-multiplier" v-model.number="costMultiplier" type="number" min="0" max="1000000" step="0.001" required :disabled="!enableCostMultiplier" :aria-label="t('admin.accounts.costMultiplier')" class="input" :class="!enableCostMultiplier && 'cursor-not-allowed opacity-50'" />
+          <p class="input-hint">{{ t('admin.accounts.costMultiplierHint') }}</p>
         </div>
       </div>
 
@@ -1184,21 +1360,24 @@
           aria-labelledby="bulk-edit-openai-endpoint-capabilities-label"
         >
           <div class="grid grid-cols-1 gap-2 sm:grid-cols-2">
-            <label
+            <div
               v-for="option in openAIEndpointCapabilityOptions"
               :key="option.value"
-              class="flex cursor-pointer items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
+              class="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
             >
-              <input
-                type="checkbox"
-                :disabled="!enableOpenAIEndpointCapabilities"
-                class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
-                :data-testid="`bulk-edit-openai-endpoint-capability-${option.value}`"
-                :checked="openAIEndpointCapabilities.includes(option.value)"
-                @change="toggleOpenAIEndpointCapability(option.value, $event)"
-              />
-              <span class="text-gray-700 dark:text-gray-200">{{ option.label }}</span>
-            </label>
+              <label class="flex flex-1 cursor-pointer items-center gap-2">
+                <input
+                  type="checkbox"
+                  :disabled="!enableOpenAIEndpointCapabilities"
+                  class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
+                  :data-testid="`bulk-edit-openai-endpoint-capability-${option.value}`"
+                  :checked="openAIEndpointCapabilities.includes(option.value)"
+                  @change="toggleOpenAIEndpointCapability(option.value, $event)"
+                />
+                <span class="text-gray-700 dark:text-gray-200">{{ option.label }}</span>
+              </label>
+              <NewFeatureBadge v-if="option.value === 'videos'" :notice-id="NEW_FEATURE_NOTICES.openaiVideos" :user-id="authStore.user?.id" />
+            </div>
           </div>
         </div>
       </div>
@@ -1390,8 +1569,8 @@
         </div>
       </div>
 
-      <!-- RPM Limit (仅全部为 Anthropic OAuth/SetupToken 时显示) -->
-      <div v-if="allAnthropicOAuthOrSetupToken" class="border-t border-gray-200 pt-4 dark:border-dark-600">
+      <!-- RPM Limit (Anthropic OAuth/SetupToken or OpenAI OAuth) -->
+      <div v-if="allAnthropicOAuthOrSetupToken || allOpenAIOAuthOnly" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
           <label
             id="bulk-edit-rpm-limit-label"
@@ -1415,88 +1594,18 @@
           role="group"
           aria-labelledby="bulk-edit-rpm-limit-label"
         >
-          <div class="mb-3 flex items-center justify-between">
-            <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.accounts.quotaControl.rpmLimit.hint') }}</span>
-            <button
-              type="button"
-              @click="rpmLimitEnabled = !rpmLimitEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                rpmLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  rpmLimitEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-
-          <div v-if="rpmLimitEnabled" class="space-y-3">
-            <div>
-              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpm') }}</label>
-              <input
-                v-model.number="bulkBaseRpm"
-                type="number"
-                min="1"
-                max="1000"
-                step="1"
-                class="input"
-                :placeholder="t('admin.accounts.quotaControl.rpmLimit.baseRpmPlaceholder')"
-              />
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.baseRpmHint') }}</p>
-            </div>
-
-            <div>
-              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.strategy') }}</label>
-              <div class="flex gap-2">
-                <button
-                  type="button"
-                  @click="bulkRpmStrategy = 'tiered'"
-                  :class="[
-                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-                    bulkRpmStrategy === 'tiered'
-                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
-                >
-                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyTiered') }}
-                </button>
-                <button
-                  type="button"
-                  @click="bulkRpmStrategy = 'sticky_exempt'"
-                  :class="[
-                    'flex-1 rounded-lg px-3 py-2 text-sm font-medium transition-all',
-                    bulkRpmStrategy === 'sticky_exempt'
-                      ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/30 dark:text-primary-400'
-                      : 'bg-gray-100 text-gray-600 hover:bg-gray-200 dark:bg-dark-600 dark:text-gray-400 dark:hover:bg-dark-500'
-                  ]"
-                >
-                  {{ t('admin.accounts.quotaControl.rpmLimit.strategyStickyExempt') }}
-                </button>
-              </div>
-            </div>
-
-            <div v-if="bulkRpmStrategy === 'tiered'">
-              <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBuffer') }}</label>
-              <input
-                v-model.number="bulkRpmStickyBuffer"
-                type="number"
-                min="1"
-                step="1"
-                class="input"
-                :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
-              />
-              <p class="input-hint">{{ t('admin.accounts.quotaControl.rpmLimit.stickyBufferHint') }}</p>
-            </div>
-
-            </div>
-          </div>
+          <AccountRpmSettings
+            v-model:enabled="rpmLimitEnabled"
+            v-model:base-rpm="bulkBaseRpm"
+            v-model:strategy="bulkRpmStrategy"
+            v-model:sticky-buffer="bulkRpmStickyBuffer"
+            :strict="allOpenAIOAuthOnly"
+            :show-title="false"
+          />
+        </div>
 
         <!-- 用户消息限速模式（独立于 RPM 开关，始终可见） -->
-        <div class="mt-4">
+        <div v-if="allAnthropicOAuthOrSetupToken" class="mt-4">
           <label class="input-label">{{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueue') }}</label>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400 mb-2">
             {{ t('admin.accounts.quotaControl.rpmLimit.userMsgQueueHint') }}
@@ -1552,7 +1661,7 @@
         <button
           type="submit"
           form="bulk-edit-account-form"
-          :disabled="submitting"
+          :disabled="submitting || checkingSubmit || syncBusy"
           class="btn btn-primary"
         >
           <svg
@@ -1596,13 +1705,23 @@
 </template>
 
 <script setup lang="ts">
-import ExcelBPSSettings from './ExcelBPSSettings.vue'
-import { validBPSRecoveryInterval, hasValidExcelBPS403Target, readExcelBPSConfig, writeExcelBPSConfig } from '@/utils/excelBps'
+import { useBatchUpstreamWhitelist } from '@/composables/useBatchUpstreamWhitelist'
+import BatchUpstreamWhitelist from './BatchUpstreamWhitelist.vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
+import { DEFAULT_ACCOUNT_COST_MULTIPLIER, isValidAccountCostMultiplier } from '@/utils/accountCost'
+
 import { ref, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
+import ExcelBPSModeSwitches from './ExcelBPSModeSwitches.vue'
+import ExcelBPSSearchOptions from './ExcelBPSSearchOptions.vue'
+import type { ExcelBPSMode } from '@/utils/excelBPSDefaults'
+import { useExcelBPSDefaults } from '@/composables/useExcelBPSDefaults'
+import { DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES, MAX_BPS_RECOVERY_INTERVAL_MINUTES, isValidBPSRecoveryInterval, bpsRecoveryIntervalOrDefault } from '@/utils/excelBPSRecovery'
 import { useAppStore } from '@/stores/app'
 import { useAuthStore } from '@/stores/auth'
 import { adminAPI } from '@/api/admin'
+import { DEFAULT_EXCEL_BPS_MODELS } from '@/constants/account'
 import type {
   Proxy as ProxyConfig,
   AdminGroup,
@@ -1613,6 +1732,7 @@ import type {
   OpenAIResponsesMode
 } from '@/types'
 import BaseDialog from '@/components/common/BaseDialog.vue'
+import AccountUpstreamChannelBinding from './AccountUpstreamChannelBinding.vue'
 import ConfirmDialog from '@/components/common/ConfirmDialog.vue'
 import Select from '@/components/common/Select.vue'
 import AccountProxyModeSelect from '@/components/common/AccountProxyModeSelect.vue'
@@ -1621,6 +1741,8 @@ import type { AccountProxyMode } from '@/types'
 import ProxySelector from '@/components/common/ProxySelector.vue'
 import GroupSelector from '@/components/common/GroupSelector.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
+import AccountRpmSettings from '@/components/account/AccountRpmSettings.vue'
+import { applyAccountRPMSettings } from '@/components/account/accountRpm'
 import Icon from '@/components/icons/Icon.vue'
 import {
   buildModelMappingObject as buildModelMappingPayload,
@@ -1655,10 +1777,12 @@ import type { OpenAIWSMode } from '@/utils/openaiWsMode'
 interface Props {
   show: boolean
   accountIds: number[]
+  filteredPreview?: boolean
   selectedPlatforms: AccountPlatform[]
   selectedTypes: AccountType[]
   target?: {
     mode: 'selected' | 'filtered'
+    accountIds?: number[]
     filters?: Record<string, unknown>
     previewCount?: number
     selectedPlatforms?: AccountPlatform[]
@@ -1672,15 +1796,32 @@ const props = defineProps<Props>()
 const emit = defineEmits<{
   close: []
   updated: []
+  whitelistsSaved: []
 }>()
 
 const { t } = useI18n()
 const appStore = useAppStore()
 const authStore = useAuthStore()
-const excelBPSConfig = ref(readExcelBPSConfig())
-const enableExcelBPS = ref(false)
+const globalBpsEnabled = computed(() => appStore.cachedPublicSettings?.excel_bps_enabled !== false)
+
 // Platform awareness
 const targetMode = computed(() => props.target?.mode ?? 'selected')
+const targetAccountIds = computed(() => props.target?.mode === 'selected'
+  ? props.target.accountIds ?? props.accountIds
+  : props.accountIds)
+const syncAdminId = computed(() => props.show && authStore.isAdmin && targetMode.value === 'selected' && !props.filteredPreview
+  ? authStore.user?.id ?? null : null)
+const { rows: syncRows, busy: syncBusy, valid: syncValid, run: runSync, stop: stopSync, leave: leaveSync } = useBatchUpstreamWhitelist(
+  () => syncAdminId.value,
+  () => props.target ? props.target.accountIds ?? [] : props.accountIds,
+  () => emit('whitelistsSaved')
+)
+function startWhitelistSync(retry: boolean) {
+  if (submitting.value || checkingSubmit.value || showMixedChannelWarning.value || syncBusy.value || !syncValid.value || syncAdminId.value == null) return
+  // A subsequent form submit must not overwrite individual results with the shared draft.
+  enableModelRestriction.value = false
+  void runSync(retry)
+}
 const targetPreviewCount = computed(() => props.target?.previewCount ?? props.accountIds.length)
 const targetSelectedPlatforms = computed(() => props.target?.selectedPlatforms ?? props.selectedPlatforms)
 const targetSelectedTypes = computed(() => props.target?.selectedTypes ?? props.selectedTypes)
@@ -1751,7 +1892,7 @@ const allHeaderOverrideCapable = computed(() => {
   )
 })
 
-// 是否全部为 Anthropic OAuth/SetupToken（RPM 配置仅在此条件下显示）
+// 是否全部为 Anthropic OAuth/SetupToken（显示完整配额控制）
 const allAnthropicOAuthOrSetupToken = computed(() => {
   return (
     targetSelectedPlatforms.value.length === 1 &&
@@ -1785,6 +1926,8 @@ interface ModelMapping {
 // State - field enable flags
 const enableBaseUrl = ref(false)
 const enableModelRestriction = ref(false)
+const enableOpenAIModelAliases = ref(false)
+const openaiModelAliases = ref(true)
 const enableCustomErrorCodes = ref(false)
 const enableInterceptWarmup = ref(false)
 // 身份上报变量仅 api_key 账号可用：所选账号里只要混有其它类型就不开放
@@ -1799,9 +1942,14 @@ const enableConcurrency = ref(false)
 const enableRateLimit429RetryCount = ref(false)
 const enableLoadFactor = ref(false)
 const enablePriority = ref(false)
+const enableCostMultiplier = ref(false)
+const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const enableRateMultiplier = ref(false)
+const enableGroupRateMultiplier = ref(false)
+const groupRateMultiplier = ref(1)
 const enableStatus = ref(false)
 const enableGroups = ref(false)
+const enableExcelBPS = ref(false)
 const enableOpenAIPassthrough = ref(false)
 const enableOpenAIPassthroughModelFilter = ref(false)
 const enableOpenAIFlattenNamespaces = ref(false)
@@ -1820,6 +1968,8 @@ const enableRpmLimit = ref(false)
 
 // State - field values
 const submitting = ref(false)
+const checkingSubmit = ref(false)
+let dialogGeneration = 0
 const showMixedChannelWarning = ref(false)
 const mixedChannelWarningMessage = ref('')
 const pendingUpdatesForConfirm = ref<Record<string, unknown> | null>(null)
@@ -1849,6 +1999,50 @@ const normalizeRateLimit429RetryCount = (value: unknown): number => {
   if (!Number.isFinite(parsed)) return DEFAULT_RATE_LIMIT_429_RETRY_COUNT
   return Math.min(MAX_RATE_LIMIT_429_RETRY_COUNT, Math.max(0, Math.trunc(parsed)))
 }
+
+const applyExcelBPS = computed(() => enableExcelBPS.value && allOpenAIOAuthOnly.value && globalBpsEnabled.value)
+const excelBPSEnabled = ref(false)
+const excelBPSMode = ref<ExcelBPSMode>('initial')
+const excelBPSAllModels = ref(false)
+const excelBPSModels = ref<string[]>([...DEFAULT_EXCEL_BPS_MODELS])
+const excelBPSMihomo = ref(false)
+const excelBPSProxySource = ref<'mihomo' | 'ip_pool'>('mihomo')
+const excelBPSCacheCreationAsInput = ref(false)
+const excelBPSAutoDisableOn403 = ref(false)
+const excelBPSAutoRecoverOn403 = ref(false)
+const excelBPSRecoveryIntervalMinutes = ref<number | string>(DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES)
+const excelBPSOmitUnsupportedTools = ref(false)
+const excelBPSIgnoreEncryptedContent = ref(false)
+const excelBPSIgnoreImages = ref(false)
+const excelBPSWebSearch = ref(false)
+const excelBPSWebSearchAuto = ref(false)
+const excelBPSAutoMoveOn403 = ref(false)
+const excelBPS403TargetGroupID = ref<number | string>('')
+const bpsDefaults = useExcelBPSDefaults({
+  enabled: excelBPSEnabled,
+  mode: excelBPSMode,
+  available: () => !authStore.isObserver,
+  context: () => JSON.stringify([props.show, targetAccountIds.value, targetSelectedPlatforms.value, targetSelectedTypes.value, authStore.user?.id, authStore.isObserver]),
+  fields: {
+    all_models: excelBPSAllModels, models: excelBPSModels,
+    omit_unsupported_tools: excelBPSOmitUnsupportedTools,
+    ignore_encrypted_content: excelBPSIgnoreEncryptedContent,
+    web_search: excelBPSWebSearch, web_search_auto: excelBPSWebSearchAuto,
+    auto_disable_on_403: excelBPSAutoDisableOn403, auto_recover_on_403: excelBPSAutoRecoverOn403,
+    recovery_interval_minutes: excelBPSRecoveryIntervalMinutes,
+    auto_move_on_403: excelBPSAutoMoveOn403, target_group_id: excelBPS403TargetGroupID,
+    session_proxy: excelBPSMihomo, proxy_source: excelBPSProxySource,
+    cache_creation_as_input: excelBPSCacheCreationAsInput
+  }
+})
+
+const excelBPS403GroupOptions = computed(() => [
+  { value: '', label: t('admin.accounts.openai.excelBPS403SelectTarget') },
+  { value: 0, label: t('admin.accounts.openai.excelBPS403LeaveAllGroups') },
+  ...props.groups
+    .filter(group => group.platform === 'openai' || (!authStore.isSimpleMode && group.platform === 'composite'))
+    .map(group => ({ value: group.id, label: group.name }))
+])
 const openaiPassthroughEnabled = ref(false)
 const openaiPassthroughModelFilterEnabled = ref(false)
 // Codex namespace 工具摊平兼容开关（仅 OAuth），缺省关闭即原样保留
@@ -1949,7 +2143,8 @@ const openAIEndpointCapabilityOptions = computed<
 >(() => [
   { value: 'chat_completions', label: openAITextEndpointCapabilityLabel.value },
   { value: 'embeddings', label: t('admin.accounts.openai.capabilityEmbeddings') },
-  { value: 'seedance', label: 'Seedance (Ark)' }
+  { value: 'seedance', label: 'Seedance (Ark)' },
+  { value: 'videos', label: 'OpenAI Videos' }
 ])
 const openAITextGenerationCapabilityEnabled = computed(() =>
   openAIEndpointCapabilities.value.includes('chat_completions')
@@ -1959,7 +2154,7 @@ const openAIResponsesModeApplicable = computed(
 )
 
 const normalizeOpenAIEndpointCapabilities = (values: OpenAIEndpointCapability[]) => {
-  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'seedance']
+  const allowed: OpenAIEndpointCapability[] = ['chat_completions', 'embeddings', 'seedance', 'videos']
   const selected = allowed.filter((value) => values.includes(value))
   return selected.length > 0 ? selected : ['chat_completions', 'embeddings'] as OpenAIEndpointCapability[]
 }
@@ -2099,10 +2294,6 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     return updates.extra as Record<string, unknown>
   }
 
-  if (enableExcelBPS.value && allOpenAIOAuthOnly.value) {
-    Object.assign(ensureExtra(), writeExcelBPSConfig(excelBPSConfig.value, {}, true))
-  }
-
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
     Object.assign(updates, accountProxyPayload(proxyMode.value, proxyIds.value, true))
@@ -2127,8 +2318,15 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
     updates.priority = priority.value
   }
 
+  if (enableCostMultiplier.value) {
+    ensureExtra().cost_multiplier = costMultiplier.value
+  }
+
   if (enableRateMultiplier.value) {
     updates.rate_multiplier = rateMultiplier.value
+  }
+  if (enableGroupRateMultiplier.value) {
+    updates.group_rate_multiplier = groupRateMultiplier.value
   }
 
   if (enableStatus.value) {
@@ -2145,6 +2343,34 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
       credentials.base_url = baseUrlValue
       credentialsChanged = true
     }
+  }
+
+  if (applyExcelBPS.value) {
+    const extra = ensureExtra()
+    extra.openai_excel_bps = excelBPSEnabled.value
+    extra.openai_excel_bps_config_mode = excelBPSEnabled.value ? excelBPSMode.value : null
+    // null explicitly removes an existing model scope; [] selects no BPS models.
+    extra.openai_excel_bps_models = excelBPSEnabled.value && !excelBPSAllModels.value
+      ? [...new Set(excelBPSModels.value.map(model => model.trim()).filter(Boolean))]
+      : null
+    extra.openai_excel_bps_mihomo = excelBPSEnabled.value && excelBPSMihomo.value
+    extra.openai_excel_bps_proxy_source = excelBPSEnabled.value && excelBPSMihomo.value
+      ? excelBPSProxySource.value
+      : 'mihomo'
+    extra.openai_excel_bps_cache_creation_as_input =
+      excelBPSEnabled.value && excelBPSCacheCreationAsInput.value
+    extra.openai_excel_bps_auto_disable_on_403 = excelBPSEnabled.value && excelBPSAutoDisableOn403.value
+    extra.openai_excel_bps_auto_recover_on_403 = excelBPSEnabled.value && excelBPSAutoDisableOn403.value && excelBPSAutoRecoverOn403.value
+    extra.openai_excel_bps_403_recovery_interval_minutes = bpsRecoveryIntervalOrDefault(excelBPSRecoveryIntervalMinutes.value)
+    extra.openai_excel_bps_omit_unsupported_tools = excelBPSEnabled.value && excelBPSOmitUnsupportedTools.value
+    extra.openai_excel_bps_ignore_images = excelBPSEnabled.value && excelBPSIgnoreImages.value
+    extra.openai_excel_bps_ignore_encrypted_content = excelBPSEnabled.value && excelBPSIgnoreEncryptedContent.value
+    extra.openai_excel_bps_web_search = excelBPSEnabled.value && excelBPSWebSearch.value
+    extra.openai_excel_bps_web_search_auto = excelBPSEnabled.value && excelBPSWebSearch.value && excelBPSWebSearchAuto.value
+    extra.openai_excel_bps_auto_move_on_403 = excelBPSEnabled.value && excelBPSAutoMoveOn403.value
+    extra.openai_excel_bps_403_target_group_id = excelBPSEnabled.value && excelBPSAutoMoveOn403.value
+      ? Number(excelBPS403TargetGroupID.value)
+      : null
   }
 
   if (enableOpenAIPassthrough.value) {
@@ -2178,7 +2404,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (applyOpenAIEndpointCapabilities) {
     credentials.openai_capabilities =
-      openAIEndpointCapabilities.value.length === 2 && !openAIEndpointCapabilities.value.includes('seedance')
+      openAIEndpointCapabilities.value.length === 2 && openAIEndpointCapabilities.value.includes('chat_completions') && openAIEndpointCapabilities.value.includes('embeddings')
         ? null
         : [...openAIEndpointCapabilities.value]
     credentialsChanged = true
@@ -2212,6 +2438,11 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
       credentials.model_mapping = modelMapping ?? {}
       credentialsChanged = true
     }
+  }
+
+  if (enableOpenAIModelAliases.value && allOpenAIOAuthOnly.value) {
+    credentials.model_mapping_mode = openaiModelAliases.value ? 'aliases' : 'whitelist'
+    credentialsChanged = true
   }
 
   if (enableCustomErrorCodes.value) {
@@ -2302,22 +2533,15 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
   }
 
   // RPM limit settings (写入 extra 字段)
-  if (enableRpmLimit.value) {
+  if (enableRpmLimit.value && (allAnthropicOAuthOrSetupToken.value || allOpenAIOAuthOnly.value)) {
     const extra = ensureExtra()
-    if (rpmLimitEnabled.value && bulkBaseRpm.value != null && bulkBaseRpm.value > 0) {
-      extra.base_rpm = bulkBaseRpm.value
-      extra.rpm_strategy = bulkRpmStrategy.value
-      if (bulkRpmStickyBuffer.value != null && bulkRpmStickyBuffer.value > 0) {
-        extra.rpm_sticky_buffer = bulkRpmStickyBuffer.value
-      }
-    } else {
-      // 关闭 RPM 限制 - 设置 base_rpm 为 0，并用空值覆盖关联字段
-      // 后端使用 JSONB || merge 语义，不会删除已有 key，
-      // 所以必须显式发送空值来重置（后端读取时会 fallback 到默认值）
-      extra.base_rpm = 0
-      extra.rpm_strategy = ''
-      extra.rpm_sticky_buffer = 0
-    }
+    applyAccountRPMSettings(extra, {
+      enabled: rpmLimitEnabled.value && bulkBaseRpm.value != null && bulkBaseRpm.value > 0,
+      baseRpm: bulkBaseRpm.value,
+      strict: allOpenAIOAuthOnly.value,
+      strategy: bulkRpmStrategy.value,
+      stickyBuffer: bulkRpmStickyBuffer.value
+    }, 'merge')
     updates.extra = extra
   }
 
@@ -2346,6 +2570,8 @@ const canPreCheck = () =>
   (targetSelectedPlatforms.value[0] === 'antigravity' || targetSelectedPlatforms.value[0] === 'anthropic')
 
 const handleClose = () => {
+  dialogGeneration++
+  leaveSync()
   showMixedChannelWarning.value = false
   mixedChannelWarningMessage.value = ''
   pendingUpdatesForConfirm.value = null
@@ -2357,12 +2583,14 @@ const handleClose = () => {
 const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise<boolean> => {
   if (!canPreCheck()) return true
   if (mixedChannelConfirmed.value) return true
+  const generation = dialogGeneration
 
   try {
     const result = await adminAPI.accounts.checkMixedChannelRisk({
       platform: targetSelectedPlatforms.value[0],
       group_ids: groupIds.value
     })
+    if (generation !== dialogGeneration || !props.show) return false
     if (!result.has_risk) return true
 
     pendingUpdatesForConfirm.value = built
@@ -2370,28 +2598,21 @@ const preCheckMixedChannelRisk = async (built: Record<string, unknown>): Promise
     showMixedChannelWarning.value = true
     return false
   } catch (error: any) {
+    if (generation !== dialogGeneration || !props.show) return false
     appStore.showError(error.message || t('admin.accounts.bulkEdit.failed'))
     return false
   }
 }
 
 const handleSubmit = async () => {
-  if (enableExcelBPS.value && (excelBPSConfig.value.enabled || excelBPSConfig.value.recoveryPending) && excelBPSConfig.value.autoDisableOn403 && excelBPSConfig.value.autoRecoverOn403 && !validBPSRecoveryInterval(excelBPSConfig.value.recoveryIntervalMinutes)) {
-    appStore.showError(t('admin.accounts.openai.excelBPS403RecoveryIntervalInvalid'))
-    return
-  }
-  if (enableExcelBPS.value && allOpenAIOAuthOnly.value
-    && !hasValidExcelBPS403Target(excelBPSConfig.value, props.groups, !authStore.isSimpleMode)) {
-    appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
-    return
-  }
-  if (targetMode.value === 'selected' && props.accountIds.length === 0) {
+  if (bpsDefaults.loading.value || syncBusy.value || submitting.value || checkingSubmit.value) return
+  if (targetMode.value === 'selected' && targetAccountIds.value.length === 0) {
     appStore.showError(t('admin.accounts.bulkEdit.noSelection'))
     return
   }
 
   const hasAnyFieldEnabled =
-    (enableExcelBPS.value && allOpenAIOAuthOnly.value) ||
+    applyExcelBPS.value ||
     enableBaseUrl.value ||
     enableOpenAIPassthrough.value ||
     (enableOpenAIPassthroughModelFilter.value && allOpenAIPassthroughCapable.value) ||
@@ -2401,6 +2622,7 @@ const handleSubmit = async () => {
     (enableOpenAIEndpointCapabilities.value && allOpenAIAPIKey.value) ||
     (enableOpenAIResponsesMode.value && allOpenAIAPIKey.value) ||
     enableModelRestriction.value ||
+    (enableOpenAIModelAliases.value && allOpenAIOAuthOnly.value) ||
     enableCustomErrorCodes.value ||
     enableInterceptWarmup.value ||
     enableHeaderOverride.value ||
@@ -2409,7 +2631,9 @@ const handleSubmit = async () => {
     enableRateLimit429RetryCount.value ||
     enableLoadFactor.value ||
     enablePriority.value ||
+    enableCostMultiplier.value ||
     enableRateMultiplier.value ||
+    enableGroupRateMultiplier.value ||
     enableStatus.value ||
     enableGroups.value ||
     enableOpenAIWSMode.value ||
@@ -2426,6 +2650,19 @@ const handleSubmit = async () => {
   if (!hasAnyFieldEnabled) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
     return
+  }
+
+  if (applyExcelBPS.value && excelBPSEnabled.value && excelBPSAutoDisableOn403.value && excelBPSAutoRecoverOn403.value && !isValidBPSRecoveryInterval(excelBPSRecoveryIntervalMinutes.value)) {
+    appStore.showError(t('admin.accounts.openai.excelBPS403RecoveryIntervalInvalid'))
+    return
+  }
+  if (applyExcelBPS.value && excelBPSEnabled.value && excelBPSAutoMoveOn403.value) {
+    const target = Number(excelBPS403TargetGroupID.value)
+    if (excelBPS403TargetGroupID.value === '' || !Number.isSafeInteger(target) || target < 0 ||
+      !excelBPS403GroupOptions.value.some(option => option.value === target)) {
+      appStore.showError(t('admin.accounts.openai.excelBPS403SelectTarget'))
+      return
+    }
   }
 
   // base_url 现在也会作用于 Grok OAuth 订阅账号的转发端点；坏值会让请求期
@@ -2454,16 +2691,26 @@ const handleSubmit = async () => {
     }
   }
 
+  if (enableCostMultiplier.value && !isValidAccountCostMultiplier(costMultiplier.value)) {
+    appStore.showError(t('admin.accounts.costMultiplierInvalid'))
+    return
+  }
+
   const built = buildUpdatePayload()
   if (!built) {
     appStore.showError(t('admin.accounts.bulkEdit.noFieldsSelected'))
     return
   }
 
-  const canContinue = await preCheckMixedChannelRisk(built)
-  if (!canContinue) return
-
-  await submitBulkUpdate(built)
+  checkingSubmit.value = true
+  const generation = dialogGeneration
+  try {
+    const canContinue = await preCheckMixedChannelRisk(built)
+    if (!canContinue || !props.show || generation !== dialogGeneration) return
+    await submitBulkUpdate(built)
+  } finally {
+    checkingSubmit.value = false
+  }
 }
 
 const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
@@ -2480,7 +2727,7 @@ const submitBulkUpdate = async (baseUpdates: Record<string, unknown>) => {
         filters: props.target.filters,
         ...updates
       })
-      : await adminAPI.accounts.bulkUpdate(props.accountIds, updates)
+      : await adminAPI.accounts.bulkUpdate([...targetAccountIds.value], updates)
     const success = res.success || 0
     const failed = res.failed || 0
     const inherited = res.long_context_inherited_count || 0
@@ -2546,12 +2793,13 @@ const handleMixedChannelCancel = () => {
 watch(
   () => props.show,
   (newShow) => {
+    dialogGeneration++
     if (!newShow) {
-      enableExcelBPS.value = false
-      excelBPSConfig.value = readExcelBPSConfig()
       // Reset all enable flags
       enableBaseUrl.value = false
       enableModelRestriction.value = false
+      enableOpenAIModelAliases.value = false
+      openaiModelAliases.value = true
       enableCustomErrorCodes.value = false
       enableInterceptWarmup.value = false
       enableHeaderOverride.value = false
@@ -2560,9 +2808,12 @@ watch(
       enableRateLimit429RetryCount.value = false
       enableLoadFactor.value = false
       enablePriority.value = false
+      enableCostMultiplier.value = false
+      costMultiplier.value = DEFAULT_ACCOUNT_COST_MULTIPLIER
       enableRateMultiplier.value = false
       enableStatus.value = false
       enableGroups.value = false
+      enableExcelBPS.value = false
       enableOpenAIPassthrough.value = false
       enableOpenAIPassthroughModelFilter.value = false
       enableOpenAIFlattenNamespaces.value = false
@@ -2583,6 +2834,23 @@ watch(
 
       // Reset all values
       baseUrl.value = ''
+      excelBPSEnabled.value = false
+      excelBPSMode.value = 'initial'
+      excelBPSAllModels.value = false
+      excelBPSModels.value = [...DEFAULT_EXCEL_BPS_MODELS]
+      excelBPSMihomo.value = false
+      excelBPSProxySource.value = 'mihomo'
+      excelBPSCacheCreationAsInput.value = false
+      excelBPSAutoDisableOn403.value = false
+      excelBPSAutoRecoverOn403.value = false
+      excelBPSRecoveryIntervalMinutes.value = DEFAULT_BPS_RECOVERY_INTERVAL_MINUTES
+      excelBPSOmitUnsupportedTools.value = false
+      excelBPSIgnoreEncryptedContent.value = false
+      excelBPSIgnoreImages.value = false
+  excelBPSWebSearch.value = false
+  excelBPSWebSearchAuto.value = false
+      excelBPSAutoMoveOn403.value = false
+      excelBPS403TargetGroupID.value = ''
       openaiPassthroughEnabled.value = false
       openaiPassthroughModelFilterEnabled.value = false
       openaiFlattenNamespacesEnabled.value = false

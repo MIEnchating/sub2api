@@ -5,6 +5,7 @@ package admin
 import (
 	"context"
 	"encoding/json"
+	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -43,9 +44,6 @@ func TestScopedAdminUserResponsePreservesFullAdminResponses(t *testing.T) {
 	svc := &scopedUserResponseService{}
 	h := NewUserHandler(svc, nil, nil, nil, nil, nil, nil)
 	r := gin.New()
-	r.Use(func(c *gin.Context) {
-		c.Request = c.Request.WithContext(adminaccess.WithPrincipal(c.Request.Context(), &adminaccess.Principal{KeyID: "full", Policy: adminaccess.Policy{FullAccess: true}}))
-	})
 	r.GET("/users", h.List)
 	r.GET("/users/:id", h.GetByID)
 	for _, path := range []string{"/users", "/users?include_subscriptions=true", "/users/7"} {
@@ -65,7 +63,7 @@ func TestScopedAdminUserResponsePreservesFullAdminResponses(t *testing.T) {
 	}
 }
 
-func TestScopedAdminUserBalanceReplayRejectsDifferentCredential(t *testing.T) {
+func TestScopedAdminUserBalanceReplayRespectsActorAndProjection(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 	previous := service.DefaultIdempotencyCoordinator()
 	t.Cleanup(func() { service.SetDefaultIdempotencyCoordinator(previous) })
@@ -85,7 +83,7 @@ func TestScopedAdminUserBalanceReplayRejectsDifferentCredential(t *testing.T) {
 				c.Next()
 			})
 			r.POST("/users/:id/balance", h.UpdateBalance)
-			for i, scoped := range []bool{scopedFirst, !scopedFirst, true} {
+			for i, scoped := range []bool{scopedFirst, !scopedFirst, scopedFirst} {
 				req := httptest.NewRequest("POST", "/users/7/balance", strings.NewReader(`{"balance":1,"operation":"add"}`))
 				req.Header.Set("Content-Type", "application/json")
 				req.Header.Set("Idempotency-Key", "same-operation")
@@ -94,14 +92,14 @@ func TestScopedAdminUserBalanceReplayRejectsDifferentCredential(t *testing.T) {
 				}
 				w := httptest.NewRecorder()
 				r.ServeHTTP(w, req)
-				if scoped != scopedFirst {
-					require.Equal(t, 409, w.Code, w.Body.String())
+				if i == 1 {
+					require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
+					require.Contains(t, w.Body.String(), service.ErrIdempotencyKeyConflict.Reason)
 					require.NotContains(t, w.Body.String(), "内部备注")
-					require.NotContains(t, w.Body.String(), "内部密钥")
 					continue
 				}
-				require.Equal(t, 200, w.Code, w.Body.String())
-				if i > 0 {
+				require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+				if i == 2 {
 					require.Equal(t, "true", w.Header().Get("X-Idempotency-Replayed"))
 				}
 				var result struct {
@@ -116,7 +114,7 @@ func TestScopedAdminUserBalanceReplayRejectsDifferentCredential(t *testing.T) {
 					require.Contains(t, result.Data, "balance")
 				}
 			}
-			require.Equal(t, 1, svc.writes, "重放只改变当前响应的权限投影，不能重复修改余额")
+			require.Equal(t, 1, svc.writes, "余额修改只能执行一次")
 		})
 	}
 }

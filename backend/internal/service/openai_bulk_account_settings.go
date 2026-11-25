@@ -10,6 +10,7 @@ import (
 )
 
 type bulkOpenAISettings struct {
+	requestTimezone         bool
 	excelBPS                bool
 	longContextBilling      bool
 	endpointCapabilities    bool
@@ -19,13 +20,19 @@ type bulkOpenAISettings struct {
 }
 
 func (s bulkOpenAISettings) any() bool {
-	return s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode
+	return s.requestTimezone || s.excelBPS || s.longContextBilling || s.endpointCapabilities || s.responsesMode
 }
 
 func normalizeBulkOpenAISettings(input *BulkUpdateAccountsInput) (bulkOpenAISettings, error) {
 	var settings bulkOpenAISettings
 	if input == nil {
 		return settings, nil
+	}
+	if _, exists := input.Extra[openAIRequestTimezoneExtraKey]; exists {
+		settings.requestTimezone = true
+		if err := ValidateOpenAIRequestTimezoneExtra(PlatformOpenAI, input.Extra); err != nil {
+			return settings, err
+		}
 	}
 	var err error
 	settings.excelBPS, err = normalizeBulkExcelBPSExtra(input.Extra)
@@ -142,6 +149,9 @@ func normalizeBulkExcelBPSExtra(extra map[string]any) (bool, error) {
 		if _, exists := extra["openai_excel_bps_auto_disable_on_403"]; exists {
 			extra["openai_excel_bps_auto_disable_on_403"] = false
 		}
+		if _, exists := extra[ExcelBPSAutoRecoverOn403Key]; exists {
+			extra[ExcelBPSAutoRecoverOn403Key] = false
+		}
 		if _, exists := extra[ExcelBPSAutoMoveOn403Key]; exists {
 			extra[ExcelBPSAutoMoveOn403Key] = false
 		}
@@ -173,11 +183,13 @@ func normalizeBulkOpenAIEndpointCapabilities(raw any) (any, bool, error) {
 		return nil, false, invalidBulkOpenAIEndpointCapabilities()
 	}
 
-	selected := make(map[string]bool, 2)
+	selected := make(map[OpenAIEndpointCapability]bool, 4)
 	for _, value := range values {
-		switch OpenAIEndpointCapability(value) {
-		case OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityEmbeddings:
-			selected[value] = true
+		capability := OpenAIEndpointCapability(value)
+		switch capability {
+		case OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityEmbeddings,
+			OpenAIEndpointCapabilitySeedance, OpenAIEndpointCapabilityVideos:
+			selected[capability] = true
 		default:
 			return nil, false, invalidBulkOpenAIEndpointCapabilities()
 		}
@@ -186,20 +198,26 @@ func normalizeBulkOpenAIEndpointCapabilities(raw any) (any, bool, error) {
 		return nil, false, invalidBulkOpenAIEndpointCapabilities()
 	}
 
-	includeChat := selected[string(OpenAIEndpointCapabilityChatCompletions)]
-	if includeChat && selected[string(OpenAIEndpointCapabilityEmbeddings)] {
+	includeChat := selected[OpenAIEndpointCapabilityChatCompletions]
+	if len(selected) == 2 && includeChat && selected[OpenAIEndpointCapabilityEmbeddings] {
 		return nil, true, nil
 	}
-	if includeChat {
-		return []string{string(OpenAIEndpointCapabilityChatCompletions)}, true, nil
+	capabilities := make([]string, 0, len(selected))
+	for _, capability := range []OpenAIEndpointCapability{
+		OpenAIEndpointCapabilityChatCompletions, OpenAIEndpointCapabilityEmbeddings,
+		OpenAIEndpointCapabilitySeedance, OpenAIEndpointCapabilityVideos,
+	} {
+		if selected[capability] {
+			capabilities = append(capabilities, string(capability))
+		}
 	}
-	return []string{string(OpenAIEndpointCapabilityEmbeddings)}, false, nil
+	return capabilities, includeChat, nil
 }
 
 func invalidBulkOpenAIEndpointCapabilities() error {
 	return infraerrors.BadRequest(
 		"OPENAI_ENDPOINT_CAPABILITIES_INVALID",
-		"openai_capabilities must contain chat_completions, embeddings, or both",
+		"openai_capabilities must contain at least one of chat_completions, embeddings, seedance, or videos",
 	)
 }
 
@@ -245,6 +263,11 @@ func validateBulkOpenAISettingsTargets(
 			return 0, invalidBulkOpenAITarget(accountID, "account does not exist")
 		}
 
+		if settings.requestTimezone {
+			if err := ValidateOpenAIRequestTimezoneExtra(account.Platform, input.Extra); err != nil {
+				return 0, err
+			}
+		}
 		if settings.excelBPS && (account.Platform != PlatformOpenAI || account.Type != AccountTypeOAuth ||
 			account.IsShadow() || account.IsOpenAIAgentIdentity() || account.IsOpenAIPersonalAccessToken()) {
 			return 0, invalidBulkOpenAITarget(accountID, "Excel / BPS requires a regular ChatGPT OAuth account")

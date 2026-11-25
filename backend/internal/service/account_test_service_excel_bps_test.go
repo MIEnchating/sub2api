@@ -203,3 +203,27 @@ func (*excelBPSDisabledSettingsRepo) GetMultiple(context.Context, []string) (map
 func (*excelBPSDisabledSettingsRepo) GetValue(context.Context, string) (string, error) {
 	return "false", nil
 }
+
+func TestExcelBPSAccountOnlyUsesOAuth(t *testing.T) {
+	oauth := &Account{Platform: PlatformOpenAI, Type: AccountTypeOAuth, Extra: map[string]any{"openai_excel_bps": true}}
+	apiKey := &Account{Platform: PlatformOpenAI, Type: AccountTypeAPIKey, Extra: map[string]any{"openai_excel_bps": true}}
+	if !oauth.IsExcelBPSEnabled() || apiKey.IsExcelBPSEnabled() {
+		t.Fatal("Excel BPS gate must be OAuth-only")
+	}
+}
+
+func TestExcelBPSManualTestReportsRateLimit(t *testing.T) {
+	upstream := &httpUpstreamRecorder{resp: &http.Response{StatusCode: http.StatusTooManyRequests, Header: http.Header{"Retry-After": {"30"}},
+		Body: io.NopCloser(strings.NewReader(`{"error":{"message":"PRIVATE_UPSTREAM"}}`))}}
+	svc := &AccountTestService{openaiGatewayService: openAIClientToolsTestService(upstream)}
+	rec := httptest.NewRecorder()
+	c, _ := gin.CreateTestContext(rec)
+	c.Request = httptest.NewRequest("POST", "/api/v1/admin/accounts/300/test", nil)
+
+	err := svc.testExcelBPSAccountConnection(c, excelAccount(), "gpt-6-astra", "Reply OK")
+
+	// A single-account test shows the rate limit instead of a failover signal.
+	require.EqualError(t, err, excelBPSRateLimitedClientMessage)
+	require.NotContains(t, rec.Body.String(), "PRIVATE_UPSTREAM")
+	require.Len(t, upstream.requests, 1)
+}

@@ -30,6 +30,15 @@ type AuthIdentity func(*sql.Selector)
 // AuthIdentityChannel is the predicate function for authidentitychannel builders.
 type AuthIdentityChannel func(*sql.Selector)
 
+// BatchImageEvent is the predicate function for batchimageevent builders.
+type BatchImageEvent func(*sql.Selector)
+
+// BatchImageItem is the predicate function for batchimageitem builders.
+type BatchImageItem func(*sql.Selector)
+
+// BatchImageJob is the predicate function for batchimagejob builders.
+type BatchImageJob func(*sql.Selector)
+
 // ChannelMonitor is the predicate function for channelmonitor builders.
 type ChannelMonitor func(*sql.Selector)
 
@@ -59,6 +68,30 @@ type IdentityAdoptionDecision func(*sql.Selector)
 
 // InvoiceRequest is the predicate function for invoicerequest builders.
 type InvoiceRequest func(*sql.Selector)
+
+// LotteryAccount is the predicate function for lotteryaccount builders.
+type LotteryAccount func(*sql.Selector)
+
+// LotteryContribution is the predicate function for lotterycontribution builders.
+type LotteryContribution func(*sql.Selector)
+
+// LotteryDraw is the predicate function for lotterydraw builders.
+type LotteryDraw func(*sql.Selector)
+
+// LotteryInvitation is the predicate function for lotteryinvitation builders.
+type LotteryInvitation func(*sql.Selector)
+
+// LotteryInviteLink is the predicate function for lotteryinvitelink builders.
+type LotteryInviteLink func(*sql.Selector)
+
+// LotteryLedger is the predicate function for lotteryledger builders.
+type LotteryLedger func(*sql.Selector)
+
+// LotteryPool is the predicate function for lotterypool builders.
+type LotteryPool func(*sql.Selector)
+
+// LotteryPrize is the predicate function for lotteryprize builders.
+type LotteryPrize func(*sql.Selector)
 
 // PaymentAuditLog is the predicate function for paymentauditlog builders.
 type PaymentAuditLog func(*sql.Selector)

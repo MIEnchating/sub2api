@@ -174,6 +174,9 @@ func (s *adminServiceImpl) validateManagedIPv6AccountChange(ctx context.Context,
 	if input.Type != "" {
 		merged.Type = input.Type
 	}
+	if input.Platform != "" {
+		merged.Platform = input.Platform
+	}
 	if err := validateOVHIPv6Eligibility(&merged); err != nil {
 		return err
 	}

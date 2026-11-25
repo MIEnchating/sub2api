@@ -85,6 +85,7 @@ func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionLongContext(t *test
 								APIKey: apiKey, User: &User{ID: 2}, Account: account,
 							})
 							require.NoError(t, err)
+							// 总上下文 300k：订阅仍短上下文；API Key 在账号或分组开启长上下文时加官方附加费。
 							wantLong := accountType == AccountTypeAPIKey && (accountEnabled || groupMode == "分组开启")
 							inputFactor, outputFactor, tierFactor := 1.0, 1.0, 1.0
 							if wantLong {
@@ -178,35 +179,131 @@ func TestCalculateCostUnified_ModelLongContextExemptionPreservesCustomIntervals(
 			cost, err = service.CalculateCostUnified(input)
 			require.NoError(t, err)
 			require.InDelta(t, 1.8, cost.TotalCost, 1e-12, "管理员显式区间价格应保留")
+			input.DisableModelLongContextPricing = false
+			cost, err = service.CalculateCostUnified(input)
+			require.NoError(t, err)
+			require.InDelta(t, 1.8, cost.TotalCost, 1e-12, "API Key 恢复官方阶梯后，显式区间价格仍优先")
 		}
 	}
 }
 
 func TestOpenAIGatewayServiceRecordUsage_GPT61SolLongContextBoundary(t *testing.T) {
-	for _, totalInput := range []int{271999, 272000, 272001} {
-		for _, accountType := range []string{AccountTypeOAuth, AccountTypeAPIKey} {
-			t.Run(fmt.Sprintf("%s/%d", accountType, totalInput), func(t *testing.T) {
-				usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
-				svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
-				err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
-					Result: &OpenAIForwardResult{RequestID: "boundary", Model: "gpt-6.1-sol", Duration: time.Second,
-						Usage: OpenAIUsage{InputTokens: totalInput, OutputTokens: 1000}},
-					APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
-					Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: accountType,
-						Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
-				})
-				require.NoError(t, err)
-				wantLong := accountType == AccountTypeAPIKey && totalInput > 272000
-				wantInput, wantOutput := float64(totalInput)*2e-6, 0.01
-				if wantLong {
-					wantInput *= 2
-					wantOutput *= 1.5
-				}
-				require.Equal(t, wantLong, usageRepo.lastLog.LongContextBillingApplied)
-				require.InDelta(t, wantInput, usageRepo.lastLog.InputCost, 1e-12)
-				require.InDelta(t, wantOutput, usageRepo.lastLog.OutputCost, 1e-12)
+	for _, tt := range []struct {
+		accountType string
+		totalInput  int
+		wantLong    bool
+	}{
+		{AccountTypeAPIKey, 271999, false},
+		{AccountTypeAPIKey, 272000, false},
+		{AccountTypeAPIKey, 272001, true},
+		{AccountTypeAPIKey, 500000, true},
+		{AccountTypeAPIKey, 500001, true},
+		{AccountTypeOAuth, 272001, false},
+		{AccountTypeOAuth, 500000, false},
+		{AccountTypeOAuth, 500001, false},
+		{AccountTypeSetupToken, 500000, false},
+		{AccountTypeSetupToken, 500001, false},
+	} {
+		t.Run(fmt.Sprintf("%s/%d", tt.accountType, tt.totalInput), func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{RequestID: "boundary", Model: "gpt-6.1-sol", Duration: time.Second,
+					Usage: OpenAIUsage{InputTokens: tt.totalInput, OutputTokens: 1000}},
+				APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
+				Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: tt.accountType,
+					Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
 			})
-		}
+			require.NoError(t, err)
+			wantInput, wantOutput := float64(tt.totalInput)*2e-6, 0.01
+			if tt.wantLong {
+				wantInput *= 2
+				wantOutput *= 1.5
+			}
+			require.Equal(t, tt.wantLong, usageRepo.lastLog.LongContextBillingApplied)
+			require.InDelta(t, wantInput, usageRepo.lastLog.InputCost, 1e-12)
+			require.InDelta(t, wantOutput, usageRepo.lastLog.OutputCost, 1e-12)
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionCacheAbove500kRemainsExempt(t *testing.T) {
+	for _, tt := range []struct {
+		name     string
+		usage    OpenAIUsage
+		wantLong bool
+	}{
+		{name: "缓存使总输入刚好 500k", usage: OpenAIUsage{InputTokens: 500000, CacheReadInputTokens: 200000, OutputTokens: 1000}},
+		{name: "缓存使总输入超过 500k", usage: OpenAIUsage{InputTokens: 500001, CacheReadInputTokens: 100000, CacheCreationInputTokens: 1, OutputTokens: 1000}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{RequestID: tt.name, Model: "gpt-6.1-sol", Duration: time.Second, Usage: tt.usage},
+				APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
+				Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeOAuth,
+					Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantLong, usageRepo.lastLog.LongContextBillingApplied)
+		})
+	}
+}
+
+func TestOpenAIGatewayServiceRecordUsage_GPT61SolSubscriptionAbove500kMatchesAccountStats(t *testing.T) {
+	usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+	userRepo := &openAIRecordUsageUserRepoStub{}
+	svc := newOpenAIRecordUsageServiceForTest(usageRepo, userRepo, &openAIRecordUsageSubRepoStub{}, nil)
+	apiKey := openAIRecordUsageAPIKeyWithGroup(svc, 1, true)
+	apiKey.GroupID = i64p(1)
+	apiKey.Group.RateMultiplier = 1.1
+	svc.channelService = newTestChannelServiceForStats(t, &Channel{ID: 1, Status: StatusActive}, 1, PlatformOpenAI)
+	err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+		Result: &OpenAIForwardResult{RequestID: "sub-500k", Model: "gpt-6.1-sol", Duration: time.Second,
+			Usage: OpenAIUsage{InputTokens: 500001, OutputTokens: 2000}},
+		APIKey: apiKey, User: &User{ID: 2},
+		Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeSetupToken,
+			Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
+	})
+	require.NoError(t, err)
+	const base = 500001*2e-6 + 2000*10e-6
+	require.False(t, usageRepo.lastLog.LongContextBillingApplied)
+	require.InDelta(t, base, usageRepo.lastLog.TotalCost, 1e-9)
+	require.InDelta(t, base*1.1, usageRepo.lastLog.ActualCost, 1e-9)
+	require.InDelta(t, base*1.1, userRepo.lastAmount, 1e-9)
+	require.NotNil(t, usageRepo.lastLog.AccountStatsCost)
+	require.InDelta(t, base, *usageRepo.lastLog.AccountStatsCost, 1e-9)
+}
+
+func TestOpenAIGatewayServiceRecordUsage_APIKeyGPT61SolUsesOfficialLongContext(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		model     string
+		upstream  string
+		wantLong  bool
+		wantTotal float64
+	}{
+		{name: "API Key Sol", model: "gpt-6.1-sol", wantLong: true, wantTotal: 1.23},
+		{name: "API Key 别名映射到 Sol", model: "custom", upstream: "gpt-6.1-sol", wantLong: true, wantTotal: 1.23},
+		{name: "API Key Sol 映射到旧模型仍计附加费", model: "gpt-6.1-sol", upstream: "gpt-6-sol", wantLong: true, wantTotal: 1.23},
+		{name: "API Key 非 Sol", model: "gpt-6-sol", wantLong: true, wantTotal: 1.23},
+		{name: "API Key Astra", model: "gpt-6-astra", wantLong: true, wantTotal: 6.15},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			usageRepo := &openAIRecordUsageLogRepoStub{inserted: true}
+			svc := newOpenAIRecordUsageServiceForTest(usageRepo, &openAIRecordUsageUserRepoStub{}, &openAIRecordUsageSubRepoStub{}, nil)
+			err := svc.RecordUsage(context.Background(), &OpenAIRecordUsageInput{
+				Result: &OpenAIForwardResult{RequestID: tt.name, Model: tt.model, UpstreamModel: tt.upstream,
+					Usage: OpenAIUsage{InputTokens: 300000, OutputTokens: 2000}, Duration: time.Second},
+				APIKey: openAIRecordUsageAPIKeyWithGroup(svc, 1, true), User: &User{ID: 2},
+				Account: &Account{ID: 3, Platform: PlatformOpenAI, Type: AccountTypeAPIKey,
+					Extra: map[string]any{openAILongContextBillingEnabledKey: true}},
+			})
+			require.NoError(t, err)
+			require.Equal(t, tt.wantLong, usageRepo.lastLog.LongContextBillingApplied)
+			require.InDelta(t, tt.wantTotal, usageRepo.lastLog.TotalCost, 1e-12)
+		})
 	}
 }
 

@@ -33,6 +33,7 @@
       </div>
 
       <ProfileQQBotCard />
+      <SecurityRecords />
       <ProfilePasswordForm />
 
       <ProfileBalanceNotifyCard
@@ -58,6 +59,7 @@ import AppLayout from '@/components/layout/AppLayout.vue'
 import ProfileBalanceNotifyCard from '@/components/user/profile/ProfileBalanceNotifyCard.vue'
 import ProfileInfoCard from '@/components/user/profile/ProfileInfoCard.vue'
 import ProfileQQBotCard from '@/components/user/profile/ProfileQQBotCard.vue'
+import SecurityRecords from '@/features/security-penalties/SecurityRecords.vue'
 import ProfilePasswordForm from '@/components/user/profile/ProfilePasswordForm.vue'
 import ProfileTotpCard from '@/components/user/profile/ProfileTotpCard.vue'
 import ProfilePasskeyCard from '@/components/user/profile/ProfilePasskeyCard.vue'

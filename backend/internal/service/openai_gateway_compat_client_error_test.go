@@ -84,7 +84,13 @@ func TestRawChatClientErrorWrapsInternalFailureAndRetainsUsage(t *testing.T) {
 			} else {
 				result, err = svc.bufferRawChatCompletions(c, resp, account, "gpt-5.4", "gpt-5.4", "gpt-5.4", nil, nil, time.Now())
 			}
-			require.NoError(t, err, "display wrapping must not change raw forwarding retry semantics")
+			if stream {
+				require.ErrorContains(t, err, "upstream response failed")
+				var failover *UpstreamFailoverError
+				require.NotErrorAs(t, err, &failover, "a committed stream cannot be replayed")
+			} else {
+				require.NoError(t, err)
+			}
 			require.NotNil(t, result)
 			require.Equal(t, 7, result.Usage.InputTokens)
 			require.Equal(t, 2, result.Usage.OutputTokens)
@@ -95,7 +101,8 @@ func TestRawChatClientErrorWrapsInternalFailureAndRetainsUsage(t *testing.T) {
 			clientError := rec.Body.String()
 			if stream {
 				require.Contains(t, clientError, "partial")
-				require.Contains(t, clientError, "data: [DONE]")
+				require.NotContains(t, clientError, "data: [DONE]")
+				require.Equal(t, 1, strings.Count(clientError, "event: error"))
 				for _, line := range strings.Split(clientError, "\n") {
 					if data, ok := extractOpenAISSEDataLine(line); ok && gjson.Get(data, "error").Exists() {
 						clientError = data

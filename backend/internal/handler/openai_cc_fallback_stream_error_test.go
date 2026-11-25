@@ -74,7 +74,8 @@ func newCCFallbackStreamHandlerTest(t *testing.T, endpoint, upstreamBody string,
 	billing := service.NewBillingCacheService(nil, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billing.Stop)
 	gateway := service.NewOpenAIGatewayService(
-		&openAIWSFailoverHandlerAccountRepoStub{accounts: accounts}, nil, nil, nil, nil, nil, nil,
+		&openAIWSFailoverHandlerAccountRepoStub{accounts: accounts},
+		nil, nil, nil, nil, nil, nil, nil,
 		cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billing, upstream,
 		&service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil,
 	)

@@ -80,7 +80,7 @@ func (s *OpenAIGatewayService) openAICodexTicketBlocksRequest(account *Account, 
 // affinity, while the existing policy, capability and transport gates still
 // determine whether that alternate account can actually serve this request.
 func (s *OpenAIGatewayService) shouldYieldStickyToExcelBPS(ctx context.Context, current *Account, groupID *int64, platform, model string, compact bool, excluded map[int64]struct{}, endpoint OpenAIEndpointCapability, image OpenAIImagesCapability, transport OpenAIUpstreamTransport) bool {
-	if s == nil || current == nil || platform != PlatformOpenAI || model == "" || current.IsExcelBPSEnabledForModel(model) {
+	if s == nil || current == nil || platform != PlatformOpenAI || model == "" || !s.excelBPSGloballyEnabled(ctx) || current.IsExcelBPSEnabledForModel(model) {
 		return false
 	}
 	accounts, err := s.listSchedulableAccountsForRequest(ctx, groupID, platform, model, compact, excluded)
@@ -95,8 +95,8 @@ func (s *OpenAIGatewayService) shouldYieldStickyToExcelBPS(ctx context.Context, 
 		if _, skip := excluded[candidate.ID]; skip {
 			continue
 		}
-		if !isOpenAICompatibleAccountEligibleForRequest(ctx, candidate, platform, model, compact, endpoint) ||
-			!accountSupportsOpenAICapabilitiesForRequest(candidate, model, endpoint, image) ||
+		if !isOpenAICompatibleAccountEligibleForRequest(ctx, candidate, groupID, platform, model, compact, endpoint) ||
+			!accountSupportsOpenAICapabilitiesForRequest(ctx, candidate, model, endpoint, image) ||
 			!s.isOpenAIAccountTransportCompatible(candidate, transport, model) ||
 			!parentHealthyForShadow(candidate, s.parentAccountLookup(ctx)) ||
 			s.isOpenAIAccountRequestRuntimeBlocked(candidate, model) {

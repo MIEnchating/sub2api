@@ -1,5 +1,6 @@
 <template>
   <AppLayout>
+    <QQCommunityNav />
     <div class="mx-auto max-w-6xl space-y-6">
       <div class="flex items-center justify-between gap-3"><h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.overview') }}</h1><button class="btn btn-secondary" :disabled="loading" @click="load">{{ t('common.refresh') }}</button></div>
       <section class="card flex flex-wrap items-center justify-between gap-4 border-primary-200 p-5"><div><h2 class="font-semibold">{{ t('qqbot.simple.setup') }}</h2><p class="mt-1 text-sm text-gray-500">{{ t('qqbot.simple.setupHelp') }}</p></div><div class="flex gap-2"><RouterLink to="/admin/qqbot/setup" class="btn btn-primary">{{ t('qqbot.simple.start') }}</RouterLink><RouterLink to="/admin/qqbot/records?tab=diagnostics" class="btn btn-secondary">{{ t('qqbot.simple.diagnostics') }}</RouterLink></div></section>
@@ -32,6 +33,7 @@
   </AppLayout>
 </template>
 <script setup lang="ts">
+import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'
@@ -51,7 +53,6 @@ function selectMember(selected: QQMemberOption) { group.value = selected.group_i
 const groups = computed(() => [...new Set([...(config.value?.allowed_groups || []), ...(runtime.value?.groups.map(g => g.id) || [])])])
 const stats = computed(() => overview.value ? [
  { label: 'qqbot.workspace.chatRemaining', value: `${overview.value.chat_remaining} / ${config.value?.total_daily_chat_limit}` },
- { label: 'qqbot.workspace.imageRemaining', value: `${overview.value.image_remaining} / ${config.value?.total_daily_image_limit}` },
  { label: 'qqbot.workspace.todayFailures', value: overview.value.failed },
  { label: 'qqbot.workspace.pendingRewards', value: overview.value.pending_rewards },
  { label: 'qqbot.workspace.todayRewards', value: `$${overview.value.reward_amount.toFixed(2)}` },

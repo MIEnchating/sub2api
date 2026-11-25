@@ -1,6 +1,8 @@
 package websearch
 
-import "context"
+import (
+	"context"
+)
 
 // Provider is the interface every search backend must implement.
 type Provider interface {

@@ -3,6 +3,7 @@ package service
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -17,12 +18,21 @@ import (
 // The gateway owns BPS model routing, proxy leases and VM precedence. Reuse that
 // path instead of probing the native Codex endpoint for a BPS-selected model.
 func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
+	return s.testResponsesGatewayAccountConnection(c, account, modelID, prompt)
+}
+
+func (s *AccountTestService) testResponsesGatewayAccountConnection(c *gin.Context, account *Account, modelID, prompt string) error {
 	if s.openaiGatewayService == nil {
 		return s.sendErrorAndEnd(c, "Excel BPS account test gateway is unavailable")
 	}
 	model := strings.TrimSpace(modelID)
 	if model == "" {
 		model = openai.DefaultTestModel
+	}
+	ctx := c.Request.Context()
+	options, _ := pelicanTestOptionsFromContext(ctx)
+	if options.prompt != "" {
+		prompt = options.prompt
 	}
 	body, err := buildExcelBPSAccountTestBody(model, prompt)
 	if err != nil {
@@ -32,9 +42,8 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 	if err := json.Unmarshal(body, &payload); err != nil {
 		return s.sendErrorAndEnd(c, "Failed to create Excel BPS test payload")
 	}
-	ctx := c.Request.Context()
 	applyAccountTestOutputTokenLimit(ctx, payload, "max_output_tokens")
-	applyAccountTestReasoningEffort(payload, accountTestReasoningEffort(ctx))
+	applyAccountTestReasoningEffort(payload, firstNonEmptyString(options.reasoningEffort, accountTestReasoningEffort(ctx)))
 	applyScheduledTestContentInstructions(ctx, payload, APIProtocolResponses)
 	applyAccountTestVisionInput(ctx, payload, false)
 	body, err = json.Marshal(payload)
@@ -68,6 +77,9 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 	probe := httptest.NewRecorder()
 	probeCtx, _ := gin.CreateTestContext(probe)
 	probeCtx.Request = request
+	if options.testChannel == "bps" {
+		probeCtx.Set(bpsAccountProbeRequiredContextKey, true)
+	}
 	// A manual or scheduled one-shot test has no conversation by default. Give
 	// only its cloned request an identity for session-scoped BPS proxy leases.
 	if scope, _ := resolveOpenAIWSExecutionScope(probeCtx, body, 0); scope == "" {
@@ -95,6 +107,17 @@ func (s *AccountTestService) testExcelBPSAccountConnection(c *gin.Context, accou
 		defer func() { _ = resp.Body.Close() }()
 	}
 	if err != nil {
+		recordPelicanTestSSE(ctx, "openai", upstreamModel, probe.Body.Bytes())
+		var failover *UpstreamFailoverError
+		if errors.As(err, &failover) && failover.ClientMessage != "" {
+			return s.sendErrorAndEnd(c, failover.ClientMessage)
+		}
+		var bpsErr *excelBPSForwardError
+		if errors.As(err, &bpsErr) && strings.HasPrefix(bpsErr.code, "basispoints_auth_") {
+			if message := extractUpstreamErrorMessage(probe.Body.Bytes()); message != "" {
+				return s.sendErrorAndEnd(c, bpsErr.Error()+": "+message)
+			}
+		}
 		return s.sendErrorAndEnd(c, err.Error())
 	}
 	if resp.StatusCode != http.StatusOK {

@@ -2,12 +2,11 @@ package repository
 
 import (
 	"encoding/json"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 	"strings"
 	"testing"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 )
 
 func TestFilterSchedulerCredentialsKeepsSubscriptionPlanType(t *testing.T) {

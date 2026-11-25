@@ -45,6 +45,9 @@ func attachModerationKeyIPv6(status *ContentModerationAPIKeyStatus, cfg *Content
 func (s *ContentModerationService) apiKeyStatusesWithIPv6(cfg *ContentModerationConfig, keys []string) []ContentModerationAPIKeyStatus {
 	statuses := s.apiKeyStatuses(keys, cfg.Engine)
 	for i := range statuses {
+		if cfg.Engine == ContentModerationEngineTypeSafe {
+			statuses[i].BaseURL = cfg.keyBaseURL(keys[i])
+		}
 		attachModerationKeyIPv6(&statuses[i], cfg)
 	}
 	return statuses
@@ -150,7 +153,7 @@ func (s *ContentModerationService) saveConfigWithIPv6(ctx context.Context, previ
 			return nil, err
 		}
 		var err error
-		raw, err = s.saveConfigLegacy(ctx, cfg)
+		raw, err = s.saveConfigLegacy(ctx, cfg, previousRaw)
 		if err != nil {
 			return nil, err
 		}

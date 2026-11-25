@@ -3,6 +3,8 @@ package securityaudit
 import (
 	"context"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 const (
@@ -67,20 +69,25 @@ const (
 )
 
 type Request struct {
-	RequestID  string
-	UserID     int64
-	Username   string
-	UserEmail  string
-	APIKeyID   int64
-	APIKeyName string
-	GroupID    *int64
-	GroupName  string
-	Provider   string
-	Endpoint   string
-	Protocol   string
-	Model      string
-	Body       []byte
-	Stage      string
+	UpstreamAccount *service.Account
+	UpstreamConfig  *service.ContentModerationConfig
+	SkipPrompt      bool
+	RequestID       string
+	UserID          int64
+	Username        string
+	UserEmail       string
+	APIKeyID        int64
+	APIKeyName      string
+	GroupID         *int64
+	GroupName       string
+	Provider        string
+	Endpoint        string
+	Protocol        string
+	Model           string
+	Body            []byte
+	NoBodyRetention bool
+	Stage           string
+	PenaltyContext  PenaltyRequestContext
 }
 
 func (r Request) Clone() Request {
@@ -112,11 +119,17 @@ type PromptSnapshot struct {
 	MessageCount       int    `json:"message_count"`
 	Stage              string `json:"stage"`
 
-	ScanText string `json:"-"`
+	PenaltyContext  PenaltyRequestContext `json:"penalty_context,omitempty"`
+	ScanText        string                `json:"-"`
+	NoBodyRetention bool                  `json:"no_body_retention,omitempty"`
 }
 
 func (s PromptSnapshot) Redacted() PromptSnapshot {
 	s.ScanText = ""
+	if s.NoBodyRetention {
+		s.FullPrompt = "[Recovered context withheld]"
+		s.RedactedPreview = "[Recovered context withheld]"
+	}
 	return s
 }
 
@@ -154,6 +167,7 @@ type LegacyDecision struct {
 	StatusCode int    `json:"status_code"`
 	ErrorCode  string `json:"error_code"`
 	Action     string `json:"action"`
+	Category   string `json:"category,omitempty"`
 }
 
 type Decision struct {

@@ -2,11 +2,10 @@ package admin
 
 import (
 	"context"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"strings"
 	"sync"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/service"
 )
 
 type stubAdminService struct {
@@ -30,6 +29,10 @@ type stubAdminService struct {
 	guardedDeletedGroupIDs              []int64
 	deleteGroupIfEmptyErr               error
 	advancedGroupOperationCalls         int
+	userDeniedModelsGroupID             int64
+	userDeniedModelsEntries             []service.GroupUserDeniedModelsInput
+	clearUserDeniedModelsCalls          int
+	batchSetUserDeniedModelsErr         error
 	lastListGroupsIsExclusive           *bool
 	createdProxies                      []*service.CreateProxyInput
 	updatedProxyIDs                     []int64
@@ -845,3 +848,55 @@ func (s *stubAdminService) CreateShadow(ctx context.Context, parentID int64, opt
 
 // Ensure stub implements interface.
 var _ service.AdminService = (*stubAdminService)(nil)
+
+func (s *stubAdminService) ClearGroupUserDeniedModels(_ context.Context, groupID int64) error {
+	s.clearUserDeniedModelsCalls++
+	s.userDeniedModelsGroupID = groupID
+	return nil
+}
+
+func (s *stubAdminService) BatchSetGroupUserDeniedModels(_ context.Context, groupID int64, entries []service.GroupUserDeniedModelsInput) error {
+	s.advancedGroupOperationCalls++
+	s.userDeniedModelsGroupID = groupID
+	s.userDeniedModelsEntries = entries
+	return s.batchSetUserDeniedModelsErr
+}
+
+func (s *stubAdminService) TestMihomoNode(ctx context.Context, kernel service.MihomoNodeProber, name string) (*service.ProxyTestResult, error) {
+	return &service.ProxyTestResult{Success: true, Message: "ok"}, nil
+}
+
+func (s *stubAdminService) CheckMihomoNodeQuality(ctx context.Context, kernel service.MihomoNodeProber, name string) (*service.ProxyQualityCheckResult, error) {
+	return &service.ProxyQualityCheckResult{Score: 100, Grade: "A", CheckedAt: time.Now().Unix()}, nil
+}
+
+func (s *stubAdminService) CreateMihomoNodeProxies(ctx context.Context, kernel service.MihomoStaticNodeBinder, names []string) (*service.MihomoNodeProxyImportResult, error) {
+	return &service.MihomoNodeProxyImportResult{}, nil
+}
+
+func (s *stubAdminService) AdminUpdateAPIKeySettings(ctx context.Context, keyID int64, input service.AdminUpdateAPIKeySettingsInput) (*service.AdminUpdateAPIKeyGroupIDResult, error) {
+	if err := input.Validate(); err != nil {
+		return nil, err
+	}
+	result, err := s.AdminUpdateAPIKeyGroupID(ctx, keyID, input.GroupID)
+	if err != nil {
+		return nil, err
+	}
+	if input.ModelMapping != nil {
+		result.APIKey.ModelMapping = *input.ModelMapping
+	}
+	if input.ReasoningEffort != nil {
+		result.APIKey.ReasoningEffort = *input.ReasoningEffort
+	}
+	if input.ContextTokenLimit != nil {
+		result.APIKey.ContextTokenLimit = *input.ContextTokenLimit
+	}
+	if input.AllowLongContext != nil {
+		result.APIKey.AllowLongContext = *input.AllowLongContext
+	}
+	if input.ResetRateLimitUsage {
+		result.APIKey.Usage5h, result.APIKey.Usage1d, result.APIKey.Usage7d = 0, 0, 0
+		result.APIKey.Window5hStart, result.APIKey.Window1dStart, result.APIKey.Window7dStart = nil, nil, nil
+	}
+	return result, nil
+}

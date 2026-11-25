@@ -93,6 +93,12 @@ func (r *openAIOAuthReauthRepository) CreateTask(ctx context.Context, accountID 
 		return nil, err
 	}
 	defer func() { _ = tx.Rollback() }()
+	// Manual Codex tasks serialize with budget recovery and automatic insertion.
+	// An account need not be monitored to receive an explicitly requested task.
+	var monitoredID int64
+	if err := tx.QueryRowContext(ctx, `SELECT account_id FROM account_token_guard_v2_accounts WHERE account_id=$1 FOR UPDATE`, accountID).Scan(&monitoredID); err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return nil, err
+	}
 	row := tx.QueryRowContext(ctx, `
 		INSERT INTO openai_oauth_reauth_tasks (account_id, status, stage, expected_credentials_hash)
 		VALUES ($1, $2, $3, $4)
@@ -120,6 +126,7 @@ func (r *openAIOAuthReauthRepository) GetLatestTask(ctx context.Context, account
 			created_at, updated_at, finished_at, oauth_profile
 		FROM openai_oauth_reauth_tasks
 		WHERE account_id = $1
+        AND NOT EXISTS (SELECT 1 FROM openai_totp_rotations rotation WHERE rotation.task_id=openai_oauth_reauth_tasks.id)
 		ORDER BY created_at DESC, id DESC
 		LIMIT 1
 	`, accountID)
@@ -176,6 +183,7 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 				finished_at = NOW(),
 				updated_at = NOW()
 			WHERE status = $3
+                AND NOT EXISTS (SELECT 1 FROM openai_totp_rotations rotation WHERE rotation.task_id=openai_oauth_reauth_tasks.id)
                 AND claimed_at < NOW() - ($4 * INTERVAL '1 second')
 		), next_task AS (
 			SELECT id
@@ -189,7 +197,7 @@ func (r *openAIOAuthReauthRepository) ClaimNextTaskForRuntime(ctx context.Contex
 					SELECT 1 FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id AND config.credential_mode = $9
 				))
-				AND CASE WHEN oauth_profile = 'excel' THEN 'local_worker' ELSE COALESCE((SELECT CASE WHEN $11 <> '' THEN
+				AND CASE WHEN oauth_profile IN ('excel','siwc') THEN 'local_worker' ELSE COALESCE((SELECT CASE WHEN $11 <> '' THEN
 					CASE WHEN config.credential_mode = 'password_totp' THEN $11 ELSE 'local_worker' END
 					ELSE engine END FROM openai_oauth_reauth_configs AS config
 					WHERE config.account_id = openai_oauth_reauth_tasks.account_id), 'local_worker') END = ANY($10::text[])

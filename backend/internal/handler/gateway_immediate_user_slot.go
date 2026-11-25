@@ -20,9 +20,14 @@ func acquireImmediateGatewayUserSlot(c *gin.Context, helper *ConcurrencyHelper, 
 		userID, userMax = subject.UserID, subject.Concurrency
 	}
 	groupID, groupMax := apiKeyUserConcurrencyLimit(key)
-	release, acquired, err := helper.TryAcquireUserSlotForAPIKeyWithGroup(c.Request.Context(), userID, userMax, key.ID, groupID, groupMax)
+	release, acquired, err := helper.TryAcquireUserSlotForAPIKeyWithGroup(c.Request.Context(), userID, userMax, key.ID, key.ConcurrencyLimit, groupID, groupMax)
 	if err != nil {
-		c.JSON(http.StatusServiceUnavailable, gin.H{"error": gin.H{"type": "api_error", "message": "User concurrency unavailable"}})
+		status, errorType, code, message := concurrencyErrorResponse(err, "API key")
+		payload := gin.H{"type": errorType, "message": message}
+		if code != "" {
+			payload["code"] = code
+		}
+		c.JSON(status, gin.H{"error": payload})
 		return nil, false
 	}
 	if !acquired {

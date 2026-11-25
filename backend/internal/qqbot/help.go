@@ -61,7 +61,6 @@ func helpSystemItems() []helpItem {
 		{action: "invites", label: "我的邀请", description: "查看邀请状态", command: "我的邀请"},
 		{action: "rankings", label: "今日排行榜", description: "查看今日排行榜", command: "今日排行榜"},
 		{action: "channels", label: "渠道状态", description: "查看渠道状态", command: "渠道状态", section: "查询与工具"},
-		{action: "image", label: "生成图片", description: "根据描述生成图片", command: "生图", usage: "生图 图片描述", input: true},
 		{action: "prices", label: "模型价格", description: "查询模型价格", command: "价格", usage: "价格 模型名", input: true},
 		{action: "bind", label: "绑定账号", description: "绑定网站账号", command: "绑定", usage: "绑定 邮箱或绑定码", section: "账号与转账", input: true},
 		{action: "transfer", label: "余额转账", description: "申请余额转账", command: "转账", usage: "转账 金额 邮箱", input: true},

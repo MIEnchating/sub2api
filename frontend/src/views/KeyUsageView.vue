@@ -537,17 +537,17 @@ const RING_GRADIENTS = [
 
 const ringAnimated = ref(false)
 const displayPcts = ref<number[]>([])
-let ringFrame: number | null = null
-let ringDelay: ReturnType<typeof setTimeout> | null = null
-let ringAnimationVersion = 0
+let ringFrame: number | undefined
+let ringTimer: ReturnType<typeof setTimeout> | undefined
+let ringGeneration = 0
 let disposed = false
 
 function cancelRingAnimation() {
-  ringAnimationVersion++
-  if (ringFrame !== null) cancelAnimationFrame(ringFrame)
-  if (ringDelay !== null) clearTimeout(ringDelay)
-  ringFrame = null
-  ringDelay = null
+  ringGeneration++
+  if (ringFrame !== undefined) cancelAnimationFrame(ringFrame)
+  if (ringTimer !== undefined) clearTimeout(ringTimer)
+  ringFrame = undefined
+  ringTimer = undefined
 }
 
 const ringTrackColor = computed(() => isDark.value ? '#222222' : '#F0F0EE')
@@ -568,17 +568,20 @@ function getRingOffset(ring: RingItem): number {
 }
 
 function triggerRingAnimation(items: RingItem[]) {
+  if (disposed) return
   cancelRingAnimation()
-  const version = ringAnimationVersion
+  const generation = ringGeneration
   ringAnimated.value = false
   displayPcts.value = items.map(() => 0)
 
   nextTick(() => {
-    if (disposed || version !== ringAnimationVersion) return
+    if (generation !== ringGeneration) return
     ringFrame = requestAnimationFrame(() => {
-      ringFrame = null
-      ringDelay = setTimeout(() => {
-        ringDelay = null
+      ringFrame = undefined
+      if (generation !== ringGeneration) return
+      ringTimer = setTimeout(() => {
+        ringTimer = undefined
+        if (generation !== ringGeneration) return
         ringAnimated.value = true
 
         // Animate percentage numbers
@@ -587,7 +590,8 @@ function triggerRingAnimation(items: RingItem[]) {
         const targets = items.map(item => item.isBalance ? 0 : item.pct)
 
         function tick() {
-          ringFrame = null
+          ringFrame = undefined
+          if (generation !== ringGeneration) return
           const elapsed = performance.now() - startTime
           const p = Math.min(elapsed / duration, 1)
           const ease = 1 - Math.pow(1 - p, 3)

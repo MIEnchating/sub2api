@@ -693,7 +693,6 @@ func (s *OpenAIGatewayService) ForwardImages(
 	if account.IsExcelOAuth() {
 		return nil, writeExcelOAuthRouteError(c)
 	}
-
 	switch account.Type {
 	case AccountTypeAPIKey:
 		return s.forwardOpenAIImagesAPIKey(ctx, c, account, body, parsed, channelMappedModel)
@@ -762,6 +761,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	SetOpsLatencyMs(c, OpsUpstreamLatencyMsKey, time.Since(upstreamStart).Milliseconds())
 	if err != nil {
+		if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, "", err); handled {
+			return nil, resetErr
+		}
 		safeErr := sanitizeUpstreamErrorMessage(err.Error())
 		setOpsUpstreamError(c, 0, safeErr, "")
 		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
@@ -781,7 +783,7 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 		respBody := s.readUpstreamErrorBody(resp)
 		_ = resp.Body.Close()
 		respBody = s.redactAgentIdentitySensitiveBody(upstreamCtx, account, respBody)
-		resp.Body = preserveAccount429RetryMarker(resp, io.NopCloser(bytes.NewReader(respBody)))
+		resp.Body = io.NopCloser(bytes.NewReader(respBody))
 		upstreamMsg := strings.TrimSpace(extractUpstreamErrorMessage(respBody))
 		upstreamMsg = sanitizeUpstreamErrorMessage(upstreamMsg)
 		if isOpenAIImagesInsufficientBalance(respBody) {
@@ -815,16 +817,13 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 			})
 			shouldDisable := s.handleFailoverSideEffects(upstreamCtx, resp, account, respBody, upstreamModel)
 			retryableOnSameAccount := !shouldDisable && account.IsPoolMode() && account.IsPoolModeRetryableStatus(resp.StatusCode)
-			if IsUpstreamBillingError(resp.StatusCode, respBody) {
-				return nil, newUpstreamBillingFailoverError(resp.StatusCode, resp.Header, respBody, false)
-			}
 			if account.IsOpenAIOAuthLike() && resp.StatusCode == http.StatusTooManyRequests {
-				return nil, finalizeAccount429Failover(resp, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMsg, shouldDisable, retryableOnSameAccount, resp.StatusCode))
+				return nil, s.newOpenAIAccountFailoverError(account, resp.StatusCode, resp.Header, respBody, upstreamMsg, shouldDisable, retryableOnSameAccount)
 			}
 			if isOpenAIHTTPUpstreamAccessStateError(resp.StatusCode, upstreamMsg, respBody) {
-				return nil, finalizeAccount429Failover(resp, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMsg, retryableOnSameAccount, resp.StatusCode))
+				return nil, newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMsg, retryableOnSameAccount)
 			}
-			return nil, finalizeAccount429Failover(resp, &UpstreamFailoverError{ObservedUpstreamStatus: resp.StatusCode, StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: retryableOnSameAccount})
+			return nil, &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: respBody, RetryableOnSameAccount: retryableOnSameAccount}
 		}
 		return s.handleOpenAIImagesErrorResponse(upstreamCtx, resp, c, account, upstreamModel)
 	}
@@ -836,28 +835,8 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	if parsed.Stream && isEventStreamResponse(resp.Header) {
 		streamUsage, streamCount, streamSizes, ttft, err := s.handleOpenAIImagesStreamingResponse(resp, c, startTime, nil)
 		if err != nil {
-			var upstreamErr *OpenAIImagesUpstreamError
-			if errors.As(err, &upstreamErr) {
-				if billingStatus := openAIImagesBillingStatus(upstreamErr); billingStatus != 0 {
-					responseBody := openAIImagesUpstreamErrorResponseBody(upstreamErr)
-					setOpsUpstreamError(c, billingStatus, upstreamErr.clientMessage(), "")
-					appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-						ProxyID:            opsUpstreamProxyID(account),
-						ProxyName:          opsUpstreamProxyName(account),
-						Platform:           account.Platform,
-						AccountID:          account.ID,
-						AccountName:        account.Name,
-						UpstreamStatusCode: billingStatus,
-						UpstreamRequestID:  resp.Header.Get("x-request-id"),
-						Kind:               "failover",
-						Message:            upstreamErr.clientMessage(),
-					})
-					s.handleOpenAIAccountUpstreamError(upstreamCtx, account, billingStatus, resp.Header, responseBody, upstreamModel)
-					if streamCount == 0 && !c.Writer.Written() {
-						c.Writer.Header().Del("Content-Type")
-						return nil, newUpstreamBillingFailoverError(billingStatus, resp.Header, responseBody, false)
-					}
-				}
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), err); handled {
+				err = resetErr
 			}
 			if streamCount > 0 {
 				return &OpenAIForwardResult{
@@ -902,6 +881,9 @@ func (s *OpenAIGatewayService) forwardOpenAIImagesAPIKey(
 	} else {
 		nonStreamUsage, nonStreamCount, nonStreamSizes, err := s.handleOpenAIImagesNonStreamingResponse(upstreamCtx, resp, c, account, parsed)
 		if err != nil {
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), err); handled {
+				return nil, resetErr
+			}
 			return nil, err
 		}
 		usage = nonStreamUsage
@@ -1082,23 +1064,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesNonStreamingResponse(
 	if err != nil {
 		return OpenAIUsage{}, 0, nil, err
 	}
-	if billingStatus := upstreamBillingStatusCode(http.StatusOK, body); billingStatus != 0 {
-		upstreamMsg := sanitizeUpstreamErrorMessage(strings.TrimSpace(extractUpstreamErrorMessage(body)))
-		setOpsUpstreamError(c, billingStatus, upstreamMsg, "")
-		appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
-			ProxyID:            opsUpstreamProxyID(account),
-			ProxyName:          opsUpstreamProxyName(account),
-			Platform:           account.Platform,
-			AccountID:          account.ID,
-			AccountName:        account.Name,
-			UpstreamStatusCode: billingStatus,
-			UpstreamRequestID:  resp.Header.Get("x-request-id"),
-			Kind:               "failover",
-			Message:            upstreamMsg,
-		})
-		s.handleOpenAIAccountUpstreamError(ctx, account, billingStatus, resp.Header, body, parsed.Model)
-		return OpenAIUsage{}, 0, nil, newUpstreamBillingFailoverError(billingStatus, resp.Header, body, false)
-	}
 	body = s.backfillOpenAIImagesB64JSON(ctx, account, parsed, body)
 	responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
 	contentType := "application/json"
@@ -1147,11 +1112,9 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	// never completed downstream by the gateway's own error frame. These strings
 	// share storage with sseData and are bounded by the same SSE event limits.
 	var pendingRawLines []string
-	var pendingRawBytes int64
 	discardRawEvent := func() {
 		clear(pendingRawLines)
 		pendingRawLines = pendingRawLines[:0]
-		pendingRawBytes = 0
 	}
 	flushRawEvent := func() {
 		defer discardRawEvent()
@@ -1170,31 +1133,8 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 	}
 	defer discardRawEvent()
 	var streamErr error
-	stopAfterStreamErr := func() bool {
-		if streamErr == nil {
-			return false
-		}
-		if direct != nil || errors.Is(streamErr, ErrUpstreamResponseBodyTooLarge) {
-			return true
-		}
-		upstreamErr, ok := streamErr.(*OpenAIImagesUpstreamError)
-		return ok && openAIImagesBillingStatus(upstreamErr) != 0
-	}
-	billingClientErrorWritten := false
-	writeBillingClientError := func() {
-		if billingClientErrorWritten || !c.Writer.Written() || clientDisconnected {
-			return
-		}
-		billingClientErrorWritten = true
-		if err := s.writeOpenAIImagesStreamEvent(c, flusher, "error", buildOpenAIImagesStreamErrorBody(UpstreamBillingExhaustedClientMessage)); err != nil {
-			clientDisconnected = true
-		}
-	}
 	finish := func() error {
 		if direct == nil {
-			if stopAfterStreamErr() {
-				return streamErr
-			}
 			return nil
 		}
 		if streamErr != nil {
@@ -1220,13 +1160,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		mergeOpenAIUsage(&usage, dataBytes)
 		imageCounter.AddSSEData(dataBytes)
-		if upstreamErr := openAIImagesUpstreamErrorFromSSEPayload(dataBytes); upstreamErr != nil && openAIImagesBillingStatus(upstreamErr) != 0 {
-			streamErr = upstreamErr
-			if direct != nil {
-				writeBillingClientError()
-			}
-			return
-		}
 		if direct == nil || string(dataBytes) == "[DONE]" {
 			return
 		}
@@ -1276,25 +1209,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 	}
 
-	flushPendingClientLines := func() {
-		if direct != nil || len(pendingRawLines) == 0 {
-			return
-		}
-		if upstreamErr, ok := streamErr.(*OpenAIImagesUpstreamError); ok && openAIImagesBillingStatus(upstreamErr) != 0 {
-			writeBillingClientError()
-			discardRawEvent()
-			return
-		}
-		flushRawEvent()
-	}
 	flushSSEEvent := func() {
-		// Inspect the complete payload before forwarding raw bytes so provider
-		// billing details never bypass the gateway's public error message.
+		flushRawEvent()
 		sseData.Flush(processSSEData)
 	}
 
 	processLine := func(line []byte) {
-		if len(line) == 0 || stopAfterStreamErr() {
+		if len(line) == 0 {
 			return
 		}
 		if firstTokenMs == nil {
@@ -1302,22 +1223,15 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			firstTokenMs = &ms
 		}
 		rawLine := string(line)
-		if direct == nil && !clientDisconnected {
-			if pendingRawBytes+int64(len(line)) > fallbackLimit {
-				streamErr = fmt.Errorf("%w: image SSE frame limit=%d", ErrUpstreamResponseBodyTooLarge, fallbackLimit)
-				discardRawEvent()
-				return
-			}
-			pendingRawLines = append(pendingRawLines, rawLine)
-			pendingRawBytes += int64(len(line))
-		}
-
 		trimmedLine := strings.TrimRight(rawLine, "\r\n")
+		if !clientDisconnected && direct == nil {
+			pendingRawLines = append(pendingRawLines, rawLine)
+			if trimmedLine == "" {
+				flushRawEvent()
+			}
+		}
 		if _, ok := extractOpenAISSEDataLine(trimmedLine); ok || strings.TrimSpace(trimmedLine) == "" {
 			sseData.AddLine(trimmedLine, processSSEData)
-			if strings.TrimSpace(trimmedLine) == "" {
-				flushPendingClientLines()
-			}
 			return
 		}
 		if !seenSSEData && !fallbackTooLarge {
@@ -1337,11 +1251,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 		}
 		body := bytes.TrimSpace(fallbackBody.Bytes())
 		if len(body) == 0 {
-			return
-		}
-		if IsUpstreamBillingError(http.StatusOK, body) {
-			streamErr = openAIImagesUpstreamErrorFromHTTP(http.StatusPaymentRequired, resp.Header, body)
-			writeBillingClientError()
 			return
 		}
 		if direct != nil {
@@ -1380,24 +1289,20 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 				_ = resp.Body.Close()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
 			}
-			processLine(line)
-			if stopAfterStreamErr() {
-				flushPendingClientLines()
-				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, streamErr
+			if _, reset := openAIHTTP2PeerResetReason(err); reset {
+				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
 			}
+			processLine(line)
 			if err == io.EOF {
 				break
 			}
 			if err != nil {
 				flushSSEEvent()
-				finalizeFallbackBody()
-				flushPendingClientLines()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, err
 			}
 		}
 		flushSSEEvent()
 		finalizeFallbackBody()
-		flushPendingClientLines()
 		return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, finish()
 	}
 
@@ -1473,7 +1378,6 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 			if !ok {
 				flushSSEEvent()
 				finalizeFallbackBody()
-				flushPendingClientLines()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, finish()
 			}
 			if ev.err != nil {
@@ -1483,16 +1387,13 @@ func (s *OpenAIGatewayService) handleOpenAIImagesStreamingResponse(
 					_ = resp.Body.Close()
 					return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
 				}
+				if _, reset := openAIHTTP2PeerResetReason(ev.err); reset {
+					return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
+				}
 				flushSSEEvent()
-				finalizeFallbackBody()
-				flushPendingClientLines()
 				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, ev.err
 			}
 			processLine(ev.line)
-			if stopAfterStreamErr() {
-				flushPendingClientLines()
-				return usage, imageCounter.Count(), imageCounter.Sizes(), firstTokenMs, streamErr
-			}
 		case <-intervalCh:
 			lastRead := time.Unix(0, atomic.LoadInt64(&lastReadAt))
 			if time.Since(lastRead) < streamInterval {

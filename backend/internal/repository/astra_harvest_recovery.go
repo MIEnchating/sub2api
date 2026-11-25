@@ -75,17 +75,19 @@ func (r *accountRepository) AstraHarvestRecoveryState(ctx context.Context, id in
 	if state.Mode != "groups" {
 		return out, nil
 	}
-	groups, err := r.sql.QueryContext(ctx, `SELECT account_id,group_id,priority,created_at FROM account_groups WHERE account_id=$1`, id)
+	groups, err := r.sql.QueryContext(ctx, `SELECT account_id,group_id,priority,created_at,allowed_models FROM account_groups WHERE account_id=$1`, id)
 	if err != nil {
 		return out, err
 	}
 	defer func() { _ = groups.Close() }()
-	current := map[int64]*astraSchedulingGroup{}
+	current := map[int64]*qualityGroup{}
 	for groups.Next() {
-		var g astraSchedulingGroup
-		if err = groups.Scan(&g.AccountID, &g.GroupID, &g.Priority, &g.CreatedAt); err != nil {
+		var g qualityGroup
+		var allowed []byte
+		if err = groups.Scan(&g.AccountID, &g.GroupID, &g.Priority, &g.CreatedAt, &allowed); err != nil {
 			return out, err
 		}
+		g.AllowedModels = allowed
 		current[g.GroupID] = &g
 	}
 	if err = groups.Err(); err != nil {

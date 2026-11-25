@@ -64,7 +64,7 @@ func ownImageAttachments(e Event) []Attachment {
 }
 
 func (s *Service) rememberIncomingImages(ctx context.Context, c Config, e Event) error {
-	if !c.ImageEnabled || s.db == nil || e.Author.Bot {
+	if !c.RememberQuotedImages || c.groupPolicy(e.GroupID).DisableImages || s.db == nil || e.Author.Bot {
 		return nil
 	}
 	if cmd, _ := command(e.Content, c.CustomCommands...); cmd != "" {
@@ -110,7 +110,7 @@ func (s *Service) rememberIncomingImages(ctx context.Context, c Config, e Event)
 }
 
 func (s *Service) referencedImageSources(ctx context.Context, c Config, e Event, ref *botMessageReference) ([]byte, []Attachment, error) {
-	if s.db == nil || e.referenceID() == "" {
+	if s.db == nil || e.referenceID() == "" || c.groupPolicy(e.GroupID).DisableImages {
 		return nil, nil, nil
 	}
 	if ref != nil {

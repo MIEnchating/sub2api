@@ -100,9 +100,10 @@ describe('proxy management entries', () => {
     expect(listProxies.mock.calls.length).toBe(before + 1)
   })
 
-  it('preserves the existing Mihomo hash entry', () => {
-    route.hash = '#mihomo'
+  it.each(['#subscriptions', '#mihomo'])('opens subscription management from %s', async hash => {
+    route.hash = hash
     wrapper = mountView()
+    await flushPromises()
     expect(wrapper.getComponent(MihomoSettings).props('section')).toBe('subscriptions')
   })
 })

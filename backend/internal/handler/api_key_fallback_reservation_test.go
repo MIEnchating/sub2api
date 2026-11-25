@@ -59,7 +59,7 @@ func TestAPIKeyFallbackRepricesReservationAndRetainsItForUsage(t *testing.T) {
 			require.NoError(t, err)
 			defer done()
 			repo := auditFallbackAccountRepo{strictRequestAccountRepo{openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 6, GroupIDs: []int64{20}, Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true}}}}}
-			h := newOpenAIResponsesFailoverTestHandler(t, &strictRequestUpstream{winner: 6}, repo)
+			h := newOpenAIResponsesFailoverTestHandlerWithRepository(t, &strictRequestUpstream{winner: 6}, repo, nil, nil, nil, nil)
 			h.cfg.RunMode = "standard"
 			selected, err := h.gatewayService.SelectAccountWithLoadAwareness(ctx, key.GroupID, "", "m", nil)
 			require.NoError(t, err)

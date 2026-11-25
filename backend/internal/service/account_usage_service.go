@@ -150,6 +150,9 @@ type WindowStats struct {
 	Cost         float64 `json:"cost"`
 	StandardCost float64 `json:"standard_cost"`
 	UserCost     float64 `json:"user_cost"`
+	// Lifetime totals (no time filter); only populated by today-stats queries.
+	LifetimeTokens int64   `json:"lifetime_tokens,omitempty"`
+	LifetimeCost   float64 `json:"lifetime_cost,omitempty"`
 }
 
 // UsageProgress 使用量进度
@@ -161,21 +164,6 @@ type UsageProgress struct {
 	WindowStats        *WindowStats `json:"window_stats,omitempty"`        // 窗口期统计（从窗口开始到当前的使用量）
 	UsedRequests       int64        `json:"used_requests,omitempty"`
 	LimitRequests      int64        `json:"limit_requests,omitempty"`
-}
-
-// AntigravityQuotaGroup is a group of Antigravity models that share their quota windows.
-type AntigravityQuotaGroup struct {
-	Key         string                    `json:"key"` // bucket prefix, e.g. "gemini" or "3p"
-	Name        string                    `json:"name"`
-	Description string                    `json:"description,omitempty"`
-	Windows     []*AntigravityQuotaWindow `json:"windows"`
-}
-
-// AntigravityQuotaWindow is one window ("5h" or "weekly") of an Antigravity quota group.
-type AntigravityQuotaWindow struct {
-	Window      string     `json:"window"`
-	Utilization float64    `json:"utilization"` // used percentage, 0-100
-	ResetsAt    *time.Time `json:"resets_at"`
 }
 
 // AntigravityModelQuota Antigravity 单个模型的配额信息
@@ -794,33 +782,15 @@ func (s *AccountUsageService) getOpenAIUsage(ctx context.Context, account *Accou
 	applyExtraToUsage(usage, account.Extra, now)
 
 	if (force || shouldRefreshOpenAICodexSnapshot(account, usage, now)) && s.shouldProbeOpenAICodexSnapshot(account.ID, now, force) {
-		if adminaccess.RestrictedFromContext(ctx) != nil {
-			// 受限额度读取只调用额度 API，不生成 /responses 合成请求或消费重置次数。
+		restricted := adminaccess.RestrictedFromContext(ctx) != nil
+		if restricted || account.IsShadow() || account.IsExcelOAuth() || account.IsExcelBPSEnabled() {
+			// Scope-limited quota reads, Spark and BPS use the quota endpoint
+			// without generating a synthetic model response.
 			if s.openAIQuotaService != nil {
 				if quotaUsage, err := s.openAIQuotaService.QueryUsage(WithScopedAdminAccountOperation(ctx, "accounts.usage.read"), account.ID); err == nil {
-					updates := buildOpenAIAutoResetUsageUpdates(quotaUsage, now)
-					if account.IsShadow() {
-						updates = buildCodexSparkWindowExtraUpdates(quotaUsage, now)
-					}
-					if hasOpenAIQuotaObservation(updates) {
+					if updates := quotaUsage.schedulingUpdates; hasOpenAIQuotaObservation(updates) {
 						mergeAccountExtra(account, updates)
-						s.persistOpenAICodexProbeSnapshotContext(ctx, account.ID, updates)
-						applyExtraToUsage(usage, account.Extra, now)
-						usage.Source = "active"
-					}
-				}
-			}
-		} else if account.IsShadow() {
-			// Spark shadow accounts fetch usage from /wham/usage (bengalfox channel)
-			// via the shared OpenAIQuotaService, which resolves credentials from the
-			// parent account.  The result is written to the shadow row's own codex_*
-			// Extra keys and immediately reflected in the returned UsageInfo.
-			if s.openAIQuotaService != nil {
-				if quotaUsage, err := s.openAIQuotaService.QueryUsage(WithScopedAdminAccountOperation(ctx, "accounts.usage.read"), account.ID); err == nil {
-					if updates := buildCodexSparkWindowExtraUpdates(quotaUsage, now); hasOpenAIQuotaObservation(updates) {
-						mergeAccountExtra(account, updates)
-						s.persistOpenAICodexProbeSnapshotContext(ctx, account.ID, updates)
-						if account.ParentAccountID != nil && adminaccess.RestrictedFromContext(ctx) == nil {
+						if account.IsShadow() && account.ParentAccountID != nil && !restricted {
 							notifyOpenAIAutoReset(*account.ParentAccountID)
 						}
 						applyExtraToUsage(usage, account.Extra, now)
@@ -884,11 +854,10 @@ func isOpenAICodexSnapshotStale(account *Account, now time.Time) bool {
 	if account == nil || !account.IsOpenAIOAuth() {
 		return false
 	}
-	// 普通账号的 codex 刷新走 probe(/responses 头),要求 WSv2;但 spark 影子走 QueryUsage
-	// (/wham/usage body 的 codex_bengalfox),与 WSv2 无关——不能用 WSv2 门控其 staleness,否则首刷后
-	// codex_5h/7d 已存在→staleness 恒 false→spark 窗口永久冻结(外审第9轮 P1)。影子改按
-	// codex_usage_updated_at TTL 判定;实际查询频率仍由 shouldProbeOpenAICodexSnapshot 的缓存 TTL 节流。
-	if !account.IsShadow() && !account.IsOpenAIResponsesWebSocketV2Enabled() {
+	// Native probes retain their WSv2 eligibility. BPS and Spark use the quota
+	// endpoint independently of transport; their complete windows still expire.
+	// shouldProbeOpenAICodexSnapshot bounds concurrent/stale automatic reads.
+	if !account.IsShadow() && !account.IsExcelBPSEnabled() && !account.IsOpenAIResponsesWebSocketV2Enabled() {
 		return false
 	}
 	if account.Extra == nil {
@@ -910,15 +879,19 @@ func (s *AccountUsageService) shouldProbeOpenAICodexSnapshot(accountID int64, no
 		return true
 	}
 	forceProbe := len(force) > 0 && force[0]
-	if !forceProbe {
-		if cached, ok := s.cache.openAIProbeCache.Load(accountID); ok {
-			if ts, ok := cached.(time.Time); ok && now.Sub(ts) < openAIProbeCacheTTL {
-				return false
-			}
+	for {
+		cached, loaded := s.cache.openAIProbeCache.LoadOrStore(accountID, now)
+		if !loaded {
+			return true
+		}
+		ts, valid := cached.(time.Time)
+		if !forceProbe && valid && now.Sub(ts) < openAIProbeCacheTTL {
+			return false
+		}
+		if s.cache.openAIProbeCache.CompareAndSwap(accountID, cached, now) {
+			return true
 		}
 	}
-	s.cache.openAIProbeCache.Store(accountID, now)
-	return true
 }
 
 func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, account *Account) (map[string]any, error) {
@@ -928,6 +901,7 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	if err := rejectRetiredVMAccount(ctx, s.accountRepo, account); err != nil {
 		return nil, err
 	}
+	observed := observeOpenAIQuotaRecovery(account, time.Now())
 	accessToken := ""
 	if !account.IsOpenAIAgentIdentity() {
 		accessToken = account.GetOpenAIAccessToken()
@@ -1001,12 +975,21 @@ func (s *AccountUsageService) probeOpenAICodexSnapshot(ctx context.Context, acco
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	return s.persistOpenAICodexProbeResponse(ctx, account.ID, resp, observed)
+}
+
+func (s *AccountUsageService) persistOpenAICodexProbeResponse(ctx context.Context, accountID int64, resp *http.Response, observed *openAIQuotaRecoveryObservation) (map[string]any, error) {
 	updates, err := extractOpenAICodexProbeUpdates(resp)
 	if err != nil {
 		return nil, err
 	}
 	if hasOpenAIQuotaObservation(updates) {
-		s.persistOpenAICodexProbeSnapshotContext(ctx, account.ID, updates)
+		// Error responses can carry zero-usage headers too. Keep their display
+		// snapshot, but never use them to undo the account's cooldown.
+		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+			observed = nil
+		}
+		s.persistOpenAICodexProbeSnapshotContext(ctx, accountID, updates, observed)
 		return updates, nil
 	}
 	return nil, nil
@@ -1016,7 +999,7 @@ func (s *AccountUsageService) persistOpenAICodexProbeSnapshot(accountID int64, u
 	s.persistOpenAICodexProbeSnapshotContext(context.Background(), accountID, updates)
 }
 
-func (s *AccountUsageService) persistOpenAICodexProbeSnapshotContext(ctx context.Context, accountID int64, updates map[string]any) {
+func (s *AccountUsageService) persistOpenAICodexProbeSnapshotContext(ctx context.Context, accountID int64, updates map[string]any, observed ...*openAIQuotaRecoveryObservation) {
 	if s == nil || s.accountRepo == nil || accountID <= 0 {
 		return
 	}
@@ -1030,7 +1013,11 @@ func (s *AccountUsageService) persistOpenAICodexProbeSnapshotContext(ctx context
 		if err := scopedAccountIDAccess(updateCtx, s.accountRepo, accountID, "accounts.usage.read", true); err != nil {
 			return
 		}
-		if err := s.accountRepo.UpdateExtra(updateCtx, accountID, updates); err == nil && adminaccess.RestrictedFromContext(ctx) == nil {
+		written, err := persistCodexUsageUpdates(updateCtx, s.accountRepo, accountID, updates)
+		if err == nil && written && adminaccess.RestrictedFromContext(ctx) == nil {
+			if len(observed) > 0 {
+				recoverOpenAIQuotaRateLimit(updateCtx, s.accountRepo, observed[0], updates)
+			}
 			notifyOpenAIAutoReset(accountID)
 		}
 	}()
@@ -1531,7 +1518,7 @@ func (s *AccountUsageService) addWindowStats(ctx context.Context, account *Accou
 	}
 }
 
-// GetTodayStats 获取账号今日统计
+// GetTodayStats 获取账号今日统计，并附带账号累计 Token/费用。
 func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64) (*WindowStats, error) {
 	if err := scopedAccountIDAccess(ctx, s.accountRepo, accountID, "accounts.stats.read", false); err != nil {
 		return nil, err
@@ -1541,13 +1528,17 @@ func (s *AccountUsageService) GetTodayStats(ctx context.Context, accountID int64
 		return nil, fmt.Errorf("get today stats failed: %w", err)
 	}
 
-	return &WindowStats{
+	ws := &WindowStats{
 		Requests:     stats.Requests,
 		Tokens:       stats.Tokens,
 		Cost:         stats.Cost,
 		StandardCost: stats.StandardCost,
 		UserCost:     stats.UserCost,
-	}, nil
+	}
+	if lifetime, lerr := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, time.Time{}); lerr == nil {
+		attachLifetimeStats(ws, lifetime)
+	}
+	return ws, nil
 }
 
 // GetTodayStatsBatch 批量获取账号今日统计，优先走批量 SQL，失败时回退单账号查询。
@@ -1584,8 +1575,13 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	if batchReader, ok := s.usageLogRepo.(accountWindowStatsBatchReader); ok {
 		statsByAccount, err := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, startTime)
 		if err == nil {
+			lifetimeByAccount, lerr := batchReader.GetAccountWindowStatsBatch(ctx, uniqueIDs, time.Time{})
 			for _, accountID := range uniqueIDs {
-				result[accountID] = windowStatsFromAccountStats(statsByAccount[accountID])
+				ws := windowStatsFromAccountStats(statsByAccount[accountID])
+				if lerr == nil {
+					attachLifetimeStats(ws, lifetimeByAccount[accountID])
+				}
+				result[accountID] = ws
 			}
 			return result, nil
 		}
@@ -1612,8 +1608,13 @@ func (s *AccountUsageService) GetTodayStatsBatch(ctx context.Context, accountIDs
 	_ = g.Wait()
 
 	for _, accountID := range uniqueIDs {
-		if _, ok := result[accountID]; !ok {
-			result[accountID] = &WindowStats{}
+		ws, ok := result[accountID]
+		if !ok {
+			ws = &WindowStats{}
+			result[accountID] = ws
+		}
+		if lifetime, err := s.usageLogRepo.GetAccountWindowStats(ctx, accountID, time.Time{}); err == nil {
+			attachLifetimeStats(ws, lifetime)
 		}
 	}
 	return result, nil
@@ -1630,6 +1631,14 @@ func windowStatsFromAccountStats(stats *usagestats.AccountStats) *WindowStats {
 		StandardCost: stats.StandardCost,
 		UserCost:     stats.UserCost,
 	}
+}
+
+func attachLifetimeStats(ws *WindowStats, lifetime *usagestats.AccountStats) {
+	if ws == nil || lifetime == nil {
+		return
+	}
+	ws.LifetimeTokens = lifetime.Tokens
+	ws.LifetimeCost = lifetime.Cost
 }
 
 func buildCodexUsageProgressFromExtra(extra map[string]any, window string, now time.Time) *UsageProgress {
@@ -1972,4 +1981,19 @@ func buildGeminiUsageProgress(used, limit int64, resetAt time.Time, tokens int64
 // 用于账号列表页面显示当前窗口费用
 func (s *AccountUsageService) GetAccountWindowStats(ctx context.Context, accountID int64, startTime time.Time) (*usagestats.AccountStats, error) {
 	return s.usageLogRepo.GetAccountWindowStats(ctx, accountID, startTime)
+}
+
+// AntigravityQuotaGroup is a group of Antigravity models that share their quota windows.
+type AntigravityQuotaGroup struct {
+	Key         string                    `json:"key"` // bucket prefix, e.g. "gemini" or "3p"
+	Name        string                    `json:"name"`
+	Description string                    `json:"description,omitempty"`
+	Windows     []*AntigravityQuotaWindow `json:"windows"`
+}
+
+// AntigravityQuotaWindow is one window ("5h" or "weekly") of an Antigravity quota group.
+type AntigravityQuotaWindow struct {
+	Window      string     `json:"window"`
+	Utilization float64    `json:"utilization"` // used percentage, 0-100
+	ResetsAt    *time.Time `json:"resets_at"`
 }

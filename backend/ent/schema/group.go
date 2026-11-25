@@ -106,6 +106,9 @@ func (Group) Fields() []ent.Field {
 		field.Bool("allow_image_generation").
 			Default(false).
 			Comment("是否允许该分组使用图片生成能力"),
+		field.Bool("allow_batch_image_generation").
+			Default(false).
+			Comment("是否允许该分组使用批量图片生成能力"),
 		field.Bool("image_count_billing").
 			Default(false).
 			Comment("图片生成是否按实际出图张数计费"),
@@ -128,6 +131,14 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			SchemaType(map[string]string{dialect.Postgres: "decimal(20,8)"}),
+		field.Float("batch_image_discount_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0.5).
+			Comment("批量图片生成折扣倍率，最终单价会乘以该值；0 表示免费"),
+		field.Float("batch_image_hold_multiplier").
+			SchemaType(map[string]string{dialect.Postgres: "decimal(10,4)"}).
+			Default(0.6).
+			Comment("批量图片生成冻结价格比例，按普通生图原价乘以该比例冻结，结算后释放差额"),
 		field.Bool("video_rate_independent").
 			Default(false).
 			Comment("视频生成是否使用独立倍率；false 表示共享分组有效倍率"),
@@ -208,6 +219,19 @@ func (Group) Fields() []ent.Field {
 			Optional().
 			Nillable().
 			Comment("无效请求兜底使用的分组 ID"),
+
+		// 仅限制员工 API 入口，后台账号测试与质量判题沿用内部调用链。
+		field.Bool("block_subagents").
+			Default(false).
+			Comment("是否拒绝员工 API 入口中带子代理标识的请求"),
+		field.Bool("codex_cli_only").
+			Default(false).
+			Comment("是否仅允许 Codex 客户端调用本分组"),
+
+		// 仅允许流式请求 (added by migration 246)
+		field.Bool("stream_only").
+			Default(false).
+			Comment("是否仅允许流式请求：开启后非流式的对话生成请求在网关入口直接拒绝"),
 
 		// 模型路由配置 (added by migration 040)
 		field.JSON("model_routing", map[string][]int64{}).

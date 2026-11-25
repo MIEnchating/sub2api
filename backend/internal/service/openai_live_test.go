@@ -28,7 +28,7 @@ type strictLiveTestConcurrencyCache struct {
 	liveReleases []int64
 }
 
-func (*strictLiveTestConcurrencyCache) AcquireLiveLease(context.Context, int64, int, int64, int, int64, string, bool) (bool, error) {
+func (*strictLiveTestConcurrencyCache) AcquireLiveLease(context.Context, int64, int, int64, int, int64, int, string, bool) (bool, error) {
 	return true, nil
 }
 

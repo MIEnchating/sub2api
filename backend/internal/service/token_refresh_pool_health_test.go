@@ -9,6 +9,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
@@ -573,101 +574,82 @@ func TestTokenRefreshService_ProviderConcurrencyGateIsSharedAcrossBackgroundAndC
 }
 
 func TestTokenRefreshService_SaturatedProviderPreservesConcurrencyAndActualQPSStartSpacing(t *testing.T) {
-	const (
-		providerConcurrency = 2
-		providerQPS         = 20
-		attemptCount        = 8
-	)
-	repo := &poolHealthAccountRepo{}
-	refresher := &poolHealthRefresher{
-		// The first two QPS-spaced attempts finish together. If queued callers
-		// reserve QPS slots before acquiring provider capacity, two expired
-		// reservations can then burst upstream at the same time.
-		startDelays: []time.Duration{
-			220 * time.Millisecond,
-			170 * time.Millisecond,
-			20 * time.Millisecond,
-			20 * time.Millisecond,
-			20 * time.Millisecond,
-			20 * time.Millisecond,
-			20 * time.Millisecond,
-			20 * time.Millisecond,
-		},
-	}
-	svc := newPoolHealthService(repo, refresher, config.TokenRefreshConfig{
-		MaxRetries:            1,
-		ProviderConcurrency:   providerConcurrency,
-		ProviderQPS:           providerQPS,
-		AttemptTimeoutSeconds: 1,
+	synctest.Test(t, func(t *testing.T) {
+		const (
+			providerConcurrency = 2
+			providerQPS         = 20
+			attemptCount        = 8
+		)
+		repo := &poolHealthAccountRepo{}
+		refresher := &poolHealthRefresher{
+			// The first two QPS-spaced attempts finish together. If queued callers
+			// reserve QPS slots before acquiring provider capacity, two expired
+			// reservations can then burst upstream at the same time.
+			startDelays: []time.Duration{
+				220 * time.Millisecond,
+				170 * time.Millisecond,
+				20 * time.Millisecond,
+				20 * time.Millisecond,
+				20 * time.Millisecond,
+				20 * time.Millisecond,
+				20 * time.Millisecond,
+				20 * time.Millisecond,
+			},
+		}
+		svc := newPoolHealthService(repo, refresher, config.TokenRefreshConfig{
+			MaxRetries:            1,
+			ProviderConcurrency:   providerConcurrency,
+			ProviderQPS:           providerQPS,
+			AttemptTimeoutSeconds: 1,
+		})
+		registration := svc.registrations[0]
+		sharedRateGate := svc.providerRateGate(PlatformGrok)
+		sharedPoolGate := svc.providerConcurrencyGate(PlatformGrok)
+
+		start := make(chan struct{})
+		errorsCh := make(chan error, attemptCount)
+		var wg sync.WaitGroup
+		for i := 0; i < attemptCount; i++ {
+			account := grokPoolAccount(int64(i + 1))
+			state := &tokenRefreshProviderState{
+				service:      svc,
+				registration: registration,
+				rateGate:     sharedRateGate,
+				poolGate:     sharedPoolGate,
+			}
+			wg.Add(1)
+			go func() {
+				defer wg.Done()
+				<-start
+				errorsCh <- svc.refreshWithRetryWithRateGate(context.Background(), &account, refresher, nil, time.Hour, state)
+			}()
+		}
+		close(start)
+		wg.Wait()
+		close(errorsCh)
+
+		for err := range errorsCh {
+			require.NoError(t, err)
+		}
+		require.Equal(t, int64(providerConcurrency), refresher.maxActive.Load(),
+			"the scripted attempts must actually saturate the provider semaphore")
+		starts := refresher.startsSnapshot()
+		require.Len(t, starts, attemptCount)
+		configuredSpacing := time.Second / time.Duration(providerQPS)
+
+		// Virtual time keeps the start timestamps independent of host scheduling delays.
+		actualMinimumSpacing := starts[1].Sub(starts[0])
+		for i := 1; i < len(starts); i++ {
+			spacing := starts[i].Sub(starts[i-1])
+			if spacing < actualMinimumSpacing {
+				actualMinimumSpacing = spacing
+			}
+			require.GreaterOrEqualf(t, spacing, configuredSpacing,
+				"upstream starts %d and %d violated configured QPS spacing", i-1, i)
+		}
+		t.Logf("max_active=%d configured_concurrency=%d minimum_start_spacing=%s configured_spacing=%s",
+			refresher.maxActive.Load(), providerConcurrency, actualMinimumSpacing, configuredSpacing)
 	})
-	registration := svc.registrations[0]
-	sharedRateGate := svc.providerRateGate(PlatformGrok)
-	sharedPoolGate := svc.providerConcurrencyGate(PlatformGrok)
-
-	start := make(chan struct{})
-	errorsCh := make(chan error, attemptCount)
-	var wg sync.WaitGroup
-	for i := 0; i < attemptCount; i++ {
-		account := grokPoolAccount(int64(i + 1))
-		state := &tokenRefreshProviderState{
-			service:      svc,
-			registration: registration,
-			rateGate:     sharedRateGate,
-			poolGate:     sharedPoolGate,
-		}
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			errorsCh <- svc.refreshWithRetryWithRateGate(context.Background(), &account, refresher, nil, time.Hour, state)
-		}()
-	}
-	close(start)
-	wg.Wait()
-	close(errorsCh)
-
-	for err := range errorsCh {
-		require.NoError(t, err)
-	}
-	require.Equal(t, int64(providerConcurrency), refresher.maxActive.Load(),
-		"the scripted attempts must actually saturate the provider semaphore")
-	starts := refresher.startsSnapshot()
-	require.Len(t, starts, attemptCount)
-	configuredSpacing := time.Second / time.Duration(providerQPS)
-
-	// The floor is a tenth of the configured spacing, not spacing minus a few
-	// milliseconds. Each start timestamp is taken after the rate gate releases
-	// the goroutine, so scheduler delay can compress one observed gap without
-	// the gate having done anything wrong: this assertion failed on a loaded
-	// machine at 13ms and again at 37ms against a 40ms floor, both times with
-	// the gate pacing correctly.
-	//
-	// A tenth still separates the two cases by a wide margin. Measured with
-	// providerQPS=20 (50ms spacing), 8 attempts, providerConcurrency=2:
-	//
-	//	gate at 50ms  -> minimum observed gap 49.97ms
-	//	gate at 0     -> minimum observed gap 22µs
-	//
-	// So an unpaced gate lands three orders of magnitude below the 5ms floor
-	// and is still caught, while jitter on a busy machine has room to move.
-	//
-	// Do not swap this for an assertion on the total span of the starts: the
-	// span is dominated by how long each attempt takes under
-	// providerConcurrency, not by the gate. Same measurement — 471ms paced
-	// against 241ms unpaced — so a span check passes with the gate disabled and
-	// tests nothing.
-	minimumObservedSpacing := configuredSpacing / 10
-	actualMinimumSpacing := starts[1].Sub(starts[0])
-	for i := 1; i < len(starts); i++ {
-		spacing := starts[i].Sub(starts[i-1])
-		if spacing < actualMinimumSpacing {
-			actualMinimumSpacing = spacing
-		}
-		require.GreaterOrEqualf(t, spacing, minimumObservedSpacing,
-			"upstream starts %d and %d violated configured QPS spacing", i-1, i)
-	}
-	t.Logf("max_active=%d configured_concurrency=%d minimum_start_spacing=%s configured_spacing=%s",
-		refresher.maxActive.Load(), providerConcurrency, actualMinimumSpacing, configuredSpacing)
 }
 
 func TestTokenRefreshService_ProductionPathRatesOnlyActualRefreshAfterSameAccountContention(t *testing.T) {

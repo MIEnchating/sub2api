@@ -34,6 +34,24 @@
         </div>
         <p class="text-xs text-gray-500">{{ t('accountPerformance.boundsNote') }}</p>
         <p class="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">{{ t('accountPerformance.saveNote') }}</p>
+        <section class="space-y-3" aria-labelledby="account-observed-performance">
+          <h4 id="account-observed-performance" class="text-sm font-semibold">{{ t('accountPerformance.observedHeading', { minutes: windowMinutes }) }}</h4>
+          <AccountPerformanceCell :metrics="metrics" :can-configure="false" :notice-user-id="noticeUserId" :upstream-error-threshold="upstreamErrorThreshold" />
+          <table class="w-full text-left text-sm">
+            <thead><tr><th></th><th>{{ t('accountPerformance.min') }}</th><th>{{ t('accountPerformance.max') }}</th></tr></thead>
+            <tbody><tr v-for="metric in observedMetricKeys" :key="metric" :data-threshold="metric">
+              <th class="py-2 pr-2"><span class="inline-flex items-center gap-1">
+                {{ t('accountPerformance.' + metric, { minutes: windowMinutes }) }} {{ metric==='observed_ttft' ? '(' + t('accountPerformance.ms') + ')' : isPercentageMetric(metric)?'(%)':'' }}
+                <NewFeatureBadge v-if="metric==='upstream_error' && noticeUserId != null" :notice-id="NEW_FEATURE_NOTICES.accountUpstreamHTTPErrorThreshold" :user-id="noticeUserId" compact />
+              </span></th>
+              <td v-for="bound in bounds" :key="bound" class="p-1"><input v-model="observedFields[metric][bound]" type="number" min="0" :max="isPercentageMetric(metric)?100:1000000000" step="any" :aria-label="t('accountPerformance.'+metric, { minutes: windowMinutes })+' '+t('accountPerformance.'+bound)" :placeholder="t('accountPerformance.noBound')" class="input w-full min-w-0" :data-testid="metric+'-'+bound" :disabled="busy"></td>
+            </tr></tbody>
+          </table>
+          <p class="text-xs text-gray-500">{{ t('accountPerformance.qualityNote') }}</p>
+          <p class="text-xs text-gray-500" data-testid="upstream-threshold-samples">{{ t('accountPerformance.upstreamThresholdSamples', { failures: metrics.upstream_error?.failures ?? '—', total: metrics.upstream_error?.total ?? '—' }) }}</p>
+          <p class="text-xs text-gray-500" data-testid="upstream-threshold-note">{{ t('accountPerformance.upstreamThresholdNote', { minutes: windowMinutes }) }}</p>
+          <p class="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">{{ t('accountPerformance.latchNote') }}</p>
+        </section>
         <h4 class="text-sm font-semibold">{{ t('accountPerformance.audit') }}</h4>
         <p v-if="auditError" class="text-xs text-red-600">{{ t('accountPerformance.auditUnavailable') }}</p>
         <p v-else-if="!events.length" class="text-xs text-gray-500">{{ t('accountPerformance.noEvents') }}</p>
@@ -51,13 +69,18 @@
 import { computed, onMounted, ref, reactive } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'
-import { emptyPerformanceConfig, metricKeys, type AccountPerformance, type PerformanceMetric, type PerformanceEvent } from '@/types/accountPerformance'
+import { emptyPerformanceConfig, metricKeys, observedMetricKeys, performanceWindowMinutes, type AccountPerformance, type PerformanceMetric, type ObservedPerformanceMetric, type PerformanceEvent } from '@/types/accountPerformance'
 import BaseDialog from '@/components/common/BaseDialog.vue'
-const props = defineProps<{ accountId: number; accountName: string }>()
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
+import AccountPerformanceCell from './AccountPerformanceCell.vue'
+
+const props = defineProps<{ accountId: number; accountName: string; noticeUserId?: number | null; upstreamErrorThreshold?: number | null }>()
 const emit = defineEmits<{ close: []; updated: [] }>()
 const { t } = useI18n()
 const metrics = ref<AccountPerformance | null>(null)
 const events = ref<PerformanceEvent[]>([])
+const windowMinutes = computed(() => performanceWindowMinutes(metrics.value ?? undefined))
 const config = ref(emptyPerformanceConfig())
 const loading = ref(false), busy = ref(false), error = ref(''), auditError = ref(false)
 const columns = [
@@ -65,8 +88,16 @@ const columns = [
   { key: 'recoveryMin', kind: 'recovery', bound: 'min' }, { key: 'recoveryMax', kind: 'recovery', bound: 'max' }
 ] as const
 const fields = reactive(Object.fromEntries(metricKeys.map(key => [key, { pauseMin: '', pauseMax: '', recoveryMin: '', recoveryMax: '' }])) as Record<PerformanceMetric, Record<typeof columns[number]['key'], string | number>>)
+const bounds = ['min', 'max'] as const
+const observedFields = reactive<Record<ObservedPerformanceMetric, Record<typeof bounds[number], string | number>>>({
+  tps: { min: '', max: '' },
+  degradation: { min: '', max: '' },
+  observed_ttft: { min: '', max: '' },
+  upstream_error: { min: '', max: '' }
+})
+const isPercentageMetric = (key: ObservedPerformanceMetric) => key === 'degradation' || key === 'upstream_error'
 const isPercentage = (key: PerformanceMetric) => key === 'success_rate' || key === 'cache_rate'
-const reasonLabel = computed(() => metrics.value?.reason.split(',').filter(Boolean).map(key => t('accountPerformance.' + key)).join('、'))
+const reasonLabel = computed(() => metrics.value?.reason.split(',').filter(Boolean).map(key => t('accountPerformance.' + key, { minutes: windowMinutes.value })).join('、'))
 function currentValue(key: PerformanceMetric) {
   const stats = metrics.value?.metrics
   const value = key === 'ttft' ? stats?.avg_first_token_ms : key === 'duration' ? stats?.avg_duration_ms : stats?.[key]
@@ -84,6 +115,9 @@ async function reload() {
     if (!m || m.config.version !== 2) throw new Error('missing metric configuration')
     metrics.value = m; config.value = { ...emptyPerformanceConfig(), ...m.config }
     for (const key of metricKeys) for (const column of columns) fields[key][column.key] = m.config[key]?.[column.kind]?.[column.bound] ?? ''
+    for (const key of observedMetricKeys) {
+      for (const bound of bounds) observedFields[key][bound] = m.config[key]?.[bound] ?? ''
+    }
     auditError.value = false
     try { events.value = await adminAPI.accounts.getPerformanceEvents(props.accountId) } catch { auditError.value = true }
   } catch { metrics.value = null; error.value = t('accountPerformance.unavailable') } finally { loading.value = false }
@@ -107,6 +141,18 @@ async function save() {
       (pause.min !== null && pause.max !== null && pause.min > pause.max) ||
       (min !== null && max !== null && min > max) ||
       (pause.min !== null && min !== null && min < pause.min) || (pause.max !== null && max !== null && max > pause.max)) { error.value = t('accountPerformance.invalid'); return }
+  }
+  for (const key of observedMetricKeys) {
+    const input = observedFields[key]
+    const min = input.min === '' ? null : Number(input.min)
+    const max = input.max === '' ? null : Number(input.max)
+    if ([min, max].some(value => value !== null && (!Number.isFinite(value) || value < 0 || value > (isPercentageMetric(key) ? 100 : 1e9))) ||
+      (min !== null && max !== null && min > max)) {
+      error.value = t('accountPerformance.invalid')
+      return
+    }
+    next[key] = { min, max }
+    enabled ||= min !== null || max !== null
   }
   if ((next.enabled && !enabled) || !Number.isInteger(next.min_samples) || next.min_samples < 1 || next.min_samples > 10000 ||
     !Number.isInteger(next.cooldown_minutes) || next.cooldown_minutes < 1 || next.cooldown_minutes > 1440 ||

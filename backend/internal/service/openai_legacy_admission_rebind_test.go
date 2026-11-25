@@ -16,7 +16,7 @@ func TestOpenAILegacyAdmissionRebind(t *testing.T) {
 		if batch {
 			mode = "load_batch"
 		}
-		for _, scenario := range []string{"new_session", "excluded_A", "capacity_spillover", "load_read_failure"} {
+		for _, scenario := range []string{"new_session", "excluded_A", "rpm_spillover", "capacity_spillover", "load_read_failure"} {
 			// The priority/LRU engine waits on a full sticky account; exclusions
 			// exercise its existing failover path without changing policy.
 			if !batch && (scenario == "capacity_spillover" || scenario == "load_read_failure") {
@@ -66,11 +66,15 @@ func TestOpenAILegacyAdmissionRebind(t *testing.T) {
 					accountRepo: schedulerTestOpenAIAccountRepo{accounts: accounts}, cache: cache, cfg: cfg,
 					concurrencyService: NewConcurrencyService(concurrency),
 				}
+				if scenario == "rpm_spillover" {
+					accounts[len(accounts)-1].Extra["base_rpm"] = 10
+					svc.rpmCache = &openAIRPMTestCache{counts: map[int64]int{a: 8}}
+				}
 				var excluded map[int64]struct{}
 				if scenario == "excluded_A" {
 					excluded = map[int64]struct{}{a: {}}
 				}
-				require.Nil(t, svc.getOpenAIAccountScheduler(ctx), "LEGACY_ADMISSION_FIXTURE: advanced scheduler must be off")
+				require.Nil(t, svc.getOpenAIAccountScheduler(ctx, false), "LEGACY_ADMISSION_FIXTURE: advanced scheduler must be off")
 				selected, _, err := svc.SelectAccountWithSchedulerForCapability(ctx, &groupID, "", session, "gpt-5.1", excluded,
 					OpenAIUpstreamTransportResponsesWebsocketV2Ingress, OpenAIEndpointCapabilityChatCompletions, false, false, true)
 				require.NoError(t, err, "LEGACY_ADMISSION_FIXTURE: selection must succeed")

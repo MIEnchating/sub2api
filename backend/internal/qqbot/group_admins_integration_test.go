@@ -66,7 +66,7 @@ func TestQQBotGroupAdminVerifiedMentionAndRevocation(t *testing.T) {
 				}))
 				defer server.Close()
 				c.BaseURL, c.ChatProtocol = server.URL+"/v1", protocol
-				c.ImageEnabled, c.ImageModel = toolsEnabled, "image-model"
+				c.RememberQuotedImages = toolsEnabled
 				c.GroupAdmins = []GroupAdmin{{AppID: " app ", GroupID: " group ", MemberID: " admin ", Nickname: " 备注 "}}
 				_, err = s.SaveBasicConfig(ctx, c)
 				require.NoError(t, err)

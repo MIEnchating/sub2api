@@ -94,5 +94,8 @@ func (Proxy) Indexes() []ent.Index {
 		index.Fields("deleted_at"),
 		index.Fields("expires_at"),
 		index.Fields("backup_proxy_id"),
+		index.Fields("mihomo_node_id").Unique().
+			StorageKey("idx_proxies_mihomo_node_id_active").
+			Annotations(entsql.IndexWhere("mihomo_node_id IS NOT NULL AND deleted_at IS NULL")),
 	}
 }

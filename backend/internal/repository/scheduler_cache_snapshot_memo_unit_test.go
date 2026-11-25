@@ -4,19 +4,19 @@ package repository
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
-	"strings"
-	"sync"
-	"testing"
-	"time"
-
 	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/alicebob/miniredis/v2"
 	"github.com/redis/go-redis/v9"
 	"github.com/stretchr/testify/require"
+	"strconv"
+	"strings"
+	"sync"
+	"testing"
+	"time"
 )
 
 // schedulerCacheCommandRecorder 记录发往 Redis 的命令（名称 + 首个参数）与每次 pipeline 执行的命令批次，
@@ -220,6 +220,15 @@ func memoEntryCount(cache *schedulerCache) int {
 	return len(cache.snapshotEntries)
 }
 
+func memoTagReads(bucket service.SchedulerBucket) []string {
+	keys := schedulerSnapshotTagKeys(bucket)
+	commands := make([]string, 0, len(keys))
+	for _, key := range keys {
+		commands = append(commands, "get "+key)
+	}
+	return commands
+}
+
 func TestSchedulerCacheSnapshotMemoRepeatReadsFetchTagsAndExpiredLastUsed(t *testing.T) {
 	cache, _, recorder := newSchedulerCacheMemoUnit(t, defaultSchedulerSnapshotWriteChunkSize)
 	clock := &memoTestClock{now: time.Date(2026, 10, 20, 8, 0, 0, 0, time.UTC)}
@@ -235,20 +244,22 @@ func TestSchedulerCacheSnapshotMemoRepeatReadsFetchTagsAndExpiredLastUsed(t *tes
 
 	recorder.reset()
 	second := memoRead(t, cache, bucket)
-	require.Equal(t, []string{
-		"mget " + schedulerBucketKey(schedulerReadyPrefix, bucket),
-	}, recorder.recorded(), "last_used read within its max age is reused")
+	require.Equal(t, append(memoTagReads(bucket), "exists "+schedulerAccountMetaKey("1")),
+		recorder.recorded(), "last_used read within its max age is reused")
 
 	clock.Advance(schedulerLastUsedCacheMaxAge)
 	recorder.reset()
 	memoRead(t, cache, bucket)
-	require.Equal(t, []string{
-		"mget " + schedulerBucketKey(schedulerReadyPrefix, bucket),
-		"mget " + schedulerLastUsedKey("1"),
-	}, recorder.recorded())
+	require.Equal(t, append(memoTagReads(bucket), "exists "+schedulerAccountMetaKey("1"), "mget "+schedulerLastUsedKey("1")),
+		recorder.recorded())
 
 	require.Equal(t, []int64{1, 2, 3}, memoIDs(second))
-	require.Equal(t, first, second)
+	// The exported snapshot data stays equal even though each clone owns its mapping cache.
+	firstJSON, err := json.Marshal(first)
+	require.NoError(t, err)
+	secondJSON, err := json.Marshal(second)
+	require.NoError(t, err)
+	require.JSONEq(t, string(firstJSON), string(secondJSON))
 	for i := range first {
 		require.NotSame(t, first[i], second[i])
 	}
@@ -431,11 +442,14 @@ func TestSchedulerCacheSnapshotMemoEmptyAndNilMetadataAreNotCached(t *testing.T)
 		_, err := cache.writeAccountIDs(ctx, []service.Account{memoTestAccount(81, "a")})
 		require.NoError(t, err)
 		memoPublish(t, cache, bucket)
-		memoRequireMiss(t, cache, bucket)
+		require.Empty(t, memoRead(t, cache, bucket), "the published empty sentinel is an intentional cache hit")
 
 		active := cache.rdb.Get(ctx, schedulerBucketKey(schedulerActivePrefix, bucket)).Val()
 		require.NotEmpty(t, active)
-		require.NoError(t, cache.rdb.ZAdd(ctx, schedulerSnapshotKey(bucket, active), redis.Z{Score: 0, Member: "81"}).Err())
+		key := schedulerSnapshotKey(bucket, active)
+		require.NoError(t, cache.rdb.Del(ctx, key).Err())
+		memoRequireMiss(t, cache, bucket)
+		require.NoError(t, cache.rdb.ZAdd(ctx, key, redis.Z{Score: 0, Member: "81"}).Err())
 		require.Equal(t, []int64{81}, memoIDs(memoRead(t, cache, bucket)))
 	})
 
@@ -566,7 +580,7 @@ func TestSchedulerCacheSnapshotMemoWriteAccountIDsAdvancesRevision(t *testing.T)
 		require.Len(t, batches, 2, "one execution per chunk")
 		require.Equal(t, []string{
 			"set " + schedulerAccountKey("133"),
-			"set " + schedulerAccountMetaKey("133"),
+			"getset " + schedulerAccountMetaKey("133"),
 			"set " + memoAnthropicRevisionKey,
 			"set " + geminiRevisionKey,
 		}, batches[1])
@@ -596,9 +610,9 @@ func TestSchedulerCacheSnapshotMemoWriteAccountIDsAdvancesRevision(t *testing.T)
 		require.Len(t, batches, 2, "no extra execution for the revision")
 		require.Equal(t, []string{
 			"set " + schedulerAccountKey("143"),
-			"set " + schedulerAccountMetaKey("143"),
+			"getset " + schedulerAccountMetaKey("143"),
 			"set " + schedulerAccountKey("144"),
-			"set " + schedulerAccountMetaKey("144"),
+			"getset " + schedulerAccountMetaKey("144"),
 			"set " + memoAnthropicRevisionKey,
 		}, batches[1])
 		require.Len(t, recorder.recorded(), 9, "every command travels inside the two pipelines")
@@ -686,9 +700,8 @@ func TestSchedulerCacheSnapshotMemoPlatformRevisionScopesInvalidation(t *testing
 	require.NoError(t, cache.SetAccount(ctx, &anthropic))
 	recorder.reset()
 	memoRead(t, cache, geminiSingle)
-	require.Equal(t, []string{
-		"mget " + schedulerBucketKey(schedulerReadyPrefix, geminiSingle),
-	}, recorder.recorded(), "an Anthropic account write must not invalidate a Gemini bucket")
+	require.Equal(t, append(memoTagReads(geminiSingle), "exists "+schedulerAccountMetaKey("211")),
+		recorder.recorded(), "an Anthropic account write must not invalidate a Gemini bucket")
 
 	gemini.Name = "gemini-renamed"
 	require.NoError(t, cache.SetAccount(ctx, &gemini))
@@ -945,7 +958,7 @@ func TestSchedulerCacheSnapshotMemoConcurrentLoadsAreCoalesced(t *testing.T) {
 			results <- err
 		}()
 	}
-	readyKey := "mget " + schedulerBucketKey(schedulerReadyPrefix, bucket)
+	readyKey := "get " + schedulerBucketKey(schedulerReadyPrefix, bucket)
 	require.Eventually(t, func() bool { return recorder.countPrefix(readyKey) == readers }, time.Second, time.Millisecond)
 	close(hook.release)
 	for i := 0; i < readers; i++ {
@@ -1077,7 +1090,7 @@ func TestSchedulerCacheSnapshotMemoLastUsedWriteInvalidatesLocalCache(t *testing
 	require.Zero(t, recorder.countPrefix("zrange "))
 }
 
-func TestSchedulerCacheSnapshotMemoChunkedMGetUsesOnePipeline(t *testing.T) {
+func TestSchedulerCacheSnapshotMemoPairsMetadataWithLastUsedForEachChunk(t *testing.T) {
 	mr := miniredis.RunT(t)
 	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
 	t.Cleanup(func() { _ = rdb.Close() })
@@ -1096,9 +1109,12 @@ func TestSchedulerCacheSnapshotMemoChunkedMGetUsesOnePipeline(t *testing.T) {
 	got := memoRead(t, cache, bucket)
 	require.Equal(t, []int64{161, 162, 163, 164, 165}, memoIDs(got))
 	batches := recorder.pipelineBatches()
-	require.Len(t, batches, 2, "metadata and last_used each travel in one pipeline")
-	for _, batch := range batches {
-		require.Len(t, batch, 3)
+	require.Len(t, batches, 4, "control tags and three bounded metadata/last_used pairs")
+	require.Equal(t, memoTagReads(bucket), batches[0])
+	for _, batch := range batches[1:] {
+		require.Len(t, batch, 2)
+		require.True(t, strings.HasPrefix(batch[0], "mget "+schedulerAccountMetaPrefix))
+		require.True(t, strings.HasPrefix(batch[1], "mget "+schedulerAccountLastUsedPrefix))
 	}
 	require.Equal(t, 3, recorder.countPrefix("mget "+schedulerAccountMetaPrefix))
 }
@@ -1137,8 +1153,7 @@ func TestSchedulerCacheSnapshotMemoKeepsNewerEntryOnLateStore(t *testing.T) {
 	require.Same(t, newer, cache.lookupSnapshotEntry("b"))
 }
 
-// 母本在发布前预解析了模型映射：副本命中时不计算签名。此处故意原地改写共享的原始映射，
-// 只用来观察副本走的是免签名路径（生产代码不会原地修改该 map）。
+// Request-local mapping edits must never change the cached master.
 func TestSchedulerCacheSnapshotMemoPreparesSharedModelMapping(t *testing.T) {
 	cache, _, _ := newSchedulerCacheMemoUnit(t, defaultSchedulerSnapshotWriteChunkSize)
 	bucket := memoTestBucket(121)
@@ -1156,7 +1171,8 @@ func TestSchedulerCacheSnapshotMemoPreparesSharedModelMapping(t *testing.T) {
 	rawMapping, ok := probe.Credentials["model_mapping"].(map[string]any)
 	require.True(t, ok)
 	rawMapping["claude-sonnet"] = "sonnet-mutated-in-place"
-	require.Equal(t, "sonnet-a", probe.GetMappedModel("claude-sonnet"))
+	require.Equal(t, "sonnet-mutated-in-place", probe.GetMappedModel("claude-sonnet"))
+	require.Equal(t, "sonnet-a", memoRead(t, cache, bucket)[0].GetMappedModel("claude-sonnet"))
 }
 
 func TestSchedulerCacheSnapshotMemoRevisionValuesAreUnique(t *testing.T) {
@@ -1232,4 +1248,31 @@ func TestSchedulerCacheSnapshotMemoCoalescesBackgroundGlobalRevisionWrites(t *te
 
 func ptrAccount(account service.Account) *service.Account {
 	return &account
+}
+
+func TestSchedulerCacheSnapshotMemoChunkedMGetUsesBoundedPipelines(t *testing.T) {
+	mr := miniredis.RunT(t)
+	rdb := redis.NewClient(&redis.Options{Addr: mr.Addr()})
+	t.Cleanup(func() { _ = rdb.Close() })
+	recorder := &schedulerCacheCommandRecorder{}
+	rdb.AddHook(recorder)
+	cache, ok := newSchedulerCacheWithChunkSizes(rdb, 2, defaultSchedulerSnapshotWriteChunkSize).(*schedulerCache)
+	require.True(t, ok)
+	bucket := memoTestBucket(133)
+	accounts := make([]service.Account, 0, 5)
+	for id := int64(161); id <= 165; id++ {
+		accounts = append(accounts, memoTestAccount(id, strconv.FormatInt(id, 10)))
+	}
+	memoPublish(t, cache, bucket, accounts...)
+
+	recorder.reset()
+	got := memoRead(t, cache, bucket)
+	require.Equal(t, []int64{161, 162, 163, 164, 165}, memoIDs(got))
+	batches := recorder.pipelineBatches()
+	require.Len(t, batches, 4, "control tags plus three bounded metadata/last_used pairs")
+	require.Len(t, batches[0], 4)
+	for _, batch := range batches[1:] {
+		require.Len(t, batch, 2)
+	}
+	require.Equal(t, 3, recorder.countPrefix("mget "+schedulerAccountMetaPrefix))
 }

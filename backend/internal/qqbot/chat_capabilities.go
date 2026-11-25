@@ -64,14 +64,6 @@ func chatCommandStatus(c Config, j Job, action string) string {
 		return "本群未在允许名单中"
 	}
 	switch action {
-	case "image":
-		if !c.ImageEnabled || c.groupPolicy(j.GroupID).DisableImages {
-			return "生图已停用"
-		}
-		if c.DailyImageLimit == 0 || c.TotalDailyImageLimit == 0 || c.groupLimit(j.GroupID, "image") == 0 {
-			return "生图额度配置为零"
-		}
-		return "入口可用，仍需通过额度与请求校验"
 	case "transfer":
 		if !c.TransferEnabled {
 			return "转账已停用"

@@ -30,6 +30,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 	if account == nil {
 		return "", errors.New("account is nil")
 	}
+	if account.IsExcelOAuth() {
+		return "", errExcelOAuthRouteUnavailable
+	}
 	var targetURL string
 	switch account.Type {
 	case AccountTypeOAuth:
@@ -75,6 +78,9 @@ func (s *OpenAIGatewayService) buildOpenAIResponsesWSURL(account *Account) (stri
 	return parsed.String(), nil
 }
 
+// Set only by an authorized unsent readable transition, never by client headers.
+type openAIWSReadableProviderKey struct{}
+
 func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	ctx context.Context,
 	c *gin.Context,
@@ -88,6 +94,9 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	routingModel string,
 	routingServiceTier string,
 ) (http.Header, openAIWSSessionHeaderResolution, error) {
+	if codexAccountIdentitySource(c, account).IsExcelOAuth() {
+		return nil, openAIWSSessionHeaderResolution{}, errExcelOAuthRouteUnavailable
+	}
 	headers := make(http.Header)
 	if account == nil || !account.IsOpenAIAgentIdentity() {
 		headers.Set("authorization", "Bearer "+token)
@@ -153,7 +162,6 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 	if harvestSession == "" {
 		ensureStagedCodexFingerprintIDs(c, account)
 		applyCodexAccountIdentityHeaders(headers, codexAccountIdentitySource(c, account), getAPIKeyIDFromContext(c))
-		ensureStagedCodexFingerprintIDs(c, account)
 		applyStagedCodexFingerprintHeaders(c, account, headers)
 	}
 
@@ -192,6 +200,7 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 
 	// 账号级请求头覆写（仅 openai api_key 账号启用时生效；OAuth 路径 no-op）。
 	// 覆盖所有 WS 模式（ctx_pool/dedicated/passthrough）的握手头。
+	applyOpenAIAPIKeyIdentityHeaders(headers, account, s.codexIdentityOverrideUA(account))
 	// 握手头是连接级的：按连接作用域解析变量（不含 request_id），连接池再按
 	// 上报身份分桶（见 normalizeOpenAIWSHandshakeCompatibility）。
 	account.ApplyHeaderOverrides(withHeaderOverrideConnectionScope(ctx), headers)
@@ -205,12 +214,35 @@ func (s *OpenAIGatewayService) buildOpenAIWSHeaders(
 		strings.TrimSpace(headers.Get(openAICodexRoutingHintHeader)) != "",
 		"soft_routing_hint",
 	)
+	if c != nil && c.Request != nil {
+		s.requestTimezoneHeaders(ctx, account, c.Request.Header, headers)
+	}
+	s.detachOpenAIWSReadableProviderHeaders(ctx, headers, account)
+	s.restoreBoundCodexTicketHarvestIdentity(ctx, headers, account)
 
 	if err := s.applyOpenAICodexTicket(ctx, account, routingModel, headers, "websocket"); err != nil {
 		return nil, sessionResolution, err
 	}
 	s.restoreBoundCodexTicketHarvestIdentity(ctx, headers, account)
 	return headers, sessionResolution, nil
+}
+
+// The inbound upgrade identity remains immutable. A valid B-bound ticket is
+// independent of the discarded A conversation and must retain its own state.
+func (s *OpenAIGatewayService) detachOpenAIWSReadableProviderHeaders(ctx context.Context, headers http.Header, account *Account) {
+	if detached, _ := ctx.Value(openAIWSReadableProviderKey{}).(bool); detached {
+		// conversation_id can also be the caller's trusted thread identity.
+		// Suppress old provider state only on outbound headers, preserving the
+		// original upgrade headers for later identity checks on this socket.
+		ticket := s.boundCodexTicketFromHeader(ctx, headers, account)
+		if ticket == nil {
+			headers.Del(openAIWSTurnStateHeader)
+		}
+		headers.Del("conversation_id")
+		if account.UsesOpenAICodexProtocol() && harvestTicketSessionID(ticket) == "" && headers.Get("session_id") != "" {
+			headers.Set("conversation_id", headers.Get("session_id"))
+		}
+	}
 }
 
 func (s *OpenAIGatewayService) buildOpenAIWSCreatePayload(reqBody map[string]any, account *Account) map[string]any {
@@ -417,12 +449,13 @@ func openAIWSPayloadCodexWindowID(payload []byte) string {
 // normalizeOpenAIWSContextWindowBoundary breaks a Responses continuation chain
 // when Codex moves to a new local context window. WebSocket response.create can
 // still carry the previous window's previous_response_id after new_context,
-// while HTTP starts the new window without that continuation anchor.
+// while HTTP starts the new window without that continuation anchor. The current
+// window must come from the client frame before handshake/identity normalization.
 func normalizeOpenAIWSContextWindowBoundary(
 	payload []byte,
 	previousWindowID string,
+	currentWindowID string,
 ) ([]byte, openAIWSContextWindowBoundary, error) {
-	currentWindowID := openAIWSPayloadCodexWindowID(payload)
 	boundary := openAIWSContextWindowBoundary{WindowID: currentWindowID}
 	if previousWindowID == "" || currentWindowID == "" || currentWindowID == previousWindowID {
 		return payload, boundary, nil
@@ -698,6 +731,55 @@ func openAIWSRawItemsHaveToolCallContextForOutputs(items []json.RawMessage) bool
 	return true
 }
 
+// openAIWSRawItemsContainNonPortableContext reports context that cannot be
+// safely replayed on a replacement credential.  previous_response_id is an
+// upstream-owned pointer, while encrypted reasoning/compaction content and
+// item_reference values are tied to the credential/session that produced them.
+// Treating those fields as ordinary JSON and silently sending them to another
+// account can turn a recoverable upstream failure into a corrupted or
+// unauthorized continuation.  This guard is intentionally used only for
+// cross-account current-turn retry; same-account continuation keeps its
+// existing, stricter upstream affinity rules.
+func openAIWSRawItemsContainNonPortableContext(items []json.RawMessage) bool {
+	var contains func(any) bool
+	contains = func(value any) bool {
+		switch typed := value.(type) {
+		case map[string]any:
+			if itemType, ok := typed["type"].(string); ok && strings.TrimSpace(itemType) == "item_reference" {
+				return true
+			}
+			if encrypted, ok := typed["encrypted_content"].(string); ok && strings.TrimSpace(encrypted) != "" {
+				return true
+			}
+			for _, child := range typed {
+				if contains(child) {
+					return true
+				}
+			}
+		case []any:
+			for _, child := range typed {
+				if contains(child) {
+					return true
+				}
+			}
+		}
+		return false
+	}
+
+	for _, item := range items {
+		var decoded any
+		if err := json.Unmarshal(item, &decoded); err != nil {
+			// The caller already validated the request.  If a replay item is
+			// malformed here, fail closed rather than infer portability.
+			return true
+		}
+		if contains(decoded) {
+			return true
+		}
+	}
+	return false
+}
+
 // sanitizeOpenAIWSHistoricalReplayToolCalls 返回的新头数组与 previousItems 共享正文。
 func sanitizeOpenAIWSHistoricalReplayToolCalls(
 	previousItems []json.RawMessage,
@@ -829,6 +911,12 @@ func buildOpenAIWSCurrentTurnRetryPayload(
 	originalModel string,
 ) ([]byte, bool, error) {
 	if !fullInputExists {
+		return nil, false, nil
+	}
+	if openAIWSRawItemsContainNonPortableContext(fullInput) {
+		// Do not strip previous_response_id and replay opaque account-bound
+		// material on a replacement account.  The caller will close/fail over
+		// conservatively and the client can reconnect with fresh context.
 		return nil, false, nil
 	}
 	retryPayload, err := setOpenAIWSPayloadInputSequence(payload, fullInput, true)

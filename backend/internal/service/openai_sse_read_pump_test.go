@@ -35,21 +35,25 @@ func TestOpenAISSEReadPumpSilentHeartbeatAndJoin(t *testing.T) {
 
 func TestOpenAISSEReadPumpFragmentedDocumentIsActivity(t *testing.T) {
 	reader, writer := io.Pipe()
+	defer func() { _ = writer.Close() }()
 	pump := newOpenAISSEReadPump(reader, 4096)
 	defer pump.Close()
-	done := make(chan struct{})
-	go func() {
-		defer close(done)
-		defer func() { _ = writer.Close() }()
-		for _, piece := range []string{`data: {"type":`, `"response.output_text.delta",`, `"delta":`, `"fragmented"}`, "\n\n"} {
-			if _, err := io.WriteString(writer, piece); err != nil {
-				return
-			}
-			time.Sleep(30 * time.Millisecond)
-		}
-	}()
-	defer func() { pump.Close(); <-done }()
-	require.True(t, pump.Next(context.Background(), 100*time.Millisecond, nil, nil))
+
+	const idle = time.Minute
+	pump.lastRead.Store(time.Now().Add(-2 * idle).UnixNano())
+	for _, piece := range []string{`data: {"type":`, `"response.output_text.delta",`, `"delta":`, `"fragmented"}`} {
+		previousRead := pump.lastRead.Load()
+		_, err := io.WriteString(writer, piece)
+		require.NoError(t, err)
+		require.Eventually(t, func() bool {
+			return pump.lastRead.Load() > previousRead
+		}, time.Second, time.Millisecond, "each partial read updates the idle clock")
+	}
+	require.Empty(t, pump.events, "fragments must arrive before the scanner can emit the line")
+	_, err := io.WriteString(writer, "\n\n")
+	require.NoError(t, err)
+	require.NoError(t, writer.Close())
+	require.True(t, pump.Next(t.Context(), idle, nil, nil), "read pump error: %v", pump.Err())
 	require.Contains(t, pump.Text(), "fragmented")
 }
 
@@ -116,4 +120,11 @@ func TestOpenAISSEReadPumpIncompleteDataDoesNotInventTerminal(t *testing.T) {
 	}
 	require.NoError(t, pump.Err())
 	require.Equal(t, strings.TrimSuffix(wire, "\n"), strings.Join(lines, "\n"), "EOF must not create an upstream terminal event")
+}
+
+func TestOpenAISSEReadPumpIncompleteUsageIsNotAnUpstreamTerminal(t *testing.T) {
+	result := &OpenAIForwardResult{Usage: OpenAIUsage{OutputTokens: 7}, streamReadIncomplete: true}
+	require.False(t, result.SucceededForScheduling())
+	require.Empty(t, result.UpstreamTerminalEvent, "local timeout must not invent an upstream terminal")
+	require.Equal(t, 7, result.Usage.OutputTokens)
 }

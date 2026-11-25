@@ -253,7 +253,6 @@ func TestUsageReservationHonorsCurrentShutdownAndLimits(t *testing.T) {
 			ctx := context.Background()
 			stale, err := s.Config(ctx)
 			require.NoError(t, err)
-			stale.ImageEnabled, stale.ImageModel = true, "test-image"
 			_, err = s.SaveConfig(ctx, stale)
 			require.NoError(t, err)
 			current, kind := stale, "chat"
@@ -265,7 +264,7 @@ func TestUsageReservationHonorsCurrentShutdownAndLimits(t *testing.T) {
 			case "chat_limit_zero":
 				current.TotalDailyChatLimit = 0
 			case "image_disabled":
-				current.ImageEnabled, kind = false, "image"
+				kind = "image"
 			}
 			_, err = s.SaveConfig(ctx, current)
 			require.NoError(t, err)

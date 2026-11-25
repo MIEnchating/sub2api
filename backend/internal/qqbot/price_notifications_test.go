@@ -256,10 +256,11 @@ func TestPriceNotificationConfigAndProactiveDelivery(t *testing.T) {
 		_, _ = w.Write([]byte(`{"id":"notice"}`))
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL = server.URL
 	s.tokenURL = server.URL + "/token"
 	j := Job{AppID: "app", GroupID: "group", EventType: priceNotificationEvent}
+	c = expectRepairDelivery(t, s, c, 1)
 	require.NoError(t, s.sendPriceNotification(context.Background(), c, j, "通知正文"))
 	j.GroupID = "other"
 	require.ErrorIs(t, s.sendPriceNotification(context.Background(), c, j, "通知正文"), ErrDisabled)

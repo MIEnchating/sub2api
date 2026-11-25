@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"math/rand/v2"
 	"time"
 
@@ -12,7 +13,14 @@ import (
 	"github.com/dgraph-io/ristretto"
 )
 
-const apiKeyAuthSnapshotVersion = 34 // v34: include independent Ultrafast billing alongside existing group tier and access policies.
+const apiKeyAuthSnapshotVersion = 37 // Merged group policy and API-key fields.
+
+// Local-only generation wrapper. Old entries remain bounded by existing TTL
+// and capacity, but cannot authorize after a subscription recovery checkpoint.
+type apiKeyAuthL1Entry struct {
+	entry *APIKeyAuthCacheEntry
+	epoch uint64
+}
 
 type apiKeyAuthCacheConfig struct {
 	l1Size        int
@@ -103,12 +111,18 @@ func (s *APIKeyService) initAuthCache(cfg *config.Config) {
 // StartAuthCacheInvalidationSubscriber starts the Pub/Sub subscriber for L1 cache invalidation.
 // This should be called after the service is fully initialized.
 func (s *APIKeyService) StartAuthCacheInvalidationSubscriber(ctx context.Context) {
+	if s.localAuth != nil {
+		return
+	}
 	if s.cache == nil || (s.authCacheL1 == nil && s.authNegativeCacheL1 == nil) {
 		return
 	}
 	s.authInvalidationStart.Do(func() {
 		subscriberCtx, cancel := context.WithCancel(ctx)
 		subscriberCtx = withAuthCacheSubscriptionReady(subscriberCtx, func() {
+			// Pub/Sub has no replay. A reconnect may have missed revocations.
+			// Avoid Cache.Clear(), which is unsafe with concurrent Set/Get.
+			s.authCacheL1Epoch.Add(1)
 			s.authInvalidationConnected.Store(true)
 		})
 		s.authInvalidationCancel = cancel
@@ -182,6 +196,7 @@ func (s *APIKeyService) StopAuthCacheInvalidationSubscriber() {
 		return
 	}
 	s.authInvalidationStop.Do(func() {
+		s.regionalAuthRuntime.stop()
 		if s.authInvalidationCancel != nil {
 			s.authInvalidationCancel()
 		}
@@ -196,15 +211,15 @@ func (s *APIKeyService) authCacheKey(key string) string {
 func (s *APIKeyService) getAuthCacheEntry(ctx context.Context, cacheKey string) (*APIKeyAuthCacheEntry, bool) {
 	if s.authCacheL1 != nil {
 		if val, ok := s.authCacheL1.Get(cacheKey); ok {
-			if entry, ok := val.(*APIKeyAuthCacheEntry); ok {
-				return entry, true
+			if local, ok := val.(apiKeyAuthL1Entry); ok && local.epoch == s.authCacheL1Epoch.Load() {
+				return local.entry, true
 			}
 		}
 	}
 	if s.authNegativeCacheL1 != nil {
 		if val, ok := s.authNegativeCacheL1.Get(cacheKey); ok {
-			if entry, ok := val.(*APIKeyAuthCacheEntry); ok && entry.NotFound {
-				return entry, true
+			if local, ok := val.(apiKeyAuthL1Entry); ok && local.epoch == s.authCacheL1Epoch.Load() && local.entry.NotFound {
+				return local.entry, true
 			}
 		}
 	}
@@ -223,9 +238,10 @@ func (s *APIKeyService) setAuthCacheL1(cacheKey string, entry *APIKeyAuthCacheEn
 	if entry == nil {
 		return
 	}
+	local := apiKeyAuthL1Entry{entry: entry, epoch: s.authCacheL1Epoch.Load()}
 	if entry.NotFound {
 		if s.authNegativeCacheL1 != nil && s.authCfg.negativeTTL > 0 {
-			_ = s.authNegativeCacheL1.SetWithTTL(cacheKey, entry, 1, s.authCfg.jitterTTL(s.authCfg.negativeTTL))
+			_ = s.authNegativeCacheL1.SetWithTTL(cacheKey, local, 1, s.authCfg.jitterTTL(s.authCfg.negativeTTL))
 		}
 		return
 	}
@@ -234,7 +250,7 @@ func (s *APIKeyService) setAuthCacheL1(cacheKey string, entry *APIKeyAuthCacheEn
 	}
 	ttl := s.authCfg.l1TTL
 	ttl = s.authCfg.jitterTTL(ttl)
-	_ = s.authCacheL1.SetWithTTL(cacheKey, entry, 1, ttl)
+	_ = s.authCacheL1.SetWithTTL(cacheKey, local, 1, ttl)
 }
 
 func (s *APIKeyService) setAuthCacheEntry(ctx context.Context, cacheKey string, entry *APIKeyAuthCacheEntry, ttl time.Duration) {
@@ -279,13 +295,32 @@ func (s *APIKeyService) loadAuthCacheEntry(ctx context.Context, key, cacheKey st
 		return nil, fmt.Errorf("get api key: %w", err)
 	}
 	apiKey.Key = key
+	// 禁用模型是准入限制：查询失败不能当作「没有限制」放行，也不能写进缓存，直接报错让下次请求重试。
+	if err := s.loadUserGroupDeniedModels(ctx, apiKey); err != nil {
+		return nil, fmt.Errorf("get api key: load user group denied models: %w", err)
+	}
 	snapshot := s.snapshotFromAPIKey(ctx, apiKey)
 	if snapshot == nil {
-		return nil, fmt.Errorf("get api key: %w", ErrAPIKeyNotFound)
+		// A known key with a missing owner is an identity/business failure,
+		// never proof of an unknown anonymous credential. Do not negative-cache it.
+		return nil, fmt.Errorf("get api key: %w", ErrUserNotFound)
 	}
 	entry := &APIKeyAuthCacheEntry{Snapshot: snapshot}
 	s.setAuthCacheEntry(ctx, cacheKey, entry, s.authCfg.l2TTL)
 	return entry, nil
+}
+
+// loadUserGroupDeniedModels 把 (user, group) 禁用模型填到 apiKey.User 上，随认证快照一起缓存。
+func (s *APIKeyService) loadUserGroupDeniedModels(ctx context.Context, apiKey *APIKey) error {
+	if apiKey == nil || apiKey.User == nil || apiKey.GroupID == nil || *apiKey.GroupID <= 0 || s.userGroupRateRepo == nil {
+		return nil
+	}
+	denied, err := s.userGroupRateRepo.GetDeniedModelsByUserAndGroup(ctx, apiKey.UserID, *apiKey.GroupID)
+	if err != nil {
+		return err
+	}
+	apiKey.User.UserGroupDeniedModels = denied
+	return nil
 }
 
 func (s *APIKeyService) lookupAPIKeyForAuth(ctx context.Context, key string) (*APIKey, error) {
@@ -346,6 +381,7 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		MonthlyLimitUSD:                 group.MonthlyLimitUSD,
 		DefaultValidityDays:             group.DefaultValidityDays,
 		AllowImageGeneration:            group.AllowImageGeneration,
+		AllowBatchImageGeneration:       group.AllowBatchImageGeneration,
 		ImageCountBilling:               group.ImageCountBilling,
 		ImageRateIndependent:            group.ImageRateIndependent,
 		ImageRateMultiplier:             group.ImageRateMultiplier,
@@ -369,6 +405,9 @@ func apiKeyAuthGroupSnapshotFromGroup(group *Group) *APIKeyAuthGroupSnapshot {
 		FallbackGroupID:                 group.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: group.FallbackGroupIDOnInvalidRequest,
 		FallbackGroupIDOnUnavailable:    group.FallbackGroupIDOnUnavailable,
+		StreamOnly:                      group.StreamOnly,
+		CodexCLIOnly:                    group.CodexCLIOnly,
+		BlockSubagents:                  group.BlockSubagents,
 		ModelRouting:                    group.ModelRouting,
 		ModelRoutingEnabled:             group.ModelRoutingEnabled,
 		MCPXMLInject:                    group.MCPXMLInject,
@@ -421,6 +460,7 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		MonthlyLimitUSD:                 snapshot.MonthlyLimitUSD,
 		DefaultValidityDays:             snapshot.DefaultValidityDays,
 		AllowImageGeneration:            snapshot.AllowImageGeneration,
+		AllowBatchImageGeneration:       snapshot.AllowBatchImageGeneration,
 		ImageCountBilling:               snapshot.ImageCountBilling,
 		ImageRateIndependent:            snapshot.ImageRateIndependent,
 		ImageRateMultiplier:             snapshot.ImageRateMultiplier,
@@ -444,6 +484,9 @@ func apiKeyAuthGroupFromSnapshot(snapshot *APIKeyAuthGroupSnapshot) *Group {
 		FallbackGroupID:                 snapshot.FallbackGroupID,
 		FallbackGroupIDOnInvalidRequest: snapshot.FallbackGroupIDOnInvalidRequest,
 		FallbackGroupIDOnUnavailable:    snapshot.FallbackGroupIDOnUnavailable,
+		StreamOnly:                      snapshot.StreamOnly,
+		CodexCLIOnly:                    snapshot.CodexCLIOnly,
+		BlockSubagents:                  snapshot.BlockSubagents,
 		ModelRouting:                    snapshot.ModelRouting,
 		ModelRoutingEnabled:             snapshot.ModelRoutingEnabled,
 		MCPXMLInject:                    snapshot.MCPXMLInject,
@@ -482,21 +525,27 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		return nil
 	}
 	snapshot := &APIKeyAuthSnapshot{
-		Version:         apiKeyAuthSnapshotVersion,
-		APIKeyID:        apiKey.ID,
-		UserID:          apiKey.UserID,
-		GroupID:         cloneInt64Ptr(apiKey.GroupID),
-		FallbackGroupID: cloneInt64Ptr(apiKey.FallbackGroupID),
-		Name:            apiKey.Name,
-		Status:          apiKey.Status,
-		IPWhitelist:     apiKey.IPWhitelist,
-		IPBlacklist:     apiKey.IPBlacklist,
-		Quota:           apiKey.Quota,
-		QuotaUsed:       apiKey.QuotaUsed,
-		ExpiresAt:       apiKey.ExpiresAt,
-		RateLimit5h:     apiKey.RateLimit5h,
-		RateLimit1d:     apiKey.RateLimit1d,
-		RateLimit7d:     apiKey.RateLimit7d,
+		Version:           apiKeyAuthSnapshotVersion,
+		APIKeyID:          apiKey.ID,
+		UserID:            apiKey.UserID,
+		GroupID:           cloneInt64Ptr(apiKey.GroupID),
+		FallbackGroupID:   cloneInt64Ptr(apiKey.FallbackGroupID),
+		Name:              apiKey.Name,
+		Status:            apiKey.Status,
+		IPWhitelist:       apiKey.IPWhitelist,
+		IPBlacklist:       apiKey.IPBlacklist,
+		Quota:             apiKey.Quota,
+		QuotaUsed:         apiKey.QuotaUsed,
+		ExpiresAt:         apiKey.ExpiresAt,
+		RateLimit5h:       apiKey.RateLimit5h,
+		RateLimit1d:       apiKey.RateLimit1d,
+		RateLimit7d:       apiKey.RateLimit7d,
+		GroupIDs:          append([]int64(nil), apiKey.GroupIDs...),
+		ModelMapping:      maps.Clone(apiKey.ModelMapping),
+		ReasoningEffort:   apiKey.ReasoningEffort,
+		AllowLongContext:  apiKey.AllowLongContext,
+		ContextTokenLimit: apiKey.ContextTokenLimit,
+		ConcurrencyLimit:  apiKey.ConcurrencyLimit,
 		User: APIKeyAuthUserSnapshot{
 			ID:                         apiKey.User.ID,
 			Status:                     apiKey.User.Status,
@@ -513,6 +562,7 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 			BalanceNotifyExtraEmails:   apiKey.User.BalanceNotifyExtraEmails,
 			TotalRecharged:             apiKey.User.TotalRecharged,
 			RPMLimit:                   apiKey.User.RPMLimit,
+			UserGroupDeniedModels:      append([]string(nil), apiKey.User.UserGroupDeniedModels...),
 		},
 	}
 
@@ -526,75 +576,8 @@ func (s *APIKeyService) snapshotFromAPIKey(ctx context.Context, apiKey *APIKey) 
 		// 查询失败时不记录分组，checkRPM 会回退到 DB 查询
 	}
 	if apiKey.Group != nil {
-		snapshot.Group = &APIKeyAuthGroupSnapshot{
-			ID:                              apiKey.Group.ID,
-			Name:                            apiKey.Group.Name,
-			Description:                     apiKey.Group.Description,
-			Platform:                        apiKey.Group.Platform,
-			IsExclusive:                     apiKey.Group.IsExclusive,
-			Status:                          apiKey.Group.Status,
-			SubscriptionType:                apiKey.Group.SubscriptionType,
-			RateMultiplier:                  apiKey.Group.RateMultiplier,
-			DailyLimitUSD:                   apiKey.Group.DailyLimitUSD,
-			WeeklyLimitUSD:                  apiKey.Group.WeeklyLimitUSD,
-			MonthlyLimitUSD:                 apiKey.Group.MonthlyLimitUSD,
-			DefaultValidityDays:             apiKey.Group.DefaultValidityDays,
-			AllowImageGeneration:            apiKey.Group.AllowImageGeneration,
-			ImageCountBilling:               apiKey.Group.ImageCountBilling,
-			ImageRateIndependent:            apiKey.Group.ImageRateIndependent,
-			ImageRateMultiplier:             apiKey.Group.ImageRateMultiplier,
-			ImagePrice1K:                    apiKey.Group.ImagePrice1K,
-			ImagePrice2K:                    apiKey.Group.ImagePrice2K,
-			ImagePrice4K:                    apiKey.Group.ImagePrice4K,
-			VideoRateIndependent:            apiKey.Group.VideoRateIndependent,
-			VideoRateMultiplier:             apiKey.Group.VideoRateMultiplier,
-			VideoPrice480P:                  apiKey.Group.VideoPrice480P,
-			VideoPrice720P:                  apiKey.Group.VideoPrice720P,
-			VideoPrice1080P:                 apiKey.Group.VideoPrice1080P,
-			VideoModelPrices:                NormalizeVideoModelPrices(apiKey.Group.VideoModelPrices),
-			WebSearchPricePerCall:           apiKey.Group.WebSearchPricePerCall,
-			SearchPricePer1k:                apiKey.Group.SearchPricePer1k,
-			AudioRealtimePricePerMin:        apiKey.Group.AudioRealtimePricePerMin,
-			AudioTTSPricePerMillionChars:    apiKey.Group.AudioTTSPricePerMillionChars,
-			AudioSTTPricePerHour:            apiKey.Group.AudioSTTPricePerHour,
-			LongContextPricingEnabled:       apiKey.Group.LongContextPricingEnabled,
-			ModelPricing:                    apiKey.Group.ModelPricing,
-			ClaudeCodeOnly:                  apiKey.Group.ClaudeCodeOnly,
-			FallbackGroupID:                 apiKey.Group.FallbackGroupID,
-			FallbackGroupIDOnInvalidRequest: apiKey.Group.FallbackGroupIDOnInvalidRequest,
-			FallbackGroupIDOnUnavailable:    apiKey.Group.FallbackGroupIDOnUnavailable,
-			ModelRouting:                    apiKey.Group.ModelRouting,
-			ModelRoutingEnabled:             apiKey.Group.ModelRoutingEnabled,
-			MCPXMLInject:                    apiKey.Group.MCPXMLInject,
-			SupportedModelScopes:            apiKey.Group.SupportedModelScopes,
-			SortOrder:                       apiKey.Group.SortOrder,
-			AllowMessagesDispatch:           apiKey.Group.AllowMessagesDispatch,
-			AllowLive:                       apiKey.Group.AllowLive,
-			RequireOAuthOnly:                apiKey.Group.RequireOAuthOnly,
-			RequirePrivacySet:               apiKey.Group.RequirePrivacySet,
-			ForceOpenAIFast:                 apiKey.Group.ForceOpenAIFast,
-			ForceOpenAIServiceTier:          apiKey.Group.ForceOpenAIServiceTier,
-			ForceOpenAIUltrafast:            apiKey.Group.ForceOpenAIUltrafast,
-			FreeOpenAIFast:                  apiKey.Group.FreeOpenAIFast,
-			FreeOpenAIUltrafast:             apiKey.Group.FreeOpenAIUltrafast,
-			DefaultMappedModel:              apiKey.Group.DefaultMappedModel,
-			MessagesDispatchModelConfig:     apiKey.Group.MessagesDispatchModelConfig,
-			ModelAllowlist:                  apiKey.Group.ModelAllowlist,
-			CodexModelsManifestConfig:       apiKey.Group.CodexModelsManifestConfig,
-			StrictFailover:                  CloneStrictFailoverConfig(apiKey.Group.StrictFailover),
-			RPMLimit:                        apiKey.Group.RPMLimit,
-			UserConcurrencyLimit:            apiKey.Group.UserConcurrencyLimit,
-			MaxReasoningEffort:              apiKey.Group.MaxReasoningEffort,
-			MaxReasoningEffortOverLimit:     apiKey.Group.MaxReasoningEffortOverLimit,
-			ReasoningEffortMappings:         apiKey.Group.ReasoningEffortMappings,
-			PeakRateEnabled:                 apiKey.Group.PeakRateEnabled,
-			PeakStart:                       apiKey.Group.PeakStart,
-			PeakEnd:                         apiKey.Group.PeakEnd,
-			PeakRateMultiplier:              apiKey.Group.PeakRateMultiplier,
-			ProfitControlEnabled:            apiKey.Group.ProfitControlEnabled,
-			ProfitMinMargin:                 apiKey.Group.ProfitMinMargin,
-			ProfitSafetyBuffer:              apiKey.Group.ProfitSafetyBuffer,
-		}
+		snapshot.Group = apiKeyAuthGroupSnapshotFromGroup(apiKey.Group)
+		snapshot.Group.CodexModelsManifestConfig = apiKey.Group.CodexModelsManifestConfig
 	}
 	if apiKey.FallbackGroup != nil && apiKey.FallbackGroup.IsActive() && s.canUserBindGroup(ctx, apiKey.User, apiKey.FallbackGroup) {
 		snapshot.FallbackGroup = apiKeyAuthGroupSnapshotFromGroup(apiKey.FallbackGroup)
@@ -613,19 +596,25 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 		// effective GroupID in place so parsed request objects follow the route;
 		// sharing the snapshot pointer would otherwise corrupt the auth cache and
 		// leak one request's fallback state into subsequent requests.
-		GroupID:         cloneInt64Ptr(snapshot.GroupID),
-		FallbackGroupID: cloneInt64Ptr(snapshot.FallbackGroupID),
-		Key:             key,
-		Name:            snapshot.Name,
-		Status:          snapshot.Status,
-		IPWhitelist:     snapshot.IPWhitelist,
-		IPBlacklist:     snapshot.IPBlacklist,
-		Quota:           snapshot.Quota,
-		QuotaUsed:       snapshot.QuotaUsed,
-		ExpiresAt:       snapshot.ExpiresAt,
-		RateLimit5h:     snapshot.RateLimit5h,
-		RateLimit1d:     snapshot.RateLimit1d,
-		RateLimit7d:     snapshot.RateLimit7d,
+		GroupID:           cloneInt64Ptr(snapshot.GroupID),
+		FallbackGroupID:   cloneInt64Ptr(snapshot.FallbackGroupID),
+		Key:               key,
+		Name:              snapshot.Name,
+		Status:            snapshot.Status,
+		IPWhitelist:       snapshot.IPWhitelist,
+		IPBlacklist:       snapshot.IPBlacklist,
+		Quota:             snapshot.Quota,
+		QuotaUsed:         snapshot.QuotaUsed,
+		ExpiresAt:         snapshot.ExpiresAt,
+		RateLimit5h:       snapshot.RateLimit5h,
+		RateLimit1d:       snapshot.RateLimit1d,
+		RateLimit7d:       snapshot.RateLimit7d,
+		GroupIDs:          append([]int64(nil), snapshot.GroupIDs...),
+		ModelMapping:      maps.Clone(snapshot.ModelMapping),
+		ReasoningEffort:   snapshot.ReasoningEffort,
+		AllowLongContext:  snapshot.AllowLongContext,
+		ContextTokenLimit: snapshot.ContextTokenLimit,
+		ConcurrencyLimit:  snapshot.ConcurrencyLimit,
 		User: &User{
 			ID:                          snapshot.User.ID,
 			Status:                      snapshot.User.Status,
@@ -644,79 +633,12 @@ func (s *APIKeyService) snapshotToAPIKey(key string, snapshot *APIKeyAuthSnapsho
 			RPMLimit:                    snapshot.User.RPMLimit,
 			UserGroupRPMOverride:        cloneIntPtr(snapshot.User.UserGroupRPMOverride),
 			UserGroupRPMOverrideGroupID: snapshot.User.UserGroupRPMOverrideGroupID,
+			UserGroupDeniedModels:       append([]string(nil), snapshot.User.UserGroupDeniedModels...),
 		},
 	}
 	if snapshot.Group != nil {
-		apiKey.Group = &Group{
-			ID:                              snapshot.Group.ID,
-			Name:                            snapshot.Group.Name,
-			Description:                     snapshot.Group.Description,
-			Platform:                        snapshot.Group.Platform,
-			IsExclusive:                     snapshot.Group.IsExclusive,
-			Status:                          snapshot.Group.Status,
-			Hydrated:                        true,
-			SubscriptionType:                snapshot.Group.SubscriptionType,
-			RateMultiplier:                  snapshot.Group.RateMultiplier,
-			DailyLimitUSD:                   snapshot.Group.DailyLimitUSD,
-			WeeklyLimitUSD:                  snapshot.Group.WeeklyLimitUSD,
-			MonthlyLimitUSD:                 snapshot.Group.MonthlyLimitUSD,
-			DefaultValidityDays:             snapshot.Group.DefaultValidityDays,
-			AllowImageGeneration:            snapshot.Group.AllowImageGeneration,
-			ImageCountBilling:               snapshot.Group.ImageCountBilling,
-			ImageRateIndependent:            snapshot.Group.ImageRateIndependent,
-			ImageRateMultiplier:             snapshot.Group.ImageRateMultiplier,
-			ImagePrice1K:                    snapshot.Group.ImagePrice1K,
-			ImagePrice2K:                    snapshot.Group.ImagePrice2K,
-			ImagePrice4K:                    snapshot.Group.ImagePrice4K,
-			VideoRateIndependent:            snapshot.Group.VideoRateIndependent,
-			VideoRateMultiplier:             snapshot.Group.VideoRateMultiplier,
-			VideoPrice480P:                  snapshot.Group.VideoPrice480P,
-			VideoPrice720P:                  snapshot.Group.VideoPrice720P,
-			VideoPrice1080P:                 snapshot.Group.VideoPrice1080P,
-			VideoModelPrices:                NormalizeVideoModelPrices(snapshot.Group.VideoModelPrices),
-			WebSearchPricePerCall:           snapshot.Group.WebSearchPricePerCall,
-			SearchPricePer1k:                snapshot.Group.SearchPricePer1k,
-			AudioRealtimePricePerMin:        snapshot.Group.AudioRealtimePricePerMin,
-			AudioTTSPricePerMillionChars:    snapshot.Group.AudioTTSPricePerMillionChars,
-			AudioSTTPricePerHour:            snapshot.Group.AudioSTTPricePerHour,
-			LongContextPricingEnabled:       snapshot.Group.LongContextPricingEnabled,
-			ModelPricing:                    snapshot.Group.ModelPricing,
-			ClaudeCodeOnly:                  snapshot.Group.ClaudeCodeOnly,
-			FallbackGroupID:                 snapshot.Group.FallbackGroupID,
-			FallbackGroupIDOnInvalidRequest: snapshot.Group.FallbackGroupIDOnInvalidRequest,
-			FallbackGroupIDOnUnavailable:    snapshot.Group.FallbackGroupIDOnUnavailable,
-			ModelRouting:                    snapshot.Group.ModelRouting,
-			ModelRoutingEnabled:             snapshot.Group.ModelRoutingEnabled,
-			MCPXMLInject:                    snapshot.Group.MCPXMLInject,
-			SupportedModelScopes:            snapshot.Group.SupportedModelScopes,
-			SortOrder:                       snapshot.Group.SortOrder,
-			AllowMessagesDispatch:           snapshot.Group.AllowMessagesDispatch,
-			AllowLive:                       snapshot.Group.AllowLive,
-			RequireOAuthOnly:                snapshot.Group.RequireOAuthOnly,
-			RequirePrivacySet:               snapshot.Group.RequirePrivacySet,
-			ForceOpenAIFast:                 snapshot.Group.ForceOpenAIFast,
-			ForceOpenAIServiceTier:          snapshot.Group.ForceOpenAIServiceTier,
-			ForceOpenAIUltrafast:            snapshot.Group.ForceOpenAIUltrafast,
-			FreeOpenAIFast:                  snapshot.Group.FreeOpenAIFast,
-			FreeOpenAIUltrafast:             snapshot.Group.FreeOpenAIUltrafast,
-			DefaultMappedModel:              snapshot.Group.DefaultMappedModel,
-			MessagesDispatchModelConfig:     snapshot.Group.MessagesDispatchModelConfig,
-			ModelAllowlist:                  snapshot.Group.ModelAllowlist,
-			CodexModelsManifestConfig:       snapshot.Group.CodexModelsManifestConfig,
-			StrictFailover:                  CloneStrictFailoverConfig(snapshot.Group.StrictFailover),
-			RPMLimit:                        snapshot.Group.RPMLimit,
-			UserConcurrencyLimit:            snapshot.Group.UserConcurrencyLimit,
-			MaxReasoningEffort:              snapshot.Group.MaxReasoningEffort,
-			MaxReasoningEffortOverLimit:     snapshot.Group.MaxReasoningEffortOverLimit,
-			ReasoningEffortMappings:         snapshot.Group.ReasoningEffortMappings,
-			PeakRateEnabled:                 snapshot.Group.PeakRateEnabled,
-			PeakStart:                       snapshot.Group.PeakStart,
-			PeakEnd:                         snapshot.Group.PeakEnd,
-			PeakRateMultiplier:              snapshot.Group.PeakRateMultiplier,
-			ProfitControlEnabled:            snapshot.Group.ProfitControlEnabled,
-			ProfitMinMargin:                 snapshot.Group.ProfitMinMargin,
-			ProfitSafetyBuffer:              snapshot.Group.ProfitSafetyBuffer,
-		}
+		apiKey.Group = apiKeyAuthGroupFromSnapshot(snapshot.Group)
+		apiKey.Group.CodexModelsManifestConfig = snapshot.Group.CodexModelsManifestConfig
 	}
 	if snapshot.FallbackGroup != nil {
 		apiKey.FallbackGroup = apiKeyAuthGroupFromSnapshot(snapshot.FallbackGroup)

@@ -19,6 +19,8 @@
 > [!IMPORTANT]
 > これは [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api) の非公式 Fork であり、Sub2API の公式リリースではありません。公式インストールスクリプトと `weishaw/sub2api:latest` イメージには、本 Fork の追加拡張は含まれていません。
 
+上流の変更は [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api)、[DeanZFC/sub2api-custom](https://github.com/DeanZFC/sub2api-custom)、[ranxi2001/sub2api](https://github.com/ranxi2001/sub2api) から取り込みます。画像生成機能の取り込み範囲は [上流マージ規則](docs/UPSTREAM_EXCLUSIONS.md) を参照してください。
+
 ## 拡張機能
 
 - グループごとにユーザー単位の同時実行上限を設定できます。「ユーザー + グループ」単位で独立して集計し、既存のユーザー単位・アカウント単位の同時実行制御と併用します。

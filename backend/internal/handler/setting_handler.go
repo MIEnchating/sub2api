@@ -108,6 +108,8 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		BalanceLowNotifyThreshold:           settings.BalanceLowNotifyThreshold,
 		BalanceLowNotifyRechargeURL:         settings.BalanceLowNotifyRechargeURL,
 
+		PrismBrowserEnabled: settings.PrismBrowserEnabled,
+
 		ChannelMonitorEnabled:                settings.ChannelMonitorEnabled,
 		ChannelMonitorMode:                   settings.ChannelMonitorMode,
 		ChannelMonitorDefaultIntervalSeconds: settings.ChannelMonitorDefaultIntervalSeconds,
@@ -120,16 +122,24 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		UserSubscriptionsPageEnabled:  settings.UserSubscriptionsPageEnabled,
 		AdminSubscriptionsPageEnabled: settings.AdminSubscriptionsPageEnabled,
 		SubscriptionEnabled:           settings.SubscriptionEnabled,
+		PelicanShowcaseEnabled:        settings.PelicanShowcaseEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled: settings.PluginManagementEnabled,
 
+		SupportTicketEnabled: settings.SupportTicketEnabled,
+		LotteryEnabled:       settings.LotteryEnabled,
+
 		AffiliateEnabled: settings.AffiliateEnabled,
 
 		RiskControlEnabled: settings.RiskControlEnabled,
 
-		AllowUserViewErrorRequests: settings.AllowUserViewErrorRequests,
+		AllowUserViewErrorRequests:            settings.AllowUserViewErrorRequests,
+		UsageShowLongContextBadge:             settings.UsageShowLongContextBadge,
+		UsageShowCacheRate:                    settings.UsageShowCacheRate,
+		UsageShowCacheRateToUsers:             settings.UsageShowCacheRateToUsers,
+		UsageShowUpstreamResponseModelToUsers: settings.UsageShowUpstreamResponseModelToUsers,
 	})
 }
 

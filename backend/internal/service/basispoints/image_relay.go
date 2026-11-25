@@ -15,13 +15,14 @@ import (
 	"io"
 	"mime"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/util/urlvalidator"
 
 	_ "golang.org/x/image/webp"
 )
@@ -47,6 +48,7 @@ const (
 // Pending uploads reserve disk capacity before decoding. Files are never exposed
 // as a static directory and downloads use bounded streaming buffers.
 type ImageRelay struct {
+	decorateURL     func(string) string
 	baseURL         string
 	limits          ImageRelayLimits
 	key             [32]byte
@@ -75,8 +77,7 @@ type relayImage struct {
 }
 
 func ValidateImageRelayOrigin(baseURL string) error {
-	parsed, err := url.Parse(baseURL)
-	if err != nil || parsed.Scheme != "https" || parsed.Hostname() == "" || parsed.User != nil || parsed.Opaque != "" || parsed.RawQuery != "" || parsed.ForceQuery || strings.Contains(baseURL, "#") || (parsed.Path != "" && parsed.Path != "/") {
+	if err := urlvalidator.ValidateHTTPSOrigin(baseURL); err != nil {
 		return fmt.Errorf("BPS image relay requires an HTTPS public origin without credentials, path, query or fragment")
 	}
 	return nil
@@ -104,6 +105,12 @@ func NewImageRelay(baseURL, storageRoot string) (*ImageRelay, error) {
 	relay.cleanupOrphans(time.Now())
 	go relay.cleanupLoop()
 	return relay, nil
+}
+
+func (r *ImageRelay) SetURLDecorator(decorate func(string) string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.decorateURL = decorate
 }
 
 func (r *ImageRelay) Close() error {
@@ -176,12 +183,22 @@ func (r *ImageRelay) SetPublicOrigin(baseURL string) error {
 }
 
 func (r *ImageRelay) Rewrite(raw []byte, scope string) ([]byte, error) {
+	return r.RewriteWithImageLimit(raw, scope, 0)
+}
+
+// RewriteWithImageLimit permits a separately validated history/new-input pair.
+// It does not modify the shared relay configuration or any byte/storage limit.
+func (r *ImageRelay) RewriteWithImageLimit(raw []byte, scope string, maxImages int) ([]byte, error) {
 	if r == nil {
 		return raw, nil
 	}
 	r.mu.Lock()
 	baseURL, closed, limits := r.baseURL, r.closed, r.limits
+	decorate := r.decorateURL
 	r.mu.Unlock()
+	if maxImages > 0 {
+		limits.MaxImages = maxImages
+	}
 	if closed {
 		return nil, ErrImageRelayStorage
 	}
@@ -231,7 +248,11 @@ func (r *ImageRelay) Rewrite(raw []byte, scope string) ([]byte, error) {
 				if totalBytes > limits.MaxTotalMiB<<20 {
 					return nil, fmt.Errorf("image relay inline images exceed the configured %d MiB request limit", limits.MaxTotalMiB)
 				}
-				part["image_url"] = baseURL + ImageRelayPath + token
+				imageURL := baseURL + ImageRelayPath + token
+				if decorate != nil {
+					imageURL = decorate(imageURL)
+				}
+				part["image_url"] = imageURL
 				if err := validateImage(part); err != nil {
 					return nil, err
 				}

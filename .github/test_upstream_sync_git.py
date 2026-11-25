@@ -75,6 +75,26 @@ class SyncGitTest(unittest.TestCase):
     def branch_exists(self, name='candidate'):
         return bool(self.git(self.repo, 'branch', '--list', PREFIX + name))
 
+    def test_final_merge_preserves_third_upstream_ancestry(self):
+        if IS_NEW:
+            self.skipTest('Three upstreams apply to Sub2API')
+        parents = []
+        for name in ('primary', 'second', 'third'):
+            self.git(self.repo, 'checkout', '-qb', name, self.base)
+            (self.repo / name).write_text(name + '\n')
+            self.git(self.repo, 'add', name)
+            self.git(self.repo, 'commit', '-qm', name)
+            parents.append(self.git(self.repo, 'rev-parse', 'HEAD'))
+        self.git(self.repo, 'checkout', 'main')
+        command = '\n'.join(('set -eu', functions('create_final_merge_commit'),
+                             'create_final_merge_commit'))
+        subprocess.run(['bash', '-c', command], check=True,
+                       env=self.env | dict(WORKTREE=str(self.repo), ORIGIN_HEAD=self.base,
+                                           PRIMARY_HEAD=parents[0], SECOND_HEAD=parents[1],
+                                           THIRD_HEAD=parents[2]), capture_output=True, text=True)
+        self.assertEqual(self.git(self.repo, 'show', '-s', '--format=%P', 'HEAD').split(),
+                         [self.base, *parents])
+
     def test_fast_forward_and_remove_pushed_candidate_and_old_branch(self):
         tree = self.candidate()
         self.git(self.repo, 'branch', PREFIX + 'old', 'origin/main')

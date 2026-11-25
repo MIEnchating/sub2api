@@ -32,8 +32,6 @@ func TestReplyBudgetRejectsPaidWorkBeforeQuotaAndHTTP(t *testing.T) {
 	require.ErrorIs(t, s.reserveUsage(ctx, Config{}, Job{}, "chat"), errReplyWindow)
 	_, _, err := s.chatRequestWithToolChoice(ctx, Config{}, nil, nil, "auto")
 	require.ErrorIs(t, err, errReplyWindow)
-	_, err = s.generateImage(ctx, Config{}, "image")
-	require.ErrorIs(t, err, errReplyWindow)
 }
 
 func TestReplyBudgetFreshRequestAndNonMessageEvents(t *testing.T) {
@@ -53,16 +51,6 @@ func TestReplyBudgetFreshRequestAndNonMessageEvents(t *testing.T) {
 		require.ErrorIs(t, checkModelBudget(ctx, minimumModelBudget), context.Canceled)
 	}
 	require.Equal(t, 4, calls)
-}
-
-func TestImageBudgetDoesNotStartAfterChatUsedWindow(t *testing.T) {
-	ctx, cancel := jobContext(context.Background(), Job{CreatedAt: time.Now().Add(-215 * time.Second), EventType: groupMessageCreate})
-	defer cancel()
-	require.NoError(t, checkModelBudget(ctx, minimumModelBudget))
-	s := &Service{}
-	require.ErrorIs(t, s.reserveUsage(ctx, Config{}, Job{}, "image"), errReplyWindow)
-	_, err := s.editImage(ctx, Config{}, "edit", "invalid")
-	require.ErrorIs(t, err, errReplyWindow)
 }
 
 func TestReplyBudgetDoesNotConfuseAttemptTimeoutWithReplyWindow(t *testing.T) {

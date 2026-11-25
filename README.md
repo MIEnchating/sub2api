@@ -19,6 +19,8 @@ English | [中文](README_CN.md) | [日本語](README_JA.md)
 > [!IMPORTANT]
 > This is an unofficial fork of [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), not an official Sub2API release. The upstream install script and `weishaw/sub2api:latest` image do not contain this Fork's additional extensions. Build this fork from source as documented below.
 
+Upstream changes are tracked from [Wei-Shaw/sub2api](https://github.com/Wei-Shaw/sub2api), [DeanZFC/sub2api-custom](https://github.com/DeanZFC/sub2api-custom), and [ranxi2001/sub2api](https://github.com/ranxi2001/sub2api). See the [merge scope](docs/UPSTREAM_EXCLUSIONS.md) for the image features and the [account quality guide](docs/account-quality-operations.md) for quality checks and recovery.
+
 ## Included Extensions
 
 - Adds an optional per-user concurrency cap to every group. Usage is counted independently by user and group, while existing user-level and account-level concurrency controls remain in effect.

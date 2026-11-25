@@ -683,7 +683,7 @@ func TestAutonomousImageUsesVisionWithoutImageGeneration(t *testing.T) {
 			t.Run(protocol+"/"+format, func(t *testing.T) {
 				h := newAutoHarness(t)
 				h.c.ChatProtocol = protocol
-				h.c.ImageEnabled = false
+				h.c.RememberQuotedImages = false
 				h.c.SystemPrompt = "你是喜欢接梗的群助手，保持自然口语。"
 				h.c.Autonomous.SamplePercent = 100
 				h.save(t)

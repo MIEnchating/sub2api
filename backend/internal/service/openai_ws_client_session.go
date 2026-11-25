@@ -7,6 +7,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	coderws "github.com/coder/websocket"
 )
 
@@ -55,7 +56,7 @@ func BeginOpenAIWSClientSession(parent context.Context, conn *coderws.Conn, maxP
 			pending := session.pendingBytes.Add(int64(len(payload)))
 			if pending <= maxPendingBytes {
 				select {
-				case session.frames <- openAIWSClientReadResult{messageType: messageType, payload: payload}:
+				case session.frames <- openAIWSClientReadResult{messageType: messageType, payload: payload, receivedAt: requesttiming.Now(parent)}:
 					continue
 				default:
 				}

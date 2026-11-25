@@ -277,6 +277,9 @@ type OpenAICodexTicketStatus struct {
 }
 
 func OpenAICodexTicketStatuses(account *Account, cfg config.OpenAICodexTicketConfig, now time.Time, bpsEnabled ...bool) []OpenAICodexTicketStatus {
+	if hasIndependentCodexAuthorization(account) {
+		return []OpenAICodexTicketStatus{}
+	}
 	policy := ResolveOpenAICodexTicketAccountConfig(account, cfg, bpsEnabled...)
 	if !policy.Enabled {
 		return []OpenAICodexTicketStatus{}
@@ -627,13 +630,19 @@ func ticketIdentity(account *Account) string {
 		return ""
 	}
 	identity := account.GetCredential("chatgpt_account_id") + "\x00" + account.GetCredential("email")
+	if account.AuthConnectionID != "" {
+		identity += fmt.Sprintf("\x00connection:%s/client:%s/revision:%d", account.AuthConnectionID, account.GetCredential("client_id"), account.AuthConnectionRevision)
+	}
 	return fmt.Sprintf("%x", sha256.Sum256([]byte(identity)))
 }
 func ticketIdentityMatches(account *Account, ticket *openAICodexTicket) bool {
-	return ticket != nil && (ticket.Identity == "" || ticket.Identity == ticketIdentity(account))
+	return ticket != nil && (ticket.Identity == ticketIdentity(account) || (ticket.Identity == "" && !hasIndependentCodexAuthorization(account)))
 }
 
 func (s *OpenAIGatewayService) lookupCodexTicketLocked(account *Account, model string) *openAICodexTicket {
+	if hasIndependentCodexAuthorization(account) {
+		return nil
+	}
 	if s == nil || account == nil || account.ID <= 0 {
 		return nil
 	}
@@ -736,6 +745,9 @@ func (s *OpenAIGatewayService) storeOpenAICodexTicket(ctx context.Context, accou
 	if s == nil || account == nil || ticket == nil || account.ID <= 0 {
 		return errors.New("invalid ticket store input")
 	}
+	if hasIndependentCodexAuthorization(account) {
+		return errors.New("managed authorization cannot inherit account ticket or harvest state")
+	}
 	if ticket.Length == 780 && !ticket.valid(time.Now(), 780) {
 		return errors.New("ticket probe validation required before storage")
 	}
@@ -832,6 +844,14 @@ func (s *OpenAIGatewayService) applyOpenAICodexTicket(ctx context.Context, accou
 }
 
 func (s *OpenAIGatewayService) applyOpenAICodexTicketWithResult(ctx context.Context, account *Account, model string, h http.Header, transport ...string) (bool, error) {
+	if hasIndependentCodexAuthorization(account) {
+		h.Del("Cookie")
+		h.Del(openAICodexTurnStateHeader)
+		if s != nil && s.independentCodexTicketUnavailable(ctx, account, model) {
+			return false, denyOpenAITicket()
+		}
+		return false, nil
+	}
 	if s == nil || h == nil || !s.isOpenAICodexTicketAccount(ctx, account, model) || !s.openAICodexTicketEnabledContext(ctx) {
 		return false, nil
 	}
@@ -926,10 +946,22 @@ func (s *OpenAIGatewayService) openAICodexTicketOutboundModel(account *Account, 
 // outboundModel 必须是真正会发给上游的模型名（openAICodexTicketOutboundModel），
 // 不是客户端原始模型：注入侧读的是出站 body.model，两侧口径必须一致。
 func (s *OpenAIGatewayService) openAICodexTicketBlocksAccount(account *Account, outboundModel string) bool {
-	if s == nil || !s.isOpenAICodexTicketAccount(context.Background(), account, outboundModel) || !s.openAICodexTicketEnabled() {
+	if s == nil || account == nil || !s.openAICodexTicketEnabled() {
 		return false
 	}
-	policy := s.openAICodexTicketAccountConfig(context.Background(), account)
+	ctx := context.Background()
+	if account.isPrismBrowserUpstreamModelEnabled(outboundModel) && s.prismBrowserGloballyEnabled(ctx) {
+		return false
+	}
+	if hasIndependentCodexAuthorization(account) {
+		// An unprojected account can still select a different connection kind.
+		// A selected connection never gets to use the legacy account's ticket.
+		return s.independentCodexTicketUnavailable(ctx, account, outboundModel)
+	}
+	if !s.isOpenAICodexTicketAccount(ctx, account, outboundModel) {
+		return false
+	}
+	policy := s.openAICodexTicketAccountConfig(ctx, account)
 	if !policy.Enabled || !policy.FailClosed {
 		return false
 	}
@@ -1047,6 +1079,10 @@ func (s *OpenAIGatewayService) manualHarvestLiveModels(account *Account, models 
 	return got
 }
 
+func (s *OpenAIGatewayService) accountHasLiveCodexTicket(account *Account) bool {
+	return len(s.manualHarvestLiveModels(account, s.openAICodexTicketConfig().Models)) > 0
+}
+
 func (s *OpenAIGatewayService) markManualHarvestLiveModels(account *Account, models []string, got map[string]struct{}) {
 	if got == nil {
 		return
@@ -1098,7 +1134,7 @@ func (s *OpenAIGatewayService) openAICodexTicketShouldYieldStickyTo(sticky *Acco
 		if openAIAccountSchedulingPriority(account) >= stickyPriority {
 			continue
 		}
-		if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel) {
+		if s.isOpenAIAccountRequestRuntimeBlocked(account, requestedModel, requireCompact) {
 			continue
 		}
 		if !s.openAICodexTicketReadyForRequest(account, requestedModel, requireCompact) {
@@ -1173,7 +1209,7 @@ func needsOpenAICodexAstraVersion(model string) bool {
 }
 
 func (s *OpenAIGatewayService) StartOpenAICodexTicketHarvester() {
-	if s == nil {
+	if s == nil || !s.cfg.RunsBackgroundJobs() {
 		return
 	}
 	s.openaiCodexTicketLifecycleMu.Lock()
@@ -1525,8 +1561,7 @@ func IsMaskedProxyURL(raw string) bool {
 // Credential shadows do not own tickets. Keep their existing forwarding policy
 // instead of imposing a gate for a key the harvester never populates.
 func isOpenAICodexTicketAccount(account *Account, upstreamModels ...string) bool {
-	if account == nil || !account.IsOpenAIOAuthLike() || account.IsShadow() || account.IsRetiredVMRoute() ||
-		account.IsOpenAIPersonalAccessToken() || account.IsOpenAIAgentIdentity() || account.IsExcelOAuth() || account.isExcelBPSAllModelsEnabled() {
+	if !isNativeOpenAICodexTicketAccount(account) || account.isExcelBPSAllModelsEnabled() {
 		return false
 	}
 	return len(upstreamModels) == 0 || !account.isExcelBPSUpstreamModelEnabled(upstreamModels[0])
@@ -1552,18 +1587,32 @@ func RedactOpenAICodexTicketExtra(extra map[string]any) map[string]any {
 
 // IsOpenAICodexTicketHarvestAccount validates a selected account without exposing ticket material.
 func IsOpenAICodexTicketHarvestAccount(account *Account, bpsEnabled ...bool) bool {
+	if hasIndependentCodexAuthorization(account) {
+		return false
+	}
 	if len(bpsEnabled) > 0 && !bpsEnabled[0] {
 		return isNativeOpenAICodexTicketAccount(account)
 	}
 	return isOpenAICodexTicketAccount(account, OpenAICodexStateProbeDefaultModel)
 }
 
+func hasIndependentCodexAuthorization(account *Account) bool {
+	return account != nil && (account.AuthConnectionID != "" || account.HasManagedOpenAIConnections())
+}
+
+func (s *OpenAIGatewayService) independentCodexTicketUnavailable(ctx context.Context, account *Account, model string) bool {
+	return account.AuthConnectionID != "" && s.openAICodexTicketGatedModel(model) &&
+		isOpenAICodexTicketAccountWithBPS(account, []bool{s.excelBPSGloballyEnabled(ctx)}, model)
+}
+
 func isNativeOpenAICodexTicketAccount(account *Account) bool {
-	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow() && !account.IsRetiredVMRoute() && !account.IsOpenAIPersonalAccessToken() && !account.IsOpenAIAgentIdentity() && !account.IsExcelOAuth()
+	return account != nil && account.IsOpenAIOAuthLike() && !account.IsShadow() &&
+		!account.IsRetiredVMRoute() && !account.IsOpenAIPersonalAccessToken() &&
+		!account.IsOpenAIAgentIdentity() && !account.IsExcelOAuth() && !account.IsSIWCEnabled()
 }
 
 func (s *OpenAIGatewayService) isOpenAICodexTicketAccount(ctx context.Context, account *Account, models ...string) bool {
-	if !isNativeOpenAICodexTicketAccount(account) {
+	if hasIndependentCodexAuthorization(account) || !isNativeOpenAICodexTicketAccount(account) {
 		return false
 	}
 	return isOpenAICodexTicketAccount(account, models...) || !s.excelBPSGloballyEnabled(ctx)

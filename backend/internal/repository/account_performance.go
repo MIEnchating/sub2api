@@ -10,14 +10,48 @@ import (
 	"sync"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/upstreamstats"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/lib/pq"
+	"github.com/redis/go-redis/v9"
 )
 
-type accountPerformanceRepository struct{ db *sql.DB }
+type accountPerformanceRepository struct {
+	db      *sql.DB
+	display *accountPerformanceDisplayCache
+}
 
-func NewAccountPerformanceRepository(db *sql.DB) service.AccountPerformanceRepository {
-	return &accountPerformanceRepository{db: db}
+func NewAccountPerformanceRepository(db *sql.DB, rdb *redis.Client, cfg *config.Config) service.AccountPerformanceRepository {
+	r := &accountPerformanceRepository{db: db}
+	if cfg == nil || rdb == nil {
+		return r
+	}
+	r.display = newAccountPerformanceDisplayCache(rdb, cfg.Database.DBName, func(ctx context.Context, ids []int64, minutes int, now time.Time) (map[int64]service.AccountPerformance, error) {
+		tx, err := db.BeginTx(ctx, &sql.TxOptions{ReadOnly: true})
+		if err != nil {
+			return nil, err
+		}
+		defer func() { _ = tx.Rollback() }()
+		if _, err = tx.ExecContext(ctx, `SET LOCAL statement_timeout='4500ms'; SET LOCAL lock_timeout='500ms'; SET LOCAL work_mem='8MB'; SET LOCAL max_parallel_workers_per_gather=0`); err != nil {
+			return nil, err
+		}
+		metrics, err := readAccountPerformanceWindow(ctx, tx, ids, minutes, now)
+		if err != nil {
+			return nil, err
+		}
+		if err = tx.Commit(); err != nil {
+			return nil, err
+		}
+		return metrics, nil
+	})
+	return r
+}
+
+func (r *accountPerformanceRepository) Stop() {
+	if r.display != nil {
+		r.display.stop()
+	}
 }
 
 const performanceMetricsSQL = `
@@ -82,10 +116,189 @@ func readAccountPerformance(ctx context.Context, db sqlExecutor, ids []int64, no
 	}
 	return out, nil
 }
+
+// Strict, completed instrumented requests only. Missing traces/ambiguous traces,
+// unsuccessful streams, media and unknown timings remain NULL, never zero.
+// The trace start is the actual event time, not the asynchronous usage insert.
+// Normalize Z and nanoseconds before jsonpath .datetime(): PostgreSQL 14-16
+// needs an explicit UTC offset; all supported versions accept microseconds.
+const performanceObservedSQL = `
+WITH source AS MATERIALIZED (
+ SELECT u.account_id,u.output_tokens,u.duration_ms,u.first_token_ms,u.stream,
+  u.input_tokens,u.cache_read_tokens,u.cache_creation_tokens,
+  (jsonb_path_query_first_tz(jsonb_build_object('at',
+   regexp_replace(regexp_replace(d.started_at,'Z$','+00:00'),
+    '(\.[0-9]{6})[0-9]+([+-])','\1\2')),
+   '$.at.datetime()', '{}',true)#>>'{}')::timestamptz AS event_at
+ FROM usage_logs u
+ JOIN LATERAL (
+  SELECT detail, count(*) OVER () AS traces FROM (
+   SELECT detail FROM request_timing_details WHERE usage_log_id=u.id LIMIT 2
+  ) bounded_traces
+ ) t ON t.traces=1
+ -- Decode the potentially TOASTed JSON once instead of once per predicate.
+ CROSS JOIN LATERAL jsonb_to_record(CASE WHEN jsonb_typeof(t.detail)='object' THEN t.detail ELSE '{}'::jsonb END) AS d(
+  version text,started_at text,outcome text,status text,body_complete text,
+  canceled text,truncated text,client_disconnect text,downstream_error text,terminal text)
+ WHERE u.account_id=ANY($1) AND u.created_at >= $2
+ AND COALESCE(u.image_count,0)=0 AND COALESCE(u.image_output_tokens,0)=0
+ AND COALESCE(u.billing_mode,'token') NOT IN ('image','video')
+ AND d.version='1' AND d.outcome='success' AND d.status='200' AND d.body_complete='true'
+ AND d.canceled='false' AND d.truncated='false'
+ AND d.client_disconnect='false' AND d.downstream_error='false'
+ AND (NOT u.stream OR d.terminal='completed')
+), successful AS (
+ SELECT * FROM source WHERE event_at >= $2 AND event_at <= $3
+), usage AS (
+ SELECT account_id,
+ AVG(output_tokens*1000.0/NULLIF(duration_ms,0)) FILTER(WHERE output_tokens>=2 AND duration_ms>0) AS tps,
+ COUNT(*) FILTER(WHERE output_tokens>=2 AND duration_ms>0) AS tps_n,
+ AVG(first_token_ms) FILTER(WHERE stream AND first_token_ms>=0 AND first_token_ms<=duration_ms AND output_tokens>=2) AS ttft,
+ COUNT(*) FILTER(WHERE stream AND first_token_ms>=0 AND first_token_ms<=duration_ms AND output_tokens>=2) AS ttft_n,
+ AVG(100.0*cache_read_tokens/NULLIF(input_tokens::numeric+cache_read_tokens+cache_creation_tokens,0))
+  FILTER(WHERE input_tokens>=0 AND cache_read_tokens>=0 AND cache_creation_tokens>=0) AS cache_percent,
+ COUNT(*) FILTER(WHERE input_tokens>=0 AND cache_read_tokens>=0 AND cache_creation_tokens>=0
+  AND input_tokens::numeric+cache_read_tokens+cache_creation_tokens>0) AS cache_n
+ FROM successful GROUP BY account_id
+), rounds AS (
+ SELECT p.account_id,p.id,r.quality_round_id,
+ bool_or(r.quality_judgment->>'verdict'='incorrect' AND r.status='failed' AND r.error_message IN ('answer_mismatch','state_degraded')
+    AND (COALESCE(r.pelican_config->>'question_kind','')<>'random_reasoning'
+      OR r.pelican_config->'quality_batch'->>'decision'='peer_passed')) AS failed,
+ bool_and(COALESCE(r.quality_judgment->>'verdict'='correct' AND r.status='success'
+    AND (COALESCE(r.pelican_config->>'question_kind','')<>'random_reasoning'
+      OR r.pelican_config->'quality_batch'->>'decision'='passed'),false)) AS passed
+ FROM scheduled_test_plans p JOIN scheduled_test_results r ON r.plan_id=p.id
+ WHERE p.account_id=ANY($1) AND p.enabled AND jsonb_typeof(p.pelican_config->'quality')='object'
+ -- Probe records are created after execution. The indexed completion-time
+ -- lower bound preserves the entire round (event-time HAVING below is final).
+ AND r.created_at >= $2
+ AND r.quality_round_id<>''
+ GROUP BY p.account_id,p.id,r.quality_round_id
+ HAVING MIN(r.started_at)>=$2 AND MAX(r.finished_at)<=$3 AND MIN(r.started_at)>=MAX(p.updated_at)
+ AND bool_and(r.finished_at IS NOT NULL AND r.finished_at>=r.started_at)
+ AND bool_and(r.quality_action NOT IN ('','stale_run','comparison_pending'))
+ AND bool_and(COALESCE(r.pelican_config->>'parallel_count','1') ~ '^[1-8]$')
+ AND bool_and(r.pelican_config->'model_ids' IS NULL OR
+  (jsonb_typeof(r.pelican_config->'model_ids')='array'
+   AND jsonb_array_length(CASE WHEN jsonb_typeof(r.pelican_config->'model_ids')='array' THEN r.pelican_config->'model_ids' ELSE '[]'::jsonb END)<=50))
+ AND COUNT(*)=MAX(CASE WHEN COALESCE(r.pelican_config->>'parallel_count','1') ~ '^[1-8]$'
+  THEN COALESCE(r.pelican_config->>'parallel_count','1')::int *
+   GREATEST(1,jsonb_array_length(CASE WHEN jsonb_typeof(r.pelican_config->'model_ids')='array' THEN r.pelican_config->'model_ids' ELSE '[]'::jsonb END)) END)
+ ), quality AS (
+ SELECT account_id,100.0*COUNT(*) FILTER(WHERE failed)/NULLIF(COUNT(*) FILTER(WHERE passed OR failed),0) AS degraded,
+ COUNT(*) FILTER(WHERE passed OR failed) AS quality_n FROM rounds GROUP BY account_id
+)
+SELECT ids.id,u.tps,COALESCE(u.tps_n,0),u.ttft,COALESCE(u.ttft_n,0),q.degraded,COALESCE(q.quality_n,0),
+ COALESCE(m.config,'{}'),COALESCE(m.revision,0),COALESCE(m.paused,false),COALESCE(m.pause_generation,0),m.paused_at,COALESCE(m.reason,''),u.cache_percent,COALESCE(u.cache_n,0)
+FROM unnest($1::bigint[]) ids(id)
+JOIN accounts a ON a.id=ids.id AND a.deleted_at IS NULL
+LEFT JOIN usage u ON u.account_id=ids.id LEFT JOIN quality q ON q.account_id=ids.id
+LEFT JOIN account_performance_monitors m ON m.account_id=ids.id
+`
+
+func readAccountPerformanceWindowMinutes(ctx context.Context, db sqlExecutor) (int, error) {
+	rows, err := db.QueryContext(ctx, `SELECT value FROM settings WHERE key=$1`, service.SettingKeyAccountPerformanceWindowMinutes)
+	if err != nil {
+		return 0, err
+	}
+	defer func() { _ = rows.Close() }()
+	var value string
+	if rows.Next() {
+		if err := rows.Scan(&value); err != nil {
+			return 0, err
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return 0, err
+	}
+	return service.ParseAccountPerformanceWindowMinutes(value)
+}
+
+func readObservedAccountPerformance(ctx context.Context, db sqlExecutor, ids []int64, now time.Time) (map[int64]service.AccountPerformance, error) {
+	out := make(map[int64]service.AccountPerformance, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+	minutes, err := readAccountPerformanceWindowMinutes(ctx, db)
+	if err != nil {
+		return nil, err
+	}
+	return readAccountPerformanceWindow(ctx, db, ids, minutes, now)
+}
+
+func readAccountPerformanceWindow(ctx context.Context, db sqlExecutor, ids []int64, minutes int, now time.Time) (map[int64]service.AccountPerformance, error) {
+	return readAccountPerformanceRange(ctx, db, ids, now.Add(-time.Duration(minutes)*time.Minute), now)
+}
+
+func readAccountPerformanceRange(ctx context.Context, db sqlExecutor, ids []int64, since, now time.Time) (map[int64]service.AccountPerformance, error) {
+	out := make(map[int64]service.AccountPerformance, len(ids))
+	rows, err := db.QueryContext(ctx, performanceObservedSQL, pq.Array(ids), since, now)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		m := service.AccountPerformance{Config: service.DefaultPerformanceConfig()}
+		var config []byte
+		if err := rows.Scan(&m.AccountID, &m.AvgTPS, &m.TPSSamples, &m.AvgTTFTMs, &m.TTFTSamples, &m.DegradationPercent, &m.QualitySamples, &config, &m.Revision, &m.Paused, &m.PauseGeneration, &m.PausedAt, &m.Reason, &m.AvgCachePercent, &m.CacheSamples); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal(config, &m.Config); err != nil {
+			return nil, err
+		}
+		m.WindowStart, m.WindowEnd = since, now
+		out[m.AccountID] = m
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	// Read and the transactional evaluator share the exact process-local
+	// response store and configured window, including incomplete windows.
+	evidence := upstreamstats.Default.Snapshot(ids, since, now)
+	for id, m := range out {
+		m.UpstreamError = evidence[id]
+		out[id] = m
+	}
+	return out, nil
+}
+func setObservedPerformance(m *service.AccountPerformance, evidence service.AccountPerformance) {
+	m.AvgTPS, m.AvgTTFTMs, m.AvgCachePercent, m.DegradationPercent = evidence.AvgTPS, evidence.AvgTTFTMs, evidence.AvgCachePercent, evidence.DegradationPercent
+	m.TPSSamples, m.TTFTSamples, m.CacheSamples, m.QualitySamples = evidence.TPSSamples, evidence.TTFTSamples, evidence.CacheSamples, evidence.QualitySamples
+	m.UpstreamError = evidence.UpstreamError
+	m.WindowStart, m.WindowEnd = evidence.WindowStart, evidence.WindowEnd
+	m.StatisticsStatus, m.StatisticsUpdatedAt = evidence.StatisticsStatus, evidence.StatisticsUpdatedAt
+}
+
 func (r *accountPerformanceRepository) Read(ctx context.Context, ids []int64, now time.Time) (map[int64]service.AccountPerformance, error) {
 	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	return readAccountPerformance(ctx, r.db, ids, now)
+	out, err := readAccountPerformance(ctx, r.db, ids, now)
+	if err != nil || len(out) == 0 {
+		return out, err
+	}
+	var observed map[int64]service.AccountPerformance
+	if r.display == nil {
+		observed, err = readObservedAccountPerformance(ctx, r.db, ids, now)
+	} else {
+		observed, err = r.readDisplay(ctx, out, now)
+	}
+	if err != nil {
+		for id, m := range out {
+			m.StatisticsStatus = "unavailable"
+			out[id] = m
+		}
+		return out, nil
+	}
+	for id, m := range out {
+		if evidence, ok := observed[id]; ok {
+			setObservedPerformance(&m, evidence)
+			out[id] = m
+		}
+	}
+	return out, nil
 }
 func (r *accountPerformanceRepository) EnabledIDs(ctx context.Context) ([]int64, error) {
 	rows, err := r.db.QueryContext(ctx, `SELECT m.account_id FROM account_performance_monitors m JOIN accounts a ON a.id=m.account_id WHERE m.config->>'enabled'='true' AND a.deleted_at IS NULL ORDER BY m.account_id`)
@@ -112,7 +325,8 @@ func performancePaused(ctx context.Context, db sqlExecutor, ids []int64) (map[in
 	}
 	rows, err := db.QueryContext(ctx, `SELECT account_id FROM account_performance_monitors WHERE paused AND account_id=ANY($1) AND
  (trial_started_at IS NULL OR next_trial_at>NOW() OR trial_started_at+INTERVAL '10 minutes'<=NOW()
- OR trial_requests >= (config->>'recovery_samples')::int*3)`, pq.Array(ids))
+ OR trial_requests >= (config->>'recovery_samples')::int*3)
+UNION SELECT account_id FROM ai_ops_controls WHERE ai_paused AND account_id=ANY($1)`, pq.Array(ids))
 	if err != nil {
 		return nil, err
 	}
@@ -155,7 +369,15 @@ func (r *accountPerformanceRepository) Save(ctx context.Context, id int64, c ser
 		return err
 	}
 	var gen int64
-	err = tx.QueryRowContext(ctx, `UPDATE account_performance_monitors SET config=$2,revision=revision+1,paused=false,paused_at=NULL,reason='',trial_started_at=NULL,trial_requests=0,next_trial_at=NULL,metrics_since=NULL,updated_at=NOW() WHERE account_id=$1 AND revision=$3 RETURNING pause_generation`, id, string(raw), revision).Scan(&gen)
+	err = tx.QueryRowContext(ctx, `WITH current AS (
+ SELECT account_id, paused AND string_to_array(reason,',') && ARRAY['tps','degradation','observed_ttft','upstream_error'] AS manual_pause
+ FROM account_performance_monitors WHERE account_id=$1 AND revision=$3 FOR UPDATE
+)
+UPDATE account_performance_monitors SET config=$2,revision=revision+1,
+ paused=current.manual_pause,paused_at=CASE WHEN current.manual_pause THEN paused_at END,
+ reason=CASE WHEN current.manual_pause THEN reason ELSE '' END,
+ trial_started_at=NULL,trial_requests=0,next_trial_at=NULL,metrics_since=NULL,updated_at=NOW()
+ FROM current WHERE account_performance_monitors.account_id=current.account_id RETURNING pause_generation`, id, string(raw), revision).Scan(&gen)
 	if errors.Is(err, sql.ErrNoRows) {
 		return service.ErrPerformanceConflict
 	}
@@ -229,8 +451,9 @@ func (r *accountPerformanceRepository) Evaluate(ctx context.Context, id int64, n
 	var raw []byte
 	var revision, gen int64
 	var paused bool
+	var pauseReason string
 	var pausedAt, trial *time.Time
-	err = tx.QueryRowContext(ctx, `SELECT config,revision,paused,pause_generation,paused_at,trial_started_at FROM account_performance_monitors WHERE account_id=$1 FOR UPDATE SKIP LOCKED`, id).Scan(&raw, &revision, &paused, &gen, &pausedAt, &trial)
+	err = tx.QueryRowContext(ctx, `SELECT config,revision,paused,pause_generation,paused_at,trial_started_at,reason FROM account_performance_monitors WHERE account_id=$1 FOR UPDATE SKIP LOCKED`, id).Scan(&raw, &revision, &paused, &gen, &pausedAt, &trial, &pauseReason)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil
 	}
@@ -241,7 +464,7 @@ func (r *accountPerformanceRepository) Evaluate(ctx context.Context, id int64, n
 	if err = json.Unmarshal(raw, &cfg); err != nil {
 		return err
 	}
-	if !cfg.Enabled {
+	if !cfg.Enabled || (paused && service.PerformanceRequiresManualRelease(pauseReason)) {
 		return nil
 	}
 	if err = cfg.Validate(); err != nil {
@@ -267,6 +490,21 @@ func (r *accountPerformanceRepository) Evaluate(ctx context.Context, id int64, n
 	m, ok := metrics[id]
 	if !ok {
 		return nil
+	}
+	if cfg.UsesObservedThresholds() {
+		minutes, err := readAccountPerformanceWindowMinutes(ctx, tx)
+		if err != nil {
+			return err
+		}
+		since := now.Add(-time.Duration(minutes) * time.Minute)
+		if m.MetricsSince != nil && m.MetricsSince.After(since) {
+			since = *m.MetricsSince
+		}
+		observed, err := readAccountPerformanceRange(ctx, tx, []int64{id}, since, now)
+		if err != nil {
+			return err
+		}
+		setObservedPerformance(&m, observed[id])
 	}
 	reasons := m.Breaches()
 	action := "pause"

@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"net/http/httptest"
@@ -38,9 +40,9 @@ func TestCyberSessionExplicitBlockKey(t *testing.T) {
 	c3, b3 := newCyberBlockTestCtx(map[string]string{"session_id": "sess-abc"}, `{}`)
 	require.Equal(t, k1, CyberSessionExplicitBlockKey(101, c3, b3))
 
-	// prompt_cache_key in body counts as explicit.
+	// A cache hint does not establish a conversation identity.
 	c4, b4 := newCyberBlockTestCtx(nil, `{"prompt_cache_key":"pck-1"}`)
-	require.NotEmpty(t, CyberSessionExplicitBlockKey(101, c4, b4))
+	require.Empty(t, CyberSessionExplicitBlockKey(101, c4, b4))
 
 	// No explicit signal → empty key → caller must skip blocking entirely.
 	c5, b5 := newCyberBlockTestCtx(nil, `{"input":"hello world"}`)
@@ -74,7 +76,7 @@ func TestCyberTranscriptBlocksRequireModelGeneratedHistory(t *testing.T) {
 func TestCyberTranscriptBlocksWebSocketResponseCreate(t *testing.T) {
 	body := []byte(`{"type":"response.create","response":{"prompt_cache_key":"ws-session","input":[{"role":"user","content":"setup"},{"role":"assistant","content":"ready"},{"role":"user","content":"trigger"}]}}`)
 	c, _ := newCyberBlockTestCtx(nil, string(body))
-	require.NotEmpty(t, CyberSessionExplicitBlockKey(88, c, body))
+	require.Empty(t, CyberSessionExplicitBlockKey(88, c, body))
 	require.Len(t, CyberSessionTranscriptBlocks(88, body), 2)
 }
 
@@ -107,10 +109,12 @@ func TestCyberTranscriptKeysAtRecomputesRecordedLengthsInOrder(t *testing.T) {
 // --- fakes ---
 
 type fakeCyberBlockStore struct {
-	blocked  map[string]bool
-	scopes   map[string]bool
-	lengths  map[int64][]int
-	findKeys [][]string
+	findCalls int
+	findErr   error
+	blocked   map[string]bool
+	scopes    map[string]bool
+	lengths   map[int64][]int
+	findKeys  [][]string
 }
 
 var _ CyberSessionBlockStore = (*fakeCyberBlockStore)(nil)
@@ -141,6 +145,10 @@ func (f *fakeCyberBlockStore) CyberSessionTranscriptLengths(_ context.Context, a
 }
 
 func (f *fakeCyberBlockStore) FindCyberSessionBlocked(_ context.Context, keys []string) (string, error) {
+	f.findCalls++
+	if f.findErr != nil {
+		return "", f.findErr
+	}
 	f.findKeys = append(f.findKeys, keys)
 	for _, key := range keys {
 		if f.blocked[key] {
@@ -371,4 +379,245 @@ func TestCyberSessionScopeKeyNormalizesUserAgentVersion(t *testing.T) {
 	require.Equal(t, base, CyberSessionScopeKey(7, "203.0.113.10", "Codex CLI 1.2.4"))
 	require.NotEqual(t, base, CyberSessionScopeKey(8, "203.0.113.10", "Codex CLI 1.2.3"))
 	require.NotEqual(t, base, CyberSessionScopeKey(7, "203.0.113.11", "Codex CLI 1.2.3"))
+}
+
+func TestCyberSessionIdentityStrictEnabledDefaultsOffAndReadsSetting(t *testing.T) {
+	t.Run("missing setting", func(t *testing.T) {
+		svc := &OpenAIGatewayService{settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{}}}}
+		require.False(t, svc.CyberSessionIdentityStrictEnabled(context.Background()))
+	})
+
+	t.Run("explicitly enabled", func(t *testing.T) {
+		svc := &OpenAIGatewayService{settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+			SettingKeyCyberSessionBlockEnabled:          "true",
+			SettingKeyCyberSessionIdentityStrictEnabled: "true",
+		}}}}
+		require.True(t, svc.CyberSessionIdentityStrictEnabled(context.Background()))
+	})
+}
+
+func TestCyberSessionExplicitBlockKeyUsesTypedExplicitIdentity(t *testing.T) {
+	var threadKey string
+	for _, header := range []string{"conversation_id", "thread_id", "thread-id", "X-Conversation-ID"} {
+		c, body := newCyberBlockTestCtx(map[string]string{header: " conversation-a "}, `{"prompt_cache_key":"shared-cache"}`)
+		key := CyberSessionExplicitBlockKey(7, c, body)
+		require.NotEmpty(t, key, header)
+		if threadKey == "" {
+			threadKey = key
+		}
+		require.Equal(t, threadKey, key, "thread header aliases must share one typed identity")
+		require.NotEqual(t, key, CyberSessionExplicitBlockKey(8, c, body))
+		require.Empty(t, CyberSessionExplicitBlockKey(0, c, body))
+		require.Empty(t, CyberSessionExplicitBlockKey(-1, c, body))
+	}
+
+	var sessionKey string
+	for _, header := range []string{"session-id", "session_id", "X-Session-Id", "X-OpenCode-Session"} {
+		c, body := newCyberBlockTestCtx(map[string]string{header: " conversation-a "}, `{"prompt_cache_key":"shared-cache"}`)
+		key := CyberSessionExplicitBlockKey(7, c, body)
+		require.NotEmpty(t, key, header)
+		if sessionKey == "" {
+			sessionKey = key
+		}
+		require.Equal(t, sessionKey, key, "session header aliases must share one typed identity")
+	}
+	require.NotEqual(t, threadKey, sessionKey, "thread and session namespaces must not collide")
+
+	c, body := newCyberBlockTestCtx(nil, `{"client_metadata":{"thread_id":"conversation-a"}}`)
+	require.Equal(t, threadKey, CyberSessionExplicitBlockKey(7, c, body))
+	c, body = newCyberBlockTestCtx(nil, `{"client_metadata":{"session_id":"conversation-a"}}`)
+	require.Equal(t, sessionKey, CyberSessionExplicitBlockKey(7, c, body))
+	c, body = newCyberBlockTestCtx(nil, `{"type":"response.create","response":{"client_metadata":{"thread_id":"conversation-a"}}}`)
+	require.Equal(t, threadKey, CyberSessionExplicitBlockKey(7, c, body))
+
+	c, body = newCyberBlockTestCtx(map[string]string{"thread_id": "thread-header"}, `{"client_metadata":{"thread_id":"thread-body"}}`)
+	require.Empty(t, CyberSessionExplicitBlockKey(7, c, body))
+
+	for _, body := range []string{`{}`, `{"prompt_cache_key":"conversation-a"}`, `{"type":"response.create","response":{"prompt_cache_key":"conversation-a","input":"hello"}}`} {
+		c, b := newCyberBlockTestCtx(map[string]string{"X-Session-Affinity": "conversation-a"}, body)
+		require.Empty(t, CyberSessionExplicitBlockKey(7, c, b))
+	}
+	require.Empty(t, CyberSessionExplicitBlockKey(7, nil, nil))
+	require.Empty(t, CyberSessionExplicitBlockKey(7, &gin.Context{}, nil))
+}
+
+func TestResolveCyberSessionIdentityExposesOnlyHashedIdentity(t *testing.T) {
+	c, body := newCyberBlockTestCtx(nil, `{"client_metadata":{"thread_id":"private-thread-value"}}`)
+	resolution := ResolveCyberSessionIdentity(7, c, body)
+
+	require.True(t, resolution.Resolved())
+	require.Equal(t, OpenAIClientSessionIdentityMetadata{
+		Status: OpenAIClientSessionIdentityResolved,
+		Kind:   openAIClientSessionKindThread,
+		Source: OpenAIClientSessionIdentitySourceBody,
+	}, resolution.Metadata)
+	require.NotEmpty(t, resolution.BlockKey)
+	require.NotContains(t, resolution.BlockKey, "private-thread-value")
+	require.Len(t, resolution.LookupKeys, 2)
+
+	inherited := InheritCyberSessionIdentity(resolution)
+	require.True(t, inherited.Resolved())
+	require.True(t, inherited.Inherited)
+	require.Equal(t, OpenAIClientSessionIdentitySourceConnection, inherited.Metadata.Source)
+	require.Equal(t, resolution.BlockKey, inherited.BlockKey)
+	require.Equal(t, resolution.LookupKeys, inherited.LookupKeys)
+
+	missingCtx, missingBody := newCyberBlockTestCtx(nil, `{}`)
+	missing := ResolveCyberSessionIdentity(7, missingCtx, missingBody)
+	require.False(t, missing.Resolved())
+	require.Equal(t, OpenAIClientSessionIdentityMissing, missing.Metadata.Status)
+	require.Empty(t, missing.BlockKey)
+	require.Empty(t, missing.LookupKeys)
+}
+
+func TestCyberSessionBlockReadsLegacyV2ExplicitKey(t *testing.T) {
+	ctx := context.Background()
+	combo := &comboCacheAndStore{}
+	svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+		SettingKeyCyberSessionBlockEnabled: "true",
+	}}}}
+
+	c, body := newCyberBlockTestCtx(map[string]string{"session_id": "legacy-session"}, `{}`)
+	legacyRaw := "cyber-explicit-session:v2|api_key=7|session=legacy-session"
+	legacySum := sha256.Sum256([]byte(legacyRaw))
+	legacyKey := hex.EncodeToString(legacySum[:])
+	combo.store.blocked = map[string]bool{legacyKey: true}
+
+	require.Equal(t, legacyKey, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, body, "", ""))
+	require.NotEqual(t, legacyKey, CyberSessionExplicitBlockKey(7, c, body), "new writes must use typed v3")
+}
+
+func TestCyberSessionIsolationAcrossSharedKeyAndLongHistory(t *testing.T) {
+	ctx := context.Background()
+	combo := &comboCacheAndStore{}
+	svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+		SettingKeyCyberSessionBlockEnabled: "true", SettingKeyCyberSessionBlockTTLSeconds: "60",
+	}}}}
+	// Same input, cache hint and source cannot merge distinct session IDs.
+	items := make([]map[string]string, 600)
+	for i := range items {
+		items[i] = map[string]string{"type": "function_call_output", "call_id": "call-" + strconv.Itoa(i), "output": "ordinary tool result"}
+	}
+	payload, err := json.Marshal(map[string]any{"input": items, "prompt_cache_key": "shared-cache"})
+	require.NoError(t, err)
+	a, _ := newCyberBlockTestCtx(map[string]string{"session_id": "conversation-a"}, string(payload))
+	aKey := CyberSessionExplicitBlockKey(7, a, payload)
+	legacyScope := sha256.Sum256([]byte("cyber-scope:v1|api_key=7|ip=203.0.113.20|ua=" + NormalizeSessionUserAgent("Codex CLI 1.2.3")))
+	svc.MarkCyberSessionBlocked(ctx, CyberSessionBlock{APIKeyID: 7, ScopeKey: hex.EncodeToString(legacyScope[:]), Keys: []string{aKey}})
+
+	for _, tc := range []struct {
+		name, session string
+		apiKey        int64
+		blocked       bool
+	}{
+		{"original session remains blocked", "conversation-a", 7, true},
+		{"another session shares key and history", "conversation-b", 7, false},
+		{"another authenticated key reuses session name", "conversation-a", 8, false},
+		{"no explicit identity with shared cache", "", 7, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			c, _ := newCyberBlockTestCtx(map[string]string{"session_id": tc.session}, string(payload))
+			got := svc.FindCyberSessionBlockedForRequest(ctx, tc.apiKey, c, payload, "203.0.113.20", "Codex CLI 1.2.3")
+			if tc.blocked {
+				require.Equal(t, aKey, got)
+			} else {
+				require.Empty(t, got)
+			}
+		})
+	}
+	// A reconnect/model change and a different network must not evade an exact block.
+	require.Equal(t, aKey, svc.FindCyberSessionBlockedForRequest(ctx, 7, a, []byte(`{"model":"another-model","input":"next turn"}`), "203.0.113.99", "AnotherClient/2"))
+	require.Empty(t, combo.store.lengths[7], "storing an explicit block must not seed a transcript block")
+}
+
+func TestCyberSessionIgnoresLegacyCacheBlocks(t *testing.T) {
+	ctx := context.Background()
+	combo := &comboCacheAndStore{}
+	svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{SettingKeyCyberSessionBlockEnabled: "true"}}}}
+	// Before v2, a prompt_cache_key used the same digest as a session header.
+	legacy := sha256.Sum256([]byte(isolateOpenAISessionID(7, "shared-value")))
+	svc.MarkCyberSessionBlocked(ctx, CyberSessionBlock{Keys: []string{hex.EncodeToString(legacy[:])}})
+	c, body := newCyberBlockTestCtx(map[string]string{"session_id": "shared-value"}, `{}`)
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, body, "", ""))
+}
+
+func TestCyberSessionLookupFailOpen(t *testing.T) {
+	c, body := newCyberBlockTestCtx(map[string]string{"session_id": "session-a"}, `{}`)
+	for _, enabled := range []string{"false", "true"} {
+		t.Run(enabled, func(t *testing.T) {
+			combo := &comboCacheAndStore{store: fakeCyberBlockStore{findErr: errors.New("storage unavailable")}}
+			svc := &OpenAIGatewayService{cache: combo, settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{SettingKeyCyberSessionBlockEnabled: enabled}}}}
+			require.Empty(t, svc.FindCyberSessionBlockedForRequest(context.Background(), 7, c, body, "", ""))
+			if enabled == "false" {
+				require.Zero(t, combo.store.findCalls)
+			} else {
+				require.Equal(t, 1, combo.store.findCalls)
+			}
+		})
+	}
+}
+
+func TestCyberRequestFingerprintFallbackBlocksIdenticalRetry(t *testing.T) {
+	svc := &OpenAIGatewayService{
+		cache: &comboCacheAndStore{},
+		settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+			SettingKeyCyberSessionBlockEnabled:    "true",
+			SettingKeyCyberSessionBlockTTLSeconds: "60",
+		}}},
+	}
+	ctx := context.Background()
+	bodyA := []byte(`{"model":"gpt-5","messages":[{"role":"user","content":"synthetic same content"}],"prompt_cache_key":"cache-a","stream":true}`)
+	bodyB := []byte(`{"stream":false,"prompt_cache_key":"cache-b","messages":[{"role":"user","content":"synthetic same content"}],"model":"another-model"}`)
+	c, _ := newCyberBlockTestCtx(nil, string(bodyA))
+	identity := ResolveCyberSessionIdentity(7, c, bodyA)
+	require.False(t, identity.Resolved(), "fixture must not have an explicit session ID")
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, bodyA, "", ""))
+
+	svc.MarkCyberSessionBlockedForRequest(ctx, 7, identity, bodyA)
+	require.NotEmpty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, bodyB, "", ""), "identical content must match across cache/stream/model changes")
+	retryWithIdentity, _ := newCyberBlockTestCtx(map[string]string{"session_id": "retry-session"}, string(bodyA))
+	require.NotEmpty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, retryWithIdentity, bodyA, "", ""), "a retry that adds a session ID must still hit the fallback block")
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 7, c, []byte(`{"messages":[{"role":"user","content":"different content"}]}`), "", ""))
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 8, c, bodyA, "", ""), "fingerprint is API-key scoped")
+}
+
+func TestCyberRequestFingerprintFallbackDoesNotReplaceExplicitSession(t *testing.T) {
+	svc := &OpenAIGatewayService{
+		cache: &comboCacheAndStore{},
+		settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{
+			SettingKeyCyberSessionBlockEnabled: "true",
+		}}},
+	}
+	ctx := context.Background()
+	body := []byte(`{"messages":[{"role":"user","content":"synthetic explicit content"}]}`)
+	explicitCtx, _ := newCyberBlockTestCtx(map[string]string{"session_id": "session-explicit"}, string(body))
+	identity := ResolveCyberSessionIdentity(9, explicitCtx, body)
+	require.True(t, identity.Resolved())
+	svc.MarkCyberSessionBlockedForRequest(ctx, 9, identity, body)
+
+	require.Equal(t, identity.BlockKey, svc.FindCyberSessionBlockedForRequest(ctx, 9, explicitCtx, body, "", ""))
+	noIdentityCtx, _ := newCyberBlockTestCtx(nil, string(body))
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 9, noIdentityCtx, body, "", ""), "explicit block must not silently become a content-wide block")
+}
+
+func TestCyberRequestFingerprintFallbackDisabledWithSessionBlock(t *testing.T) {
+	svc := &OpenAIGatewayService{
+		cache:          &comboCacheAndStore{},
+		settingService: &SettingService{settingRepo: &fakeSettingRepo{vals: map[string]string{SettingKeyCyberSessionBlockEnabled: "false"}}},
+	}
+	ctx := context.Background()
+	body := []byte(`{"messages":[{"role":"user","content":"synthetic disabled content"}]}`)
+	c, _ := newCyberBlockTestCtx(nil, string(body))
+	identity := ResolveCyberSessionIdentity(10, c, body)
+	svc.MarkCyberSessionBlockedForRequest(ctx, 10, identity, body)
+	require.Empty(t, svc.FindCyberSessionBlockedForRequest(ctx, 10, c, body, "", ""))
+}
+
+func TestCyberRequestFingerprintKeyNormalizesTransportFields(t *testing.T) {
+	a := []byte(`{"messages":[{"role":"user","content":"same"}],"model":"gpt-5","stream":true,"prompt_cache_key":"a"}`)
+	b := []byte(`{"prompt_cache_key":"b","stream":false,"model":"other","messages":[{"role":"user","content":"same"}]}`)
+	require.NotEmpty(t, CyberRequestFingerprintKey(1, a))
+	require.Equal(t, CyberRequestFingerprintKey(1, a), CyberRequestFingerprintKey(1, b))
+	require.NotEqual(t, CyberRequestFingerprintKey(1, a), CyberRequestFingerprintKey(2, a))
+	require.Empty(t, CyberRequestFingerprintKey(1, []byte(`{"model":"gpt-5"}`)))
 }

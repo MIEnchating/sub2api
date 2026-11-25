@@ -13,18 +13,18 @@ import (
 	"html"
 	"image"
 	"image/color"
-	"image/jpeg"
 	"image/png"
 	"io"
 	"net"
 	"net/http"
+	"net/http/httptrace"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
-
-	"golang.org/x/image/draw"
 )
 
 func signingKey(secret string) (ed25519.PrivateKey, error) {
@@ -82,10 +82,11 @@ func noRedirect(_ *http.Request, _ []*http.Request) error { return http.ErrUseLa
 // Preserve retry evidence without exposing upstream bodies, URLs or credentials.
 // Callers decide whether their operation is safe to retry.
 type requestFailure struct {
-	StatusCode int
-	RetryAfter string
-	cause      error
-	message    string
+	NotSubmitted bool
+	StatusCode   int
+	RetryAfter   string
+	cause        error
+	message      string
 }
 
 func (e *requestFailure) Error() string { return e.message }
@@ -112,9 +113,15 @@ func (s *Service) requestBody(ctx context.Context, method, endpoint, key string,
 		req.Header.Set("Authorization", "Bearer "+key)
 	}
 	req.Header.Set("Content-Type", contentType)
+	var connected atomic.Bool
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), &httptrace.ClientTrace{GotConn: func(httptrace.GotConnInfo) { connected.Store(true) }}))
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return nil, "", &requestFailure{cause: err, message: "服务连接失败或超时，请查看调用记录"}
+		// Absence of a response is not proof that a generation was unsubmitted.
+		// Only a failed dial before any connection was obtained is safe to replay.
+		var op *net.OpError
+		unsubmitted := !connected.Load() && errors.As(err, &op) && op.Op == "dial"
+		return nil, "", &requestFailure{NotSubmitted: unsubmitted, cause: err, message: "服务连接失败或超时，请查看调用记录"}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -132,23 +139,11 @@ func (s *Service) requestBody(ctx context.Context, method, endpoint, key string,
 func endpoint(base, path string) string { return strings.TrimRight(base, "/") + path }
 
 func (s *Service) chat(ctx context.Context, c Config, messages []Message) (string, int64, int64, error) {
-	raw, ct, err := s.chatRequest(ctx, c, messages, false)
+	raw, ct, err := s.chatRequestWithTools(ctx, c, messages, nil)
 	if err != nil {
 		return "", 0, 0, err
 	}
 	return parseChat(raw, ct)
-}
-
-func (s *Service) chatRequest(ctx context.Context, c Config, messages []Message, imageTool bool) ([]byte, string, error) {
-	var tools []any
-	if imageTool {
-		tools = []any{chatImageTool(c.ChatProtocol)}
-		if len(currentChatImages(messages)) > 0 {
-			tools = append(tools, chatEditImageTool(c.ChatProtocol))
-		}
-		tools = append(tools, chatTextTool(c.ChatProtocol))
-	}
-	return s.chatRequestWithTools(ctx, c, messages, tools)
 }
 
 func (s *Service) chatRequestWithTools(ctx context.Context, c Config, messages []Message, tools []any) ([]byte, string, error) {
@@ -335,81 +330,18 @@ func parseChat(raw []byte, ct string) (string, int64, int64, error) {
 	return text, v.Usage.Input, v.Usage.Output, nil
 }
 
-func (s *Service) generateImage(ctx context.Context, c Config, prompt string) ([]byte, error) {
-	if err := checkModelBudget(ctx, minimumImageBudget); err != nil {
-		return nil, err
-	}
-	ctx, cancel, err := modelContext(ctx)
-	if err != nil {
-		return nil, err
-	}
-	defer cancel()
-	base, key := imageConnection(c)
-	body := map[string]any{"model": c.ImageModel, "prompt": prompt, "n": 1, "size": c.ImageSize}
-	if c.ImageOutputFormat != "" {
-		body["output_format"] = c.ImageOutputFormat
-	}
-	raw, _, err := s.request(ctx, "POST", endpoint(base, "/images/generations"), key, body, 32<<20)
-	if err != nil {
-		return nil, err
-	}
-	data, err := imageResult(ctx, raw)
-	if err != nil {
-		return nil, err
-	}
-	return checkRequestedImageFormat(data, c.ImageOutputFormat)
-}
-
-func imageConnection(c Config) (string, string) {
-	switch c.ImageAIConnection {
-	case "reuse_chat":
-		return c.BaseURL, c.APIKey
-	case "site":
-		return c.ImageBaseURL, c.ImageAPIKey
-	case "external":
-		base := c.ImageBaseURL
-		if base == "" {
-			base = c.BaseURL
-		}
-		return base, c.ImageAPIKey
-	}
-	base, key := c.BaseURL, c.APIKey
-	if c.ImageBaseURL != "" {
-		base = c.ImageBaseURL
-		key = c.ImageAPIKey
-	} else if c.ImageAPIKey != "" {
-		key = c.ImageAPIKey
-	}
-	return base, key
-}
-
-func imageResult(ctx context.Context, raw []byte) ([]byte, error) {
-	var v struct {
-		Data []struct {
-			B64 string `json:"b64_json"`
-			URL string `json:"url"`
-		} `json:"data"`
-	}
-	if json.Unmarshal(raw, &v) != nil || len(v.Data) == 0 {
-		return nil, errors.New("生图接口没有返回图片")
-	}
-	var data []byte
-	var err error
-	if v.Data[0].B64 != "" {
-		data, err = base64.StdEncoding.DecodeString(v.Data[0].B64)
-	} else if v.Data[0].URL != "" {
-		data, err = downloadImage(ctx, v.Data[0].URL)
-	} else {
-		return nil, errors.New("图片响应缺少 b64_json 或 url")
-	}
-	if err != nil {
-		return nil, errors.New("获取生成图片失败")
-	}
-	return normalizeGeneratedImage(data)
-}
 func publicIP(ip net.IP) bool {
 	if !ip.IsGlobalUnicast() || ip.IsPrivate() || ip.IsLoopback() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsUnspecified() {
 		return false
+	}
+	addr, ok := netip.AddrFromSlice(ip)
+	if !ok {
+		return false
+	}
+	for _, prefix := range botBlockedPrefixes {
+		if prefix.Contains(addr.Unmap()) {
+			return false
+		}
 	}
 	v4 := ip.To4()
 	return v4 == nil || v4[0] != 100 || v4[1] < 64 || v4[1] > 127
@@ -459,38 +391,6 @@ func downloadImage(ctx context.Context, rawURL string) ([]byte, error) {
 	}
 	return data, err
 }
-func normalizeImage(data []byte) ([]byte, error) {
-	cfg, _, err := image.DecodeConfig(bytes.NewReader(data))
-	if err != nil || cfg.Width < 1 || cfg.Height < 1 || int64(cfg.Width)*int64(cfg.Height) > 40_000_000 {
-		return nil, errors.New("图片尺寸或格式不受支持")
-	}
-	img, _, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return nil, errors.New("图片解码失败")
-	}
-	if cfg.Width > 2048 || cfg.Height > 2048 {
-		w, h := cfg.Width, cfg.Height
-		if w >= h {
-			h = h * 2048 / w
-			w = 2048
-		} else {
-			w = w * 2048 / h
-			h = 2048
-		}
-		dst := image.NewRGBA(image.Rect(0, 0, max(1, w), max(1, h)))
-		draw.CatmullRom.Scale(dst, dst.Bounds(), img, img.Bounds(), draw.Over, nil)
-		img = dst
-	}
-	var out bytes.Buffer
-	if err = jpeg.Encode(&out, img, &jpeg.Options{Quality: 85}); err != nil {
-		return nil, err
-	}
-	if out.Len() > 3<<20 {
-		return nil, errors.New("图片压缩后仍超过 QQ 上传限制")
-	}
-	return out.Bytes(), nil
-}
-
 func (s *Service) token(ctx context.Context, c Config) (string, error) {
 	// Interaction acknowledgements have a short deadline. Waiting behind an
 	// in-flight token refresh must honor that deadline as well as the HTTP call.
@@ -523,9 +423,6 @@ func (s *Service) token(ctx context.Context, c Config) (string, error) {
 	s.accessToken = v.AccessToken
 	s.tokenExpires = time.Now().Add(time.Duration(seconds-30) * time.Second)
 	return v.AccessToken, nil
-}
-func (s *Service) qqRequest(ctx context.Context, c Config, path string, body any) ([]byte, error) {
-	return s.qqRequestMethod(ctx, c, http.MethodPost, path, body)
 }
 func (s *Service) qqRequestMethod(ctx context.Context, c Config, method, path string, body any) ([]byte, error) {
 	token, err := s.token(ctx, c)
@@ -620,7 +517,7 @@ func (s *Service) sendFormattedWithKeyboard(ctx context.Context, c Config, j Job
 	}
 	deliveredText := limitText(text, 1800)
 	if len(img) > 0 {
-		data, err := s.qqRequest(ctx, c, base+"/files", map[string]any{"file_type": 1, "file_name": generatedImageFileName(img), "file_data": base64.StdEncoding.EncodeToString(img), "srv_send_msg": false})
+		data, err := s.authorizedQQDelivery(ctx, c, j, base+"/files", map[string]any{"file_type": 1, "file_name": historicalImageFilename(img), "file_data": base64.StdEncoding.EncodeToString(img), "srv_send_msg": false})
 		if err != nil {
 			return err
 		}
@@ -654,7 +551,7 @@ func (s *Service) sendFormattedWithKeyboard(ctx context.Context, c Config, j Job
 			body["keyboard"] = keyboard
 		}
 	}
-	raw, err := s.qqRequest(ctx, c, base+"/messages", body)
+	raw, err := s.authorizedQQDelivery(ctx, c, j, base+"/messages", body)
 	if err != nil {
 		return err
 	}
@@ -667,6 +564,64 @@ func (s *Service) sendFormattedWithKeyboard(ctx context.Context, c Config, j Job
 	}
 	shareable := (j.Kind == "chat" || j.Kind == "ambient_chat" || j.Kind == "image") && j.ShareHistory && j.Error == ""
 	return s.rememberSentMessage(ctx, c, j, raw, deliveredText, len(img) > 0, shareable)
+}
+
+// Token acquisition happens before the config lock: it can wait on HTTP and
+// tokenGate, and configuration saving must never depend on either. Each final
+// files/messages HTTP request then holds the existing cross-instance shared
+// config lock through response completion. SaveConfig's exclusive lock makes a
+// successful save a fence against subsequent sends using an obsolete identity.
+func (s *Service) authorizedQQDelivery(parent context.Context, previous Config, j Job, path string, body any) ([]byte, error) {
+	if s.db == nil {
+		return nil, ErrDisabled
+	}
+	ctx, cancel := context.WithTimeout(parent, 20*time.Second)
+	defer cancel()
+	token, err := s.token(ctx, previous)
+	if err != nil {
+		return nil, err
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	current, err := s.lockConfig(ctx, tx)
+	if err != nil {
+		return nil, err
+	}
+	if !current.Enabled || !current.allows(j.GroupID) || (j.AppID != "" && current.AppID != j.AppID) || deliveryAuthorization(current) != deliveryAuthorization(previous) {
+		return nil, ErrDisabled
+	}
+	if j.EventType == priceNotificationEvent || j.EventType == healthNotificationEvent || j.EventType == rankingNotificationEvent {
+		if !allowsNotification(current, j) || current.NotificationQuietHours.active(time.Now()) {
+			return nil, ErrDisabled
+		}
+	}
+	return s.qqRequestMethodWithToken(ctx, current, token, http.MethodPost, path, body)
+}
+
+// Bind the generation/delivery to the credential and policy snapshot that
+// authorized it. No fingerprint or secret is returned through an API or log.
+func deliveryAuthorization(c Config) string {
+	return ConfigVersion(struct {
+		AppID, AppSecret, BaseURL, APIKey           string
+		Sandbox, ChatDisabled, RememberQuotedImages bool
+		Groups                                      []string
+		Policies                                    []GroupPolicy
+	}{c.AppID, c.AppSecret, c.BaseURL, c.APIKey, c.Sandbox, c.ChatDisabled, c.RememberQuotedImages, c.AllowedGroups, c.GroupPolicies})
+}
+
+// Older cached replies retain their original media type on delivery.
+func historicalImageFilename(data []byte) string {
+	switch http.DetectContentType(data) {
+	case "image/gif":
+		return "image.gif"
+	case "image/jpeg":
+		return "image.jpg"
+	default:
+		return "image.png"
+	}
 }
 
 func limitText(s string, n int) string {
@@ -706,17 +661,8 @@ func (s *Service) probeConfig(ctx context.Context, c Config, kind string) (strin
 		_, err = s.token(ctx, c)
 		return "QQ 凭据有效；请在测试群验证事件和消息权限。", err
 	}
-	if kind == "image" || kind == "image_edit" {
-		base, key := imageConnection(c)
-		if base == "" || key == "" || c.ImageModel == "" {
-			return "", errors.New("请先保存生图连接和模型")
-		}
-	} else if c.BaseURL == "" || c.APIKey == "" || c.ChatModel == "" {
+	if c.BaseURL == "" || c.APIKey == "" || c.ChatModel == "" {
 		return "", errors.New("请先保存聊天连接和模型")
-	}
-	if kind == "image_edit" {
-		_, err = s.editImage(ctx, c, "Change this blue square to red; retain its dimensions.", probeImage())
-		return "图片编辑接口测试成功（已调用付费接口，不发送到群）。", err
 	}
 	if kind == "vision" {
 		result, _, _, err := s.chat(ctx, c, []Message{{Role: "user", Content: "Describe the color and shape in this image in one short sentence.", Images: []string{probeImage()}}})
@@ -730,16 +676,18 @@ func (s *Service) probeConfig(ctx context.Context, c Config, kind string) (strin
 		return "视觉样本识别通过（蓝色方块）；不保证所有图片识别准确。", nil
 	}
 	if kind == "tools" {
-		c.ImageEnabled = true
-		result, err := s.chatTurn(ctx, c, []Message{{Role: "user", Content: "Call reply_text with the text OK. Do not generate or edit any image."}})
-		if err == nil && result.Text == "" {
-			err = errors.New("工具测试未返回 reply_text 操作")
+		messages := []Message{{Role: "user", Content: "Call reply_text with the text OK."}}
+		raw, contentType, err := s.chatRequestWithTools(ctx, c, messages, []any{chatTextTool(c.ChatProtocol)})
+		if err != nil {
+			return "", err
 		}
-		return "工具调用测试成功（仅验证工具协议，不执行生图）。", err
-	}
-	if kind == "image" {
-		_, err = s.generateImage(ctx, c, "A small blue circle on a white background, minimal illustration.")
-		return "生图测试成功（使用站长 API Key，可能产生费用）。", err
+		_, err = parseChatTurnWith(raw, contentType, func(result chatTurnResult, calls []chatToolCall) (chatTurnResult, error) {
+			if len(calls) != 1 || calls[0].Type != "function" {
+				return result, errors.New("模型返回了不支持的工具调用")
+			}
+			return validateChatText(result, calls[0])
+		})
+		return "工具调用测试成功（仅验证工具协议）。", err
 	}
 	if kind != "chat" {
 		return "", errors.New("未知测试类型")

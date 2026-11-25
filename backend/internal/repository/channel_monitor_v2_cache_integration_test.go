@@ -94,7 +94,7 @@ func TestChannelMonitorV2StreamingCacheRateIntegration(t *testing.T) {
 	rawTPS, err := os.ReadFile("../../migrations/316_channel_monitor_output_tps.sql")
 	require.NoError(t, err)
 	exec(string(rawTPS))
-	exec(`CREATE TABLE groups (id BIGINT,platform TEXT);
+	exec(`CREATE TABLE groups (id BIGINT,platform TEXT,deleted_at TIMESTAMPTZ);
 CREATE TABLE accounts (id BIGINT,platform TEXT);
 CREATE TABLE usage_logs (id BIGSERIAL,created_at TIMESTAMPTZ,group_id BIGINT DEFAULT 8,account_id BIGINT DEFAULT 62,user_id BIGINT DEFAULT 7,api_key_id BIGINT DEFAULT 1,
  model TEXT DEFAULT 'model-a', requested_model TEXT,request_id TEXT,request_type INT, stream BOOLEAN,openai_ws_mode BOOLEAN DEFAULT false,

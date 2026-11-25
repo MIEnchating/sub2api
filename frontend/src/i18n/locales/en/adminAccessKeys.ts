@@ -226,6 +226,14 @@ export default {
       "label": "Read all payment orders and reports",
       "category": "Finance"
     },
+    "lottery_dread": {
+      "label": "Read prize pools and draw records",
+      "category": "Finance"
+    },
+    "lottery_dwrite": {
+      "label": "Manage prize pools and prizes",
+      "category": "Finance"
+    },
     "payment_dcancel": {
       "label": "Cancel payment orders",
       "category": "Finance"

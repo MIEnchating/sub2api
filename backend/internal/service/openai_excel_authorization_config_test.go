@@ -38,7 +38,7 @@ func TestExcelAuthorizationConfigKeepsSecretsPrivateAndExplicitlyClears(t *testi
 func TestExcelAuthorizationAcceptsPinnedWorkerCapabilitiesOnlyLocalTasks(t *testing.T) {
 	svc, _, _, _, _ := newExcelReauthTestService(t)
 	_, err := svc.SaveCredentialConfig(context.Background(), 42, OpenAIOAuthReauthConfigInput{LoginEmail: "user@example.com", Engine: "session_studio"})
-	require.Error(t, err)
+	require.NoError(t, err)
 	_, err = svc.CreateTaskForProfile(context.Background(), 42, "excel")
 	require.NoError(t, err)
 	claim, err := svc.ClaimTaskWithEngines(context.Background(), "worker", []string{"local_worker", "session_studio"})

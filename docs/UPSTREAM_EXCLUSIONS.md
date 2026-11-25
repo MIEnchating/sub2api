@@ -1,13 +1,27 @@
 # 上游合并排除列表
 
-以下产品决策适用于后续合并和验证修复，不能通过恢复上游实现来绕过。
+适用范围为 Wei-Shaw 主上游、DeanZFC 第二上游及 ranxi2001 第三上游。
 
 | 功能 | 排除范围 | 必须保留 |
 | --- | --- | --- |
-| 共享账号池 | 第二上游的共享账号池页面、API、调度、权限、计费、迁移、测试和专属资源 | 普通账号池及无关账号代理池功能 |
-| 批量生图 | 两个上游中的批量生图页面、菜单、快捷入口、分组权限和计费配置、API、队列、worker、供应商适配、专属测试、文档及 ORM | 普通生图、异步单图任务、已经发布的历史 SQL 迁移及其校验和兼容记录 |
+| 共享账号池 | 两个 fork 的共享账号池页面、API、调度、权限、计费和专属迁移。 | 普通账号池、账号代理池及无关供应商钱包。 |
+| 生图二开 | 两个 fork 的生图、编辑、批量任务二开及对应界面、入口、路由、队列、计费、文档和测试。 | Wei-Shaw 原生生图、编辑、异步单图及批量生图。图片输入和视觉理解继续保留。 |
 
-机器检查规则位于 `.github/upstream-exclusions.json`。同步脚本在最终合并审查后、每轮完整验证（包括修复后的重跑）执行 `python3 .github/check-upstream-exclusions.py .`。合并审查分别记录 `excluded_shared_account_pool_paths`、`excluded_batch_image_paths` 和未解决冲突。
+机器检查按 Wei-Shaw 当前合并基线验证批量生图专属文件和共用文件的接线。对其他生图差异，逐段检查来源，保留同一文件内的非生图修复。审查输出仍使用 `excluded_batch_image_paths` 记录生图二开排除路径，以便读旧报告。
+
+历史迁移与校验和保持兼容。两个 fork 的新增迁移若与现有迁移或主上游撞号，需审查 DDL 及依赖、保留已发布文件，并验证从空库和现有库升级。
+
+## 2026-11-25 第三上游首次合并
+
+- QQ 机器人跳过旧队列中的生图任务及补发，历史结果仍按既有数据保留规则处理。图片输入和引用继续支持。
+- 排除第三上游的 `.github/workflows/issue765-image-scheduler.yml`。该工作流验证第三上游专属生图模型授权和调度缓存，基准为第三上游提交 `e295f336`。
+- 排除第三上游专属的生图意图预筛选测试 `backend/internal/service/image_intent_prefilter_test.go`，以及第二上游异步生图错误文案改写测试 `backend/internal/service/image_task_error_message_test.go`（第二上游提交 `7825868a24`）。
+- 排除第三上游专属的生图选路后内容审核及异步任务行为测试 `backend/internal/handler/moderation_upstream_images_test.go`（第三上游提交 `7968fb36df`）。保留原有生图审核入口和文本请求的账号级审核。
+- 排除第三上游自定义编辑表单测试 `openai_images_form_compat_test.go`（`64ec861bcf`）和第二上游生图计费扩展测试 `openai_images_billing_error_test.go`（`3926b962f2`）。原生生图流式限额和未完成事件边界由 `sse_transport_limits_test.go` 覆盖。
+
+## 旧策略下的历史记录
+
+下文记录先前全局排除批量生图时的审查，供核对历史变更。
 
 ## 批量生图删除记录
 

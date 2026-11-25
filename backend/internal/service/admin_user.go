@@ -61,7 +61,39 @@ func (s *adminServiceImpl) ListUsers(ctx context.Context, page, pageSize int, fi
 			s.loadUserGroupRatesOneByOne(ctx, users)
 		}
 	}
+	s.populateUserRPM(ctx, users)
 	return users, result.Total, nil
+}
+
+// populateUserRPM reads the existing limiter counters without querying usage logs
+// or changing admission behavior. Zero limits are still counted.
+func (s *adminServiceImpl) populateUserRPM(ctx context.Context, users []User) {
+	reader, ok := s.userRPMCache.(interface {
+		GetUserRPMBatch(context.Context, []int64) (map[int64]int, error)
+	})
+	if !ok {
+		return
+	}
+	ids := make([]int64, 0, len(users))
+	for i := range users {
+		users[i].CurrentRPM = nil
+		ids = append(ids, users[i].ID)
+	}
+	if len(ids) == 0 {
+		return
+	}
+	ctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	counts, err := reader.GetUserRPMBatch(ctx, ids)
+	if err != nil {
+		// Metrics failure must not prevent user management.
+		return
+	}
+	for i := range users {
+		if count, exists := counts[users[i].ID]; exists {
+			users[i].CurrentRPM = &count
+		}
+	}
 }
 
 func (s *adminServiceImpl) loadUserGroupRatesOneByOne(ctx context.Context, users []User) {
@@ -111,8 +143,8 @@ func normalizeUserRole(role, fallback string) (string, error) {
 	if role == "" {
 		return fallback, nil
 	}
-	if role != RoleAdmin && role != RoleUser {
-		return "", fmt.Errorf("invalid role: %q (must be %s or %s)", role, RoleAdmin, RoleUser)
+	if role != RoleAdmin && role != RoleUser && role != RoleObserver {
+		return "", fmt.Errorf("invalid role: %q (must be %s, %s or %s)", role, RoleAdmin, RoleUser, RoleObserver)
 	}
 	return role, nil
 }
@@ -131,16 +163,23 @@ func (s *adminServiceImpl) CreateUser(ctx context.Context, input *CreateUserInpu
 		return nil, err
 	}
 
+	if err := s.validateGroupIDsExist(ctx, input.ObserverGroupIDs); err != nil {
+		return nil, err
+	}
+	if role != RoleObserver {
+		input.ObserverGroupIDs = []int64{}
+	}
 	user := &User{
-		Email:         input.Email,
-		Username:      input.Username,
-		Notes:         input.Notes,
-		Role:          role,
-		Balance:       balance,
-		Concurrency:   input.Concurrency,
-		RPMLimit:      input.RPMLimit,
-		Status:        StatusActive,
-		AllowedGroups: input.AllowedGroups,
+		Email:            input.Email,
+		Username:         input.Username,
+		Notes:            input.Notes,
+		Role:             role,
+		Balance:          balance,
+		Concurrency:      input.Concurrency,
+		RPMLimit:         input.RPMLimit,
+		Status:           StatusActive,
+		AllowedGroups:    input.AllowedGroups,
+		ObserverGroupIDs: input.ObserverGroupIDs,
 
 		RestrictPublicGroups: input.RestrictPublicGroups,
 	}
@@ -219,9 +258,20 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		}
 	}
 
+	originalCtx := ctx
+	ctx, setupTx, err := s.beginObserverSetup(ctx, id, input)
+	if err != nil {
+		return nil, err
+	}
+	if setupTx != nil {
+		defer func() { _ = setupTx.Rollback() }()
+	}
 	user, err := s.userRepo.GetByID(ctx, id)
 	if err != nil {
 		return nil, err
+	}
+	if setupTx != nil && user.Role == RoleObserver {
+		return nil, infraerrors.Conflict("OBSERVER_SETUP_ALREADY_APPLIED", "Observer setup can only run when changing a non-observer user to observer")
 	}
 
 	// Protect admin users: cannot disable admin accounts
@@ -272,7 +322,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		}
 		// 防锁死保护：不允许降级系统中最后一个管理员（自我降级已在 handler 层拦截，
 		// 此处兜底覆盖跨管理员互降导致零 admin 的场景）。
-		if user.Role == RoleAdmin && role == RoleUser {
+		if user.Role == RoleAdmin && role != RoleAdmin {
 			if err := s.ensureNotLastAdmin(ctx); err != nil {
 				return nil, err
 			}
@@ -296,14 +346,64 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		fields.AllowedGroups = true
 	}
 
+	if input.ObserverGroupIDs != nil {
+		if err := s.validateGroupIDsExist(ctx, *input.ObserverGroupIDs); err != nil {
+			return nil, err
+		}
+		user.ObserverGroupIDs = *input.ObserverGroupIDs
+		fields.ObserverGroupIDs = true
+	}
+	if user.Role != RoleObserver && (fields.Role || fields.ObserverGroupIDs) {
+		user.ObserverGroupIDs = []int64{}
+		fields.ObserverGroupIDs = true
+	}
+
 	oldRestrictPublicGroups := user.RestrictPublicGroups
 	if input.RestrictPublicGroups != nil {
 		user.RestrictPublicGroups = *input.RestrictPublicGroups
 		fields.RestrictPublicGroups = true
 	}
+	var dedicatedGroupID int64
+	if setupTx != nil {
+		dedicatedGroupID, err = s.applyObserverSetup(ctx, user, &fields, input.ObserverSetup)
+		if err != nil {
+			return nil, err
+		}
+	}
 
 	if err := s.userRepo.Update(ctx, user, fields); err != nil {
 		return nil, err
+	}
+	concurrencyDiff := user.Concurrency - oldConcurrency
+	if setupTx != nil {
+		if input.ObserverSetup.GrantResources {
+			change, err := s.userRepo.AdjustBalance(ctx, user.ID, observerSetupBalanceGrant)
+			if err != nil {
+				return nil, err
+			}
+			user.Balance = change.New
+			if err := s.recordObserverAdjustment(ctx, user.ID, input.ActorAdminID, AdjustmentTypeAdminBalance, observerSetupBalanceGrant); err != nil {
+				return nil, err
+			}
+		}
+		if concurrencyDiff != 0 {
+			if err := s.recordObserverAdjustment(ctx, user.ID, input.ActorAdminID, AdjustmentTypeAdminConcurrency, float64(concurrencyDiff)); err != nil {
+				return nil, err
+			}
+		}
+		if err := setupTx.Commit(); err != nil {
+			return nil, err
+		}
+		ctx = originalCtx
+		logger.LegacyPrintf("service.admin", "audit: observer setup actor_admin_id=%d target_user_id=%d dedicated_group_id=%d revoke_public_groups=%t grant_resources=%t",
+			input.ActorAdminID, user.ID, dedicatedGroupID, input.ObserverSetup.RevokePublicGroups, input.ObserverSetup.GrantResources)
+		if input.ObserverSetup.GrantResources && s.billingCacheService != nil {
+			cacheCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+			defer cancel()
+			if err := s.billingCacheService.InvalidateUserBalance(cacheCtx, user.ID); err != nil {
+				logger.LegacyPrintf("service.admin", "invalidate observer balance cache failed: user_id=%d err=%v", user.ID, err)
+			}
+		}
 	}
 
 	// 角色变更属权限敏感操作，落审计日志（含操作者），便于事后追溯。
@@ -327,8 +427,7 @@ func (s *adminServiceImpl) UpdateUser(ctx context.Context, id int64, input *Upda
 		}
 	}
 
-	concurrencyDiff := user.Concurrency - oldConcurrency
-	if concurrencyDiff != 0 {
+	if concurrencyDiff != 0 && setupTx == nil {
 		code, err := GenerateRedeemCode()
 		if err != nil {
 			logger.LegacyPrintf("service.admin", "failed to generate adjustment redeem code: %v", err)
@@ -529,6 +628,9 @@ func (s *adminServiceImpl) BatchUpdateLimits(ctx context.Context, userIDs []int6
 }
 
 func (s *adminServiceImpl) UpdateUserBalance(ctx context.Context, userID int64, balance float64, operation string, notes string) (*User, error) {
+	if s.lottery != nil {
+		return s.updateUserBalanceLottery(ctx, userID, balance, operation, notes)
+	}
 	// 余额调整必须走原子接口：先读后整行写回会把并发的计费扣款覆盖掉。
 	var (
 		change BalanceChange
@@ -714,8 +816,15 @@ func (s *adminServiceImpl) GetUserUsageStats(ctx context.Context, userID int64, 
 // GetUserBalanceHistory returns paginated balance/concurrency change records for a user.
 func (s *adminServiceImpl) GetUserBalanceHistory(ctx context.Context, userID int64, page, pageSize int, codeType string) ([]RedeemCode, int64, float64, error) {
 	params := pagination.PaginationParams{Page: page, PageSize: pageSize}
-	if codeType == RedeemTypeAffiliateBalance {
-		codes, total, err := s.listAffiliateBalanceHistory(ctx, userID, params)
+	if codeType == RedeemTypeAffiliateBalance || codeType == BalanceHistoryTypeAutoCredit {
+		var codes []RedeemCode
+		var total int64
+		var err error
+		if codeType == BalanceHistoryTypeAutoCredit {
+			codes, total, err = s.listAutoCreditBalanceHistory(ctx, userID, params.Offset(), params.Limit())
+		} else {
+			codes, total, err = s.listAffiliateBalanceHistory(ctx, userID, params)
+		}
 		if err != nil {
 			return nil, 0, 0, err
 		}
@@ -757,13 +866,17 @@ func (s *adminServiceImpl) getAllUserBalanceHistory(ctx context.Context, userID 
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	codes := mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, params)
+	autoCreditCodes, autoCreditTotal, err := s.listAutoCreditBalanceHistory(ctx, userID, 0, needed)
+	if err != nil {
+		return nil, 0, 0, err
+	}
+	codes := mergeBalanceHistoryCodes(redeemCodes, affiliateCodes, params, autoCreditCodes)
 
 	totalRecharged, err := s.redeemCodeRepo.SumPositiveBalanceByUser(ctx, userID)
 	if err != nil {
 		return nil, 0, 0, err
 	}
-	return codes, redeemTotal + affiliateTotal, totalRecharged, nil
+	return codes, redeemTotal + affiliateTotal + autoCreditTotal, totalRecharged, nil
 }
 
 func (s *adminServiceImpl) listRedeemBalanceHistoryForMerge(ctx context.Context, userID int64, needed int) ([]RedeemCode, int64, error) {
@@ -900,8 +1013,11 @@ WHERE user_id = $1
 	return total.Int64, nil
 }
 
-func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes []RedeemCode, params pagination.PaginationParams) []RedeemCode {
+func mergeBalanceHistoryCodes(redeemCodes, affiliateCodes []RedeemCode, params pagination.PaginationParams, additional ...[]RedeemCode) []RedeemCode {
 	combined := append(append([]RedeemCode{}, redeemCodes...), affiliateCodes...)
+	for _, codes := range additional {
+		combined = append(combined, codes...)
+	}
 	sort.SliceStable(combined, func(i, j int) bool {
 		return redeemCodeHistoryTime(combined[i]).After(redeemCodeHistoryTime(combined[j]))
 	})

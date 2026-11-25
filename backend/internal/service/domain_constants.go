@@ -19,8 +19,9 @@ const (
 
 // Role constants
 const (
-	RoleAdmin = domain.RoleAdmin
-	RoleUser  = domain.RoleUser
+	RoleAdmin    = domain.RoleAdmin
+	RoleUser     = domain.RoleUser
+	RoleObserver = domain.RoleObserver
 )
 
 // Affiliate rebate settings
@@ -53,6 +54,8 @@ const (
 	PlatformTypeSafe    = domain.PlatformTypeSafe
 	PlatformCommandCode = domain.PlatformCommandCode
 	PlatformCline       = domain.PlatformCline
+	PlatformMistral     = domain.PlatformMistral
+	PlatformQwen        = domain.PlatformQwen
 	PlatformComposite   = domain.PlatformComposite
 	// PlatformKiro is retained for unsupported-platform threshold tests and legacy
 	// account rows. Scheduling-threshold evaluation never pauses kiro accounts.
@@ -92,7 +95,11 @@ const (
 	// Command Code Provider API：Chat Completions / Responses / models 共用 /provider/v1 基址。
 	DefaultCommandCodeBaseURL = "https://api.commandcode.ai/provider/v1"
 	// Cline API：只提供 Chat Completions（{base}/chat/completions）与模型列表。
-	DefaultClineBaseURL = "https://api.cline.bot/api/v1"
+	DefaultClineBaseURL     = "https://api.cline.bot/api/v1"
+	DefaultMistralBaseURL   = "https://api.mistral.ai/v1"
+	DefaultMistralTestModel = "mistral-small-latest"
+	DefaultQwenBaseURL      = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+	DefaultQwenTestModel    = "qwen3.8-max"
 )
 
 // 国产供应商 Anthropic 协议端点的默认 base_url（上游路径为 {base}/v1/messages）。
@@ -145,6 +152,7 @@ var AllowedSchedulingThresholdPlatforms = []string{
 	PlatformMiniMax,
 	PlatformOpenCodeGo,
 	PlatformCommandCode,
+	PlatformMistral,
 }
 
 // IsAllowedQuotaPlatform 报告 s 是否为合法的 quota platform 标识。
@@ -163,6 +171,7 @@ const (
 	AccountTypeSetupToken     = domain.AccountTypeSetupToken     // Setup Token类型账号（inference only scope）
 	AccountTypeAPIKey         = domain.AccountTypeAPIKey         // API Key类型账号
 	AccountTypeUpstream       = domain.AccountTypeUpstream       // 上游透传类型账号（通过 Base URL + API Key 连接上游）
+	AccountTypeGateway        = domain.AccountTypeGateway        // 跨平台 Sub2API / New API 网关账号
 	AccountTypeBedrock        = domain.AccountTypeBedrock        // AWS Bedrock 类型账号（通过 SigV4 签名或 API Key 连接 Bedrock，由 credentials.auth_mode 区分）
 	AccountTypeServiceAccount = domain.AccountTypeServiceAccount // Google Service Account 类型账号（用于 Vertex AI）
 )
@@ -218,32 +227,39 @@ const DingTalkConnectSyntheticEmailDomain = "@dingtalk-connect.invalid"
 // Setting keys
 const (
 	// 注册设置
-	SettingKeyRegistrationEnabled              = "registration_enabled"                // 是否开放注册
-	SettingKeyEmailVerifyEnabled               = "email_verify_enabled"                // 是否开启邮件验证
-	SettingKeyRegistrationEmailSuffixWhitelist = "registration_email_suffix_whitelist" // 注册邮箱后缀白名单（JSON 数组）
+	SettingKeyRegistrationEnabled                = "registration_enabled"                   // 是否开放注册
+	SettingKeyLoginRateLimitEnabled              = "login_rate_limit_enabled"               // 登录频率限制与失败 IP 封禁（默认开启）
+	SettingKeyRegistrationIPLimitEnabled         = "registration_ip_limit_enabled"          // 同一 IP 最多注册两个账号（默认开启）
+	SettingKeyEmailVerifyEnabled                 = "email_verify_enabled"                   // 是否开启邮件验证
+	SettingKeyRegistrationEmailSuffixWhitelist   = "registration_email_suffix_whitelist"    // 注册邮箱后缀白名单（JSON 数组）
+	SettingKeyRegistrationEmailAliasBlockEnabled = "registration_email_alias_block_enabled" // 屏蔽邮箱别名注册（默认开启）
 	// 白名单非空时，是否放行非白名单域名按主域名限量注册（每域名 1 个账户）。
 	// 默认 false：非白名单域名直接拒绝（白名单严格模式）。
 	SettingKeyRegistrationEmailDomainQuotaEnabled = "registration_email_domain_quota_enabled"
-	SettingKeyRegistrationEmailBlacklist          = "registration_email_blacklist"     // 注册邮箱精确黑名单（JSON 数组，按收件箱身份匹配；不进 SystemSettings，由专用接口读写）
-	SettingKeyPromoCodeEnabled                    = "promo_code_enabled"               // 是否启用优惠码功能
-	SettingKeyPasswordResetEnabled                = "password_reset_enabled"           // 是否启用忘记密码功能（需要先开启邮件验证）
-	SettingKeyFrontendURL                         = "frontend_url"                     // 前端基础URL，用于生成邮件中的重置密码链接
-	SettingKeyInvitationCodeEnabled               = "invitation_code_enabled"          // 是否启用邀请码注册
-	SettingKeyAffiliateEnabled                    = "affiliate_enabled"                // 邀请返利功能总开关
-	SettingKeyAffiliateRebateRate                 = "affiliate_rebate_rate"            // 邀请返利比例（百分比，0-100）
-	SettingKeyAffiliateRebateFreezeHours          = "affiliate_rebate_freeze_hours"    // 返利冻结期（小时，0=不冻结）
-	SettingKeyAffiliateRebateDurationDays         = "affiliate_rebate_duration_days"   // 返利有效期（天，0=永久）
-	SettingKeyAffiliateRebatePerInviteeCap        = "affiliate_rebate_per_invitee_cap" // 单人返利上限（0=无上限）
-	SettingKeyAffiliateAdminRechargeEnabled       = "affiliate_admin_recharge_enabled" // 管理员充值是否产生返利
-	SettingKeyRiskControlEnabled                  = "risk_control_enabled"             // 是否启用风控中心入口与审计链路
-	SettingKeyContentModerationConfig             = "content_moderation_config"        // 内容审计配置（JSON）
-	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"      // cyber 命中后会话级自动屏蔽总开关(默认关)
-	SettingKeyCyberPolicyUserAllowlist            = "cyber_policy_user_allowlist"      // Platform user IDs with log-only cyber handling
-	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds"  // 会话屏蔽 TTL 秒数(默认 3600)
-	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"          // 登录前是否要求同意条款
-	SettingKeyLoginAgreementMode                  = "login_agreement_mode"             // 条款确认展示模式：modal / checkbox
-	SettingKeyLoginAgreementUpdatedAt             = "login_agreement_updated_at"       // 条款更新日期（展示用）
-	SettingKeyLoginAgreementDocuments             = "login_agreement_documents"        // 条款文档列表（JSON，Markdown 内容）
+	SettingKeyRegistrationEmailBlacklist          = "registration_email_blacklist"          // 注册邮箱精确黑名单（JSON 数组，按收件箱身份匹配；不进 SystemSettings，由专用接口读写）
+	SettingKeyPromoCodeEnabled                    = "promo_code_enabled"                    // 是否启用优惠码功能
+	SettingKeyPasswordResetEnabled                = "password_reset_enabled"                // 是否启用忘记密码功能（需要先开启邮件验证）
+	SettingKeyFrontendURL                         = "frontend_url"                          // 前端基础URL，用于生成邮件中的重置密码链接
+	SettingKeyInvitationCodeEnabled               = "invitation_code_enabled"               // 是否启用邀请码注册
+	SettingKeyAffiliateEnabled                    = "affiliate_enabled"                     // 邀请返利功能总开关
+	SettingKeyAffiliateRebateRate                 = "affiliate_rebate_rate"                 // 邀请返利比例（百分比，0-100）
+	SettingKeyAffiliateRebateFreezeHours          = "affiliate_rebate_freeze_hours"         // 返利冻结期（小时，0=不冻结）
+	SettingKeyAffiliateRebateDurationDays         = "affiliate_rebate_duration_days"        // 返利有效期（天，0=永久）
+	SettingKeyAffiliateRebatePerInviteeCap        = "affiliate_rebate_per_invitee_cap"      // 单人返利上限（0=无上限）
+	SettingKeyAffiliateAdminRechargeEnabled       = "affiliate_admin_recharge_enabled"      // 管理员充值是否产生返利
+	SettingKeyRiskControlEnabled                  = "risk_control_enabled"                  // 是否启用风控中心入口与审计链路
+	SettingKeyContentModerationConfig             = "content_moderation_config"             // 内容审计配置（JSON）
+	SettingKeyCyberSessionBlockEnabled            = "cyber_session_block_enabled"           // cyber 命中后会话级自动屏蔽总开关(默认关)
+	SettingKeyCyberPolicyUserAllowlist            = "cyber_policy_user_allowlist"           // Platform user IDs with log-only cyber handling
+	SettingKeyCyberSessionBlockTTLSeconds         = "cyber_session_block_ttl_seconds"       // 会话屏蔽 TTL 秒数(默认 3600)
+	SettingKeyLoginAgreementEnabled               = "login_agreement_enabled"               // 登录前是否要求同意条款
+	SettingKeyLoginAgreementMode                  = "login_agreement_mode"                  // 条款确认展示模式：modal / checkbox
+	SettingKeyLoginAgreementUpdatedAt             = "login_agreement_updated_at"            // 条款更新日期（展示用）
+	SettingKeyLoginAgreementDocuments             = "login_agreement_documents"             // 条款文档列表（JSON，Markdown 内容）
+	SettingKeyCyberSessionIdentityStrictEnabled   = "cyber_session_identity_strict_enabled" // 要求可信显式会话身份(默认关，仅会话屏蔽开启时生效)
+	SettingKeySafetyPromptEnabled                 = "safety_prompt_enabled"                 // 原生安全提示词注入模块总开关(默认关)
+	SettingKeySafetyPromptSignalEnabled           = "safety_prompt_signal_enabled"          // 原生独立拒绝识别(默认关，仅模块开启时生效)
+	SettingKeySafetyPromptRetentionDays           = "safety_prompt_retention_days"          // 命中事件保留天数(默认 30，范围 1-90)
 
 	// 邮件服务设置
 	SettingKeySMTPHost     = "smtp_host"      // SMTP服务器地址
@@ -489,12 +505,14 @@ const (
 	SettingKeyChannelMonitorEnabled = "channel_monitor_enabled"
 
 	// SettingKeyChannelMonitorMode selects exclusive implementation:
-	// "v1" active probes, "v2" passive aggregation. Default "v1" (opt-in to v2).
+	// "v1" active probes, "v2" passive aggregation, "v3" component status page.
+	// Default "v1" (opt-in to v2/v3).
 	SettingKeyChannelMonitorMode = "channel_monitor_mode"
 
-	// ChannelMonitorModeV1/V2 are the only accepted mode values.
+	// ChannelMonitorModeV1/V2/V3 are the only accepted mode values.
 	ChannelMonitorModeV1 = "v1"
 	ChannelMonitorModeV2 = "v2"
+	ChannelMonitorModeV3 = "v3"
 
 	// SettingKeyChannelMonitorDefaultIntervalSeconds controls the default interval (seconds)
 	// pre-filled when creating a new channel monitor from the admin UI. Range: [15, 3600].
@@ -517,6 +535,13 @@ const (
 	// Default false (keep the current ranking tab). Admin endpoints always keep it.
 	SettingKeyChannelMonitorHideUserRanking = "channel_monitor_hide_user_ranking"
 
+	// Protocol-wide switches default on for BPS compatibility and off for Prism.
+	SettingKeyExcelBPSEnabled = "excel_bps_enabled"
+	// Prism browser bridge is administrator-managed and disabled by default.
+	SettingKeyPrismBrowserEnabled = "prism_browser_enabled"
+	SettingKeyPrismBrowserBaseURL = "prism_browser_base_url"
+	SettingKeyPrismBrowserAPIKey  = "prism_browser_api_key"
+
 	// SettingKeyGrokDefaultTextModel is the fallback Grok text model for empty
 	// request models and built-in Grok aliases (e.g. "grok" → this id). Default grok-4.5.
 	SettingKeyGrokDefaultTextModel = "grok_default_text_model"
@@ -530,6 +555,13 @@ const (
 	// Grok accounts without an explicit credentials.base_url.
 	SettingKeyGrokDefaultBaseURLMode = "grok_default_base_url_mode"
 
+	// SettingKeyGrokVideoSourceURLEnabled, when true, adds the validated xAI
+	// media URL as video.source_url to Grok video status responses. video.url
+	// stays the authenticated Sub2API content proxy. Default false.
+	SettingKeyGrokVideoSourceURLEnabled            = "grok_video_source_url_enabled"
+	SettingKeyOpenAI409OmitEncryptedHistoryEnabled = "openai_409_omit_encrypted_history_enabled"
+	SettingKeyOpenAI400OmitEncryptedHistoryEnabled = "openai_400_omit_encrypted_history_enabled"
+
 	// SettingKeyAvailableChannelsEnabled is a DB-backed soft switch for the "Available Channels"
 	// user-facing aggregate view. When false: user endpoint returns an empty list and the
 	// sidebar entry is hidden. Defaults to false (opt-in feature).
@@ -541,6 +573,12 @@ const (
 	SettingKeyNavigationItemVisibility      = "navigation_item_visibility"
 	SettingKeyUserSubscriptionsPageEnabled  = "user_subscriptions_page_enabled"
 	SettingKeyAdminSubscriptionsPageEnabled = "admin_subscriptions_page_enabled"
+
+	// SettingKeyPelicanShowcaseEnabled is a DB-backed soft switch for the user-facing
+	// Pelican gallery (scheduled Pelican HTML results of selected groups). When false the
+	// user endpoints return an empty gallery, the sidebar entry is hidden and no new
+	// snapshots are copied; cleanup keeps running. Defaults to false (opt-in feature).
+	SettingKeyPelicanShowcaseEnabled = "pelican_showcase_enabled"
 
 	// SettingKeySubscriptionEnabled is a DB-backed soft switch for the user-facing
 	// subscription surface: sidebar entries, purchase-page subscription tab, header
@@ -563,11 +601,19 @@ const (
 
 	// SettingKeyModelPlazaDescription stores the Markdown blurb rendered at the top of
 	// the Model Plaza page (global pricing notes, exchange rate, promotions, ...).
-	SettingKeyModelPlazaDescription = "model_plaza_description"
+	SettingKeyModelPlazaDescription  = "model_plaza_description"
+	SettingKeyModelPlazaUSDToCNYRate = "model_plaza_usd_to_cny_rate"
+	SettingKeyModelPlazaCurrency     = "model_plaza_currency"
 
 	// SettingKeyPluginManagementEnabled controls sidebar visibility only; it does
 	// not stop or otherwise change already loaded plugin runtimes.
 	SettingKeyPluginManagementEnabled = "plugin_management_enabled"
+
+	// SettingKeySupportTicketEnabled is a DB-backed soft switch for support tickets
+	// ("网站工单"). When false both user and admin endpoints answer
+	// SUPPORT_TICKET_DISABLED and the sidebar entries are hidden; stored tickets
+	// are kept. Defaults to false (opt-in feature).
+	SettingKeySupportTicketEnabled = "support_ticket_enabled"
 
 	// SettingKeyUpstreamBillingProbeSettings stores the global enable switch and interval
 	// for probing remote Sub2API API-key billing metadata.
@@ -592,6 +638,9 @@ const (
 	SettingKeyOpenAIImagesOAuthUnavailableCooldownSettings = "openai_images_oauth_unavailable_cooldown_settings"
 	// SettingKeyOpenAIAPIKeyHealthBreakerSettings stores the opt-in OpenAI pool API-key breaker config.
 	SettingKeyOpenAIAPIKeyHealthBreakerSettings = "openai_apikey_health_breaker_settings"
+	// SettingKeyOpenAIResponseHeaderTimeoutSettings stores the admin-configurable
+	// OpenAI/Codex response-header timeout and enable toggle.
+	SettingKeyOpenAIResponseHeaderTimeoutSettings = "openai_response_header_timeout_settings"
 
 	// =========================
 	// Stream Timeout Handling
@@ -725,11 +774,8 @@ const (
 	SettingKeyOpenAIStickyEscapeTTFTMs                  = "openai_sticky_escape_ttft_ms"
 	SettingKeyOpenAIStickyEscapeErrorRate               = "openai_sticky_escape_error_rate"
 	SettingKeyGatewayPlatformEnabled                    = "gateway_platform_enabled"
-	// SettingKeyOpenAICodexTicketEnabled Codex 292/332 打票总开关（后台可改、热更新）。
-	// 关闭：不打票、不注入 x-codex-turn-state，按原链路转发。
-	// 开启：后台打票并在业务请求中覆盖该头。
-
-	// SettingKeyOpenAICodexTicketHarvestProxyURL Codex 292 打票出口（socks5h/http），后台可改、热更新。
+	SettingKeyOpenAIRequestTimezoneEnabled              = "openai_request_timezone_enabled"
+	SettingKeyOpenAIRequestTimezoneAuto                 = "openai_request_timezone_auto"
 	// SettingKeyClaudeCodeClientVersion 网关对 Anthropic 上游声明的 Claude Code CLI 客户端版本号（管理员覆写）。
 	// 空值表示跟随自动同步值；自动同步也没有结果时回退到 claude.CLIVersion()（环境变量覆盖 + 内置基线）。
 	// 版本太旧会被 Anthropic 拒绝（claude_code_version_too_old），故该值需保持跟随官方发布。
@@ -785,3 +831,20 @@ const AdminAPIKeyPrefix = "admin-"
 // SettingKeyAllowUserViewErrorRequests controls whether end users can view
 // their own failed requests on the usage page. Default false (opt-in).
 const SettingKeyAllowUserViewErrorRequests = "allow_user_view_error_requests"
+
+// SettingKeyUsageShowLongContextBadge controls whether the long-context
+// billing "x2" badge is shown next to the cost in usage tables. Default
+// true (opt-out).
+const SettingKeyUsageShowLongContextBadge = "usage_show_long_context_badge"
+
+// SettingKeyUsageShowCacheRate controls the per-request cache-rate row in
+// usage records. Default true. SettingKeyUsageShowCacheRateToUsers controls
+// whether end users see that row; default false (admin only).
+const SettingKeyUsageShowCacheRate = "usage_show_cache_rate"
+const SettingKeyUsageShowCacheRateToUsers = "usage_show_cache_rate_to_users"
+
+// SettingKeyUsageShowUpstreamResponseModelToUsers controls whether end users
+// can see the model declared by the upstream response on their own usage
+// records. Default false. Admins always see it. This does not change billing
+// or the client-facing model rewritten into gateway responses.
+const SettingKeyUsageShowUpstreamResponseModelToUsers = "usage_show_upstream_response_model_to_users"

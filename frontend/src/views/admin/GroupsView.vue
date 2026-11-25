@@ -17,7 +17,8 @@
                 v-model="searchQuery"
                 type="text"
                 :placeholder="t('admin.groups.searchGroups')"
-                class="input pl-10"
+                class="input scroll-mt-20 pl-10"
+                @focus="handleSearchFocus"
                 @input="handleSearch"
               />
             </div>
@@ -124,10 +125,22 @@
           default-sort-order="asc"
           @sort="handleSort"
         >
-          <template #cell-name="{ value }">
+          <template #cell-name="{ value, row }">
             <span class="font-medium text-gray-900 dark:text-white">{{
               value
             }}</span>
+            <span
+              v-if="row.codex_cli_only"
+              class="badge badge-warning ml-2"
+              data-testid="group-codex-cli-only-badge"
+              >{{ t("admin.groups.form.codexCLIOnly") }}</span
+            >
+            <span
+              v-if="row.stream_only"
+              class="badge badge-warning ml-2"
+              data-testid="group-stream-only-badge"
+              >{{ t("admin.groups.form.streamOnlyBadge") }}</span
+            >
           </template>
 
           <template #cell-id="{ value }">
@@ -443,6 +456,17 @@
                 }}</span>
               </button>
               <button
+                v-if="!authStore.isSimpleMode"
+                data-testid="group-user-denied-models"
+                @click="handleUserDeniedModels(row)"
+                class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-600 dark:hover:bg-dark-700 dark:hover:text-red-400"
+              >
+                <Icon name="ban" size="sm" />
+                <span class="text-xs">{{
+                  t("admin.groups.userDeniedModels")
+                }}</span>
+              </button>
+              <button
                 @click="handleDelete(row)"
                 class="flex flex-col items-center gap-0.5 rounded-lg p-1.5 text-gray-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20 dark:hover:text-red-400"
               >
@@ -520,6 +544,7 @@
             @change="createForm.copy_accounts_from_group_ids = []"
           />
           <p class="input-hint">{{ t("admin.groups.platformHint") }}</p>
+          <QwenPlatformNotice :user-id="authStore.user?.id" />
         </div>
         <!-- 从分组复制账号 -->
         <div v-if="!authStore.isSimpleMode && copyAccountsGroupOptions.length > 0">
@@ -649,6 +674,50 @@
             :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
+        </div>
+        <div v-if="createForm.platform === 'openai'" class="rounded-lg border border-gray-200 p-4 dark:border-dark-600">
+          <div class="flex flex-wrap items-center gap-2">
+            <h4 class="text-sm font-medium text-gray-900 dark:text-gray-100">{{ t("admin.groups.antiDistillation.title") }}</h4>
+            <NewFeatureBadge
+              v-if="authStore.user?.id != null"
+              :notice-id="NEW_FEATURE_NOTICES.groupAntiDistillation"
+              :user-id="authStore.user?.id"
+            />
+          </div>
+          <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.antiDistillation.createHint") }}</p>
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.codexCLIOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.codexCLIOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-codex-cli-only"
+            :aria-label="t('admin.groups.form.codexCLIOnly')"
+            v-model="createForm.codex_cli_only"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.blockSubagents") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.blockSubagentsHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-block-subagents"
+            :aria-label="t('admin.groups.form.blockSubagents')"
+            v-model="createForm.block_subagents"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.streamOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.streamOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="create-stream-only"
+            :aria-label="t('admin.groups.form.streamOnly')"
+            v-model="createForm.stream_only"
+          />
         </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(createForm.platform)"
@@ -1013,8 +1082,65 @@
               </div>
             </div>
           </div>
+          <div v-if="createForm.platform === 'gemini' && createForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+            <label
+              class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              <input
+                v-model="createForm.allow_batch_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowBatchImageGeneration") }}
+            </label>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.imagePricing.batchSectionHint") }}
+            </p>
+            <div
+              v-if="createForm.allow_batch_image_generation"
+              class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.imagePricing.batchDiscountMultiplier")
+                }}</label>
+                <input
+                  v-model.number="createForm.batch_image_discount_multiplier"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  class="input"
+                  placeholder="0.5"
+                />
+              </div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.imagePricing.batchHoldMultiplier")
+                }}</label>
+                <input
+                  v-model.number="createForm.batch_image_hold_multiplier"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  class="input"
+                  placeholder="0.6"
+                />
+              </div>
+            </div>
+          </div>
+          <p
+            v-else-if="createForm.platform !== 'gemini'"
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
+          >
+            {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
+          </p>
         </div>
 
+        <MiniMaxH3VideoPricing
+          v-if="createForm.platform === 'minimax'"
+          v-model="createForm.video_model_prices"
+          :multiplier="createForm.rate_multiplier"
+        />
         <!-- 视频生成计费配置（仅 Grok 平台） -->
         <div
           v-if="supportsVideoPricingPlatform(createForm.platform)"
@@ -1464,7 +1590,7 @@
             <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
           </label>
           <div class="mt-3 space-y-2">
-            <PricingEntryCard v-for="(entry, index) in createForm.model_pricing" :key="index" :entry="entry" :platform="createForm.platform" hide-token-intervals @update="createForm.model_pricing[index] = $event" @remove="createForm.model_pricing.splice(index, 1)" />
+            <PricingEntryCard :notice-user-id="authStore.user?.id" v-for="(entry, index) in createForm.model_pricing" :key="index" :entry="entry" :platform="createForm.platform" hide-token-intervals @update="createForm.model_pricing[index] = $event" @remove="createForm.model_pricing.splice(index, 1)" />
           </div>
         </div>
 
@@ -1541,6 +1667,7 @@
           <div>
             <label class="input-label" for="create-force-openai-service-tier">
               {{ t("admin.groups.openaiFast.force") }}
+              <NewFeatureBadge v-if="authStore.user?.id != null" :notice-id="NEW_FEATURE_NOTICES.groupForceUltrafast" :user-id="authStore.user?.id" />
             </label>
             <Select
               id="create-force-openai-service-tier"
@@ -1570,9 +1697,16 @@
             {{ t("admin.groups.openaiFast.freeHint") }}
           </p>
           <div class="flex items-center justify-between gap-4 mt-4">
-            <label class="text-sm text-gray-600 dark:text-gray-400">
-              {{ t("admin.groups.openaiFast.freeUltrafast") }}
-            </label>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.freeUltrafast") }}
+              </label>
+              <NewFeatureBadge
+                v-if="authStore.user?.id != null"
+                :notice-id="NEW_FEATURE_NOTICES.groupFreeUltrafast"
+                :user-id="authStore.user?.id"
+              />
+            </div>
             <Toggle
               data-testid="create-free-openai-ultrafast"
               :aria-label="t('admin.groups.openaiFast.freeUltrafast')"
@@ -2154,6 +2288,7 @@
             data-tour="group-form-platform"
           />
           <p class="input-hint">{{ t("admin.groups.platformNotEditable") }}</p>
+          <QwenPlatformNotice v-if="editForm.platform === 'qwen'" :user-id="authStore.user?.id" />
         </div>
         <GroupSmartWSFields
           v-if="showEditModal && editForm.platform === 'openai'"
@@ -2290,6 +2425,45 @@
             :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
+        </div>
+        <GroupAntiDistillationSettings
+          v-if="editForm.platform === 'openai'"
+          :group-id="editingGroup.id"
+          :user-id="authStore.user?.id"
+          :active="showEditModal"
+        />
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.codexCLIOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.codexCLIOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-codex-cli-only"
+            :aria-label="t('admin.groups.form.codexCLIOnly')"
+            v-model="editForm.codex_cli_only"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.blockSubagents") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.blockSubagentsHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-block-subagents"
+            :aria-label="t('admin.groups.form.blockSubagents')"
+            v-model="editForm.block_subagents"
+          />
+        </div>
+        <div class="flex items-start justify-between gap-4">
+          <div>
+            <label class="input-label">{{ t("admin.groups.form.streamOnly") }}</label>
+            <p class="input-hint">{{ t("admin.groups.form.streamOnlyHint") }}</p>
+          </div>
+          <Toggle
+            data-testid="edit-stream-only"
+            :aria-label="t('admin.groups.form.streamOnly')"
+            v-model="editForm.stream_only"
+          />
         </div>
         <ReasoningEffortPolicyFields
           v-if="supportsReasoningEffortPolicyPlatform(editForm.platform)"
@@ -2656,8 +2830,65 @@
               </div>
             </div>
           </div>
+          <div v-if="editForm.platform === 'gemini' && editForm.allow_image_generation" class="mt-4 border-t border-dashed border-gray-200 pt-4 dark:border-dark-700">
+            <label
+              class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
+            >
+              <input
+                v-model="editForm.allow_batch_image_generation"
+                type="checkbox"
+                class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+              />
+              {{ t("admin.groups.imagePricing.allowBatchImageGeneration") }}
+            </label>
+            <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+              {{ t("admin.groups.imagePricing.batchSectionHint") }}
+            </p>
+            <div
+              v-if="editForm.allow_batch_image_generation"
+              class="mt-3 grid grid-cols-1 gap-3 md:grid-cols-2"
+            >
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.imagePricing.batchDiscountMultiplier")
+                }}</label>
+                <input
+                  v-model.number="editForm.batch_image_discount_multiplier"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  class="input"
+                  placeholder="0.5"
+                />
+              </div>
+              <div>
+                <label class="input-label">{{
+                  t("admin.groups.imagePricing.batchHoldMultiplier")
+                }}</label>
+                <input
+                  v-model.number="editForm.batch_image_hold_multiplier"
+                  type="number"
+                  step="0.0001"
+                  min="0"
+                  class="input"
+                  placeholder="0.6"
+                />
+              </div>
+            </div>
+          </div>
+          <p
+            v-else-if="editForm.platform !== 'gemini'"
+            class="mt-4 border-t border-dashed border-gray-200 pt-4 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400"
+          >
+            {{ t("admin.groups.imagePricing.batchGeminiOnlyHint") }}
+          </p>
         </div>
 
+        <MiniMaxH3VideoPricing
+          v-if="editForm.platform === 'minimax'"
+          v-model="editForm.video_model_prices"
+          :multiplier="editForm.rate_multiplier"
+        />
         <!-- 视频生成计费配置（仅 Grok 平台） -->
         <div
           v-if="supportsVideoPricingPlatform(editForm.platform)"
@@ -3119,7 +3350,7 @@
             <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
           </label>
           <div class="mt-3 space-y-2">
-            <PricingEntryCard v-for="(entry, index) in editForm.model_pricing" :key="index" :entry="entry" :platform="editForm.platform" hide-token-intervals @update="editForm.model_pricing[index] = $event" @remove="editForm.model_pricing.splice(index, 1)" />
+            <PricingEntryCard :notice-user-id="authStore.user?.id" v-for="(entry, index) in editForm.model_pricing" :key="index" :entry="entry" :platform="editForm.platform" hide-token-intervals @update="editForm.model_pricing[index] = $event" @remove="editForm.model_pricing.splice(index, 1)" />
           </div>
         </div>
 
@@ -3196,6 +3427,7 @@
           <div>
             <label class="input-label" for="edit-force-openai-service-tier">
               {{ t("admin.groups.openaiFast.force") }}
+              <NewFeatureBadge v-if="authStore.user?.id != null" :notice-id="NEW_FEATURE_NOTICES.groupForceUltrafast" :user-id="authStore.user?.id" />
             </label>
             <Select
               id="edit-force-openai-service-tier"
@@ -3225,9 +3457,16 @@
             {{ t("admin.groups.openaiFast.freeHint") }}
           </p>
           <div class="flex items-center justify-between gap-4 mt-4">
-            <label class="text-sm text-gray-600 dark:text-gray-400">
-              {{ t("admin.groups.openaiFast.freeUltrafast") }}
-            </label>
+            <div class="flex items-center gap-2">
+              <label class="text-sm text-gray-600 dark:text-gray-400">
+                {{ t("admin.groups.openaiFast.freeUltrafast") }}
+              </label>
+              <NewFeatureBadge
+                v-if="authStore.user?.id != null"
+                :notice-id="NEW_FEATURE_NOTICES.groupFreeUltrafast"
+                :user-id="authStore.user?.id"
+              />
+            </div>
             <Toggle
               data-testid="edit-free-openai-ultrafast"
               :aria-label="t('admin.groups.openaiFast.freeUltrafast')"
@@ -4265,10 +4504,19 @@
       @close="showRPMOverridesModal = false"
       @success="loadGroups"
     />
+
+    <!-- Group User Denied Models Modal -->
+    <GroupUserDeniedModelsModal
+      :show="showUserDeniedModelsModal"
+      :group="userDeniedModelsGroup"
+      @close="showUserDeniedModelsModal = false"
+      @success="loadGroups"
+    />
   </AppLayout>
 </template>
 
 <script setup lang="ts">
+import QwenPlatformNotice from '@/components/common/QwenPlatformNotice.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { useAppStore } from "@/stores/app";
@@ -4294,6 +4542,7 @@ import {
 } from "@/constants/platforms";
 import type { Column } from "@/components/common/types";
 import AppLayout from "@/components/layout/AppLayout.vue";
+import MiniMaxH3VideoPricing from "./MiniMaxH3VideoPricing.vue";
 import TablePageLayout from "@/components/layout/TablePageLayout.vue";
 import DataTable from "@/components/common/DataTable.vue";
 import Pagination from "@/components/common/Pagination.vue";
@@ -4311,6 +4560,10 @@ import GroupI18nField from "@/components/admin/group/GroupI18nField.vue";
 import GroupRateMultipliersModal from "@/components/admin/group/GroupRateMultipliersModal.vue";
 import GroupRPMOverridesModal from "@/components/admin/group/GroupRPMOverridesModal.vue";
 import GroupSmartWSFields from "@/components/admin/group/GroupSmartWSFields.vue";
+import GroupAntiDistillationSettings from "@/components/admin/group/GroupAntiDistillationSettings.vue";
+import NewFeatureBadge from "@/components/common/NewFeatureBadge.vue";
+import { NEW_FEATURE_NOTICES } from "@/constants/newFeatureNotices";
+import GroupUserDeniedModelsModal from "@/components/admin/group/GroupUserDeniedModelsModal.vue";
 import GroupCapacityBadge from "@/components/common/GroupCapacityBadge.vue";
 import ReasoningEffortPolicyFields from "@/components/admin/group/ReasoningEffortPolicyFields.vue";
 import CodexManifestAccountsField from "@/components/admin/group/CodexManifestAccountsField.vue";
@@ -4433,6 +4686,7 @@ const groupPricingFromAPI = (
       : null,
     image_input_price: perTokenToMTok(entry.image_input_price),
     image_output_price: perTokenToMTok(entry.image_output_price),
+
     per_request_price: entry.per_request_price,
     intervals: apiIntervalsToForm(entry.intervals || []),
     time_pricing: createDefaultTimePricingForm(),
@@ -4459,6 +4713,7 @@ const groupPricingToAPI = (
       ),
       image_input_price: mTokToPerToken(entry.image_input_price),
       image_output_price: mTokToPerToken(entry.image_output_price),
+
       per_request_price: toNullableNumber(entry.per_request_price),
       intervals:
         entry.billing_mode === "token"
@@ -4870,6 +5125,8 @@ const rateMultipliersGroup = ref<AdminGroup | null>(null);
 const showRPMOverridesModal = ref(false);
 const editSmartWSRef = ref<InstanceType<typeof GroupSmartWSFields> | null>(null);
 const rpmOverridesGroup = ref<AdminGroup | null>(null);
+const showUserDeniedModelsModal = ref(false);
+const userDeniedModelsGroup = ref<AdminGroup | null>(null);
 const sortableGroups = ref<AdminGroup[]>([]);
 type ConcreteGroupPlatform = Exclude<GroupPlatform, "composite">;
 type CompositeRouteFormState = {
@@ -4985,9 +5242,12 @@ const createForm = reactive({
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
+  allow_batch_image_generation: false,
   image_count_billing: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
+  batch_image_discount_multiplier: 0.5,
+  batch_image_hold_multiplier: 0.6,
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
@@ -5028,6 +5288,10 @@ const createForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // 仅允许流式请求
+  stream_only: false,
+  codex_cli_only: false,
+  block_subagents: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5352,9 +5616,12 @@ const editForm = reactive({
   model_pricing: [] as PricingFormEntry[],
   // 图片生成计费配置
   allow_image_generation: false,
+  allow_batch_image_generation: false,
   image_count_billing: false,
   image_rate_independent: false,
   image_rate_multiplier: 1,
+  batch_image_discount_multiplier: 0.5,
+  batch_image_hold_multiplier: 0.6,
   image_price_1k: null as number | null,
   image_price_2k: null as number | null,
   image_price_4k: null as number | null,
@@ -5396,6 +5663,10 @@ const editForm = reactive({
   // 账号过滤控制（OpenAI/Antigravity 平台）
   require_oauth_only: false,
   require_privacy_set: false,
+  // 仅允许流式请求
+  stream_only: false,
+  codex_cli_only: false,
+  block_subagents: false,
   // 模型路由开关
   model_routing_enabled: false,
   // 支持的模型系列（仅 antigravity 平台）
@@ -5415,10 +5686,13 @@ const editForm = reactive({
 type ImagePricingFormState = {
   platform: GroupPlatform;
   allow_image_generation: boolean;
+  allow_batch_image_generation: boolean;
   image_count_billing: boolean;
   rate_multiplier: number;
   image_rate_independent: boolean;
   image_rate_multiplier: number;
+  batch_image_discount_multiplier: number;
+  batch_image_hold_multiplier: number;
   image_price_1k: number | string | null;
   image_price_2k: number | string | null;
   image_price_4k: number | string | null;
@@ -5557,9 +5831,24 @@ const editWebSearchFinalPricePreview = computed(() =>
   buildWebSearchFinalPricePreview(editForm),
 );
 
-const resetDisabledImageCountBilling = (
-  form: Pick<ImagePricingFormState, "platform" | "allow_image_generation" | "image_count_billing">,
+const resetDisabledBatchImagePricing = (
+  form: Pick<
+    ImagePricingFormState,
+    | "platform"
+    | "allow_image_generation"
+    | "allow_batch_image_generation"
+    | "image_count_billing"
+    | "batch_image_discount_multiplier"
+    | "batch_image_hold_multiplier"
+  >,
 ) => {
+  if (form.platform !== "gemini" || !form.allow_image_generation) {
+    form.allow_batch_image_generation = false;
+  }
+  if (!form.allow_batch_image_generation) {
+    form.batch_image_discount_multiplier = 0.5;
+    form.batch_image_hold_multiplier = 0.6;
+  }
   if (
     !form.allow_image_generation ||
     (form.platform !== "composite" && form.platform !== "openai")
@@ -5755,6 +6044,15 @@ const loadCapacitySummary = async () => {
   }
 };
 
+const handleSearchFocus = (event: FocusEvent) => {
+  const input = event.target as HTMLInputElement;
+  const topInset = parseFloat(getComputedStyle(input).scrollMarginTop) || 0;
+  // Nearest scrolling can leave an input inside the viewport but behind AppHeader.
+  if (input.getBoundingClientRect().top < topInset) {
+    input.scrollIntoView({ block: "start", behavior: "auto" });
+  }
+};
+
 let searchTimeout: ReturnType<typeof setTimeout>;
 const handleSearch = () => {
   clearTimeout(searchTimeout);
@@ -5809,9 +6107,12 @@ const closeCreateModal = () => {
   createForm.weekly_limit_usd = null;
   createForm.monthly_limit_usd = null;
   createForm.allow_image_generation = false;
+  createForm.allow_batch_image_generation = false;
   createForm.image_count_billing = false;
   createForm.image_rate_independent = false;
   createForm.image_rate_multiplier = 1;
+  createForm.batch_image_discount_multiplier = 0.5;
+  createForm.batch_image_hold_multiplier = 0.6;
   createForm.image_price_1k = null;
   createForm.image_price_2k = null;
   createForm.image_price_4k = null;
@@ -5846,6 +6147,9 @@ const closeCreateModal = () => {
   createForm.allow_live = false;
   createForm.require_oauth_only = false;
   createForm.require_privacy_set = false;
+  createForm.stream_only = false;
+  createForm.codex_cli_only = false;
+  createForm.block_subagents = false;
   createForm.supported_model_scopes = ["claude", "gemini_text", "gemini_image"];
   createForm.mcp_xml_inject = true;
   createForm.copy_accounts_from_group_ids = [];
@@ -5913,7 +6217,6 @@ const validateGroupReasoningMultipliers = (pricing: PricingFormEntry[]): boolean
 };
 
 const handleCreateGroup = async () => {
-  resetDisabledImageCountBilling(createForm);
   if (!createForm.name.trim()) {
     appStore.showError(t("admin.groups.nameRequired"));
     return;
@@ -6020,6 +6323,13 @@ const handleCreateGroup = async () => {
     requestData.image_rate_multiplier = normalizeRateMultiplier(
       requestData.image_rate_multiplier,
     );
+    resetDisabledBatchImagePricing(requestData);
+    requestData.batch_image_discount_multiplier = normalizeRateMultiplier(
+      requestData.batch_image_discount_multiplier,
+    );
+    requestData.batch_image_hold_multiplier = normalizeRateMultiplier(
+      requestData.batch_image_hold_multiplier,
+    );
     requestData.video_rate_multiplier = normalizeRateMultiplier(
       requestData.video_rate_multiplier,
     );
@@ -6104,9 +6414,14 @@ const handleEdit = async (group: AdminGroup) => {
   editForm.free_openai_ultrafast = group.free_openai_ultrafast ?? false;
   editForm.model_pricing = groupPricingFromAPI(group.model_pricing);
   editForm.allow_image_generation = group.allow_image_generation ?? false;
+  editForm.allow_batch_image_generation =
+    group.allow_batch_image_generation ?? false;
   editForm.image_count_billing = group.image_count_billing ?? false;
   editForm.image_rate_independent = group.image_rate_independent ?? false;
   editForm.image_rate_multiplier = group.image_rate_multiplier ?? 1;
+  editForm.batch_image_discount_multiplier =
+    group.batch_image_discount_multiplier ?? 0.5;
+  editForm.batch_image_hold_multiplier = group.batch_image_hold_multiplier ?? 0.6;
   editForm.image_price_1k = group.image_price_1k;
   editForm.image_price_2k = group.image_price_2k;
   editForm.image_price_4k = group.image_price_4k;
@@ -6153,6 +6468,9 @@ const handleEdit = async (group: AdminGroup) => {
     messagesDispatchFormState.exact_model_mappings;
   editForm.require_oauth_only = group.require_oauth_only ?? false;
   editForm.require_privacy_set = group.require_privacy_set ?? false;
+  editForm.stream_only = group.stream_only ?? false;
+  editForm.codex_cli_only = group.codex_cli_only ?? false;
+  editForm.block_subagents = group.block_subagents ?? false;
   editForm.model_routing_enabled = group.model_routing_enabled || false;
   editForm.supported_model_scopes = group.supported_model_scopes || [
     "claude",
@@ -6253,7 +6571,6 @@ const closeEditModal = () => {
 };
 
 const handleUpdateGroup = async () => {
-  resetDisabledImageCountBilling(editForm);
   if (!editingGroup.value || submitting.value) return;
   if (editSmartWSRef.value && !editSmartWSRef.value.validate()) return;
   if (editStrictFailoverRef.value && !editStrictFailoverRef.value.validate()) return;
@@ -6383,6 +6700,13 @@ const handleUpdateGroup = async () => {
     payload.image_rate_multiplier = normalizeRateMultiplier(
       payload.image_rate_multiplier,
     );
+    resetDisabledBatchImagePricing(payload);
+    payload.batch_image_discount_multiplier = normalizeRateMultiplier(
+      payload.batch_image_discount_multiplier,
+    );
+    payload.batch_image_hold_multiplier = normalizeRateMultiplier(
+      payload.batch_image_hold_multiplier,
+    );
     payload.video_rate_multiplier = normalizeRateMultiplier(
       payload.video_rate_multiplier,
     );
@@ -6484,6 +6808,11 @@ const handleRateMultipliers = (group: AdminGroup) => {
 const handleRPMOverrides = (group: AdminGroup) => {
   rpmOverridesGroup.value = group;
   showRPMOverridesModal.value = true;
+};
+
+const handleUserDeniedModels = (group: AdminGroup) => {
+  userDeniedModelsGroup.value = group;
+  showUserDeniedModelsModal.value = true;
 };
 
 const handleDuplicate = async (group: AdminGroup) => {
@@ -6709,15 +7038,7 @@ const confirmDelete = async () => {
   }
 };
 
-watch(
-  () => [createForm.platform, createForm.allow_image_generation],
-  () => resetDisabledImageCountBilling(createForm),
-);
 
-watch(
-  () => [editForm.platform, editForm.allow_image_generation],
-  () => resetDisabledImageCountBilling(editForm),
-);
 
 // 监听 subscription_type 变化，订阅模式时 is_exclusive 默认为 true；标准模式清空高峰配置
 watch(
@@ -6790,8 +7111,37 @@ watch(
       createForm.require_privacy_set = false;
     }
     createForm.allow_image_generation = defaultAllowImageGenerationForPlatform(newVal);
+    resetDisabledBatchImagePricing(createForm);
     resetModelAllowlistState(createModelAllowlistState);
     loadModelAllowlistCandidates("create", 0, newVal);
+  },
+);
+
+watch(
+  () => createForm.allow_image_generation,
+  () => {
+    resetDisabledBatchImagePricing(createForm);
+  },
+);
+
+watch(
+  () => createForm.allow_batch_image_generation,
+  () => {
+    resetDisabledBatchImagePricing(createForm);
+  },
+);
+
+watch(
+  () => editForm.allow_image_generation,
+  () => {
+    resetDisabledBatchImagePricing(editForm);
+  },
+);
+
+watch(
+  () => editForm.allow_batch_image_generation,
+  () => {
+    resetDisabledBatchImagePricing(editForm);
   },
 );
 
@@ -6836,6 +7186,7 @@ watch(
       editForm.require_oauth_only = false;
       editForm.require_privacy_set = false;
     }
+    resetDisabledBatchImagePricing(editForm);
     if (editingGroup.value) {
       resetModelAllowlistState(editModelAllowlistState, editForm.platform === editingGroup.value.platform ? editingGroup.value.model_allowlist : undefined);
       loadModelAllowlistCandidates("edit", editingGroup.value.id, newVal);

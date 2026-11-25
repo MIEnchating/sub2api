@@ -129,6 +129,14 @@ func TestCCFallbackStreamPreservesCompatibleCompletions(t *testing.T) {
 				result, err, c, rec := runCCStreamValidationForward(t, protocol, io.NopCloser(strings.NewReader(tc.stream)), nil)
 				require.NoError(t, err)
 				require.NotNil(t, result)
+				if protocol == "responses" && (tc.name == "reasoning only" || tc.name == "reasoning alias") {
+					require.NotNil(t, result.FirstTokenMs)
+					require.Equal(t, 1, strings.Count(rec.Body.String(), "event: response.failed"))
+					require.Contains(t, rec.Body.String(), "upstream_reasoning_only")
+					require.NotContains(t, rec.Body.String(), "event: response.completed")
+					require.NotContains(t, rec.Body.String(), tc.visible)
+					return
+				}
 				if tc.visible != "" {
 					require.Contains(t, rec.Body.String(), tc.visible)
 				}

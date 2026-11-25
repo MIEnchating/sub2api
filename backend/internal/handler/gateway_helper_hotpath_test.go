@@ -312,7 +312,7 @@ func TestAcquireUserSlotWithWait_ImmediateAcquireSkipsWaitQueue(t *testing.T) {
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 0, 0, time.Second, false, &streamStarted)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	release()
@@ -333,7 +333,7 @@ func TestAcquireUserSlotWithWait_UsesAPIKeyGroupConcurrency(t *testing.T) {
 	})
 	streamStarted := false
 
-	release, err := helper.AcquireUserSlotWithWait(c, 202, 5, false, &streamStarted)
+	release, err := helper.AcquireUserSlotWithWait(c, 202, 5, 77, 0, false, &streamStarted)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	release()
@@ -355,7 +355,7 @@ func TestAcquireUserSlotWithWait_TracksAPIKeySlot(t *testing.T) {
 	c.Set(string(middleware2.ContextKeyAPIKey), &service.APIKey{ID: 77})
 	streamStarted := false
 
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 77, 0, time.Second, false, &streamStarted)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 	require.Equal(t, 1, cache.apiKeyTrackCalls)
@@ -374,7 +374,7 @@ func TestTryAcquireUserSlotForAPIKey_TracksAPIKeySlot(t *testing.T) {
 	concurrency := service.NewConcurrencyService(cache)
 	helper := NewConcurrencyHelper(concurrency, SSEPingFormatNone, 5*time.Millisecond)
 
-	release, acquired, err := helper.TryAcquireUserSlotForAPIKey(context.Background(), 202, 3, 77)
+	release, acquired, err := helper.TryAcquireUserSlotForAPIKey(context.Background(), 202, 3, 77, 0)
 	require.NoError(t, err)
 	require.True(t, acquired)
 	require.NotNil(t, release)
@@ -397,7 +397,7 @@ func TestAcquireUserSlotWithWait_WaitSuccessDecrementsBeforeReturn(t *testing.T)
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 0, 0, time.Second, false, &streamStarted)
 	require.NoError(t, err)
 	require.NotNil(t, release)
 
@@ -420,7 +420,7 @@ func TestAcquireUserSlotWithWait_TimeoutDecrementsWaitQueue(t *testing.T) {
 	c, _ := newHelperTestContext(http.MethodPost, "/v1/messages")
 	streamStarted := false
 
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 30*time.Millisecond, false, &streamStarted)
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 0, 0, 30*time.Millisecond, false, &streamStarted)
 	require.Nil(t, release)
 	var cErr *ConcurrencyError
 	require.ErrorAs(t, err, &cErr)
@@ -450,7 +450,7 @@ func TestAcquireUserSlotWithWait_RequestCancelDecrementsWaitQueue(t *testing.T) 
 	c.Request = c.Request.WithContext(reqCtx)
 	streamStarted := false
 
-	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, time.Second, false, &streamStarted)
+	release, err := helper.acquireUserSlotWithWaitTimeout(c, 202, 3, 0, 0, time.Second, false, &streamStarted)
 	<-cancelled
 	require.Nil(t, release)
 	require.ErrorIs(t, err, context.Canceled)

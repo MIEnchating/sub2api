@@ -8,6 +8,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/robfig/cron/v3"
 )
@@ -213,6 +214,9 @@ func scheduledTestReasoningEffortAllowed(modelID, effort string) bool {
 
 // ScheduledTestService provides CRUD operations for scheduled test plans and results.
 type ScheduledTestService struct {
+	templateRepo   QualityRuleTemplateRepository
+	accountTests   *AccountTestService
+	qualityModels  func(context.Context, int64) ([]string, error)
 	planRepo       ScheduledTestPlanRepository
 	resultRepo     ScheduledTestResultRepository
 	definitionRepo ScheduledTestDefinitionRepository
@@ -358,6 +362,12 @@ func (s *ScheduledTestService) DeleteDefinition(ctx context.Context, id int64) e
 
 // CreatePlan validates the schedule, computes next_run_at, and persists the plan.
 func (s *ScheduledTestService) CreatePlan(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error) {
+	if plan != nil && (plan.TargetAccountID() > 0 || plan.PelicanConfig != nil) {
+		if err := s.prepareAccountPlan(ctx, plan, false); err != nil {
+			return nil, err
+		}
+		return s.planRepo.Create(ctx, plan)
+	}
 	if err := validateScheduledTestPlan(plan); err != nil {
 		return nil, err
 	}
@@ -389,6 +399,12 @@ func (s *ScheduledTestService) ListPlansByAccount(ctx context.Context, accountID
 
 // UpdatePlan validates the schedule and updates the plan.
 func (s *ScheduledTestService) UpdatePlan(ctx context.Context, plan *ScheduledTestPlan) (*ScheduledTestPlan, error) {
+	if plan != nil && (plan.TargetMode == "account" || plan.TargetAccountID() > 0 || plan.PelicanConfig != nil) {
+		if err := s.prepareAccountPlan(ctx, plan, true); err != nil {
+			return nil, err
+		}
+		return s.planRepo.Update(ctx, plan)
+	}
 	if err := validateScheduledTestPlan(plan); err != nil {
 		return nil, err
 	}
@@ -450,11 +466,11 @@ func (s *ScheduledTestService) DeletePlan(ctx context.Context, id int64) error {
 
 // ListResults returns recent results per account, test, model and reasoning effort.
 // The limit applies independently to each series, rather than to the plan.
-func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, limit int) ([]*ScheduledTestResult, error) {
+func (s *ScheduledTestService) ListResults(ctx context.Context, planID int64, limit int, includeContent ...bool) ([]*ScheduledTestResult, error) {
 	if limit <= 0 {
 		limit = 50
 	}
-	results, err := s.resultRepo.ListByPlanID(ctx, planID, limit)
+	results, err := s.resultRepo.ListByPlanID(ctx, planID, limit, includeContent...)
 	if err != nil {
 		return nil, err
 	}
@@ -663,17 +679,23 @@ func (s *ScheduledTestService) DeleteResult(ctx context.Context, id int64) error
 
 // SaveResult inserts a result and prunes old entries beyond maxResults.
 func (s *ScheduledTestService) SaveResult(ctx context.Context, planID int64, maxResults int, result *ScheduledTestResult) error {
+	_, err := s.saveResult(ctx, planID, maxResults, result)
+	return err
+}
+
+// The caller may record a retention error without retrying an already saved run.
+func (s *ScheduledTestService) saveResult(ctx context.Context, planID int64, maxResults int, result *ScheduledTestResult) (bool, error) {
 	if result == nil {
-		return fmt.Errorf("test result is required")
+		return false, fmt.Errorf("test result is required")
 	}
 	if maxResults <= 0 {
 		maxResults = 50
 	}
 	result.PlanID = planID
 	if _, err := s.resultRepo.Create(ctx, result); err != nil {
-		return err
+		return false, err
 	}
-	return s.resultRepo.PruneOldResults(ctx, planID, maxResults)
+	return true, s.resultRepo.PruneOldResults(ctx, planID, maxResults)
 }
 
 // StartResult persists a running result before any upstream work begins. The
@@ -699,16 +721,22 @@ func (s *ScheduledTestService) StartResult(ctx context.Context, planID int64, re
 // CompleteResult updates a previously-created running result and prunes old
 // rows after the final state is visible.
 func (s *ScheduledTestService) CompleteResult(ctx context.Context, maxResults int, result *ScheduledTestResult) error {
+	_, err := s.completeResult(ctx, maxResults, result)
+	return err
+}
+
+// Once a result is updated, retention failure must not retry the execution.
+func (s *ScheduledTestService) completeResult(ctx context.Context, maxResults int, result *ScheduledTestResult) (bool, error) {
 	if result == nil || result.ID <= 0 {
-		return fmt.Errorf("test result id is required")
+		return false, fmt.Errorf("test result id is required")
 	}
 	if err := s.resultRepo.Update(ctx, result); err != nil {
-		return err
+		return false, err
 	}
 	if maxResults <= 0 {
 		maxResults = 50
 	}
-	return s.resultRepo.PruneOldResults(ctx, result.PlanID, maxResults)
+	return true, s.resultRepo.PruneOldResults(ctx, result.PlanID, maxResults)
 }
 
 func computeNextRun(cronExpr string, from time.Time) (time.Time, error) {
@@ -717,4 +745,173 @@ func computeNextRun(cronExpr string, from time.Time) (time.Time, error) {
 		return time.Time{}, err
 	}
 	return sched.Next(from), nil
+}
+
+func (s *ScheduledTestService) prepareAccountPlan(ctx context.Context, plan *ScheduledTestPlan, updating bool) error {
+	cfg := plan.PelicanConfig
+	if plan.TargetAccountID() <= 0 || plan.GroupID != nil || len(plan.GroupIDs) > 0 {
+		return fmt.Errorf("scheduled account tests require one account target")
+	}
+	if cfg != nil && cfg.Quality != nil && cfg.Quality.Action == QualityActionOpenAITwoFAAdmission {
+		if updating {
+			return fmt.Errorf("imported OpenAI 2FA admission rules keep their enrollment snapshot")
+		}
+		return fmt.Errorf("OpenAI 2FA admission plans are created only during account import")
+	}
+	if cfg == nil {
+		// Account plans can still carry the historical single definition.
+		if len(plan.TestDefinitionIDs) == 0 && plan.TestDefinitionID != nil {
+			plan.TestDefinitionIDs = []int64{*plan.TestDefinitionID}
+		}
+		if err := normalizeScheduledTestDefinitionIDs(plan); err != nil {
+			return err
+		}
+		if err := validateScheduledTestProtection(plan); err != nil {
+			return err
+		}
+		if err := s.validateDefinitionForPlan(ctx, plan); err != nil {
+			return err
+		}
+	}
+	next, err := nextPlanRun(plan, time.Now())
+	if err != nil {
+		return fmt.Errorf("invalid test schedule: %w", err)
+	}
+	if !updating || plan.Enabled {
+		if err := s.validateQualityAccountModels(ctx, plan); err != nil {
+			return err
+		}
+	}
+	if plan.MaxResults <= 0 {
+		plan.MaxResults = 50
+	}
+	plan.TargetMode = "account"
+	plan.NextRunAt = &next
+	return nil
+}
+
+func nextPlanRun(plan *ScheduledTestPlan, now time.Time) (time.Time, error) {
+	if cfg := plan.PelicanConfig; cfg != nil {
+		cfg.RuleName = strings.TrimSpace(cfg.RuleName)
+		if utf8.RuneCountInString(cfg.RuleName) > 100 {
+			return time.Time{}, fmt.Errorf("rule name must be at most 100 characters")
+		}
+		cfg.QualityRestoreDiagnostic = nil
+		cfg.QualityModelOutcomes = nil
+		cfg.QualityModelActions = nil
+		cfg.RandomQuestion = nil
+		cfg.Ciallo = nil
+		if cfg.QuestionKind == QualityCialloQuestionKind {
+			if cfg.Quality == nil {
+				return time.Time{}, fmt.Errorf("ciallo requires a quality rule")
+			}
+			cfg.Prompt = QualityCialloQuestionKind
+			cfg.Quality.ExpectedAnswer = ""
+			cfg.Quality.Judge = nil
+		}
+		cfg.QualityBatch = nil
+		cfg.PelicanQuestion = nil
+		cfg.ActualPrompt = ""
+		if err := validatePelicanPromptMode(cfg); err != nil {
+			return time.Time{}, err
+		}
+		if cfg.QuestionKind == QualityRandomQuestionKind {
+			if cfg.Quality == nil {
+				return time.Time{}, fmt.Errorf("random questions require a quality rule")
+			}
+			// Generated data belongs to results, never to reusable rule/template JSON.
+			cfg.Prompt = ""
+			cfg.Quality.ExpectedAnswer = ""
+		}
+		if cfg.TestChannel != "" && cfg.TestChannel != "account" && cfg.TestChannel != "bps" {
+			return time.Time{}, fmt.Errorf("invalid test channel")
+		}
+		if cfg.TestChannel == "bps" && (!isQualityAnswerQuestion(cfg.QuestionKind) || cfg.Quality == nil || cfg.Quality.Action != QualityActionObserveOnly) {
+			return time.Time{}, fmt.Errorf("BPS channel tests require an answer question and observation-only policy")
+		}
+		if len(cfg.ModelIDs) > 0 {
+			if cfg.Quality == nil {
+				return time.Time{}, fmt.Errorf("multiple models require a quality rule")
+			}
+			if len(cfg.ModelIDs) > 50 {
+				return time.Time{}, fmt.Errorf("select at most 50 quality models")
+			}
+			models := make([]string, 0, len(cfg.ModelIDs))
+			seen := map[string]bool{}
+			for _, raw := range cfg.ModelIDs {
+				model := strings.TrimSpace(raw)
+				if model == "" || len(model) > 100 {
+					return time.Time{}, fmt.Errorf("quality model must be 1–100 bytes")
+				}
+				if !seen[model] {
+					models = append(models, model)
+					seen[model] = true
+				}
+			}
+			if isOpenAICodexStateProbePlan(cfg) && len(models) > 1 {
+				return time.Time{}, fmt.Errorf("state probe supports only one model")
+			}
+			if len(models)*cfg.ParallelCount > 100 {
+				return time.Time{}, fmt.Errorf("quality round supports at most 100 samples")
+			}
+			cfg.ModelIDs = models
+			plan.ModelID = models[0]
+		}
+		// 探针题型不需要题目文本；其余题型题目必填。
+		if isOpenAICodexStateProbePlan(cfg) || cfg.QuestionKind == QualityRandomQuestionKind || cfg.PromptMode == PelicanPromptModeRandom {
+			if len(cfg.Prompt) > 32000 || strings.TrimSpace(plan.ModelID) == "" || len(plan.ModelID) > 100 {
+				return time.Time{}, fmt.Errorf("probe model is required (maximum 32000/100 bytes)")
+			}
+		} else if strings.TrimSpace(cfg.Prompt) == "" || len(cfg.Prompt) > 32000 || strings.TrimSpace(plan.ModelID) == "" || len(plan.ModelID) > 100 {
+			return time.Time{}, fmt.Errorf("pelican prompt and model are required (maximum 32000/100 bytes)")
+		}
+		if err := validateQualityPolicy(plan); err != nil {
+			return time.Time{}, err
+		}
+		if cfg.QuestionKind != "" && cfg.QuestionKind != "pelican" && !isQualityAnswerQuestion(cfg.QuestionKind) && cfg.QuestionKind != OpenAICodexStateProbeQuestionKind {
+			return time.Time{}, fmt.Errorf("invalid question kind")
+		}
+		// 同一账号同一时刻只允许一次探针，并行只会互相挤掉，直接禁止。
+		if isOpenAICodexStateProbePlan(cfg) && cfg.ParallelCount != 1 {
+			return time.Time{}, fmt.Errorf("state probe does not support parallel runs")
+		}
+		if cfg.ParallelCount < 1 || cfg.ParallelCount > 8 {
+			return time.Time{}, fmt.Errorf("parallel count must be 1–8")
+		}
+		if normalizePelicanReasoningEffort(cfg.ReasoningEffort) == "" {
+			return time.Time{}, fmt.Errorf("invalid reasoning effort")
+		}
+		if plan.MaxResults == 0 {
+			plan.MaxResults = 100
+		}
+		if plan.MaxResults < 1 || plan.MaxResults > 200 {
+			return time.Time{}, fmt.Errorf("pelican history retention must be 1–200 results")
+		}
+		if len(cfg.ModelIDs) > 1 && plan.MaxResults < len(cfg.ModelIDs)*cfg.ParallelCount {
+			return time.Time{}, fmt.Errorf("history retention must hold every sample in a quality round")
+		}
+		cfg.ModelID = plan.ModelID
+	}
+	return computeNextRun(plan.CronExpression, now)
+}
+
+func (s *ScheduledTestService) GetResult(ctx context.Context, planID, resultID int64) (*ScheduledTestResult, error) {
+	return s.resultRepo.GetResult(ctx, planID, resultID)
+}
+
+// ListPelicanHistory pages retained Pelican outputs; accountID 0 lists every account.
+func (s *ScheduledTestService) ListPelicanHistory(ctx context.Context, beforeID int64, limit int, accountID int64) (*PelicanHistoryPage, error) {
+	if limit < 1 || limit > 100 {
+		limit = 100
+	}
+	items, err := s.resultRepo.ListPelicanHistory(ctx, beforeID, limit+1, accountID)
+	if err != nil {
+		return nil, err
+	}
+	page := &PelicanHistoryPage{Items: items}
+	if len(items) > limit {
+		page.Items = items[:limit]
+		page.NextCursor = items[limit-1].ID
+	}
+	return page, nil
 }

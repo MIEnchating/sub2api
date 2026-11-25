@@ -41,25 +41,13 @@ type Config struct {
 	APIKeySet                bool                     `json:"api_key_set"`
 	ChatModel                string                   `json:"chat_model"`
 	ChatProtocol             string                   `json:"chat_protocol"`
-	ImageEnabled             bool                     `json:"image_enabled"`
-	ImageAIConnection        string                   `json:"image_ai_connection"`
-	ImageSiteAPIKeyID        int64                    `json:"image_site_api_key_id"`
-	ImageSiteGroupID         int64                    `json:"image_site_group_id"`
-	ImageSiteOwnerID         int64                    `json:"image_site_owner_id"`
-	ImageBaseURL             string                   `json:"image_base_url"`
-	ImageAPIKey              string                   `json:"image_api_key"`
-	ImageAPIKeySet           bool                     `json:"image_api_key_set"`
-	ImageModel               string                   `json:"image_model"`
-	ImageSize                string                   `json:"image_size"`
-	ImageOutputFormat        string                   `json:"image_output_format"`
+	RememberQuotedImages     bool                     `json:"remember_quoted_images"`
 	SystemPrompt             string                   `json:"system_prompt"`
 	SiteKnowledge            SiteKnowledgeConfig      `json:"site_knowledge"`
 	MaxOutputTokens          int                      `json:"max_output_tokens"`
 	HistoryMessages          int                      `json:"history_messages"`
 	DailyChatLimit           int                      `json:"daily_chat_limit"`
-	DailyImageLimit          int                      `json:"daily_image_limit"`
 	TotalDailyChatLimit      int                      `json:"total_daily_chat_limit"`
-	TotalDailyImageLimit     int                      `json:"total_daily_image_limit"`
 	CooldownSeconds          int                      `json:"cooldown_seconds"`
 	CheckinReward            float64                  `json:"checkin_reward"`
 	InviteEnabled            bool                     `json:"invite_enabled"`
@@ -74,14 +62,13 @@ type Config struct {
 	TransferMaxAmount        float64                  `json:"transfer_max_amount"`
 	ClearAppSecret           bool                     `json:"clear_app_secret,omitempty"`
 	ClearAPIKey              bool                     `json:"clear_api_key,omitempty"`
-	ClearImageAPIKey         bool                     `json:"clear_image_api_key,omitempty"`
 }
 
 func DefaultConfig() Config {
-	return Config{NotificationQuietHours: QuietHours{StartHour: 23, EndHour: 8}, Moderation: DefaultModerationConfig(), HealthNotifications: DefaultHealthNotificationConfig(), Autonomous: DefaultAutonomousConfig(), PriceNotifications: PriceNotificationConfig{Scheduled: true, Groups: []string{}}, AllowedGroups: []string{}, CustomCommands: []CustomCommand{}, GroupAdmins: []GroupAdmin{}, ChatProtocol: "chat_completions", ImageSize: "1024x1024",
+	return Config{NotificationQuietHours: QuietHours{StartHour: 23, EndHour: 8}, Moderation: DefaultModerationConfig(), HealthNotifications: DefaultHealthNotificationConfig(), Autonomous: DefaultAutonomousConfig(), PriceNotifications: PriceNotificationConfig{Scheduled: true, Groups: []string{}}, AllowedGroups: []string{}, CustomCommands: []CustomCommand{}, GroupAdmins: []GroupAdmin{}, ChatProtocol: "chat_completions",
 		SystemPrompt:    "你是 CTAV 群助手。用简洁、友好的中文回答。签到、绑定和奖励由固定指令处理，你不能修改账户或余额。",
-		MaxOutputTokens: 2048, HistoryMessages: 12, DailyChatLimit: 30, DailyImageLimit: 2,
-		TotalDailyChatLimit: 500, TotalDailyImageLimit: 20, CooldownSeconds: 5, InviteDailyLimit: 10,
+		MaxOutputTokens: 2048, HistoryMessages: 12, DailyChatLimit: 30,
+		TotalDailyChatLimit: 500, CooldownSeconds: 5, InviteDailyLimit: 10,
 		InviteRechargeWindowDays: DefaultRechargeWindowDays}
 }
 
@@ -89,10 +76,8 @@ func (c Config) Public() Config {
 	c.SectionVersions = configVersions(c)
 	c.AppSecretSet = c.AppSecret != ""
 	c.APIKeySet = c.APIKey != ""
-	c.ImageAPIKeySet = c.ImageAPIKey != ""
 	c.AppSecret = ""
 	c.APIKey = ""
-	c.ImageAPIKey = ""
 	return c
 }
 func (c Config) allows(group string) bool {

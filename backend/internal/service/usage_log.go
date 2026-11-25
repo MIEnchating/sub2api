@@ -4,6 +4,8 @@ import (
 	"fmt"
 	"strings"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 )
 
 const (
@@ -102,13 +104,19 @@ func ApplyLegacyRequestFields(requestType RequestType, fallbackStream bool, fall
 }
 
 type UsageLog struct {
-	ID         int64
-	UserID     int64
-	APIKeyID   int64
-	AccountID  int64
-	RequestID  string
-	HTTPStatus *int
-	Model      string
+	ProcurementCostSnapshot *ProcurementCostSnapshot
+	CustomerCostDetails     *CustomerCostDetails
+	// Platform snapshots the concrete upstream provider at request time. Gateway
+	// accounts use the resolved request target. Empty is unknown legacy data.
+	Platform      string
+	ContentTiming *requesttiming.ContentObservation
+	ID            int64
+	UserID        int64
+	APIKeyID      int64
+	AccountID     int64
+	RequestID     string
+	HTTPStatus    *int
+	Model         string
 	// RequestedModel is the client-requested model name recorded for stable user/admin display.
 	// Empty should be treated as Model for backward compatibility with historical rows.
 	RequestedModel string
@@ -184,8 +192,12 @@ type UsageLog struct {
 	NativeCompactionV2 bool
 	DurationMs         *int
 	FirstTokenMs       *int
-	UserAgent          *string
-	IPAddress          *string
+	// QueueWaitMs is nullable pre-forward elapsed time; QueueTiming carries the
+	// measured source and separate server/forward scopes.
+	QueueWaitMs *int
+	QueueTiming *QueueTiming
+	UserAgent   *string
+	IPAddress   *string
 	// SessionID is the explicit client-provided request correlation identifier
 	// (e.g. the session_id / X-Session-Id headers). Nil when the client sent no
 	// valid session header. It is never derived from prompt_cache_key or content.

@@ -4,6 +4,9 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/stretchr/testify/require"
 	"io"
 	"net/http"
 	"reflect"
@@ -12,10 +15,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/stretchr/testify/require"
 )
 
 type upstreamBillingProbeAccountRepo struct {
@@ -180,6 +179,9 @@ func (u *upstreamBillingProbeHTTPStub) Do(req *http.Request, proxyURL string, ac
 	if u.beforeResponse != nil {
 		u.beforeResponse()
 	}
+	if req.URL.Path == upstreamBalanceProbePath {
+		return &http.Response{StatusCode: http.StatusNotFound, Body: http.NoBody}, nil
+	}
 	return &http.Response{
 		StatusCode: http.StatusOK,
 		Header:     http.Header{"Content-Type": []string{"application/json"}},
@@ -337,10 +339,14 @@ func TestUpstreamBillingProbeSuccessPersistsSanitizedSnapshot(t *testing.T) {
 	require.Equal(t, 0.6, *account.RateMultiplier)
 	require.NotNil(t, snapshot.SyncedRateMultiplier)
 	require.Equal(t, 0.6, *snapshot.SyncedRateMultiplier)
-	require.Equal(t, "https://upstream.example/v1/sub2api/billing", upstream.lastReq.URL.String())
-	require.Equal(t, http.MethodGet, upstream.lastReq.Method)
-	require.Equal(t, "Bearer sk-sensitive", upstream.lastReq.Header.Get("Authorization"))
-	require.True(t, HTTPUpstreamRedirectsDisabled(upstream.lastReq.Context()))
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "https://upstream.example/v1/sub2api/billing", upstream.requests[0].URL.String())
+	require.Equal(t, upstreamBalanceProbePath, upstream.requests[1].URL.Path)
+	for _, req := range upstream.requests {
+		require.Equal(t, http.MethodGet, req.Method)
+		require.Equal(t, "Bearer sk-sensitive", req.Header.Get("Authorization"))
+		require.True(t, HTTPUpstreamRedirectsDisabled(req.Context()))
+	}
 
 	persisted := decodeUpstreamBillingProbeSnapshot(account.Extra)
 	require.NotNil(t, persisted)
@@ -376,7 +382,10 @@ func TestUpstreamBillingProbeAdaptiveCNUsesChatProtocolBaseURL(t *testing.T) {
 
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
-	require.Equal(t, "https://chat-relay.example/v1/sub2api/billing", upstream.lastReq.URL.String())
+	require.Len(t, upstream.requests, 2)
+	require.Equal(t, "https://chat-relay.example/v1/sub2api/billing", upstream.requests[0].URL.String())
+	require.Equal(t, "chat-relay.example", upstream.requests[1].URL.Host)
+	require.Equal(t, upstreamBalanceProbePath, upstream.requests[1].URL.Path)
 }
 
 func TestUpstreamBillingProbeSyncsResolvedRateForAllAPIKeyPlatforms(t *testing.T) {
@@ -937,13 +946,13 @@ func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *tes
 	svc.now = func() time.Time { return time.Date(2026, time.July, 13, 2, 0, 0, 0, time.UTC) }
 
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Equal(t, int64(20), upstream.calls.Load())
+	require.Equal(t, int64(40), upstream.calls.Load())
 
 	settingsRepo.mu.Lock()
 	settingsRepo.values[SettingKeyUpstreamBillingProbeSettings] = `{"enabled":false,"interval_minutes":30}`
 	settingsRepo.mu.Unlock()
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Equal(t, int64(20), upstream.calls.Load())
+	require.Equal(t, int64(40), upstream.calls.Load())
 
 	accounts[25].Extra[UpstreamBillingProbeEnabledExtraKey] = false
 	manualRate := 0.25
@@ -951,7 +960,7 @@ func TestUpstreamBillingProbeRunnerIsBoundedAndManualProbeIgnoresSwitches(t *tes
 	snapshot, err := svc.ProbeAccount(context.Background(), 25)
 	require.NoError(t, err)
 	require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
-	require.Equal(t, int64(21), upstream.calls.Load())
+	require.Equal(t, int64(42), upstream.calls.Load())
 	require.NotNil(t, accounts[25].RateMultiplier)
 	require.Equal(t, manualRate, *accounts[25].RateMultiplier)
 }
@@ -1052,7 +1061,7 @@ func TestUpstreamBillingProbeRunnerOnlyScansOnLeader(t *testing.T) {
 
 	require.NoError(t, cache.ReleaseLeaderLock(context.Background(), lockKey, "peer"))
 	require.NoError(t, svc.RunDue(context.Background()))
-	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Equal(t, int64(2), upstream.calls.Load())
 }
 
 func TestUpstreamBillingProbeLeaderLockFailsClosedOnCacheError(t *testing.T) {
@@ -1136,7 +1145,7 @@ func TestUpstreamBillingProbeFiveInstancesRunOneConcurrentBatch(t *testing.T) {
 	require.Equal(t, int64(1), upstream.calls.Load())
 	close(unblock)
 	require.NoError(t, <-results)
-	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Equal(t, int64(2), upstream.calls.Load())
 }
 
 func TestUpstreamBillingProbeManualBatchesShareConcurrencyLimit(t *testing.T) {
@@ -1155,7 +1164,7 @@ func TestUpstreamBillingProbeManualBatchesShareConcurrencyLimit(t *testing.T) {
 	settingsRepo := &upstreamBillingProbeSettingRepo{values: map[string]string{
 		SettingKeyUpstreamBillingProbeSettings: `{"enabled":true,"interval_minutes":30}`,
 	}}
-	entered := make(chan struct{}, len(accounts))
+	entered := make(chan struct{}, 2*len(accounts))
 	unblock := make(chan struct{})
 	var unblockOnce sync.Once
 	release := func() { unblockOnce.Do(func() { close(unblock) }) }
@@ -1199,6 +1208,7 @@ func TestUpstreamBillingProbeManualBatchesShareConcurrencyLimit(t *testing.T) {
 		}
 	}
 	require.Equal(t, int64(upstreamBillingProbeConcurrency), upstream.maxActive.Load())
+	require.Equal(t, int64(2*len(accounts)), upstream.calls.Load())
 }
 
 func TestUpstreamBillingProbeManualAndScheduledRequestsShareOneNetworkProbe(t *testing.T) {
@@ -1242,7 +1252,7 @@ func TestUpstreamBillingProbeManualAndScheduledRequestsShareOneNetworkProbe(t *t
 	close(unblock)
 	require.NoError(t, <-errs)
 	require.NoError(t, <-errs)
-	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Equal(t, int64(2), upstream.calls.Load())
 }
 
 func TestUpstreamBillingProbeScheduledRechecksAfterWaitingForSlot(t *testing.T) {
@@ -1298,7 +1308,7 @@ func TestUpstreamBillingProbeLeaderLockCoversStaggeredInstancesInCadenceWindow(t
 	first.SetLeaderLock(cache, nil)
 
 	require.NoError(t, first.RunDue(context.Background()))
-	require.Equal(t, int64(1), upstream.calls.Load())
+	require.Equal(t, int64(2), upstream.calls.Load())
 	require.Equal(t, first.instanceID, cache.heldBy(upstreamBillingProbeLeaderLockKeyAt(time.Now())))
 
 	repo.mu.Lock()
@@ -1307,7 +1317,7 @@ func TestUpstreamBillingProbeLeaderLockCoversStaggeredInstancesInCadenceWindow(t
 	staggered := newUpstreamBillingProbeTestService(repo, upstream, settingsRepo)
 	staggered.SetLeaderLock(cache, nil)
 	require.NoError(t, staggered.RunDue(context.Background()))
-	require.Equal(t, int64(1), upstream.calls.Load(), "a staggered instance must not start a second batch inside the cadence window")
+	require.Equal(t, int64(2), upstream.calls.Load(), "a staggered instance must not start a second batch inside the cadence window")
 }
 
 func TestUpstreamBillingGroupSyncSharesOneProbeAndPreservesLocalFields(t *testing.T) {
@@ -1353,8 +1363,10 @@ func TestUpstreamBillingGroupSyncSharesOneProbeAndPreservesLocalFields(t *testin
 			snapshot, err := svc.probeScheduledAccount(context.Background(), account.ID, 30)
 			require.NoError(t, err)
 			require.Equal(t, UpstreamBillingProbeStatusOK, snapshot.Status)
-			require.Len(t, upstream.requests, 1)
-			require.Equal(t, tt.groupSync, upstream.lastReq.URL.Query().Get("include") == "group")
+			require.Len(t, upstream.requests, 2)
+			require.Equal(t, tt.groupSync, upstream.requests[0].URL.Query().Get("include") == "group")
+			require.Equal(t, upstreamBalanceProbePath, upstream.requests[1].URL.Path)
+			require.Empty(t, upstream.requests[1].URL.Query().Get("include"))
 			require.Equal(t, tt.wantName, account.Name)
 			require.Equal(t, tt.wantNotes, *account.Notes)
 			require.Equal(t, tt.wantRate, *account.RateMultiplier)

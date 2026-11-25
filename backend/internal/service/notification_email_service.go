@@ -14,6 +14,7 @@ import (
 	"log/slog"
 	"net/url"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -27,6 +28,7 @@ const (
 	NotificationEmailEventSubscriptionExpiryReminder  = "subscription.expiry_reminder"
 	NotificationEmailEventBalanceLow                  = "balance.low"
 	NotificationEmailEventBalanceRechargeSuccess      = "balance.recharge_success"
+	NotificationEmailEventAutoCreditSuccess           = "balance.auto_credit_success"
 	NotificationEmailEventAccountQuotaAlert           = "account.quota_alert"
 	NotificationEmailEventContentModerationViolation  = "content_moderation.violation_notice"
 	NotificationEmailEventContentModerationDisabled   = "content_moderation.account_disabled"
@@ -116,6 +118,8 @@ type NotificationEmailPreviewInput struct {
 }
 
 type NotificationEmailSendInput struct {
+	// Recheck source-specific eligibility after rendering, before delivery.
+	beforeSend       func(context.Context) error
 	Event            string
 	Locale           string
 	RecipientEmail   string
@@ -366,10 +370,17 @@ func (s *NotificationEmailService) PreviewTemplate(ctx context.Context, input No
 		return NotificationEmailPreview{}, err
 	}
 	variables := s.sampleVariables(ctx, normalizedEvent, normalizedLocale)
+	var rawHTML map[string]string
+	if normalizedEvent == NotificationEmailEventOpsAlert {
+		headline, table := previewOpsAlertPlatforms(normalizedLocale)
+		variables["platform_headline"] = headline
+		variables["triggered_at"] = "2026-07-18T01:00:00Z"
+		rawHTML = map[string]string{"platform_summary": table}
+	}
 	for key, value := range input.Variables {
 		variables[key] = value
 	}
-	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, nil)
+	return renderNotificationEmail(normalizedEvent, subject, htmlBody, variables, rawHTML)
 }
 
 func (s *NotificationEmailService) Send(ctx context.Context, input NotificationEmailSendInput) error {
@@ -419,6 +430,11 @@ func (s *NotificationEmailService) Send(ctx context.Context, input NotificationE
 
 	if s.emailService == nil {
 		return notificationEmailConfigErr(errors.New("email service is not configured"))
+	}
+	if input.beforeSend != nil {
+		if err := input.beforeSend(ctx); err != nil {
+			return err
+		}
 	}
 	if err := s.emailService.SendEmail(ctx, recipient, rendered.Subject, rendered.HTML); err != nil {
 		return notificationEmailDeliveryErr(err)
@@ -714,9 +730,23 @@ func renderNotificationEmail(event, subject, htmlBody string, variables map[stri
 	if err := validateNotificationEmailTemplate(event, subject, htmlBody); err != nil {
 		return NotificationEmailPreview{}, err
 	}
+	if event == NotificationEmailEventOpsAlert && variables["platform_headline"] != "" && !slices.Contains(notificationEmailPlaceholdersIn(subject), "platform_headline") {
+		subject = "[{{platform_headline}}] " + subject
+	}
 	renderedSubject, err := renderNotificationEmailString(event, subject, variables, nil, false)
 	if err != nil {
 		return NotificationEmailPreview{}, err
+	}
+	if event == NotificationEmailEventOpsAlert && rawHTMLVariables["platform_summary"] != "" && !slices.Contains(notificationEmailPlaceholdersIn(htmlBody), "platform_summary") {
+		block := "{{platform_summary}}"
+		if pos := strings.LastIndex(strings.ToLower(htmlBody), "</body>"); pos >= 0 {
+			htmlBody = htmlBody[:pos] + block + htmlBody[pos:]
+		} else {
+			htmlBody = block + htmlBody
+		}
+	}
+	if event == NotificationEmailEventOpsAlert {
+		renderedSubject = strings.TrimSpace(renderedSubject)
 	}
 	renderedHTML, err := renderNotificationEmailString(event, htmlBody, variables, rawHTMLVariables, true)
 	if err != nil {
@@ -764,7 +794,7 @@ func renderNotificationEmailString(event, raw string, variables map[string]strin
 }
 
 func notificationEmailRawHTMLAllowed(event, placeholder string) bool {
-	return event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html"
+	return (event == NotificationEmailEventOpsScheduledReport && placeholder == "report_html") || (event == NotificationEmailEventOpsAlert && placeholder == "platform_summary")
 }
 
 func notificationEmailAllowedPlaceholderSet(event string) map[string]struct{} {
@@ -908,10 +938,15 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 			"subscription_days":   "30",
 			"expiry_time":         "2026-06-18 12:00",
 			"days_remaining":      "3",
+			"hourly_spend":        "1.2500",
+			"hours_remaining":     "9.9",
+			"observation_hours":   "24.0",
 			"current_balance":     "12.34",
 			"threshold":           "20.00",
 			"recharge_url":        "https://example.com/recharge",
 			"recharge_amount":     "50.00",
+			"credit_amount":       "300.00000000",
+			"ledger_id":           "42",
 			"order_id":            "1024",
 			"unsubscribe_url":     "https://example.com/unsubscribe",
 			"account_id":          "1001",
@@ -956,10 +991,15 @@ func notificationEmailSampleVariables(locale string) map[string]string {
 		"subscription_days":   "30",
 		"expiry_time":         "2026-06-18 12:00",
 		"days_remaining":      "3",
+		"hourly_spend":        "1.2500",
+		"hours_remaining":     "9.9",
+		"observation_hours":   "24.0",
 		"current_balance":     "12.34",
 		"threshold":           "20.00",
 		"recharge_url":        "https://example.com/recharge",
 		"recharge_amount":     "50.00",
+		"credit_amount":       "300.00000000",
+		"ledger_id":           "42",
 		"order_id":            "1024",
 		"unsubscribe_url":     "https://example.com/unsubscribe",
 		"account_id":          "1001",
@@ -1028,6 +1068,7 @@ var notificationEmailEventOrder = []string{
 	NotificationEmailEventSubscriptionExpiryReminder,
 	NotificationEmailEventBalanceLow,
 	NotificationEmailEventBalanceRechargeSuccess,
+	NotificationEmailEventAutoCreditSuccess,
 	NotificationEmailEventAccountQuotaAlert,
 	NotificationEmailEventContentModerationViolation,
 	NotificationEmailEventContentModerationDisabled,
@@ -1037,6 +1078,12 @@ var notificationEmailEventOrder = []string{
 }
 
 var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
+	NotificationEmailEventAutoCreditSuccess: {
+		Event: NotificationEmailEventAutoCreditSuccess, Label: "VIP automatic credit success",
+		Description: "Sent to the VIP account email after committed automatic credit, only when its administrator enabled notification.",
+		Category:    "billing", Optional: false,
+		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...), "credit_amount", "current_balance", "ledger_id"),
+	},
 	NotificationEmailEventAuthVerifyCode: {
 		Event:        NotificationEmailEventAuthVerifyCode,
 		Label:        "Email verification code",
@@ -1136,7 +1183,7 @@ var notificationEmailEventDefinitions = map[string]NotificationEmailEventInfo{
 		Category:    "ops",
 		Optional:    false,
 		Placeholders: append(append([]string{}, notificationEmailCommonPlaceholders...),
-			"rule_name", "severity", "alert_status", "metric_type", "operator", "metric_value", "threshold_value", "triggered_at", "alert_description"),
+			"rule_name", "severity", "alert_status", "metric_type", "operator", "metric_value", "threshold_value", "triggered_at", "alert_description", "platform_summary", "platform_headline"),
 	},
 	NotificationEmailEventOpsScheduledReport: {
 		Event:       NotificationEmailEventOpsScheduledReport,
@@ -1274,6 +1321,16 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 <p class="muted"><a href="{{unsubscribe_url}}">退订此类余额提醒</a></p>`),
 		},
 	},
+	NotificationEmailEventAutoCreditSuccess: {
+		notificationEmailDefaultLocale: {
+			Subject: "[{{site_name}}] VIP automatic credit successful",
+			HTML:    notificationEmailCard("#16a34a", "VIP automatic credit successful", `<p>Hello {{recipient_name}},</p><p>An automatic credit of <strong>${{credit_amount}}</strong> has been added to your balance.</p><p>Balance after credit: <strong>${{current_balance}}</strong></p><p>Ledger ID: {{ledger_id}}</p><p>This entry records an automatic advance. Contact the administrator to confirm its collection status.</p>`),
+		},
+		notificationEmailLocaleChinese: {
+			Subject: "[{{site_name}}] VIP 自动垫付成功",
+			HTML:    notificationEmailCard("#16a34a", "VIP 自动垫付成功", `<p>{{recipient_name}}，您好：</p><p>已为您自动垫付 <strong>${{credit_amount}}</strong>。</p><p>垫付后余额：<strong>${{current_balance}}</strong></p><p>账本编号：{{ledger_id}}</p><p>此邮件确认自动垫付记录；费用结清情况以管理员登记为准。</p>`),
+		},
+	},
 	NotificationEmailEventBalanceRechargeSuccess: {
 		notificationEmailDefaultLocale: {
 			Subject: "[{{site_name}}] Balance recharge successful",
@@ -1406,24 +1463,28 @@ var notificationEmailOfficialTemplates = map[string]map[string]notificationEmail
 	},
 	NotificationEmailEventOpsAlert: {
 		notificationEmailDefaultLocale: {
-			Subject: "[Ops Alert][{{severity}}] {{rule_name}}",
-			HTML: notificationEmailCard("#ea580c", "Ops alert", `
-<p><strong>Rule</strong>: {{rule_name}}</p>
-<p><strong>Severity</strong>: {{severity}}</p>
-<p><strong>Status</strong>: {{alert_status}}</p>
-<p><strong>Metric</strong>: {{metric_type}} {{operator}} {{metric_value}} (threshold {{threshold_value}})</p>
-<p><strong>Fired at</strong>: {{triggered_at}}</p>
-<p><strong>Description</strong>: {{alert_description}}</p>`),
+			Subject: "{{platform_headline}} [Ops Alert][{{severity}}] {{rule_name}}",
+			HTML: notificationEmailCard("#9a3412", "Operations alert", `
+{{platform_summary}}
+<h3>Trigger details</h3>
+<p><strong>{{rule_name}}</strong> · {{severity}} · {{alert_status}}</p>
+<table cellpadding="5" style="width:100%;text-align:left">
+<tr><th scope="row">Observed {{metric_type}}</th><td>{{metric_value}}</td></tr>
+<tr><th scope="row">Rule threshold</th><td>{{operator}} {{threshold_value}}</td></tr>
+<tr><th scope="row">Triggered at</th><td>{{triggered_at}}</td></tr>
+</table><p>{{alert_description}}</p>`),
 		},
 		notificationEmailLocaleChinese: {
-			Subject: "[运维告警][{{severity}}] {{rule_name}}",
-			HTML: notificationEmailCard("#ea580c", "运维告警", `
-<p><strong>规则</strong>：{{rule_name}}</p>
-<p><strong>严重级别</strong>：{{severity}}</p>
-<p><strong>状态</strong>：{{alert_status}}</p>
-<p><strong>指标</strong>：{{metric_type}} {{operator}} {{metric_value}}（阈值 {{threshold_value}}）</p>
-<p><strong>触发时间</strong>：{{triggered_at}}</p>
-<p><strong>说明</strong>：{{alert_description}}</p>`),
+			Subject: "{{platform_headline}} [运维告警][{{severity}}] {{rule_name}}",
+			HTML: notificationEmailCard("#9a3412", "运维告警", `
+{{platform_summary}}
+<h3>触发详情</h3>
+<p><strong>{{rule_name}}</strong> · {{severity}} · {{alert_status}}</p>
+<table cellpadding="5" style="width:100%;text-align:left">
+<tr><th scope="row">触发值（{{metric_type}}）</th><td>{{metric_value}}</td></tr>
+<tr><th scope="row">规则阈值</th><td>{{operator}} {{threshold_value}}</td></tr>
+<tr><th scope="row">触发时间</th><td>{{triggered_at}}</td></tr>
+</table><p>{{alert_description}}</p>`),
 		},
 	},
 	NotificationEmailEventOpsScheduledReport: {

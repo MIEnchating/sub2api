@@ -24,7 +24,8 @@ WHERE id = $1 AND deleted_at IS NULL AND parent_account_id IS NULL
  AND jsonb_typeof(extra -> 'openai_excel_bps_403_disabled_at') = 'string'
  AND NOT EXISTS (
   SELECT 1 FROM jsonb_object_keys(COALESCE(extra, '{}'::jsonb) || $3::jsonb) AS options(key)
-  WHERE options.key ~ '^openai_excel_bps' AND options.key <> 'openai_excel_bps_credential_state'
+  WHERE (options.key ~ '^openai_excel_bps' OR options.key IN ('openai_proxy_mode', 'openai_proxy_ids'))
+    AND options.key <> 'openai_excel_bps_credential_state'
    AND (extra -> options.key) IS DISTINCT FROM ($3::jsonb -> options.key)
  )`
 

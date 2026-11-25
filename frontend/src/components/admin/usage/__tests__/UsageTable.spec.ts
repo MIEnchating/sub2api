@@ -7,33 +7,86 @@ const ipGeoMocks = vi.hoisted(() => ({
 const appStoreMocks = vi.hoisted(() => ({
   showSuccess: vi.fn(),
   showError: vi.fn(),
+  cachedPublicSettings: undefined as { usage_show_long_context_badge?: boolean; usage_show_cache_rate?: boolean; usage_show_cache_rate_to_users?: boolean; usage_show_upstream_response_model_to_users?: boolean } | undefined,
 }))
+const timingAPIMocks = vi.hoisted(() => ({ get: vi.fn() }))
 
 vi.mock('@/utils/ipGeoLookup', () => ipGeoMocks)
 vi.mock('@/stores/app', () => ({ useAppStore: () => appStoreMocks }))
+vi.mock('@/api/admin/usageTiming', () => ({ getUsageTiming: timingAPIMocks.get }))
 
 import { describe, expect, it, vi, beforeEach, afterEach } from 'vitest'
-import { mount, type VueWrapper } from '@vue/test-utils'
+import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { createPinia, setActivePinia } from 'pinia'
 import { nextTick } from 'vue'
+import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
+import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
+import { observerUsageContext } from '../observerUsageContext'
 
 import en from '@/i18n/locales/en/admin/resources'
 import zh from '@/i18n/locales/zh/admin/resources'
 import UsageTable from '../UsageTable.vue'
+import { freeFastCustomerCostFixture } from './fixtures/freeFastCustomerCost'
+import enDashboard from '@/i18n/locales/en/dashboard'
+import zhDashboard from '@/i18n/locales/zh/dashboard'
+import enTiming from '@/i18n/locales/en/requestTiming'
+import zhTiming from '@/i18n/locales/zh/requestTiming'
+import enLatencyObservability from '@/i18n/locales/en/latencyObservability'
+import zhLatencyObservability from '@/i18n/locales/zh/latencyObservability'
 
 let locale: 'en' | 'zh' = 'en'
 const localizedMessages: Record<'en' | 'zh', Record<string, string>> = {
   en: {
+    'requestTiming.eventShort': enTiming.eventShort,
+    'requestTiming.semanticShort': enTiming.semanticShort,
+    'requestTiming.textShort': enTiming.textShort,
+    'requestTiming.contentOrigin': enTiming.contentOrigin,
+    'requestTiming.legacyFirst': enTiming.legacyFirst,
+    'requestTiming.legacyTotal': enTiming.legacyTotal,
+    'usage.latencyFirstTokenHint': enDashboard.usage.latencyFirstTokenHint,
+    'usage.latencyDurationHint': enDashboard.usage.latencyDurationHint,
+    'usage.latencyFirstToken': enDashboard.usage.latencyFirstToken,
+    'usage.latencyFirstTokenShort': enDashboard.usage.latencyFirstTokenShort,
+    'usage.latencyDuration': enDashboard.usage.latencyDuration,
+    'usage.latencyDurationShort': enDashboard.usage.latencyDurationShort,
+    'usage.latencyTps': enDashboard.usage.latencyTps,
+    'usage.latencyCacheRate': enDashboard.usage.latencyCacheRate,
+    'latencyObservability.reasoning_first_ms': enLatencyObservability.reasoning_first_ms,
+    'latencyObservability.visible_text_first_ms': enLatencyObservability.visible_text_first_ms,
+    'latencyObservability.response_byte_first_ms': enLatencyObservability.response_byte_first_ms,
+    'latencyObservability.typedScope': enLatencyObservability.typedScope,
     'admin.usage.longContext': en.usage.longContext,
     'admin.usage.longContextPricingTooltip': en.usage.longContextPricingTooltip,
   },
   zh: {
+    'requestTiming.eventShort': zhTiming.eventShort,
+    'requestTiming.semanticShort': zhTiming.semanticShort,
+    'requestTiming.textShort': zhTiming.textShort,
+    'requestTiming.contentOrigin': zhTiming.contentOrigin,
+    'requestTiming.legacyFirst': zhTiming.legacyFirst,
+    'requestTiming.legacyTotal': zhTiming.legacyTotal,
+    'usage.latencyFirstTokenHint': zhDashboard.usage.latencyFirstTokenHint,
+    'usage.latencyDurationHint': zhDashboard.usage.latencyDurationHint,
+    'usage.latencyFirstToken': zhDashboard.usage.latencyFirstToken,
+    'usage.latencyFirstTokenShort': zhDashboard.usage.latencyFirstTokenShort,
+    'usage.latencyDuration': zhDashboard.usage.latencyDuration,
+    'usage.latencyDurationShort': zhDashboard.usage.latencyDurationShort,
+    'usage.latencyTps': zhDashboard.usage.latencyTps,
+    'usage.latencyCacheRate': zhDashboard.usage.latencyCacheRate,
+    'latencyObservability.reasoning_first_ms': zhLatencyObservability.reasoning_first_ms,
+    'latencyObservability.visible_text_first_ms': zhLatencyObservability.visible_text_first_ms,
+    'latencyObservability.response_byte_first_ms': zhLatencyObservability.response_byte_first_ms,
+    'latencyObservability.typedScope': zhLatencyObservability.typedScope,
     'admin.usage.longContext': zh.usage.longContext,
     'admin.usage.longContextPricingTooltip': zh.usage.longContextPricingTooltip,
   },
 }
 
 const messages: Record<string, string> = {
-  'usage.outputTps': 'Output TPS',
+  'usage.latencyTps': 'Avg TPS',
+  'usage.latencyCacheRate': 'Cache rate',
+  'usage.latencyCacheRateHint': 'cache rate hint',
   'admin.usage.userDeletedBadge': 'Deleted',
   'usage.costDetails': 'Cost Breakdown',
   'admin.usage.inputCost': 'Input Cost',
@@ -97,7 +150,10 @@ vi.mock('vue-i18n', async () => {
   return {
     ...actual,
     useI18n: () => ({
-      t: (key: string) => localizedMessages[locale][key] ?? messages[key] ?? key,
+      t: (key: string, params?: Record<string, string | number>) => {
+        const message = localizedMessages[locale][key] ?? messages[key] ?? key
+        return Object.entries(params ?? {}).reduce((text, [name, value]) => text.replaceAll(`{${name}}`, String(value)), message)
+      },
     }),
   }
 })
@@ -198,11 +254,39 @@ describe('admin UsageTable tooltip', () => {
       },
       global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
     })
-    expect(wrapper.findAll('[data-testid="output-tps"]').map(cell => cell.text())).toEqual(['50.0 tok/s', '—', '—'])
-    expect(wrapper.text()).toContain('Output TPS')
+    expect(wrapper.findAll('[data-testid="latency-tps"]').map(cell => cell.text())).toEqual(['50.0 t/s', '-', '-'])
+    expect(wrapper.text()).toContain('Avg TPS')
+  })
+
+  it('keeps queue-inclusive first token without disclosing the queue portion', () => {
+    const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 100, duration_ms: 20_000, first_token_ms: 2_000, queue_wait_ms: 30_000,
+      queue_timing: { status: 'measured', source: 'ws_frame_ctx_pool', scope: 'pre_final_forward', queue_clamped: false,
+        server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 } }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [{ key: 'latency', label: 'Latency' }] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain('32.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.text()).not.toContain('30.00s')
+    expect(wrapper.find('[data-testid="latency-e2e-uncollected"]').exists()).toBe(false)
+  })
+
+  it('PR610 keeps passthrough overlap out of the server total and retains legacy TPS', () => {
+    const row = { ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 100, first_token_ms: 32_000, duration_ms: 50_000, queue_wait_ms: 30_000,
+      queue_timing: { status: 'measured', source: 'ws_frame_passthrough', scope: 'accepted_frame_including_admission', queue_clamped: false,
+        server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 } }
+    const wrapper = mount(UsageTable, { props: { data: [row], loading: false, columns: [{ key: 'latency', label: 'Latency' }] }, global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } } })
+    expect(wrapper.text()).toContain('32.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.text()).not.toContain('62.00s')
+    expect(wrapper.get('[data-testid="latency-tps"]').text()).toBe('2.0 t/s')
+    expect(wrapper.find('[data-testid="latency-e2e-uncollected"]').exists()).toBe(false)
+    wrapper.unmount()
   })
 
   beforeEach(() => {
+    appStoreMocks.cachedPublicSettings = undefined
     locale = 'en'
     vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockReturnValue({
       x: 0,
@@ -260,6 +344,33 @@ describe('admin UsageTable tooltip', () => {
     expect(wrapper.find('[data-request-id="req-long-context-disabled"] [data-testid="long-context-billing-marker"]').exists()).toBe(false)
     expect(wrapper.find('[data-request-id="req-long-context-absent"] [data-testid="long-context-billing-marker"]').exists()).toBe(false)
     expect(wrapper.text()).not.toContain('x2')
+  })
+
+  it('hides the long-context billing marker when the public setting is disabled', () => {
+    appStoreMocks.cachedPublicSettings = { usage_show_long_context_badge: false }
+    const wrapper = mount(UsageTable, {
+      props: {
+        data: [
+          {
+            ...baseImageRow,
+            request_id: 'req-long-context-hidden',
+            long_context_billing_applied: true,
+          },
+        ],
+        loading: false,
+        columns: [],
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStub,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+    expect(wrapper.findAll('[data-testid="long-context-billing-marker"]')).toHaveLength(0)
   })
 
   it('keeps the request type badge and adds a separate badge only for native compaction rows', () => {
@@ -630,6 +741,30 @@ describe('admin UsageTable tooltip', () => {
 		expect(text).toContain('gpt-5.5')
 		expect(text).toContain(responseModel)
 		expect(text).toContain(expectedBadge)
+		expect(wrapper.find('[data-testid="user-upstream-response-model"]').exists()).toBe(false)
+	})
+
+	it('shows the upstream response model to users only when the admin setting is on', () => {
+		const row = {
+			request_id: 'req-user-response-model',
+			model: 'gpt-5.4',
+			upstream_response_model: 'gpt-5.4-actual',
+		}
+		appStoreMocks.cachedPublicSettings = undefined
+		const hidden = mount(UsageTable, {
+			props: { data: [row], loading: false, columns: [], cacheRateAudience: 'user' },
+			global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+		})
+		expect(hidden.find('[data-testid="user-upstream-response-model"]').exists()).toBe(false)
+
+		appStoreMocks.cachedPublicSettings = { usage_show_upstream_response_model_to_users: true }
+		const shown = mount(UsageTable, {
+			props: { data: [row], loading: false, columns: [], cacheRateAudience: 'user' },
+			global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+		})
+		expect(shown.find('[data-testid="user-upstream-response-model"]').text()).toContain('gpt-5.4-actual')
+		expect(shown.text()).not.toContain('Different model')
+		appStoreMocks.cachedPublicSettings = undefined
 	})
 
   it.each([
@@ -1032,7 +1167,7 @@ describe.each([
         loading: false,
         columns: [],
       },
-      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true } },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, transition: true } },
     })
     const trigger = wrapper.get(`button[aria-label="${label}"]`)
     vi.spyOn(trigger.element, 'getBoundingClientRect').mockReturnValue({
@@ -1055,38 +1190,17 @@ describe.each([
     return panel!
   }
 
-  it.each([320, 375, 390])('keeps tapped details within a %ipx viewport', async (viewportWidth) => {
+  it.each([320, 375, 390])('opens an accessible details dialog in a %ipx viewport', async (viewportWidth) => {
     const trigger = mountWithTrigger(viewportWidth)
     await trigger.trigger('click')
+    const dialog = getPanel().closest('[role="dialog"]')!
+    expect(dialog.getAttribute('aria-modal')).toBe('true')
+    expect(dialog.querySelector('.modal-body')?.contains(getPanel())).toBe(true)
+    const close = dialog.querySelector<HTMLButtonElement>('button[aria-label="Close modal"]')!
+    expect(close).toBeTruthy()
+    close.click()
     await nextTick()
-
-    const panel = getPanel()
-    const left = Number.parseFloat(panel.style.left)
-    const width = Number.parseFloat(panel.style.width)
-    const top = Number.parseFloat(panel.style.top)
-    const maxHeight = Number.parseFloat(panel.style.maxHeight)
-    expect(panel.getAttribute('role')).toBe('tooltip')
-    expect(left).toBeGreaterThanOrEqual(8)
-    expect(width).toBeGreaterThan(0)
-    expect(left + width).toBeLessThanOrEqual(viewportWidth - 8)
-    expect(top).toBeGreaterThanOrEqual(8)
-    expect(maxHeight).toBeGreaterThan(0)
-    expect(top + maxHeight).toBeLessThanOrEqual(780 - 8)
-    expect(panel.matches('.overflow-y-auto') || panel.querySelector('.overflow-y-auto')).toBeTruthy()
-  })
-
-  it('opens above a trigger near the bottom of the screen', async () => {
-    const trigger = mountWithTrigger(375, 728)
-    await trigger.trigger('click')
-    await nextTick()
-
-    const panel = getPanel()
-    const bottom = Number.parseFloat(panel.style.bottom)
-    const maxHeight = Number.parseFloat(panel.style.maxHeight)
-    expect(panel.style.top).toBe('')
-    expect(bottom).toBeGreaterThanOrEqual(780 - 728)
-    expect(maxHeight).toBeGreaterThan(0)
-    expect(780 - bottom - maxHeight).toBeGreaterThanOrEqual(8)
+    await vi.waitFor(() => expect(document.body.querySelector('[data-testid="' + testId + '"]')).toBeNull())
   })
 
   it('pins details after the hover events preceding a touch click', async () => {
@@ -1104,7 +1218,7 @@ describe.each([
     expect(getPanel()).toBeTruthy()
 
     await trigger.trigger('click')
-    expect(document.body.querySelector(`[data-testid="${testId}"]`)).toBeNull()
+    await vi.waitFor(() => expect(document.body.querySelector(`[data-testid="${testId}"]`)).toBeNull())
   })
 
   it.each(['outside click', 'Escape', 'outside scroll', 'resize'])('dismisses tapped details on %s', async (action) => {
@@ -1118,6 +1232,598 @@ describe.each([
     if (action === 'resize') window.dispatchEvent(new Event('resize'))
     await nextTick()
 
-    expect(document.body.querySelector(`[data-testid="${testId}"]`)).toBeNull()
+    await vi.waitFor(() => expect(document.body.querySelector(`[data-testid="${testId}"]`)).toBeNull())
   })
+})
+
+const DataTableStubWithLatency = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id" :data-row="row.request_id">
+        <slot name="cell-latency" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
+const DataTableStubWithContentTiming = {
+  props: ['data'],
+  template: `
+    <div>
+      <div v-for="row in data" :key="row.request_id" :data-row="row.request_id">
+        <slot name="cell-content_reasoning_first_ms" :row="row" />
+        <slot name="cell-content_visible_text_first_ms" :row="row" />
+        <slot name="cell-content_response_byte_first_ms" :row="row" />
+      </div>
+    </div>
+  `,
+}
+
+describe('admin UsageTable latency TPS', () => {
+  const mountLatency = (data: Record<string, unknown>[], extra: Record<string, unknown> = {}) =>
+    mount(UsageTable, {
+      props: {
+        data: data as any,
+        loading: false,
+        columns: [{ key: 'latency', label: 'Latency' }],
+        ...extra,
+      },
+      global: {
+        stubs: {
+          DataTable: DataTableStubWithLatency,
+          EmptyState: true,
+          Icon: true,
+          Teleport: true,
+        },
+      },
+    })
+
+  const tpsCell = (wrapper: ReturnType<typeof mountLatency>, requestId: string) =>
+    wrapper.find(`[data-row="${requestId}"] [data-testid="latency-tps"]`)
+
+  const barClasses = (wrapper: ReturnType<typeof mountLatency>, requestId: string) =>
+    wrapper.find(`[data-row="${requestId}"] [data-testid="latency-bar"]`).classes()
+
+  it('shows average output throughput over the total duration for streaming rows', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-tps-stream', output_tokens: 872, duration_ms: 31_260, first_token_ms: 2_910 },
+    ])
+
+    expect(wrapper.text()).toContain('Avg TPS')
+    const cell = tpsCell(wrapper, 'req-tps-stream')
+    expect(cell.text()).toBe('27.9 t/s')
+    expect(cell.attributes('title')).toBe('usage.latencyTpsHint')
+    expect(cell.classes()).toContain('text-emerald-600')
+  })
+
+  it('colors the TPS text and the bottom bar segment red below 10 t/s and yellow below 20 t/s', () => {
+    const wrapper = mountLatency([
+      // first token 12s (warn), total 17s (good), 1.5 t/s (critical)
+      { request_id: 'req-tps-slow', output_tokens: 25, duration_ms: 17_000, first_token_ms: 12_000 },
+      // first token 2s (good), total 12s (good), 12.5 t/s (warn)
+      { request_id: 'req-tps-mid', output_tokens: 150, duration_ms: 12_000, first_token_ms: 2_000 },
+    ])
+
+    expect(tpsCell(wrapper, 'req-tps-slow').text()).toBe('1.5 t/s')
+    expect(tpsCell(wrapper, 'req-tps-slow').classes()).toContain('text-red-600')
+    expect(barClasses(wrapper, 'req-tps-slow')).toEqual(
+      expect.arrayContaining(['from-amber-400', 'via-emerald-500', 'to-red-500']),
+    )
+
+    expect(tpsCell(wrapper, 'req-tps-mid').text()).toBe('12.5 t/s')
+    expect(tpsCell(wrapper, 'req-tps-mid').classes()).toContain('text-amber-600')
+    expect(barClasses(wrapper, 'req-tps-mid')).toEqual(
+      expect.arrayContaining(['from-emerald-500', 'via-emerald-500', 'to-amber-400']),
+    )
+  })
+
+  it('lets bar segments without first-token or TPS data follow the total-duration color', () => {
+    const wrapper = mountLatency([
+      // no first token, total 70s (warn), 1400 tokens / 70s = 20 t/s (good)
+      { request_id: 'req-bar-sync', output_tokens: 1_400, duration_ms: 70_000, first_token_ms: null },
+      // image row: no first token and no TPS, total 40s (good)
+      { ...baseImageRow, request_id: 'req-bar-image', duration_ms: 40_000, first_token_ms: null },
+    ])
+
+    expect(barClasses(wrapper, 'req-bar-sync')).toEqual(
+      expect.arrayContaining(['from-amber-400', 'via-amber-400', 'to-emerald-500']),
+    )
+    expect(barClasses(wrapper, 'req-bar-image')).toEqual(
+      expect.arrayContaining(['from-emerald-500', 'via-emerald-500', 'to-emerald-500']),
+    )
+  })
+
+  it('uses the same average and hint when first token is missing', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-tps-sync', output_tokens: 500, duration_ms: 10_000, first_token_ms: null },
+    ])
+
+    const cell = tpsCell(wrapper, 'req-tps-sync')
+    expect(cell.text()).toBe('50.0 t/s')
+    expect(cell.attributes('title')).toBe('usage.latencyTpsHint')
+  })
+
+  it('keeps buffered and terminal-only output averages and health colors meaningful', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-tps-buffered', output_tokens: 1_095, duration_ms: 9_250, first_token_ms: 9_240 },
+      { request_id: 'req-tps-terminal', output_tokens: 73, duration_ms: 6_761, first_token_ms: 6_760 },
+      { request_id: 'req-tps-same-ms', output_tokens: 73, duration_ms: 6_760, first_token_ms: 6_760 },
+    ])
+
+    expect(tpsCell(wrapper, 'req-tps-buffered').text()).toBe('118 t/s')
+    for (const requestId of ['req-tps-terminal', 'req-tps-same-ms']) {
+      expect(tpsCell(wrapper, requestId).text()).toBe('10.8 t/s')
+      expect(tpsCell(wrapper, requestId).attributes('title')).toBe('usage.latencyTpsHint')
+      expect(tpsCell(wrapper, requestId).classes()).toContain('text-amber-600')
+      expect(barClasses(wrapper, requestId)).toContain('to-amber-400')
+    }
+  })
+
+  it('renders a placeholder when TPS cannot be computed', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-tps-empty', output_tokens: 0, duration_ms: 1_200, first_token_ms: 300 },
+      { request_id: 'req-tps-interrupted', output_tokens: 1, duration_ms: 21_135, first_token_ms: 973 },
+      { ...baseImageRow, request_id: 'req-tps-image', duration_ms: 40_000, first_token_ms: null },
+    ])
+
+    expect(tpsCell(wrapper, 'req-tps-empty').text()).toBe('-')
+    expect(tpsCell(wrapper, 'req-tps-empty').attributes('title')).toBeUndefined()
+    expect(tpsCell(wrapper, 'req-tps-interrupted').text()).toBe('-')
+    expect(tpsCell(wrapper, 'req-tps-interrupted').classes()).not.toContain('text-red-600')
+    expect(barClasses(wrapper, 'req-tps-interrupted')).toEqual(
+      expect.arrayContaining(['from-emerald-500', 'via-emerald-500', 'to-emerald-500']),
+    )
+    expect(tpsCell(wrapper, 'req-tps-image').text()).toBe('-')
+  })
+
+  it('shows that request cache rate beside first token, duration, and TPS', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-cache-hit', input_tokens: 4_057, cache_read_tokens: 278_272, cache_creation_tokens: 4, output_tokens: 101, duration_ms: 345, first_token_ms: 12 },
+      { request_id: 'req-cache-miss', input_tokens: 1_200, cache_read_tokens: 0, cache_creation_tokens: 0, output_tokens: 20, duration_ms: 1_000, first_token_ms: 100 },
+      { request_id: 'req-cache-empty', input_tokens: 0, cache_read_tokens: 0, cache_creation_tokens: 0, output_tokens: 20, duration_ms: 1_000, first_token_ms: 100 },
+    ])
+
+    const hit = wrapper.find('[data-row="req-cache-hit"] [data-testid="latency-cache-rate"]')
+    expect(wrapper.text()).toContain('Cache rate')
+    expect(hit.text()).toBe('98.6%')
+    expect(hit.attributes('title')).toBe('cache rate hint')
+    expect(hit.classes()).toContain('text-emerald-600')
+    expect(wrapper.find('[data-row="req-cache-miss"] [data-testid="latency-cache-rate"]').classes()).toContain('text-emerald-600')
+    expect(wrapper.find('[data-row="req-cache-miss"] [data-testid="latency-cache-rate"]').text()).toBe('0%')
+    expect(wrapper.find('[data-row="req-cache-empty"] [data-testid="latency-cache-rate"]').text()).toBe('-')
+    expect(wrapper.find('[data-row="req-cache-empty"] [data-testid="latency-cache-rate"]').attributes('title')).toBeUndefined()
+    const bar = wrapper.find('[data-row="req-cache-hit"] [data-testid="latency-bar"]')
+    expect(bar.classes()).toEqual(expect.arrayContaining(['row-span-4', 'from-emerald-500', 'via-emerald-500', 'to-emerald-500']))
+    expect(bar.attributes('style')).toContain('linear-gradient(to bottom, #10b981 22.5%, #10b981 37.5%, #10b981 52.5%, #10b981 75%, #10b981 75%, #10b981 100%)')
+  })
+
+  it('keeps the latency bar segments beside first token, duration, and TPS when cache rate is shown', () => {
+    const wrapper = mountLatency([
+      { request_id: 'req-cache-bar', input_tokens: 100, cache_read_tokens: 0, cache_creation_tokens: 0, output_tokens: 25, duration_ms: 17_000, first_token_ms: 12_000 },
+    ])
+
+    const bar = wrapper.find('[data-row="req-cache-bar"] [data-testid="latency-bar"]')
+    expect(bar.classes()).toContain('row-span-4')
+    expect(bar.attributes('style')).toContain('#fbbf24 22.5%, #10b981 37.5%, #ef4444 52.5%, #ef4444 75%, #10b981 75%')
+  })
+
+  const cacheHitRow = { request_id: 'req-cache-visibility', input_tokens: 4_057, cache_read_tokens: 278_272, cache_creation_tokens: 4, output_tokens: 101, duration_ms: 345, first_token_ms: 12 }
+
+  it('hides the cache rate from admins when the feature switch is off', () => {
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: false, usage_show_cache_rate_to_users: true }
+    const wrapper = mountLatency([cacheHitRow])
+    expect(wrapper.find('[data-testid="latency-cache-rate"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain('Cache rate')
+    appStoreMocks.cachedPublicSettings = undefined
+  })
+
+  it('hides the cache rate from users unless that switch is on', () => {
+    appStoreMocks.cachedPublicSettings = undefined
+    const hidden = mountLatency([cacheHitRow], { cacheRateAudience: 'user' })
+    expect(hidden.find('[data-testid="latency-cache-rate"]').exists()).toBe(false)
+
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: true, usage_show_cache_rate_to_users: true }
+    const shown = mountLatency([cacheHitRow], { cacheRateAudience: 'user' })
+    expect(shown.find('[data-testid="latency-cache-rate"]').text()).toBe('98.6%')
+    appStoreMocks.cachedPublicSettings = undefined
+  })
+})
+
+for (const [language, first, total] of [['en', 'Server TTFT', 'Server total'], ['zh', '服务端首字', '服务端总耗时']] as const) {
+  it(`keeps the original four latency rows and omits typed-content timing in ${language}`, () => {
+    locale = language
+    const dashboardMessages = language === 'en' ? enDashboard : zhDashboard
+    appStoreMocks.cachedPublicSettings = { usage_show_cache_rate: true }
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ ...baseImageRow, image_count: 0, billing_mode: 'token', output_tokens: 100, duration_ms: 20_000, first_token_ms: 2_000, queue_wait_ms: 30_000,
+        queue_timing: { status: 'measured', source: 'ws_frame_ctx_pool', scope: 'pre_final_forward', queue_clamped: false, server_first_token_ms: 32_000, server_duration_ms: 50_000, forward_first_token_ms: 2_000, forward_duration_ms: 20_000 },
+        content_timing: { reasoning_first_ms: 120, visible_text_first_ms: 450, response_byte_first_ms: 30 } }], loading: false, columns: [{ key: 'latency', label: 'Latency' }] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.text()).toContain(first)
+    expect(wrapper.text()).toContain(total)
+    expect(wrapper.text()).toContain('32.00s')
+    expect(wrapper.text()).toContain('50.00s')
+    expect(wrapper.findAll('[class*="col-start-2"][class*="row-start-"]').map(node => node.text())).toEqual([
+      dashboardMessages.usage.latencyFirstToken,
+      dashboardMessages.usage.latencyDuration,
+      dashboardMessages.usage.latencyTps,
+      dashboardMessages.usage.latencyCacheRate,
+    ])
+    expect(wrapper.find('[data-testid="typed-content-timing"]').exists()).toBe(false)
+    expect(wrapper.find('[data-testid="latency-e2e-uncollected"]').exists()).toBe(false)
+    wrapper.unmount()
+    appStoreMocks.cachedPublicSettings = undefined
+    locale = 'en'
+  })
+}
+
+it('keeps queue-inclusive admin latency compact and explains server boundaries on hover', () => {
+  const row = {
+    ...baseImageRow,
+    image_count: 0,
+    billing_mode: 'token',
+    output_tokens: 100,
+    duration_ms: 20_000,
+    first_token_ms: 2_000,
+    queue_wait_ms: 30_000,
+    queue_timing: {
+      status: 'measured',
+      source: 'ws_frame_ctx_pool',
+      scope: 'pre_final_forward',
+      queue_clamped: false,
+      server_first_token_ms: 32_000,
+      server_duration_ms: 50_000,
+      forward_first_token_ms: 2_000,
+      forward_duration_ms: 20_000,
+    },
+  }
+  const wrapper = mount(UsageTable, {
+    props: { data: [row], loading: false, enableTimingDetails: true, columns: [{ key: 'latency', label: 'Latency' }] },
+    global: { stubs: { DataTable: DataTableStubWithLatency, EmptyState: true, Icon: true, Teleport: true } },
+  })
+
+  expect(wrapper.text()).toContain('First token')
+  expect(wrapper.text()).toContain('Total')
+  expect(wrapper.text()).toContain('32.00s')
+  expect(wrapper.text()).toContain('50.00s')
+  expect(wrapper.text()).not.toContain('incl. pre-forward wait')
+  expect(wrapper.text()).not.toContain('30.00s')
+  const firstValue = wrapper.findAll('span').find((span) => span.text() === '32.00s')
+  const totalValue = wrapper.findAll('span').find((span) => span.text() === '50.00s')
+  expect(firstValue?.attributes('title')).not.toContain('30.00s')
+  expect(firstValue?.attributes('title')).toContain('sampled server boundaries')
+  expect(totalValue?.attributes('title')).not.toContain('30.00s')
+  expect(totalValue?.attributes('title')).toContain('sampled server boundaries')
+  wrapper.unmount()
+})
+
+it('renders content timing in separate columns and uses a dash for missing values', () => {
+  const wrapper = mount(UsageTable, {
+    props: {
+      data: [
+        {
+          ...baseImageRow,
+          request_id: 'timing-measured',
+          content_timing: {
+            reasoning_first_ms: 120,
+            visible_text_first_ms: 1_330,
+            response_byte_first_ms: 30,
+            status: 'measured',
+            source: 'fixture',
+            scope: 'final_physical_http_attempt_offsets_from_application_entry',
+            reasoning_streaming_capability: 'unknown',
+            capability_source: 'none',
+          },
+        },
+        { ...baseImageRow, request_id: 'timing-missing', content_timing: null },
+      ],
+      loading: false,
+      columns: [
+        { key: 'content_reasoning_first_ms', label: enLatencyObservability.reasoning_first_ms },
+        { key: 'content_visible_text_first_ms', label: enLatencyObservability.visible_text_first_ms },
+        { key: 'content_response_byte_first_ms', label: enLatencyObservability.response_byte_first_ms },
+      ],
+    },
+    global: { stubs: { DataTable: DataTableStubWithContentTiming, EmptyState: true, Icon: true, Teleport: true } },
+  })
+
+  expect(wrapper.find('[data-testid="content-timing-reasoning-first"]').exists()).toBe(false)
+  expect(wrapper.find('[data-testid="content-timing-visible-text-first"]').exists()).toBe(false)
+  expect(wrapper.find('[data-testid="content-timing-response-byte-first"]').exists()).toBe(false)
+  expect(wrapper.text()).not.toContain('Client end-to-end time')
+  wrapper.unmount()
+})
+
+for (const language of ['en', 'zh'] as const) {
+  it(`omits the streaming content timing summary from the latency cell in ${language}`, async () => {
+    locale = language
+    const timing = language === 'en' ? enTiming : zhTiming
+    const wrapper = mount(UsageTable, {
+      props: { data: [{ ...baseImageRow, stream: true, first_token_ms: 300,
+        content_timing: { sse_event_first_ms: 100, semantic_first_ms: 300, visible_text_first_ms: 800 } }],
+        loading: false, enableTimingDetails: true, columns: [{ key: 'latency', label: 'Latency' }] },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    expect(wrapper.find('[data-testid="latency-content-timing"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(`${timing.eventShort} 100ms`)
+    expect(wrapper.text()).not.toContain(`${timing.semanticShort} 300ms`)
+    expect(wrapper.text()).not.toContain(`${timing.textShort} 800ms`)
+    await wrapper.setProps({ data: [{ ...baseImageRow, stream: true, first_token_ms: 300 }] })
+    expect(wrapper.find('[data-testid="latency-content-timing"]').exists()).toBe(false)
+    expect(wrapper.text()).not.toContain(`${timing.eventShort} —`)
+    expect(wrapper.text()).not.toContain(`${timing.semanticShort} —`)
+    expect(wrapper.text()).not.toContain(`${timing.textShort} —`)
+    await wrapper.setProps({ data: [{ ...baseImageRow, stream: false, first_token_ms: 300 }] })
+    expect(wrapper.find('[data-testid="latency-content-timing"]').exists()).toBe(false)
+    await wrapper.setProps({ data: [{ ...baseImageRow, stream: true, first_token_ms: 300 }] })
+    await wrapper.setProps({ enableTimingDetails: false })
+    expect(wrapper.find('[data-testid="latency-content-timing"]').exists()).toBe(false)
+    wrapper.unmount()
+    locale = 'en'
+  })
+}
+
+it('shares the timing notice between the usage table and details and preserves the dismissal after reload', async () => {
+  locale = 'en'
+  localStorage.clear()
+  timingAPIMocks.get.mockResolvedValue({ traces: [], retention_days: 30 })
+  let pinia = createPinia()
+  setActivePinia(pinia)
+  const oldNotice = NEW_FEATURE_NOTICES.protocolFeatureSwitches
+  useNewFeatureNoticeStore().dismiss(41, oldNotice)
+  const renderTable = (observer = false) => mount(UsageTable, {
+    props: { data: [{ ...baseImageRow, id: 41, stream: true }], columns: [{ key: 'latency', label: 'Latency' }], enableTimingDetails: true, noticeUserId: 41 },
+    global: {
+      plugins: [pinia],
+      provide: { [observerUsageContext as symbol]: observer },
+      stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true, BaseDialog: { template: '<section><slot /></section>' } },
+    },
+  })
+  const table = renderTable()
+  try {
+    expect(table.findAll('[data-testid="new-feature-badge"]')).toHaveLength(1)
+    await table.get('button[aria-label="requestTiming.title"]').trigger('click')
+    await flushPromises()
+    expect(table.findAll('[data-testid="new-feature-badge"]')).toHaveLength(2)
+    expect(table.findAllComponents(NewFeatureBadge).every(b => b.props('noticeId') === NEW_FEATURE_NOTICES.streamFirstEventTiming)).toBe(true)
+    await table.get('[data-testid="final-content-timing"] [data-testid="new-feature-badge"]').trigger('click')
+    expect(table.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0)
+  } finally {
+    table.unmount()
+  }
+  pinia = createPinia()
+  setActivePinia(pinia)
+  const refreshed = renderTable()
+  const old = mount(NewFeatureBadge, { props: { noticeId: oldNotice, userId: 41 }, global: { plugins: [pinia] } })
+  const next = mount(NewFeatureBadge, { props: { noticeId: 'fixture-next-stream-feature-C', userId: 41 }, global: { plugins: [pinia] } })
+  const observer = renderTable(true)
+  try {
+    expect(refreshed.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
+    expect(old.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
+    expect(next.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
+    expect(observer.findComponent(NewFeatureBadge).exists()).toBe(false)
+  } finally {
+    for (const wrapper of [refreshed, old, next, observer]) wrapper.unmount()
+    localStorage.clear()
+  }
+})
+
+describe('Free Fast customer cost snapshot', () => {
+  it.each([true, false])('shows Standard unit prices and customer components, account column=%s', async (showAccountBilling) => {
+    const row = {
+      ...baseImageRow, request_id: 'synthetic-free-fast', billing_mode: 'token', image_count: 0,
+      input_tokens: 71, output_tokens: 19, input_cost: 0.00142, output_cost: 0.0019,
+      total_cost: 0.00332, actual_cost: 0.000996, rate_multiplier: 0.6,
+      account_rate_multiplier: 0.5, service_tier: 'priority',
+      customer_cost_details: {
+        version: 1, free_fast: true, input_cost: 0.00071, output_cost: 0.00095,
+        image_input_cost: 0, image_output_cost: 0, cache_creation_cost: 0, cache_read_cost: 0,
+        total_cost: 0.00166, actual_cost: 0.000996, multiplier: 0.6,
+      },
+    }
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [], showAccountBilling },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    try {
+      await wrapper.get('button[aria-label="Cost Breakdown"]').trigger('click')
+      await nextTick()
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('$10.00')
+      expect(text).toContain('$50.00')
+      expect(text).toContain('$0.00071000')
+      expect(text).toContain('$0.00095000')
+      expect(text).toContain('$0.00099600')
+      expect(text).toContain('Fast')
+      expect(text).not.toMatch(/Free Fast|Fast 加速免费|按 Standard 计费/)
+      expect(text).not.toContain('$20.00')
+      if (showAccountBilling) expect(text).toContain('$0.00166000')
+      expect(row.input_cost).toBe(0.00142)
+    } finally { wrapper.unmount() }
+  })
+})
+
+
+describe('Free Fast screenshot arithmetic and history', () => {
+  async function openCost(row: Record<string, unknown>, showAccountBilling = true) {
+    const wrapper = mount(UsageTable, {
+      props: { data: [row], loading: false, columns: [], showAccountBilling },
+      global: { stubs: { DataTable: DataTableStub, EmptyState: true, Icon: true, Teleport: true } },
+    })
+    await wrapper.get('button[aria-label="Cost Breakdown"]').trigger('click')
+    await nextTick()
+    return wrapper
+  }
+
+  it.each([true, false])('preserves the exact pre-rate cache components, admin=%s', async (admin) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture }, admin)
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      for (const amount of ['0.08345000', '0.00680000', '0.01496250', '0.03746900', '0.14268150', '0.07134075']) expect(text).toContain('$' + amount)
+      expect(text).toContain('$10.0000')
+      expect(text).toContain('$50.0000')
+      expect(text).toContain('0.50x')
+      expect(text).toContain('Fast')
+      expect(text.includes('$0.27040050')).toBe(admin)
+      expect(text).not.toMatch(/Free Fast|Fast 加速免费|按 Standard 计费/)
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([true, false])('does not reinterpret a missing historical snapshot from current free flag=%s', async (free) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, customer_cost_details: null, group: { free_openai_fast: free } })
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('Input price—')
+      expect(text).toContain('Input Cost—')
+      expect(text).toContain('$0.07134075')
+      expect(text).toContain('$0.27040050')
+      expect(text).not.toContain('$10.0000')
+      expect(text).not.toContain('$20.0000')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['priority', 'default', 'flex'])('leaves a normal %s cost breakdown unchanged', async (tier) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, service_tier: tier, customer_cost_details: null, actual_cost: 0.2704005 * 0.5 })
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('$20.0000')
+      expect(text).toContain('$100.0000')
+      expect(text).toContain('$0.16690000')
+      expect(text).toContain('$0.27040050')
+    } finally { wrapper.unmount() }
+  })
+
+  it('uses the saved effective model/personal multiplier after group settings change', async () => {
+    const d = freeFastCustomerCostFixture.customer_cost_details
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, actual_cost: d.total_cost * 1.8,
+      group: { free_openai_fast: false, rate_multiplier: 9 },
+      customer_cost_details: { ...d, multiplier: 1.8, actual_cost: d.total_cost * 1.8 } })
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('1.80x')
+      expect(text).toContain('$0.08345000')
+      expect(text).toContain('$0.25682670')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([
+    { version: 2 }, { multiplier: -1 }, { input_cost: NaN },
+    { actual_cost: 0 }, { total_cost: 1 }, { free_fast: false },
+  ])('rejects incomplete, unsupported or inconsistent evidence %j', async (change) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture,
+      customer_cost_details: { ...freeFastCustomerCostFixture.customer_cost_details, ...change } })
+    try { expect(wrapper.get('[role="tooltip"]').text()).toContain('Input price—') }
+    finally { wrapper.unmount() }
+  })
+  it('accepts the canonical eight-decimal customer charge without losing Standard prices', async () => {
+    const d = freeFastCustomerCostFixture.customer_cost_details
+    const raw = d.total_cost * 0.333333
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, actual_cost: Number(raw.toFixed(8)),
+      customer_cost_details: { ...d, multiplier: 0.333333, actual_cost: raw } })
+    try { expect(wrapper.get('[role="tooltip"]').text()).toContain('$10.0000') }
+    finally { wrapper.unmount() }
+  })
+
+  it('preserves paid Priority prices when only canonical monetary rounding differs', async () => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, customer_cost_details: null,
+      rate_multiplier: 0.333333, actual_cost: Number((0.2704005 * 0.333333).toFixed(8)) })
+    try { expect(wrapper.get('[role="tooltip"]').text()).toContain('$20.0000') }
+    finally { wrapper.unmount() }
+  })
+
+  it('accepts a saved Free Fast quote with the actual fast tier alias', async () => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, service_tier: 'fast' })
+    try { expect(wrapper.get('[role="tooltip"]').text()).toContain('$10.0000') }
+    finally { wrapper.unmount() }
+  })
+
+  it.each([
+    { name: 'image tokens', fields: { image_input_tokens: 100, image_input_cost: 0.003, total_cost: 0.2734005, actual_cost: 0.13880025 } },
+    { name: 'per-request', fields: { billing_mode: 'per_request', actual_cost: 0.2 } },
+    { name: 'image count', fields: { billing_mode: 'image', image_count: 1, actual_cost: 0.2 } },
+    { name: 'additive tool fee', fields: { total_cost: 0.2804005, actual_cost: 0.16520025 } },
+  ])('preserves ordinary paid Priority $name without Free Fast evidence', async ({ fields }) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, customer_cost_details: null, ...fields })
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('Input Cost$0.16690000')
+      expect(text).not.toContain('Input Cost—')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each([undefined, null, { version: 99 }, { ...freeFastCustomerCostFixture.customer_cost_details, input_cost: -1 }])('F1 fast alias with missing or invalid snapshot stays unknown: %j', async (snapshot) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, service_tier: 'fast', customer_cost_details: snapshot })
+    try {
+      const text = wrapper.get('[role="tooltip"]').text()
+      expect(text).toContain('Input price—')
+      expect(text).toContain('Input Cost—')
+      expect(text).toContain('$0.07134075')
+      expect(text).not.toContain('$20.0000')
+    } finally { wrapper.unmount() }
+  })
+  it.each(['fast', 'default', 'flex'])('F1 paid %s control retains recorded prices without snapshot', async (tier) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, service_tier: tier, customer_cost_details: null, actual_cost: 0.13520025 })
+    try { expect(wrapper.get('[role="tooltip"]').text()).toContain('$20.0000') }
+    finally { wrapper.unmount() }
+  })
+
+  it.each([true, false])('G1 displays saved Standard cache read and distinct TTL unit prices, admin=%s', async (admin) => {
+    const d = freeFastCustomerCostFixture.customer_cost_details
+    const row = { ...freeFastCustomerCostFixture, cache_creation_tokens: 24, cache_creation_30m_tokens: 11, cache_creation_12h_tokens: 13,
+      cache_read_tokens: 17, cache_creation_cost: 0.0006, cache_read_cost: 0.000034, actual_cost: 0.04536475,
+      customer_cost_details: { ...d, version: 2, cache_creation_cost: 0.0004625, cache_read_cost: 0.000017,
+        total_cost: 0.0907295, actual_cost: 0.04536475,
+        cache_cost_details: [{ kind: 'write_30m', tokens: 11, unit_price: 0.0000125 }, { kind: 'write_12h', tokens: 13, unit_price: 0.000025 }, { kind: 'read', tokens: 17, unit_price: 0.000001 }] } }
+    const wrapper = await openCost(row, admin)
+    try {
+      expect(wrapper.get('[data-testid="cache-unit-read"]').text()).toContain('$1.0000')
+      expect(wrapper.get('[data-testid="cache-unit-write_30m"]').text()).toContain('$12.5000')
+      expect(wrapper.get('[data-testid="cache-unit-write_12h"]').text()).toContain('$25.0000')
+      expect(wrapper.get('[role="tooltip"]').text()).toContain('$0.00046250')
+    } finally { wrapper.unmount() }
+  })
+  it('G1 preserves v1 known amounts but does not invent missing cache unit prices', async () => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture })
+    try {
+      expect(wrapper.get('[data-testid="cache-unit-read"]').text()).toContain('—')
+      expect(wrapper.get('[data-testid="cache-unit-write_30m"]').text()).toContain('—')
+      expect(wrapper.get('[role="tooltip"]').text()).toContain('$0.01496250')
+    } finally { wrapper.unmount() }
+  })
+
+  it.each(['en', 'zh'] as const)('G1 localized read and TTL labels render with real translations: %s', async (language) => {
+    locale = language
+    const messages = language === 'zh' ? zhDashboard.usage : enDashboard.usage
+    localizedMessages[language]['usage.cacheReadTokenPrice'] = messages.cacheReadTokenPrice
+    localizedMessages[language]['usage.cacheWriteTTLTokenPrice'] = messages.cacheWriteTTLTokenPrice
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture })
+    try {
+      expect(wrapper.get('[data-testid="cache-unit-read"]').text()).toContain(messages.cacheReadTokenPrice)
+      expect(wrapper.get('[data-testid="cache-unit-write_30m"]').text()).toContain(messages.cacheWriteTTLTokenPrice.replace('{ttl}', '30m'))
+    } finally { wrapper.unmount(); locale = 'en' }
+  })
+  it('G1 zero-priced cache buckets retain explicit zero unit prices', async () => {
+    const d = freeFastCustomerCostFixture.customer_cost_details
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture, actual_cost: 0.045125,
+      customer_cost_details: { ...d, version: 2, cache_creation_cost: 0, cache_read_cost: 0, total_cost: 0.09025, actual_cost: 0.045125,
+        cache_cost_details: [{ kind: 'write_30m', tokens: 1197, unit_price: 0 }, { kind: 'read', tokens: 37469, unit_price: 0 }] } })
+    try {
+      expect(wrapper.get('[data-testid="cache-unit-read"]').text()).toContain('$0.0000')
+      expect(wrapper.get('[data-testid="cache-unit-write_30m"]').text()).toContain('$0.0000')
+    } finally { wrapper.unmount() }
+  })
+  it.each([
+    [{ kind: 'read', tokens: 37469, unit_price: -1 }],
+    [{ kind: 'read', tokens: 37469, unit_price: 0.000001 }],
+    [{ kind: 'read', tokens: 37469, unit_price: NaN }],
+    [{ kind: 'write_30m', tokens: 1197, unit_price: 0.0000125 }, { kind: 'read', tokens: 37468, unit_price: 0.000001 }],
+  ])('G1 rejects invalid or incomplete v2 cache prices %j', async (...lines) => {
+    const wrapper = await openCost({ ...freeFastCustomerCostFixture,
+      customer_cost_details: { ...freeFastCustomerCostFixture.customer_cost_details, version: 2, cache_cost_details: lines } })
+    try { expect(wrapper.get('[data-testid="cache-unit-read"]').text()).toContain('—') }
+    finally { wrapper.unmount() }
+  })
+
 })

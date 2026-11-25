@@ -11,6 +11,9 @@ import (
 
 // Singleflight owns the entire node hunt, not each individual HTTP attempt.
 func (s *OpenAIGatewayService) probeOnceOpenAICodexTicket(ctx context.Context, account *Account, model string) {
+	if account != nil && (account.AuthConnectionID != "" || account.HasManagedOpenAIConnections()) {
+		return
+	}
 	if s == nil || !s.isOpenAICodexTicketAccount(ctx, account, model) || s.httpUpstream == nil {
 		return
 	}
@@ -151,11 +154,7 @@ func (s *OpenAIGatewayService) huntCodexHarvestTicket(ctx context.Context, accou
 		attempts++
 		last = result
 		cfg := s.openAICodexTicketConfig()
-		raw := ""
-		if result.Err != nil {
-			raw = result.Err.Error()
-		}
-		recordCodexHarvestProbe(account, model, result.Kind, nodeName, raw, result.Status, len(result.State), result.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg), result.ProbeVerified)
+		recordCodexHarvestProbe(account, model, result.Kind, nodeName, safeCodexHarvestError(result.Err), result.Status, len(result.State), result.Shape.Blocks, openAICodexTicketTargetLength(account, cfg), codexHarvestExpectedBlocks(account, cfg), result.ProbeVerified)
 		if result.Kind == "success" {
 			s.openaiCodexTicketProbeCooldown.Delete(openAICodexTicketKey(account.ID, model))
 			ticket := codexHarvestTicket(account, model, result, cfg, attempts)

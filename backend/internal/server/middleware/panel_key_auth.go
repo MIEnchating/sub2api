@@ -1,11 +1,13 @@
 package middleware
 
 import (
+	"context"
 	"errors"
 	"net/http"
 	"strconv"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/gin-gonic/gin"
 )
@@ -33,6 +35,23 @@ func PanelAPIKeyAuth(keys *service.APIKeyService, subscriptions *service.Subscri
 			}
 			return
 		}
-		authenticateLoadedAPIKey(c, key, keys, subscriptions, cfg)
+		SetOpsFallbackAPIKey(c, key)
+		if accessErr := ValidateAPIKeyAccess(c, key, cfg); accessErr != nil {
+			status := accessErr.Status
+			// A rejected key does not invalidate the already authenticated panel session.
+			if status == http.StatusUnauthorized {
+				status = http.StatusForbidden
+			}
+			AbortWithError(c, status, accessErr.Code, accessErr.Message)
+			return
+		}
+		admitLoadedAPIKey(c, key, keys, subscriptions, cfg, nil, func() {
+			// Revalidate by owner-bound ID. No raw API credential is needed by
+			// the panel or installed into the standard request context.
+			lookup := func(ctx context.Context, _ string) (*service.APIKey, error) {
+				return keys.GetForOwnerAuth(ctx, id, subject.UserID)
+			}
+			nextWithAPIKeyAdmissionLookup(c, lookup, c.Param("key_id"), ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), key, false)
+		})
 	}
 }

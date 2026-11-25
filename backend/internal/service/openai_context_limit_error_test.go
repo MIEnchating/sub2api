@@ -25,6 +25,8 @@ func TestOpenAIContextLimitHTTP502Returns400(t *testing.T) {
 			c, rec := newNonStreamingFailoverContext(t)
 			svc := newNonStreamingFailoverService()
 			account := newNonStreamingFailoverAccount()
+			// AuthConnectionID would touch credential recovery on a generic 502.
+			account.AuthConnectionID = "auth-test"
 			body := []byte(`{"error":{"type":"upstream_error","code":"context_length_exceeded","param":"input","message":"Input exceeds the context window"},"echo":"private input"}`)
 			resp := &http.Response{StatusCode: 502, Header: http.Header{}, Body: io.NopCloser(strings.NewReader(string(body)))}
 			var err error

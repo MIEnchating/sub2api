@@ -55,6 +55,7 @@
           :class="[instanceId]"
           :style="dropdownStyle"
           role="listbox"
+          :aria-multiselectable="multiple || undefined"
           tabindex="-1"
           @click.stop
           @mousedown.stop
@@ -139,7 +140,8 @@ export interface SelectOption {
 }
 
 interface Props {
-  modelValue: string | number | boolean | null | undefined
+  /** Scalar by default; an array is used when multiple mode is enabled. */
+  modelValue: string | number | boolean | null | undefined | Array<string | number | boolean | null>
   options: SelectOption[] | Array<Record<string, unknown>>
   placeholder?: string
   disabled?: boolean
@@ -152,6 +154,9 @@ interface Props {
   creatable?: boolean
   creatablePrefix?: string
   clearable?: boolean
+  multiple?: boolean
+  /** Keep form dropdowns aligned with their trigger instead of sizing to long option content. */
+  matchTriggerWidth?: boolean
   id?: string
   ariaLabel?: string
   ariaDescribedby?: string
@@ -162,8 +167,9 @@ interface Props {
 }
 
 interface Emits {
-  (e: 'update:modelValue', value: string | number | boolean | null): void
-  (e: 'change', value: string | number | boolean | null, option: SelectOption | null): void
+  (e: 'open'): void
+  (e: 'update:modelValue', value: any): void
+  (e: 'change', value: any, option: SelectOption | null): void
   (e: 'search', query: string): void
   (e: 'open-change', open: boolean): void
 }
@@ -175,6 +181,8 @@ const props = withDefaults(defineProps<Props>(), {
   creatable: false,
   creatablePrefix: '',
   clearable: false,
+  multiple: false,
+  matchTriggerWidth: false,
   valueKey: 'value',
   labelKey: 'label',
   remote: false,
@@ -223,11 +231,14 @@ const dropdownStyle = computed(() => {
     viewportRight
   )
   const availableWidth = Math.max(0, viewportRight - left)
-  const preferredMinWidth = Math.max(dropdownMinimumWidth, rect.width)
+  const preferredMinWidth = props.matchTriggerWidth
+    ? rect.width
+    : Math.max(dropdownMinimumWidth, rect.width)
   const minWidth = Math.min(preferredMinWidth, availableWidth)
   const style: Record<string, string> = {
     position: 'fixed',
     left: `${left}px`,
+    ...(props.matchTriggerWidth ? { width: `${minWidth}px` } : {}),
     minWidth: `${minWidth}px`,
     maxWidth: `${availableWidth}px`,
     zIndex: '100000020'
@@ -271,10 +282,24 @@ const isGroupHeaderOption = (option: any): boolean => {
 }
 
 const selectedOption = computed(() => {
+  if (props.multiple) return null
   return props.options.find((opt) => getOptionValue(opt) === props.modelValue) || null
 })
 
+const selectedOptions = computed(() => {
+  if (!props.multiple || !Array.isArray(props.modelValue)) return []
+  const selectedValues = new Set(props.modelValue)
+  return props.options.filter((option) => selectedValues.has(getOptionValue(option)))
+})
+
 const selectedLabel = computed(() => {
+  if (props.multiple) {
+    const options = selectedOptions.value
+    const selectedCount = Array.isArray(props.modelValue) ? props.modelValue.length : 0
+    if (selectedCount === 0) return placeholderText.value
+    if (selectedCount === 1 && options.length === 1) return getOptionLabel(options[0])
+    return t('common.selectedCount', { count: selectedCount })
+  }
   if (selectedOption.value) {
     return getOptionLabel(selectedOption.value)
   }
@@ -285,9 +310,9 @@ const selectedLabel = computed(() => {
   return placeholderText.value
 })
 
-const hasValue = computed(
-  () => props.modelValue !== null && props.modelValue !== undefined && props.modelValue !== ''
-)
+const hasValue = computed(() => props.multiple
+  ? Array.isArray(props.modelValue) && props.modelValue.length > 0
+  : props.modelValue !== null && props.modelValue !== undefined && props.modelValue !== '')
 
 const filteredOptions = computed(() => {
   let opts = props.options as any[]
@@ -312,6 +337,9 @@ const filteredOptions = computed(() => {
 })
 
 const isSelected = (option: any): boolean => {
+  if (props.multiple && Array.isArray(props.modelValue)) {
+    return props.modelValue.includes(getOptionValue(option))
+  }
   return getOptionValue(option) === props.modelValue
 }
 
@@ -383,6 +411,7 @@ watch(() => props.disabled, (disabled) => {
 watch(isOpen, (open) => {
   emit('open-change', open)
   if (open) {
+    emit('open')
     calculateDropdownPosition()
     // Reset focused index to current selection or first item
     if (filteredOptions.value.length === 0) {
@@ -428,6 +457,15 @@ watch(searchQuery, (query) => {
 
 const selectOption = (option: any) => {
   const value = getOptionValue(option) ?? null
+  if (props.multiple) {
+    const current = Array.isArray(props.modelValue) ? [...props.modelValue] : []
+    const index = current.indexOf(value)
+    if (index >= 0) current.splice(index, 1)
+    else current.push(value)
+    emit('update:modelValue', current)
+    emit('change', current, option)
+    return
+  }
   emit('update:modelValue', value)
   emit('change', value, option)
   isOpen.value = false
@@ -436,8 +474,9 @@ const selectOption = (option: any) => {
 
 const clearSelection = () => {
   if (props.disabled) return
-  emit('update:modelValue', null)
-  emit('change', null, null)
+  const value = props.multiple ? [] : null
+  emit('update:modelValue', value)
+  emit('change', value, null)
 }
 
 // Keyboards
@@ -576,7 +615,7 @@ onUnmounted(() => {
 }
 
 .select-dropdown-portal .select-search-input {
-  @apply flex-1 bg-transparent text-sm;
+  @apply min-w-0 flex-1 bg-transparent text-sm;
   @apply text-gray-900 dark:text-gray-100;
   @apply placeholder:text-gray-400 dark:placeholder:text-dark-400;
   @apply focus:outline-none;

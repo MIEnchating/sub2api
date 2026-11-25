@@ -204,6 +204,57 @@ func pinBoundCodexTicketHarvestIdentityRequestBody(req *http.Request, ticket *op
 	replaceHTTPRequestJSONBody(req, next)
 }
 
+func (s *OpenAIGatewayService) pinBoundCodexTicketHarvestIdentity(req *http.Request, account *Account) {
+	if s == nil || req == nil {
+		return
+	}
+	ticket := s.boundCodexTicket(req, account)
+	restoreBoundCodexTicketHarvestIdentity(req.Header, ticket)
+	pinBoundCodexTicketHarvestIdentityRequestBody(req, ticket)
+}
+
+func (s *OpenAIGatewayService) pinHarvestIdentityMapsForModel(ctx context.Context, account *Account, model string, body map[string]any, clientSessionIDs ...string) bool {
+	session := s.harvestPinnedSessionForModel(ctx, account, model, "sse")
+	if session == "" {
+		return false
+	}
+	return pinBoundCodexTicketHarvestIdentityMaps(body, &openAICodexTicket{HarvestSessionID: session})
+}
+
+func (s *OpenAIGatewayService) pinHarvestIdentityBodyForModel(ctx context.Context, account *Account, model string, body []byte, clientSessionIDs ...string) ([]byte, error) {
+	session := s.harvestPinnedSessionForModel(ctx, account, model, "sse")
+	if session == "" {
+		return body, nil
+	}
+	next, _, err := pinBoundCodexTicketHarvestIdentityBody(body, &openAICodexTicket{HarvestSessionID: session})
+	if err != nil {
+		return body, err
+	}
+	return next, nil
+}
+
+func (s *OpenAIGatewayService) applyCodexAccountIdentityOrHarvestPinMap(ctx context.Context, account, identityAccount *Account, apiKeyID int64, model string, body map[string]any, clientSessionIDs ...string) bool {
+	if s.pinHarvestIdentityMapsForModel(ctx, account, model, body) {
+		return true
+	}
+	return applyCodexAccountIdentityClientMetadataMap(body, identityAccount, apiKeyID, clientSessionIDs...)
+}
+
+func (s *OpenAIGatewayService) applyCodexAccountIdentityOrHarvestPinRaw(ctx context.Context, account, identityAccount *Account, apiKeyID int64, model string, body []byte, clientSessionIDs ...string) ([]byte, error) {
+	if session := s.harvestPinnedSessionForModel(ctx, account, model, "websocket"); session != "" {
+		next, _, err := pinBoundCodexTicketHarvestIdentityBody(body, &openAICodexTicket{HarvestSessionID: session})
+		if err != nil {
+			return body, err
+		}
+		return next, nil
+	}
+	next, _, err := applyCodexAccountIdentityClientMetadataRaw(body, identityAccount, apiKeyID, clientSessionIDs...)
+	if err != nil {
+		return body, err
+	}
+	return next, nil
+}
+
 func openAIAccountProxyURL(account *Account) string {
 	if account != nil && account.ProxyID != nil && account.Proxy != nil {
 		return account.Proxy.URL()
@@ -251,6 +302,24 @@ func (s *OpenAIGatewayService) loadCodexTicketDirectedSidecar(ctx context.Contex
 		return nil, last
 	}
 	return nil, ErrOpenAICodexTicketUnavailable
+}
+
+func (s *OpenAIGatewayService) codexTicketPinsEgress(req *http.Request, account *Account) bool {
+	if req == nil {
+		return false
+	}
+	return s.codexTicketPinsEgressFromHeader(req.Context(), req.Header, account)
+}
+
+func (s *OpenAIGatewayService) codexTicketPinsEgressFromHeader(ctx context.Context, h http.Header, account *Account) bool {
+	ticket := s.boundCodexTicketFromHeader(ctx, h, account)
+	if ticket == nil {
+		return false
+	}
+	return strings.TrimSpace(ticket.HarvestProxyURL) != "" ||
+		strings.TrimSpace(ticket.HarvestNodeID) != "" ||
+		strings.TrimSpace(ticket.HarvestNodeName) != "" ||
+		s.openAICodexTicketHarvestFixedProxyURL(ctx) != ""
 }
 
 func (s *OpenAIGatewayService) pinCodexTicketEgress(req *http.Request, account *Account, proxyURL string) (string, func(), error) {

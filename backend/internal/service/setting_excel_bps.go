@@ -2,8 +2,6 @@ package service
 
 import "context"
 
-const SettingKeyExcelBPSEnabled = "excel_bps_enabled"
-
 const ExcelBPSAuthorizationPendingKey = "openai_excel_bps_authorization_pending"
 
 // Read the live setting so disabling BPS applies to every gateway instance.

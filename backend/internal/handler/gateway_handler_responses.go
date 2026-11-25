@@ -16,10 +16,7 @@ import (
 	"go.uber.org/zap"
 )
 
-// Responses handles OpenAI Responses API endpoint for Anthropic platform groups.
-// POST /v1/responses
-// This converts Responses API requests to Anthropic format, forwards to Anthropic
-// upstream, and converts responses back to Responses format.
+// Responses handles POST /v1/responses for compatible platform groups.
 func (h *GatewayHandler) Responses(c *gin.Context) {
 	streamStarted := false
 
@@ -126,6 +123,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			"This group is restricted to Claude Code clients (/v1/messages only)")
 		return
 	}
+	if apiKey.Group != nil {
+		requireAPIKeyQueueCapability(c, service.APIKeyQueueCapabilityForbiddenWhenClaudeCodeOnly)
+	}
 	if geminiImageGenerationRejected(c, apiKey, nil, reqModel, channelMapping.MappedModel) {
 		h.responsesErrorResponse(c, http.StatusBadRequest, "invalid_request_error", service.ImageGenerationPermissionMessage())
 		return
@@ -147,7 +147,7 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 
-	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted)
+	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, subject.UserID, subject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, reqStream, &streamStarted)
 	if err != nil {
 		reqLog.Warn("gateway.responses.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", streamStarted)
@@ -302,6 +302,26 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 		}
 		var result *service.ForwardResult
 		setActualUpstreamEndpoint(c, "")
+		var probeResponse *probePenaltyResponse
+		if account.ProbePenaltyMinimum() > 0 {
+			if !h.gatewayService.ProbePenaltySettlementEnabled() {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "Probe penalty requires durable settlement")
+				return
+			}
+			probeResponse, err = newProbePenaltyResponse(c.Writer, reqStream)
+			if err != nil {
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				h.responsesErrorResponse(c, http.StatusServiceUnavailable, "api_error", "Probe penalty response unavailable")
+				return
+			}
+			defer probeResponse.close()
+			c.Writer = probeResponse
+		}
 		if shouldUseAntigravityCompat(account) {
 			if h.antigravityGatewayService == nil {
 				h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", "Antigravity compatibility service is not configured")
@@ -312,12 +332,46 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			}
 			setActualUpstreamEndpoint(c, EndpointAntigravityGenerateContent)
 			result, err = h.antigravityGatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
+		} else if account.Platform == service.PlatformGemini {
+			if h.geminiCompatService == nil {
+				message := "Gemini compatibility service is not configured"
+				if c.Writer.Written() && strings.HasPrefix(c.Writer.Header().Get("Content-Type"), "text/event-stream") {
+					service.MarkOpsStreamError(c, "upstream_error", message, http.StatusBadGateway)
+					service.MarkResponseCommitted(c)
+					writeResponsesFailedSSE(c, "upstream_error", "", message)
+				} else {
+					h.responsesErrorResponse(c, http.StatusBadGateway, "upstream_error", message)
+				}
+				if accountReleaseFunc != nil {
+					accountReleaseFunc()
+				}
+				return
+			}
+			setActualUpstreamEndpoint(c, EndpointGeminiModels)
+			result, err = h.geminiCompatService.ForwardAsResponses(requestCtx, c, account, forwardBody)
 		} else {
 			result, err = h.gatewayService.ForwardAsResponses(requestCtx, c, account, forwardBody, parsedReq)
 		}
 
+		if probeResponse != nil {
+			c.Writer = probeResponse.ResponseWriter
+			if err == nil {
+				err = probeResponse.validate()
+			}
+			if err != nil && probeResponse.size >= 0 {
+				if probeResponse.status >= http.StatusBadRequest {
+					_ = probeResponse.finish(nil)
+				} else {
+					probeResponse.settlementError()
+				}
+			}
+		}
+
 		if accountReleaseFunc != nil {
 			accountReleaseFunc()
+		}
+		if service.IsUpstreamModerationDenied(err) {
+			return
 		}
 
 		// 提交 usage 记录。成功路径与"流中断但 Forward 已观测到 usage 的部分结果"
@@ -333,8 +387,9 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 			sessionID := service.ExtractClientSessionID(c)
 			stampForwardRequestedReasoningEffort(result, service.RequestedReasoningEffortFromContext(c.Request.Context()))
 			channelUsageFields := clientRequestedUsageFields(c, channelMapping, reqModel, result.UpstreamModel)
-			h.submitUsageRecordTask(usageHTTPContext(c), func(ctx context.Context) {
-				if err := h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
+			usageCtx := usageHTTPContext(c)
+			record := func(ctx context.Context) error {
+				return h.gatewayService.RecordUsage(ctx, &service.RecordUsageInput{
 					Result:             result,
 					QuotaPlatform:      quotaPlatform,
 					APIKey:             apiKey,
@@ -350,11 +405,23 @@ func (h *GatewayHandler) Responses(c *gin.Context) {
 					APIKeyService:      h.apiKeyService,
 					SessionID:          sessionID,
 					ChannelUsageFields: channelUsageFields,
-				}); err != nil {
-					reqLog.Error("gateway.responses.record_usage_failed",
-						zap.Int64("account_id", account.ID),
-						zap.Error(err),
-					)
+				})
+			}
+			if probeResponse != nil && err == nil {
+				result.ProbePenaltyEligible = true
+				if billingErr := record(service.WithProbePenaltyResult(context.WithoutCancel(usageCtx), result)); billingErr != nil {
+					reqLog.Error("gateway.probe_penalty_settlement_failed", zap.Error(billingErr))
+					probeResponse.settlementError()
+					return
+				}
+				if responseErr := probeResponse.finish(result); responseErr != nil {
+					reqLog.Error("gateway.probe_penalty_response_failed", zap.Error(responseErr))
+				}
+				return
+			}
+			h.submitUsageRecordTask(usageCtx, func(ctx context.Context) {
+				if billingErr := record(ctx); billingErr != nil {
+					reqLog.Error("gateway.responses.record_usage_failed", zap.Int64("account_id", account.ID), zap.Error(billingErr))
 				}
 			})
 		}

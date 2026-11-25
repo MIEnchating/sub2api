@@ -45,7 +45,7 @@ func TestMessagesEffortPolicyBinding(t *testing.T) {
 				apiKey := &service.APIKey{Group: &service.Group{Platform: platform, MaxReasoningEffort: test.ceiling, ReasoningEffortMappings: test.mappings, MaxReasoningEffortOverLimit: test.overLimit}}
 				body := []byte(`{"model":"gpt-6.1-sol"` + test.preference + `}`)
 				ensureCompositeTargetPlatform(c, apiKey, "gpt-6.1-sol")
-				bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
+				_, _ = prepareOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
 				converted := []byte(`{"model":"gpt-6.1-sol","reasoning":{"effort":"` + test.effort + `"}}`)
 				got, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(c.Request.Context(), converted)
 				if test.deny {
@@ -91,7 +91,7 @@ func TestMessagesEffortPolicyBindingCNTargetsOmitted(t *testing.T) {
 						Platform: platform, MaxReasoningEffort: "low", MaxReasoningEffortOverLimit: service.ReasoningEffortOverLimitDeny,
 						ReasoningEffortMappings: []service.ReasoningEffortMapping{{From: "none", To: "deny"}, {From: "medium", To: "deny"}},
 					}}
-					bindOpenAIReasoningEffortPolicyForMessagesRequest(requestContext, apiKey, []byte(`{"model":"glm-5.2"`+preference+`}`))
+					_, _ = prepareOpenAIReasoningEffortPolicyForMessagesRequest(requestContext, apiKey, []byte(`{"model":"glm-5.2"`+preference+`}`))
 					for _, effort := range []string{"none", "medium", "high"} {
 						converted := []byte(`{"model":"glm-5.2","reasoning_effort":"` + effort + `"}`)
 						got, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(requestContext.Request.Context(), converted)
@@ -101,6 +101,33 @@ func TestMessagesEffortPolicyBindingCNTargetsOmitted(t *testing.T) {
 					}
 				})
 			}
+		}
+	}
+}
+
+func TestMessagesDisabledThinkingOverridesUltraSuffixBeforeMapping(t *testing.T) {
+	for _, disabled := range []bool{false, true} {
+		c, _ := gin.CreateTestContext(httptest.NewRecorder())
+		c.Request = httptest.NewRequest("POST", "/v1/messages", nil)
+		key := &service.APIKey{Group: &service.Group{Platform: service.PlatformOpenAI,
+			ReasoningEffortMappings: []service.ReasoningEffortMapping{{From: "ultra", To: "high"}, {From: "high", To: "low"}, {From: "none", To: "medium"}}}}
+		body := []byte(`{"model":"gpt-6.1-sol-ultra"}`)
+		if disabled {
+			body = []byte(`{"model":"gpt-6.1-sol-ultra","thinking":{"type":"disabled"}}`)
+		}
+		ensureCompositeTargetPlatform(c, key, "gpt-6.1-sol-ultra")
+		prepared, err := prepareOpenAIReasoningEffortPolicyForMessagesRequest(c, key, body)
+		require.NoError(t, err)
+		if !disabled {
+			require.Equal(t, "high", gjson.GetBytes(prepared, "output_config.effort").String())
+			got, changed, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(c.Request.Context(), []byte(`{"reasoning":{"effort":"high"}}`))
+			require.NoError(t, err)
+			require.False(t, changed)
+			require.Equal(t, "high", gjson.GetBytes(got, "reasoning.effort").String())
+		} else {
+			got, _, err := service.ApplyOpenAIReasoningEffortPolicyFromContext(c.Request.Context(), []byte(`{"reasoning":{"effort":"none"}}`))
+			require.NoError(t, err)
+			require.Equal(t, "medium", gjson.GetBytes(got, "reasoning.effort").String())
 		}
 	}
 }

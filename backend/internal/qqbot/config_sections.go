@@ -18,10 +18,10 @@ var configSections = map[string][]string{
 	"groups":       {"allowed_groups", "group_policies"},
 	"chat":         {"ai_connection", "site_api_key_id", "site_group_id", "site_owner_id", "chat_disabled", "base_url", "api_key", "chat_model", "chat_protocol", "system_prompt", "max_output_tokens", "history_messages", "clear_api_key"},
 	"knowledge":    {"site_knowledge"},
-	"images":       {"image_ai_connection", "image_site_api_key_id", "image_site_group_id", "image_site_owner_id", "image_enabled", "image_base_url", "image_api_key", "image_model", "image_size", "image_output_format", "clear_image_api_key"},
+	"vision":       {"remember_quoted_images"},
 	"group-admins": {"group_admins"}, "moderation": {"moderation"}, "autonomous": {"autonomous"},
 	"commands": {"custom_commands"}, "notifications": {"price_notifications", "health_notifications", "notification_quiet_hours"},
-	"limits": {"daily_chat_limit", "daily_image_limit", "total_daily_chat_limit", "total_daily_image_limit", "cooldown_seconds", "reward_alert_daily", "reward_budget_daily"},
+	"limits": {"daily_chat_limit", "total_daily_chat_limit", "cooldown_seconds", "reward_alert_daily", "reward_budget_daily"},
 }
 
 func sectionValues(c Config, section string) map[string]json.RawMessage {
@@ -91,9 +91,6 @@ func (s *Service) SaveConfigSection(ctx context.Context, section, version string
 		if section == "chat" && draft.AIConnection == "" && draft.SiteAPIKeyID == 0 && draft.SiteOwnerID == 0 && draft.SiteGroupID == 0 {
 			draft.AIConnection, draft.SiteAPIKeyID, draft.SiteOwnerID, draft.SiteGroupID = old.AIConnection, old.SiteAPIKeyID, old.SiteOwnerID, old.SiteGroupID
 		}
-		if section == "images" && imageConnectionMetadataOmitted(draft) {
-			preserveImageConnectionMetadata(&draft, old)
-		}
 		return mergeConfigSection(old, draft, section)
 	}, section)
 }
@@ -109,7 +106,7 @@ const configHistoryKey = "qq_bot_config_history"
 
 func publicSection(c Config, section string) map[string]json.RawMessage {
 	out := sectionValues(c.Public(), section)
-	for _, key := range []string{"app_secret", "api_key", "image_api_key", "clear_app_secret", "clear_api_key", "clear_image_api_key", "site_api_key_id", "image_site_api_key_id"} {
+	for _, key := range []string{"app_secret", "api_key", "clear_app_secret", "clear_api_key", "site_api_key_id"} {
 		delete(out, key)
 	}
 	return out
@@ -132,7 +129,6 @@ type GroupPolicy struct {
 	DisableActivities    bool   `json:"disable_activities"`
 	DisableNotifications bool   `json:"disable_notifications"`
 	ChatDailyLimit       *int   `json:"chat_daily_limit"`
-	ImageDailyLimit      *int   `json:"image_daily_limit"`
 }
 
 func (c Config) groupPolicy(group string) GroupPolicy {
@@ -145,15 +141,6 @@ func (c Config) groupPolicy(group string) GroupPolicy {
 }
 func (c Config) groupLimit(group, kind string) int {
 	p := c.groupPolicy(group)
-	if kind == "image" {
-		if p.DisableImages {
-			return 0
-		}
-		if p.ImageDailyLimit != nil {
-			return *p.ImageDailyLimit
-		}
-		return c.TotalDailyImageLimit
-	}
 	if c.ChatDisabled || p.DisableChat {
 		return 0
 	}
@@ -172,10 +159,8 @@ func validateGroupPolicies(c Config) error {
 			return errors.New("群策略须对应唯一的允许群，备注最多 60 字")
 		}
 		seen[p.GroupID] = true
-		for _, n := range []*int{p.ChatDailyLimit, p.ImageDailyLimit} {
-			if n != nil && (*n < 0 || *n > 100000) {
-				return fmt.Errorf("群每日额度必须在 0 到 100000 之间")
-			}
+		if n := p.ChatDailyLimit; n != nil && (*n < 0 || *n > 100000) {
+			return fmt.Errorf("群每日额度必须在 0 到 100000 之间")
 		}
 	}
 	return nil

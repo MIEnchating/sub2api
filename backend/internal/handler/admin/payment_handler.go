@@ -1,6 +1,9 @@
 package admin
 
 import (
+	"encoding/json"
+	"io"
+	"net/http"
 	"strconv"
 	"time"
 
@@ -109,7 +112,18 @@ func (h *PaymentHandler) RetryFulfillment(c *gin.Context) {
 	if !ok {
 		return
 	}
-	if err := h.paymentService.RetryFulfillment(c.Request.Context(), orderID); err != nil {
+	var input struct {
+		Confirm bool `json:"confirm"`
+	}
+	c.Request.Body = http.MaxBytesReader(c.Writer, c.Request.Body, 1024)
+	decoder := json.NewDecoder(c.Request.Body)
+	decoder.DisallowUnknownFields()
+	err := decoder.Decode(&input)
+	if (err != nil && err != io.EOF) || (err == nil && decoder.Decode(new(any)) != io.EOF) {
+		response.Error(c, http.StatusBadRequest, "Invalid approval request")
+		return
+	}
+	if err := h.paymentService.RetryFulfillmentWithApproval(c.Request.Context(), orderID, input.Confirm); err != nil {
 		response.ErrorFrom(c, err)
 		return
 	}
@@ -139,6 +153,7 @@ type AdminPaymentOrderResult struct {
 	PlanID              *int64                        `json:"plan_id,omitempty"`
 	SubscriptionGroupID *int64                        `json:"subscription_group_id,omitempty"`
 	SubscriptionDays    *int                          `json:"subscription_days,omitempty"`
+	RenewalMode         string                        `json:"renewal_mode,omitempty"`
 	ProviderInstanceID  *string                       `json:"provider_instance_id,omitempty"`
 	ProviderKey         *string                       `json:"provider_key,omitempty"`
 	Status              string                        `json:"status"`
@@ -198,6 +213,7 @@ func sanitizeAdminPaymentOrderForResponse(order *dbent.PaymentOrder) *AdminPayme
 		PlanID:              order.PlanID,
 		SubscriptionGroupID: order.SubscriptionGroupID,
 		SubscriptionDays:    order.SubscriptionDays,
+		RenewalMode:         order.SubscriptionRenewalMode,
 		ProviderInstanceID:  order.ProviderInstanceID,
 		ProviderKey:         order.ProviderKey,
 		Status:              order.Status,

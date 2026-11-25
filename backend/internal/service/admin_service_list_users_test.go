@@ -113,6 +113,22 @@ func (s *userGroupRateRepoStubForListUsers) ClearGroupRPMOverrides(_ context.Con
 	panic("unexpected ClearGroupRPMOverrides call")
 }
 
+func (s *userGroupRateRepoStubForListUsers) GetDeniedModelsByUserAndGroup(_ context.Context, _, _ int64) ([]string, error) {
+	panic("unexpected GetDeniedModelsByUserAndGroup call")
+}
+
+func (s *userGroupRateRepoStubForListUsers) GetDeniedModelsByUserID(_ context.Context, _ int64) (map[int64][]string, error) {
+	panic("unexpected GetDeniedModelsByUserID call")
+}
+
+func (s *userGroupRateRepoStubForListUsers) SyncGroupDeniedModels(_ context.Context, _ int64, _ []GroupUserDeniedModelsInput) error {
+	panic("unexpected SyncGroupDeniedModels call")
+}
+
+func (s *userGroupRateRepoStubForListUsers) ClearGroupDeniedModels(_ context.Context, _ int64) error {
+	panic("unexpected ClearGroupDeniedModels call")
+}
+
 func (s *userGroupRateRepoStubForListUsers) DeleteByGroupID(_ context.Context, _ int64) error {
 	panic("unexpected DeleteByGroupID call")
 }
@@ -182,4 +198,34 @@ func TestAdminService_ListUsers_PopulatesLastUsedAt(t *testing.T) {
 	require.Len(t, users, 1)
 	require.NotNil(t, users[0].LastUsedAt)
 	require.WithinDuration(t, lastUsed, *users[0].LastUsedAt, time.Second)
+}
+
+type userRPMBatchListStub struct {
+	UserRPMCache
+	ids []int64
+	err error
+}
+
+func (s *userRPMBatchListStub) GetUserRPMBatch(_ context.Context, ids []int64) (map[int64]int, error) {
+	s.ids = append([]int64(nil), ids...)
+	return map[int64]int{101: 7, 202: 12, 303: 0}, s.err
+}
+func TestAdminService_ListUsers_ReadsExistingRPMIncludingUnlimitedUsers(t *testing.T) {
+	cache := &userRPMBatchListStub{}
+	svc := &adminServiceImpl{
+		userRepo:     &userRepoStubForListUsers{users: []User{{ID: 101, RPMLimit: 60}, {ID: 202}, {ID: 303, RPMLimit: 10}}},
+		userRPMCache: cache,
+	}
+	users, _, err := svc.ListUsers(context.Background(), 1, 20, UserListFilters{}, "", "")
+	require.NoError(t, err)
+	require.Equal(t, []int64{101, 202, 303}, cache.ids)
+	require.Equal(t, 7, *users[0].CurrentRPM)
+	require.Equal(t, 12, *users[1].CurrentRPM)
+	require.Equal(t, 0, *users[2].CurrentRPM)
+	cache.err = errors.New("redis unavailable")
+	users, _, err = svc.ListUsers(context.Background(), 1, 20, UserListFilters{}, "", "")
+	require.NoError(t, err)
+	for _, user := range users {
+		require.Nil(t, user.CurrentRPM)
+	}
 }

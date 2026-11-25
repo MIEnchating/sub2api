@@ -56,6 +56,7 @@ func TestMoveExcelBPSOn403Memberships(t *testing.T) {
 			account := mustCreateAccount(t, client, input)
 			require.NoError(t, repo.BindGroups(ctx, account.ID, initial))
 			if mode == "existing destination" {
+				require.NoError(t, repo.SetGroupAllowedModels(ctx, account.ID, map[int64][]string{target: {"gpt-6-astra"}}))
 				_, err := client.ExecContext(ctx, "UPDATE account_groups SET priority = 17 WHERE account_id = $1 AND group_id = $2", account.ID, target)
 				require.NoError(t, err)
 			}
@@ -82,6 +83,7 @@ func TestMoveExcelBPSOn403Memberships(t *testing.T) {
 			if mode == "existing destination" {
 				require.Len(t, after.AccountGroups, 1)
 				require.Equal(t, 17, after.AccountGroups[0].Priority)
+				require.Equal(t, []string{"gpt-6-astra"}, after.AccountGroups[0].AllowedModels)
 				group, err := client.Group.Get(ctx, target)
 				require.NoError(t, err)
 				require.True(t, group.ModelAllowlist.Enabled)

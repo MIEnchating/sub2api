@@ -7,6 +7,7 @@ import (
 	"encoding/xml"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/requesttiming"
 	"io"
 	"net/http"
 	"runtime/debug"
@@ -18,6 +19,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/cyberevidence"
 	"github.com/Wei-Shaw/sub2api/internal/domain"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
 	pkghttputil "github.com/Wei-Shaw/sub2api/internal/pkg/httputil"
@@ -27,11 +29,13 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/securityaudit"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/service"
+	openaiwsv2 "github.com/Wei-Shaw/sub2api/internal/service/openai_ws_v2"
 
 	coderws "github.com/coder/websocket"
 	"github.com/gin-gonic/gin"
 	"github.com/google/uuid"
 	"github.com/tidwall/gjson"
+	"github.com/tidwall/sjson"
 	"go.uber.org/zap"
 )
 
@@ -54,9 +58,94 @@ type OpenAIGatewayHandler struct {
 	cfg                        *config.Config
 }
 
+const openAICyberIdentityMetricsLogInterval = 1024
+
+var openAICyberIdentityMetricsLogCounter atomic.Uint64
+
 type openAIWSTurnChannelMappingSnapshot struct {
 	turn    int
 	mapping service.ChannelMappingResult
+}
+
+type openAIWSCyberTurnContext struct {
+	body     []byte
+	identity service.CyberSessionIdentityResolution
+}
+
+type openAIWSCyberIdentityBinding struct {
+	mu                       sync.Mutex
+	bound                    service.CyberSessionIdentityResolution
+	connectionHeaderIdentity service.CyberSessionIdentityResolution
+	headersCaptured          bool
+}
+
+type openAIWSCyberIdentityDecision struct {
+	observed     service.CyberSessionIdentityResolution
+	effective    service.CyberSessionIdentityResolution
+	reject       bool
+	identitySwap bool
+}
+
+func (b *openAIWSCyberIdentityBinding) resolve(apiKeyID int64, c *gin.Context, payload []byte, enabled, strict bool) openAIWSCyberIdentityDecision {
+	observed := service.ResolveCyberSessionIdentity(apiKeyID, c, payload)
+	decision := openAIWSCyberIdentityDecision{observed: observed, effective: observed}
+	if !enabled {
+		return decision
+	}
+
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	if !b.headersCaptured {
+		b.connectionHeaderIdentity = service.ResolveCyberSessionIdentity(apiKeyID, c, nil)
+		b.headersCaptured = true
+	}
+
+	switch observed.Metadata.Status {
+	case service.OpenAIClientSessionIdentityResolved:
+		if !b.bound.Resolved() {
+			b.bound = observed
+			return decision
+		}
+		if b.bound.BlockKey != observed.BlockKey {
+			// Upgrade headers are connection-static. If the first frame bound a
+			// higher-priority body thread and a later frame omits it, the lower-
+			// priority static session header is not an explicit identity switch.
+			if observed.Metadata.Source == service.OpenAIClientSessionIdentitySourceHeader &&
+				b.connectionHeaderIdentity.Resolved() &&
+				observed.BlockKey == b.connectionHeaderIdentity.BlockKey {
+				decision.effective = service.InheritCyberSessionIdentity(b.bound)
+				return decision
+			}
+			decision.reject = true
+			decision.identitySwap = true
+		}
+		return decision
+	case service.OpenAIClientSessionIdentityMissing:
+		if b.bound.Resolved() {
+			decision.effective = service.InheritCyberSessionIdentity(b.bound)
+			return decision
+		}
+	case service.OpenAIClientSessionIdentityConflict, service.OpenAIClientSessionIdentityInvalid:
+		// Once a connection has a trusted identity, an explicitly ambiguous
+		// follow-up must never silently inherit that identity.
+		if b.bound.Resolved() {
+			decision.reject = true
+			return decision
+		}
+	}
+	decision.reject = strict
+	return decision
+}
+
+func cyberIdentityRejectionMetadata(decision openAIWSCyberIdentityDecision) service.OpenAIClientSessionIdentityMetadata {
+	if !decision.identitySwap {
+		return decision.observed.Metadata
+	}
+	return service.OpenAIClientSessionIdentityMetadata{
+		Status: service.OpenAIClientSessionIdentityConflict,
+		Kind:   decision.observed.Metadata.Kind,
+		Source: service.OpenAIClientSessionIdentitySourceConnection,
+	}
 }
 
 func advanceOpenAIWSCyberBlockState(blocked, pending, marked bool, turnErr error) (bool, bool) {
@@ -75,15 +164,26 @@ func advanceOpenAIWSCyberBlockState(blocked, pending, marked bool, turnErr error
 }
 
 var errOpenAIWSUnsupportedModelSwitch = errors.New("selected account does not support websocket model switch")
+var errOpenAIWSLocalAdmissionRejected = errors.New("openai websocket request rejected by local admission policy")
 
 func newOpenAIWSUnsupportedModelSwitchError(model string) error {
 	cause := fmt.Errorf("%w: model %q", errOpenAIWSUnsupportedModelSwitch, strings.TrimSpace(model))
 	return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "model switch requires reconnect", cause)
 }
 
+func newOpenAIWSLocalAdmissionCloseError(reason string) error {
+	return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, reason, errOpenAIWSLocalAdmissionRejected)
+}
+
 func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
+	var recovery *service.OpenAIAgentRecoveryError
 	return err != nil &&
+		!errors.Is(err, service.ErrOpenAIWSUnsupportedWarmup) &&
+		!openAIWSIngressEndedByClient(err) &&
+		!errors.As(err, &recovery) &&
 		!errors.Is(err, errOpenAIWSUnsupportedModelSwitch) &&
+		!errors.Is(err, errOpenAIWSLocalAdmissionRejected) &&
+		!errors.Is(err, service.ErrOpenAIWSNodeOwner) &&
 		!errors.Is(err, requestmodel.ErrDuplicateModelFields) &&
 		!errors.Is(err, requestmodel.ErrDuplicateSessionFields) &&
 		!errors.Is(err, requestmodel.ErrConflictingWebSocketFields) &&
@@ -107,11 +207,11 @@ func shouldReportOpenAIWSProxyAccountFailure(err error) bool {
 //     StatusGoingAway (1001) and carries the cancellation as its cause, so a
 //     check for 1000 alone never matched it either.
 //
-// The last two fell through to shouldReportOpenAIWSProxyAccountFailure, which
-// filters only model-switch and session-preemption errors. Everything else
-// reaches ObserveOpenAIAPIKeyHealthFailure and scheduler.ReportResult(false), so
-// a client that merely disconnected counted against the upstream account's
-// health and could trip it out of scheduling.
+// The last two fell through to shouldReportOpenAIWSProxyAccountFailure.
+// Everything not identified as a client-side or local-admission outcome reaches
+// ObserveOpenAIAPIKeyHealthFailure and scheduler.ReportResult(false), so a
+// client that merely disconnected counted against the upstream account's health
+// and could trip it out of scheduling.
 //
 // failoverClientGone already states the rule this restores for the HTTP failover
 // path — a cancelled client context "被误报成账号耗尽" is a bug, not a signal —
@@ -133,10 +233,207 @@ func openAIWSIngressEndedByClient(err error) bool {
 	if errors.As(err, &closeErr) && closeErr.StatusCode() == coderws.StatusNormalClosure {
 		return true
 	}
-	if coderws.CloseStatus(err) == coderws.StatusNormalClosure {
+	if errors.Is(err, context.Canceled) {
 		return true
 	}
-	return errors.Is(err, context.Canceled)
+	// A peer's 1000 is only a transport handshake. An upstream read/write
+	// failure still belongs to the provider; a completed turn returns nil.
+	var turnErr interface{ OpenAIWSIngressStage() string }
+	if errors.As(err, &turnErr) {
+		switch turnErr.OpenAIWSIngressStage() {
+		case "read_upstream", "write_upstream":
+			return false
+		}
+	}
+	return coderws.CloseStatus(err) == coderws.StatusNormalClosure
+}
+
+// admitOpenAIWSTurn acquires one WebSocket turn's key reservation and user
+// slot. The key wait runs on a worker so the connection's single frame
+// consumer stays responsive; a peer that leaves during the wait is reported
+// before any user slot is taken. The release is single-shot and is only safe
+// after the turn's upstream work has actually stopped.
+func admitOpenAIWSTurn(
+	h *ConcurrencyHelper,
+	ctx context.Context,
+	c *gin.Context,
+	userID int64,
+	maxConcurrency int,
+	apiKeyID int64,
+	keyLimit int,
+	groupID int64,
+	groupMax int,
+) (func(), bool, error) {
+	reservation, err := reserveOpenAIWSKeySlot(h, ctx, c, apiKeyID, keyLimit)
+	if err != nil {
+		return nil, false, err
+	}
+	userRelease, userAcquired, err := h.TryAcquireUserSlotForGroup(ctx, userID, maxConcurrency, groupID, groupMax)
+	if err != nil {
+		if reservation != nil {
+			reservation.Release()
+		}
+		return nil, false, err
+	}
+	if !userAcquired {
+		if reservation != nil {
+			reservation.Release()
+		}
+		return nil, false, nil
+	}
+	return sync.OnceFunc(func() {
+		if userRelease != nil {
+			userRelease()
+		}
+		if reservation != nil {
+			reservation.Release()
+		}
+	}), true, nil
+}
+
+func reserveOpenAIWSKeySlot(h *ConcurrencyHelper, ctx context.Context, c *gin.Context, apiKeyID int64, keyLimit int) (*service.APIKeySlotReservation, error) {
+	return service.WaitOpenAIWSKeyAdmission(ctx, c, func(waitCtx context.Context) (*service.APIKeySlotReservation, error) {
+		return h.ReserveWSAPIKeySlotWithWait(waitCtx, apiKeyID, keyLimit)
+	})
+}
+
+// openAIWSQueueTurnPermissions builds one WS response.create turn's immutable
+// queue-permission snapshot: the actual/effective model plus every client model
+// candidate in the frame, and the turn's explicit image-generation intent. Each
+// turn gets its own value so a waiting worker never reads shared Gin state.
+func openAIWSQueueTurnPermissions(model string, payload []byte) service.APIKeyQueueRequestPermissions {
+	candidates := append([]string{model}, requestmodel.FromBodyCandidates("", "application/json", payload)...)
+	capabilities := service.APIKeyQueueCapability(0)
+	if service.IsExplicitImageGenerationIntent("/v1/responses", model, payload) {
+		capabilities = service.APIKeyQueueCapabilityImageGeneration
+	}
+	return service.APIKeyQueueRequestPermissions{Models: candidates, Capabilities: capabilities}
+}
+
+// closeOpenAIWSAdmissionError maps a first-turn admission failure to the same
+// close semantics the ingress uses: control loss keeps its typed retryable
+// close, a departed peer closes nothing, and queue failures keep 1013.
+func closeOpenAIWSAdmissionError(wsConn *coderws.Conn, reqLog *zap.Logger, logMessage string, err error) {
+	switch {
+	case service.IsOpenAIWSSessionPreemptedError(err):
+		return
+	case errors.Is(err, service.ErrOpenAIWSIngressLeaseLost):
+		if reqLog != nil {
+			reqLog.Warn(logMessage, zap.Error(err))
+		}
+		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "websocket ingress capacity lease lost; please reconnect")
+		return
+	case service.IsOpenAIWSClientGoneError(err):
+		if reqLog != nil {
+			reqLog.Info("openai.websocket_client_gone_while_waiting_key", zap.Error(err))
+		}
+		return
+	}
+	var closeErr *service.OpenAIWSClientCloseError
+	if errors.As(err, &closeErr) {
+		closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+		return
+	}
+	if reqLog != nil {
+		reqLog.Warn(logMessage, zap.Error(err))
+	}
+	closeErr = openAIWSUserSlotAcquireError(err)
+	closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+}
+
+// mapOpenAIWSTurnAdmissionError keeps control and client-gone causes intact for
+// the ingress loops and maps queue failures to the existing 1013 close.
+func mapOpenAIWSTurnAdmissionError(err error) error {
+	if err == nil {
+		return nil
+	}
+	if service.IsOpenAIWSSessionPreemptedError(err) ||
+		service.IsOpenAIWSClientGoneError(err) ||
+		errors.Is(err, service.ErrOpenAIWSIngressLeaseLost) {
+		return err
+	}
+	var closeErr *service.OpenAIWSClientCloseError
+	if errors.As(err, &closeErr) {
+		return err
+	}
+	return openAIWSUserSlotAcquireError(err)
+}
+
+// admitOpenAIWSTurnForPricing waits for key capacity, then authorizes against
+// the current key before taking user and account slots. The returned releases
+// remain owned by the caller until the turn's upstream work has stopped.
+func (h *OpenAIGatewayHandler) admitOpenAIWSTurnForPricing(
+	ctx context.Context,
+	c *gin.Context,
+	apiKey *service.APIKey,
+	account *service.Account,
+	accountConcurrency int,
+	reqLog *zap.Logger,
+	turnPricing *openAIWSTurnPricing,
+	refreshKey func() (*service.APIKey, error),
+) (func(), func(), error) {
+	reservation, err := reserveOpenAIWSKeySlot(h.concurrencyHelper, ctx, c, apiKey.ID, apiKey.ConcurrencyLimit)
+	if err != nil {
+		return nil, nil, mapOpenAIWSTurnAdmissionError(err)
+	}
+	var userRelease, accountRelease func()
+	releaseUser := sync.OnceFunc(func() {
+		if userRelease != nil {
+			userRelease()
+		}
+		if reservation != nil {
+			reservation.Release()
+		}
+	})
+	admitted := false
+	defer func() {
+		if !admitted {
+			if accountRelease != nil {
+				accountRelease()
+			}
+			releaseUser()
+		}
+	}()
+	key, err := refreshKey()
+	if err != nil {
+		return nil, nil, err
+	}
+	turnCtx := withOpenAIWSTurnBillingGroup(ctx, key)
+	groupID, groupMax := apiKeyUserConcurrencyLimit(key)
+	var acquired bool
+	userRelease, acquired, err = h.concurrencyHelper.TryAcquireUserSlotForGroup(turnCtx, key.User.ID, key.User.Concurrency, groupID, groupMax)
+	if err != nil {
+		return nil, nil, mapOpenAIWSTurnAdmissionError(err)
+	}
+	if !acquired {
+		return nil, nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "too many concurrent requests, please retry later", nil)
+	}
+	accountRelease, acquired, err = h.concurrencyHelper.TryAcquireAccountSlot(turnCtx, account.ID, accountConcurrency, &account)
+	if err != nil {
+		if errors.Is(err, service.ErrAccountQualityHeld) {
+			markOpsRoutingCapacityLimited(c)
+			return nil, nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, accountQualityHeldErrorCode, err)
+		}
+		return nil, nil, service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", err)
+	}
+	if !acquired {
+		return nil, nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
+	}
+	// Account admission can take time. Recheck the key before sending the turn.
+	if err := h.concurrencyHelper.RevalidateTurnAuth(turnCtx); err != nil {
+		return nil, nil, mapOpenAIWSTurnAdmissionError(err)
+	}
+	turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnCtx, key.GroupID)
+	if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
+		if reqLog != nil {
+			reqLog.Info("openai.websocket_turn_profit_vetoed",
+				zap.Int64("account_id", account.ID), zap.String("reason", reason))
+		}
+		return nil, nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is no longer eligible for this connection, please reconnect", nil)
+	}
+	turnPricing.freeze(turnAt)
+	admitted = true
+	return releaseUser, accountRelease, nil
 }
 
 func openAIWSTurnBillingModel(result *service.OpenAIForwardResult, mapping service.ChannelMappingResult, requestedModel, upstreamModel string) string {
@@ -225,6 +522,10 @@ func openAIModelMappedBody(body []byte, mapped bool, mappedModel string, replace
 	if !mapped || replace == nil {
 		return body
 	}
+	mappedModel = strings.TrimSpace(mappedModel)
+	if mappedModel == "" {
+		return body
+	}
 	return replace(body, mappedModel)
 }
 
@@ -282,7 +583,7 @@ func usageRecordContext(parent context.Context, base context.Context) context.Co
 		base = service.WithUsageHTTPStatus(base, *status)
 	}
 	base = service.CopyAPIKeyFallbackSubscription(parent, base)
-	return base
+	return requesttiming.With(base, requesttiming.From(parent))
 }
 
 // wrapUsageRecordTaskContext 包装计费任务：复制请求级 context 值，并接管请求的在途余额预留引用。
@@ -338,6 +639,16 @@ func openAIResponsesRequiredCapabilityForRequest(imageIntent bool, needsResponse
 }
 
 func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKey) bool {
+	if openAICompatibleMessagesDispatchExempt(c, apiKey) {
+		return true
+	}
+	return apiKey.Group.AllowMessagesDispatch
+}
+
+// openAICompatibleMessagesDispatchExempt reports platforms whose native
+// protocol is /v1/messages: Grok, CN providers, and composite groups resolved
+// to either. Those must not record the group dispatch switch as a requirement.
+func openAICompatibleMessagesDispatchExempt(c *gin.Context, apiKey *service.APIKey) bool {
 	if apiKey == nil || apiKey.Group == nil {
 		return true
 	}
@@ -359,7 +670,16 @@ func allowOpenAICompatibleMessagesDispatch(c *gin.Context, apiKey *service.APIKe
 			return true
 		}
 	}
-	return apiKey.Group.AllowMessagesDispatch
+	return false
+}
+
+// requireMessagesDispatchQueueCapability records the group dispatch switch as a
+// required permission only when that switch actually governs this request.
+func requireMessagesDispatchQueueCapability(c *gin.Context, apiKey *service.APIKey) {
+	if openAICompatibleMessagesDispatchExempt(c, apiKey) {
+		return
+	}
+	requireAPIKeyQueueCapability(c, service.APIKeyQueueCapabilityMessagesDispatch)
 }
 
 func openAICompatibleTextTargetAllowed(c *gin.Context, apiKey *service.APIKey, model string) bool {
@@ -420,6 +740,11 @@ func NewOpenAIGatewayHandler(
 // Responses handles OpenAI Responses API endpoint
 // POST /openai/v1/responses
 func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
+	if c.GetHeader("X-Image-Usage") != "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "X-Image-Usage is supported only by /v1/images/generations and /v1/images/edits")
+		return
+	}
+
 	// 局部兜底：确保该 handler 内部任何 panic 都不会击穿到进程级。
 	streamStarted := false
 	defer h.recoverResponsesPanic(c, &streamStarted)
@@ -428,6 +753,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	setOpenAIClientTransportHTTP(c)
 
 	requestStart := time.Now()
+	requesttiming.Mark(c.Request.Context(), "handler_start")
+	defer requesttiming.Observe(c.Request.Context(), "handler")()
 
 	// Get apiKey and user from context (set by ApiKeyAuth middleware)
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
@@ -453,7 +780,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// Read request body
+	bodyReadDone := requesttiming.Observe(c.Request.Context(), "handler_body_read")
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
+	bodyReadDone()
 	if err != nil {
 		if handleRequestBodyReadError(c, reqLog, err) {
 			return
@@ -547,8 +876,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", err.Error())
 		return
 	}
+	stopHeaderWait := service.WrapOpenAIResponsesHeaderWait(c, reqStream)
+	defer stopHeaderWait()
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 	previousResponseID := strings.TrimSpace(gjson.GetBytes(body, "previous_response_id").String())
+	mustDiscardUnownedPointer := false
 	if previousResponseID != "" {
 		previousResponseIDKind := service.ClassifyOpenAIPreviousResponseIDKind(previousResponseID)
 		reqLog = reqLog.With(
@@ -577,16 +909,24 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if ownershipErr != nil {
 			reqLog.Warn("openai.previous_response_owner_lookup_failed", zap.Error(ownershipErr))
 		}
-		if !owned {
+		if !owned && ownershipErr == nil && openAICompatibleRequestPlatform(c.Request.Context(), apiKey) == service.PlatformOpenAI {
+			mustDiscardUnownedPointer = h.gatewayService.CanDiscardOpenAI409ResponsePointer(c.Request.Context(), body, groupID, previousResponseID)
+		}
+		if !owned && !mustDiscardUnownedPointer {
 			reqLog.Warn("openai.request_validation_failed", zap.String("reason", "previous_response_owner_mismatch"))
 			h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id is not available for this user")
 			return
 		}
 	}
 	service.SetOpenAIHTTPResponseOwner(c, subject.UserID, apiKey.ID)
+	if openAICompatibleRequestPlatform(c.Request.Context(), apiKey) == service.PlatformOpenAI {
+		shadowCtx, restored := h.gatewayService.RestoreOpenAIReadableShadow(c.Request.Context(), c, body, h.gatewayService.GenerateSessionHash(c, sessionHashBody))
+		c.Request = c.Request.WithContext(shadowCtx)
+		body = restored
+	}
 
 	setOpsRequestContext(c, reqModel, reqStream)
-
+	bindOpenAIPriorityObservation(c, apiKey.GroupID, reqModel, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -598,13 +938,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	// Codex 在所有请求中被动声明 image_gen namespace，宽泛检测会导致禁了生图的
 	// 分组中所有 Codex 请求被 403（#4447），并误占生图并发槽位。
 	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, body)
-
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		h.errorResponse(c, http.StatusForbidden, "permission_error", service.ImageGenerationPermissionMessage())
 		return
 	}
 	var imageReleaseFunc func()
 	if imageIntent {
+		requireAPIKeyQueueCapability(c, service.APIKeyQueueCapabilityImageGeneration)
 		var imageAcquired bool
 		imageReleaseFunc, imageAcquired = h.acquireImageGenerationSlot(c, streamStarted)
 		if !imageAcquired {
@@ -615,11 +955,21 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 	}
 
+	// Normalize the finite replay metadata before either immutable body copy or
+	// the recovery digest is frozen. Each attempt derives from these same bytes.
+	if prepared, err := h.gatewayService.PrepareOpenAIAgentReplayBody(body); err != nil {
+		h.handleOpenAIAgentRecoveryError(c, err, streamStarted)
+		return
+	} else {
+		body = prepared
+	}
+
 	// 解析渠道级模型映射
 	channelMapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(c.Request.Context(), apiKey.GroupID, reqModel)
 	forwardBody := openAIModelMappedBody(body, channelMapping.Mapped, channelMapping.MappedModel, h.gatewayService.ReplaceModelInBody)
 	seedOpenAIForwardImageIntentHint(c, channelMapping.Mapped, imageIntent)
 	forwardModel := openAIChannelForwardModel(channelMapping, reqModel)
+	c.Request = c.Request.WithContext(service.WithGatewayOpenAISelection(c.Request.Context(), reqModel, reqModel))
 	c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(
 		c.Request.Context(),
 		forwardModel,
@@ -643,7 +993,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
-	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
+	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
 	}
@@ -653,7 +1003,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 	}
 
 	// 2. Re-check billing eligibility after wait
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.checkRegionalBillingEligibility(c.Request.Context(), apiKey, subscription); err != nil {
 		reqLog.Info("openai.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -688,13 +1038,19 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	headerTimeoutRetries := 0
+	var forbiddenBudget grokForbiddenFailoverBudget
 	firstOutputTimeoutSwitchCount := 0
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var lastAdmissionErr error
+	var rpmAdmission openAIRPMAdmission
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	var passthroughFailoverState openAIPassthroughFailoverState
+	omittedEncryptedHistory := false
+	upstreamAttempted := false
 
 	// 生图意图的 /v1/responses 请求必须调度到确实支持 Responses API 的账号，否则
 	// 会在 forward 阶段被静默降级为无法生图的 Chat Completions 直转（#4417）。
@@ -709,13 +1065,60 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		imageSize = service.OpenAIResponsesImageRequestSize(body)
 		c.Request = c.Request.WithContext(service.WithOpenAIImageSizeRouting(c.Request.Context(), imageSize))
 	}
+	// Codex native remote compaction v2 允许由 chat 桥承接：这类账号没有原生
+	// Responses 能力，但压缩回合会被改写并在回程合成 compaction item。仅放宽
+	// native v2，legacy /responses/compact 与生图意图维持原有 Responses 判定。
+	if nativeV2 && !legacyCompact && !imageIntent && requestPlatform == service.PlatformOpenAI {
+		requiredCapability = service.OpenAIEndpointCapabilityResponsesCompact
+	}
 
 	// 分组利润控制：请求级装配定价上下文——pricingAt 固定本请求的
 	// D 与计费高峰因子，选号、槽位终检与全部 failover 重入共用同一门与阈值。
 	// 生图意图只影响能力路由与图片计费，不关门：混合 /v1/responses 请求的
 	// token 计费部分仍受利润门保护，独立图片/视频端点才在门外。
 	pricingCtx, pricingAt := h.gatewayService.WithOpenAIRequestPricingContext(c.Request.Context(), apiKey.GroupID)
-	c.Request = c.Request.WithContext(pricingCtx)
+	c.Request = c.Request.WithContext(service.WithOpenAIEncryptedReasoningAffinity(pricingCtx, body))
+	c.Request = c.Request.WithContext(h.gatewayService.WithOpenAIAgentMessageRecovery(c.Request.Context(), c, body, sessionHash, forwardModel))
+	applyReadableRebuild := func(next context.Context, clean []byte) error {
+		// Keep the channel model mapping, but detach provider state atomically
+		// from both body copies, the selection argument and recovery context.
+		mapped, err := sjson.SetRawBytes(forwardBody, "input", []byte(gjson.GetBytes(clean, "input").Raw))
+		if err != nil {
+			return err
+		}
+		for _, field := range []string{"previous_response_id", "conversation"} {
+			mapped, err = sjson.DeleteBytes(mapped, field)
+			if err != nil {
+				return err
+			}
+		}
+		body, forwardBody = clean, mapped
+		previousResponseID = ""
+		omittedEncryptedHistory = true
+		c.Request = c.Request.WithContext(next)
+		reqLog.Info("openai.encrypted_history_409_omitted", zap.Bool("context_loss", true))
+		return nil
+	}
+	if requestPlatform == service.PlatformOpenAI {
+		next, clean, changed, rebuildErr := h.gatewayService.PrepareOpenAI409ReadableContinuation(c.Request.Context(), c, body, sessionHash, forwardModel)
+		if rebuildErr != nil {
+			h.handleOpenAIAgentRecoveryError(c, rebuildErr, streamStarted)
+			return
+		}
+		if changed {
+			if err := applyReadableRebuild(next, clean); err != nil {
+				h.handleStreamingAwareError(c, http.StatusInternalServerError, "api_error", "Unable to prepare readable continuation", streamStarted)
+				return
+			}
+		}
+	}
+	if mustDiscardUnownedPointer && (!omittedEncryptedHistory || previousResponseID != "" ||
+		gjson.GetBytes(body, "previous_response_id").Exists() || gjson.GetBytes(forwardBody, "previous_response_id").Exists()) {
+		// Permission to discard never grants permission to consume provider
+		// state. A changed/failed setting or unsupported rebuild must deny.
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "previous_response_id could not be safely detached for this user")
+		return
+	}
 
 	for {
 		// Streaming Forward intentionally detaches the upstream request so usage can
@@ -726,8 +1129,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		}
 		// Select account supporting the requested model
 		reqLog.Debug("openai.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		// Managed authorization connections are filtered by the connection
+		// capability this route requires at send time, not by the abstract
+		// scheduler capability above.
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
-			c.Request.Context(),
+			service.WithOpenAIConnectionCapabilityForRequest(c.Request.Context(), c),
 			apiKey.GroupID,
 			previousResponseID,
 			sessionHash,
@@ -741,11 +1147,35 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if !omittedEncryptedHistory && !upstreamAttempted && !streamStarted && !c.Writer.Written() && requestPlatform == service.PlatformOpenAI {
+				if next, clean, changed, rebuildErr := h.gatewayService.TryRebuildOpenAI409History(c.Request.Context(), c, body, sessionHash, forwardModel, err); rebuildErr != nil {
+					err = rebuildErr
+				} else if changed {
+					if mapErr := applyReadableRebuild(next, clean); mapErr == nil {
+						continue
+					}
+				}
+			}
+			if h.handleOpenAIAgentRecoveryError(c, err, streamStarted) {
+				return
+			}
+			if errors.Is(err, service.ErrPriorityLatencyUnavailable) {
+				h.handleTurnAdmissionError(c, err, streamStarted)
+				return
+			}
+
 			if failoverClientGone(c) {
 				reqLog.Info("openai.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
 			if h.handleAccountQualityHeldError(c, err, streamStarted) {
+				return
+			}
+			err = rpmAdmission.selectionError(err)
+			if isOpenAIRPMError(err) {
+				rpmAdmission.retryAfter(c, err)
+				cls := classifySelectionFailureError(err, noAccountErrorClassification{Status: http.StatusServiceUnavailable, ErrType: "api_error", Message: "OpenAI OAuth RPM protection is temporarily unavailable. Please retry later."})
+				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 				return
 			}
 			reqLog.Warn("openai.account_select_failed",
@@ -765,15 +1195,17 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 						return
 					}
 				}
-				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
+				cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, forwardModel, reqModel, requestPlatform)
 				cls = classifySelectionFailureError(err, cls)
 				if !cls.ModelNotFound {
 					markOpsRoutingCapacityLimitedIfNoAvailable(c, err)
 				}
-				h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+				h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 				return
 			}
-			if lastFailoverErr != nil {
+			if lastAdmissionErr != nil && lastFailoverErr == nil {
+				h.handleTurnAdmissionError(c, lastAdmissionErr, streamStarted)
+			} else if lastFailoverErr != nil {
 				h.handleFailoverExhausted(c, lastFailoverErr, streamStarted)
 			} else {
 				h.handleFailoverExhaustedSimple(c, 502, streamStarted)
@@ -781,11 +1213,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			return
 		}
 		if selection == nil || selection.Account == nil {
-			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, reqModel, reqModel, requestPlatform)
+			cls := classifyNoAccountErrorFromGin(c, h.gatewayService, apiKey, forwardModel, reqModel, requestPlatform)
 			if !cls.ModelNotFound {
 				markOpsRoutingCapacityLimited(c)
 			}
-			h.handleStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
 			return
 		}
 		if previousResponseID != "" && selection != nil && selection.Account != nil {
@@ -841,7 +1273,18 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		retryRPM, rpmErr := rpmAdmission.acquire(c.Request.Context(), h.gatewayService, account, accountReleaseFunc, failedAccountIDs)
+		if retryRPM {
+			continue
+		}
+		if rpmErr != nil {
+			cls := classifySelectionFailureError(rpmErr, noAccountErrorClassification{})
+			h.handleStreamingAwareErrorWithCode(c, cls.Status, cls.ErrType, cls.Code, cls.Message, streamStarted, false)
+			return
+		}
 
+		// Omission is only allowed before this request has attempted any forward.
+		upstreamAttempted = true
 		// Forward request
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
@@ -852,15 +1295,33 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		// 从不可变的 canonical forwardBody 派生本次尝试 body 并整块剔除上游私有的加密
 		// reasoning item（含耦合的 id/summary），避免非透传上游 400 拒绝 Kiro reasoning 形态。
 		attemptBody := h.deriveOpenAIForwardAttemptBody(reqLog, forwardBody, account, &passthroughFailoverState)
+		if h.cfg != nil && h.cfg.Gateway.DisableEncryptedAgentOwnerBinding {
+			// Account-specific builders/retries never own the frozen source slice.
+			attemptBody = append([]byte(nil), attemptBody...)
+		}
 		result, err := func() (*service.OpenAIForwardResult, error) {
 			defer func() {
 				if accountReleaseFunc != nil {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.Forward(c.Request.Context(), c, account, attemptBody)
+			return h.gatewayService.Forward(rpmAdmission.forwardContext(c.Request.Context(), account), c, account, attemptBody)
 		}()
 		if h.handleForwardRequestBodyMemoryOverload(c, err, streamStarted) {
+			return
+		}
+		if service.IsUpstreamModerationDenied(err) {
+			return
+		}
+		if result != nil {
+			result.HeaderTimeoutRetries = headerTimeoutRetries
+		}
+		if retryOpenAIInitialAdmission(c, err, result, forwardBody, account.ID, failedAccountIDs, &switchCount, maxAccountSwitches) {
+			lastAdmissionErr = err
+			reqLog.Info("openai.admission_reselecting", zap.Int64("account_id", account.ID), zap.Int("switch_count", switchCount))
+			continue
+		}
+		if h.handleOpenAIRPMForwardError(c, err, streamStarted, false) {
 			return
 		}
 		var cyberBlockBodyHTTP []byte
@@ -891,7 +1352,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			inboundEndpoint := GetInboundEndpoint(c)
 			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			sessionID := service.ExtractClientSessionID(c)
+			sessionID := service.ExtractOpenAIClientSessionID(c, sessionHashBody)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			channelUsageFields := clientRequestedUsageFields(c, channelMapping, reqModel, res.UpstreamModel)
 			h.submitOpenAIUsageRecordTask(usageHTTPContext(c), res, func(ctx context.Context) {
@@ -926,6 +1387,14 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			})
 		}
 		if err != nil {
+			if h.handleOpenAIAgentRecoveryError(c, err, streamStarted) {
+				submitResponsesUsage(result)
+				return
+			}
+			if service.IsOpenAITurnAdmissionError(err) {
+				h.handleTurnAdmissionError(c, err, streamStarted)
+				return
+			}
 			if result != nil && result.ClientDisconnect {
 				reqLog.Info("openai.client_disconnected",
 					zap.Int64("account_id", account.ID),
@@ -951,6 +1420,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					if failoverErr.HeaderTimeoutSubmitted {
+						headerTimeoutRetries++
+						reqLog.Warn("openai.header_timeout_failover",
+							zap.Int64("account_id", account.ID),
+							zap.Int("header_timeout_retries", headerTimeoutRetries),
+						)
+					}
 					if failoverClientGone(c) {
 						reqLog.Info("openai.failover_aborted_client_disconnected",
 							zap.Int64("account_id", account.ID),
@@ -971,7 +1447,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					if failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, nil), false, nil, err)
 					}
-					if !failoverErr.ShouldRetryNextAccount() {
+					if service.OpenAIAgentRecoveryNoReplay(c.Request.Context()) && !failoverErr.QuotaRejectedBeforeExecution {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
+					if !forbiddenBudget.canRetry(failoverErr, switchCount) {
 						h.handleFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -989,6 +1469,7 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
+							c.Request = c.Request.WithContext(service.WithOpenAISameAccountRetry(c.Request.Context(), account.ID, failoverErr))
 							sameAccountRetryCount[account.ID]++
 							retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
 							reqLog.Warn("openai.pool_mode_same_account_retry",
@@ -1006,6 +1487,11 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 							continue
 						}
 					}
+					if failoverErr.SameAccountRetryOnly() {
+						h.handleFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
+					c.Request = c.Request.WithContext(service.WithOpenAISameAccountRetry(c.Request.Context(), 0, nil))
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
@@ -1038,7 +1524,9 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 					reqLog.Warn("openai.upstream_failover_switching", failoverSwitchFields...)
 					continue
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), false, nil, err)
+				if !service.IsOpenAITurnAdmissionError(err) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), false, nil, err)
+				}
 				upstreamErrorAlreadyCommunicated := openAIForwardErrorAlreadyCommunicated(c, writerSizeBeforeForward, err)
 				wroteFallback := false
 				if !upstreamErrorAlreadyCommunicated {
@@ -1071,6 +1559,8 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 		} else {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, forwardModel, requireCompact, result), openAIForwardSucceededForScheduling(result), nil)
 		}
+
+		h.gatewayService.ObserveGroupAntiDistillationUsage(c.Request.Context(), apiKey, account, result, time.Time{}, sessionHashBody)
 
 		// 使用量记录通过有界 worker 池提交，避免请求热路径创建无界 goroutine。
 		submitResponsesUsage(result)
@@ -1232,6 +1722,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	defer h.recoverAnthropicMessagesPanic(c, &streamStarted)
 
 	requestStart := time.Now()
+	requesttiming.Mark(c.Request.Context(), "handler_start")
+	defer requesttiming.Observe(c.Request.Context(), "handler")()
 
 	apiKey, ok := middleware2.GetAPIKeyFromContext(c)
 	if !ok {
@@ -1258,12 +1750,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			"This group does not allow /v1/messages dispatch")
 		return
 	}
+	requireMessagesDispatchQueueCapability(c, apiKey)
 
 	if !h.ensureResponsesDependencies(c, reqLog) {
 		return
 	}
 
+	bodyReadDone := requesttiming.Observe(c.Request.Context(), "handler_body_read")
 	body, err := readLenientJSONRequestBodyWithPrealloc(c.Request, h.cfg)
+	bodyReadDone()
 	if err != nil {
 		if handleRequestBodyReadError(c, reqLog, err) {
 			return
@@ -1294,14 +1789,19 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		h.anthropicErrorResponse(c, http.StatusBadRequest, "invalid_request_error", "Model is not supported by this OpenAI-compatible endpoint for composite groups")
 		return
 	}
-	bindOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body)
+	if policyBody, err := prepareOpenAIReasoningEffortPolicyForMessagesRequest(c, apiKey, body); err != nil {
+		respondOpenAIReasoningEffortPolicyError(c, err, h.anthropicErrorResponse)
+		return
+	} else {
+		body = policyBody
+	}
 	preferredMappedModel := resolveOpenAIMessagesDispatchMappedModel(c, apiKey, reqModel)
 	reqStream := gjson.GetBytes(body, "stream").Bool()
 
 	reqLog = reqLog.With(zap.String("model", reqModel), zap.Bool("stream", reqStream))
 
 	setOpsRequestContext(c, reqModel, reqStream)
-
+	bindOpenAIPriorityObservation(c, apiKey.GroupID, reqModel, body)
 	setOpsEndpointContext(c, "", int16(service.RequestTypeFromLegacy(reqStream, false)))
 
 	if decision := h.checkSecurityAudit(c, reqLog, apiKey, subject, service.ContentModerationProtocolAnthropicMessages, reqModel, body); decision != nil && !decision.AllowNextStage {
@@ -1328,7 +1828,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 	service.SetOpsLatencyMs(c, service.OpsAuthLatencyMsKey, time.Since(requestStart).Milliseconds())
 	routingStart := time.Now()
 
-	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, reqStream, &streamStarted, reqLog)
+	userReleaseFunc, acquired := h.acquireResponsesUserSlot(c, subject.UserID, subject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, reqStream, &streamStarted, reqLog)
 	if !acquired {
 		return
 	}
@@ -1336,7 +1836,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		defer userReleaseFunc()
 	}
 
-	if err := h.billingCacheService.CheckBillingEligibility(c.Request.Context(), apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.checkRegionalBillingEligibility(c.Request.Context(), apiKey, subscription); err != nil {
 		reqLog.Info("openai_messages.billing_eligibility_check_failed", zap.Error(err))
 		status, code, message, retryAfter := billingErrorDetails(err)
 		if retryAfter > 0 {
@@ -1367,10 +1867,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	headerTimeoutRetries := 0
+	var forbiddenBudget grokForbiddenFailoverBudget
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var rpmAdmission openAIRPMAdmission
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	effectiveMappedModel := preferredMappedModel
 
@@ -1387,6 +1890,8 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			currentRoutingModel = effectiveMappedModel
 		}
 		reqLog.Debug("openai_messages.account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
+		c.Request = c.Request.WithContext(service.WithGatewayOpenAISelection(c.Request.Context(), reqModel, currentRoutingModel))
+		c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(c.Request.Context(), currentRoutingModel, false))
 		selection, scheduleDecision, err := h.gatewayService.SelectAccountWithSchedulerForCapability(
 			c.Request.Context(),
 			apiKey.GroupID,
@@ -1402,11 +1907,23 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			requestPlatform,
 		)
 		if err != nil {
+			if errors.Is(err, service.ErrPriorityLatencyUnavailable) {
+				h.handleTurnAdmissionError(c, err, streamStarted)
+				return
+			}
+
 			if failoverClientGone(c) {
 				reqLog.Info("openai_messages.account_select_aborted_client_disconnected", zap.Error(err))
 				return
 			}
 			if h.handleAccountQualityHeldError(c, err, streamStarted) {
+				return
+			}
+			err = rpmAdmission.selectionError(err)
+			if isOpenAIRPMError(err) {
+				rpmAdmission.retryAfter(c, err)
+				cls := classifySelectionFailureError(err, noAccountErrorClassification{Status: http.StatusServiceUnavailable, ErrType: "api_error", Message: "OpenAI OAuth RPM protection is temporarily unavailable. Please retry later."})
+				h.anthropicStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
 				return
 			}
 			reqLog.Warn("openai_messages.account_select_failed",
@@ -1458,6 +1975,15 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 		if slotResult != openAISlotAcquireOK {
 			return
 		}
+		retryRPM, rpmErr := rpmAdmission.acquire(c.Request.Context(), h.gatewayService, account, accountReleaseFunc, failedAccountIDs)
+		if retryRPM {
+			continue
+		}
+		if rpmErr != nil {
+			cls := classifySelectionFailureError(rpmErr, noAccountErrorClassification{})
+			h.anthropicStreamingAwareError(c, cls.Status, cls.ErrType, cls.Message, streamStarted)
+			return
+		}
 
 		service.SetOpsLatencyMs(c, service.OpsRoutingLatencyMsKey, time.Since(routingStart).Milliseconds())
 		forwardStart := time.Now()
@@ -1472,8 +1998,17 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					accountReleaseFunc()
 				}
 			}()
-			return h.gatewayService.ForwardAsAnthropic(c.Request.Context(), c, account, forwardBody, promptCacheKey, defaultMappedModel)
+			return h.gatewayService.ForwardAsAnthropic(rpmAdmission.forwardContext(c.Request.Context(), account), c, account, forwardBody, promptCacheKey, defaultMappedModel)
 		}()
+		if service.IsUpstreamModerationDenied(err) {
+			return
+		}
+		if result != nil {
+			result.HeaderTimeoutRetries = headerTimeoutRetries
+		}
+		if h.handleOpenAIRPMForwardError(c, err, streamStarted, true) {
+			return
+		}
 		var cyberBlockBodyMsg []byte
 		if service.GetOpsCyberPolicy(c) != nil {
 			cyberBlockBodyMsg = body
@@ -1503,7 +2038,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			inboundEndpoint := GetInboundEndpoint(c)
 			upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, res)
 			quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-			sessionID := service.ExtractClientSessionID(c)
+			sessionID := service.ExtractOpenAIClientSessionID(c, body)
 			cyberBlocked := service.GetOpsCyberPolicy(c) != nil
 			channelUsageFields := clientRequestedUsageFields(c, channelMappingMsg, reqModel, res.UpstreamModel)
 			h.submitOpenAIUsageRecordTask(usageHTTPContext(c), res, func(ctx context.Context) {
@@ -1537,6 +2072,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			})
 		}
 		if err != nil {
+			if h.handleAnthropicAPIKeyLongContextError(c, err, streamStarted) {
+				return
+			}
 			if result != nil && result.ImageCount > 0 {
 				reqLog.Warn("openai_messages.forward_partial_error_with_image_result",
 					zap.Int64("account_id", account.ID),
@@ -1546,6 +2084,13 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			} else {
 				var failoverErr *service.UpstreamFailoverError
 				if errors.As(err, &failoverErr) {
+					if failoverErr.HeaderTimeoutSubmitted {
+						headerTimeoutRetries++
+						reqLog.Warn("openai.header_timeout_failover",
+							zap.Int64("account_id", account.ID),
+							zap.Int("header_timeout_retries", headerTimeoutRetries),
+						)
+					}
 					if failoverClientGone(c) {
 						reqLog.Info("openai_messages.failover_aborted_client_disconnected",
 							zap.Int64("account_id", account.ID),
@@ -1566,7 +2111,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					if failoverErr.ShouldReportAccountScheduleFailure() {
 						h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, nil), false, nil, err)
 					}
-					if !failoverErr.ShouldRetryNextAccount() {
+					if !forbiddenBudget.canRetry(failoverErr, switchCount) {
 						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
 						return
 					}
@@ -1580,6 +2125,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					if failoverErr.RetryableOnSameAccount {
 						retryLimit := effectiveSameAccountRetryLimit(failoverErr, account)
 						if sameAccountRetryAllowed(failoverErr, sameAccountRetryCount[account.ID], retryLimit) {
+							c.Request = c.Request.WithContext(service.WithOpenAISameAccountRetry(c.Request.Context(), account.ID, failoverErr))
 							sameAccountRetryCount[account.ID]++
 							retryDelay := sameAccountRetryDelayFor(failoverErr, sameAccountRetryCount[account.ID])
 							reqLog.Warn("openai_messages.pool_mode_same_account_retry",
@@ -1597,6 +2143,11 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 							continue
 						}
 					}
+					if failoverErr.SameAccountRetryOnly() {
+						h.handleAnthropicFailoverExhausted(c, failoverErr, streamStarted)
+						return
+					}
+					c.Request = c.Request.WithContext(service.WithOpenAISameAccountRetry(c.Request.Context(), 0, nil))
 					h.gatewayService.RecordOpenAIAccountSwitch()
 					service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 					failedAccountIDs[account.ID] = struct{}{}
@@ -1628,7 +2179,9 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 					submitMessagesUsage(result)
 					return
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)
+				if !service.IsOpenAITurnAdmissionError(err) {
+					h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), false, nil, err)
+				}
 				wroteFallback := h.ensureAnthropicStreamReadErrorResponse(c, err, streamStarted)
 				if !wroteFallback {
 					wroteFallback = h.ensureAnthropicErrorResponse(c, streamStarted)
@@ -1648,6 +2201,7 @@ func (h *OpenAIGatewayHandler) Messages(c *gin.Context) {
 			h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, currentRoutingModel, false, result), true, nil)
 		}
 
+		h.gatewayService.ObserveGroupAntiDistillationUsage(c.Request.Context(), apiKey, account, result, time.Time{}, body)
 		submitMessagesUsage(result)
 		reqLog.Debug("openai_messages.request_completed",
 			zap.Int64("account_id", account.ID),
@@ -1837,37 +2391,6 @@ func normalizeCodexAutomationBootstrap(body []byte) ([]byte, bool) {
 		return body, false
 	}
 	return normalizeCodexCallOutputBootstrap(body, isCodexAutomationCandidate, false)
-}
-
-// mayContainCodexCallOutputCandidate is a necessary condition for a bootstrap
-// candidate, checked before the full uniqueness scan and decode. Its type and
-// tool name are JSON strings, which appear literally unless a \u escape spells
-// their letters; without either, normalization cannot change the body. Escapes
-// that real clients emit (control characters, HTML-safe and non-ASCII runes)
-// cannot spell those letters and must not force the full decode.
-//
-// Tool declarations carry the same names, so a literal hit is confirmed by a
-// zero-copy scan for an input item of type function_call_output whose name
-// starts with one of toolNames. The full path rejects bodies with duplicate
-// members, and without duplicates the scan reads the same values as the
-// decoder.
-func mayContainCodexCallOutputCandidate(body []byte, toolNames ...string) bool {
-	if !service.JSONMayEscapePlainASCII(body) && !containsCodexCallOutputLiterals(body, toolNames) {
-		return false
-	}
-	return service.ResponsesInputHasFunctionCallOutputNamed(body, toolNames...)
-}
-
-func containsCodexCallOutputLiterals(body []byte, toolNames []string) bool {
-	if !bytes.Contains(body, []byte("function_call_output")) {
-		return false
-	}
-	for _, name := range toolNames {
-		if bytes.Contains(body, []byte(name)) {
-			return true
-		}
-	}
-	return false
 }
 
 func normalizeCodexCallOutputBootstrap(body []byte, isCandidate func(map[string]any) bool, allowHistoricalContext bool) ([]byte, bool) {
@@ -2254,12 +2777,15 @@ func (h *OpenAIGatewayHandler) acquireResponsesUserSlot(
 	c *gin.Context,
 	userID int64,
 	userConcurrency int,
+	apiKeyID int64,
+	keyLimit int,
 	reqStream bool,
 	streamStarted *bool,
 	reqLog *zap.Logger,
 ) (func(), bool) {
+	defer requesttiming.Observe(c.Request.Context(), "user_queue")()
 	ctx := c.Request.Context()
-	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, userID, userConcurrency, reqStream, streamStarted)
+	userReleaseFunc, err := h.concurrencyHelper.AcquireUserSlotWithWait(c, userID, userConcurrency, apiKeyID, keyLimit, reqStream, streamStarted)
 	if err != nil {
 		reqLog.Warn("openai.user_slot_acquire_failed", zap.Error(err))
 		h.handleConcurrencyError(c, err, "user", *streamStarted)
@@ -2425,6 +2951,7 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	reqLog *zap.Logger,
 	writeError openAISlotErrorWriter,
 ) (func(), openAISlotAcquireResult) {
+	defer requesttiming.Observe(c.Request.Context(), "account_queue")()
 	if writeError == nil {
 		writeError = func(status int, errType, code, message string) {
 			h.handleStreamingAwareErrorWithCode(c, status, errType, code, message, *streamStarted, false)
@@ -2439,6 +2966,29 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	// 终检与准入后绑定使用选号结果携带的门：composite 等跨分组调度解析出的
 	// 门只存在于调度栈的局部 ctx，必须经选号结果重放到本函数的 ctx 上。
 	ctx := service.ContextWithSelectionProfitGate(c.Request.Context(), selection)
+	ctx = service.ContextWithSelectionPriorityRequest(ctx, selection)
+	c.Request = c.Request.WithContext(service.ContextWithSelectionPriorityRequest(c.Request.Context(), selection))
+	checkLatency := func(release func()) bool {
+		if !service.OpenAISameAccountRetryAdmissible(ctx, selection.Account.ID) {
+			if release != nil {
+				release()
+			}
+			writeError(http.StatusServiceUnavailable, "api_error", "", "Same-account retry is no longer available")
+			return false
+		}
+		if denied := h.gatewayService.CheckPriorityLatencySelection(ctx, selection); denied != nil {
+			if release != nil {
+				release()
+			}
+			c.Header("Retry-After", "5")
+			writeError(http.StatusServiceUnavailable, "temporarily_unavailable", "latency_penalty", "Latency scheduling is temporarily unavailable; retry after 5 seconds")
+			return false
+		}
+		return true
+	}
+	if !checkLatency(selection.ReleaseFunc) {
+		return nil, openAISlotAcquireFailed
+	}
 	account := selection.Account
 	if selection.Acquired {
 		latest, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(ctx, account)
@@ -2451,6 +3001,9 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		}
 		account = latest
 		selection.Account = latest
+		if !checkLatency(selection.ReleaseFunc) {
+			return nil, openAISlotAcquireFailed
+		}
 		// 终检通过后提交认证用户归属及门下会话粘连；临时借用保留原归属。
 		if !selection.PreserveStickyBinding {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
@@ -2493,6 +3046,9 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 		}
 		account = latest
 		selection.Account = latest
+		if !checkLatency(fastReleaseFunc) {
+			return nil, openAISlotAcquireFailed
+		}
 		if !selection.PreserveStickyBinding {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -2562,6 +3118,9 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 	}
 	account = latest
 	selection.Account = latest
+	if !checkLatency(accountReleaseFunc) {
+		return nil, openAISlotAcquireFailed
+	}
 	if !selection.PreserveStickyBinding {
 		if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, groupID, sessionHash, account.ID); err != nil {
 			reqLog.Warn("openai.bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -2573,6 +3132,11 @@ func (h *OpenAIGatewayHandler) acquireOpenAIAccountSlot(
 // ResponsesWebSocket handles OpenAI Responses API WebSocket ingress endpoint
 // GET /openai/v1/responses (Upgrade: websocket)
 func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
+	if c.GetHeader("X-Image-Usage") != "" {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "X-Image-Usage is supported only by /v1/images/generations and /v1/images/edits")
+		return
+	}
+
 	if !isOpenAIWSUpgradeRequest(c.Request) {
 		h.errorResponse(c, http.StatusUpgradeRequired, "invalid_request_error", "WebSocket upgrade required (Upgrade: websocket)")
 		return
@@ -2663,7 +3227,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	c.Request = c.Request.WithContext(ctx)
 
 	firstMessageTimeout := service.ResolveOpenAIWSClientFirstMessageTimeout(h.cfg)
-	msgType, firstMessage, err := service.ReadOpenAIWSClientMessage(
+	msgType, firstMessage, firstFrameArrivedAt, err := service.ReadOpenAIWSClientMessageWithArrival(
 		ctx,
 		wsConn,
 		firstMessageTimeout,
@@ -2677,17 +3241,42 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			return
 		}
 		closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
-		reqLog.Warn("openai.websocket_read_first_message_failed",
+		var localClose *service.OpenAIWSClientCloseError
+		closedByServer := errors.As(err, &localClose)
+		if closedByServer {
+			closeStatus = fmt.Sprintf("%d(%s)", int(localClose.StatusCode()), localClose.StatusCode().String())
+			closeReason = localClose.Reason()
+		}
+		reason := "read_error"
+		peerCloseStatus := coderws.CloseStatus(err)
+		peerDisconnected := errors.Is(err, io.EOF) || peerCloseStatus == coderws.StatusNormalClosure || peerCloseStatus == coderws.StatusGoingAway
+		switch {
+		case closedByServer && localClose.StatusCode() == coderws.StatusPolicyViolation && errors.Is(err, context.DeadlineExceeded):
+			reason = "first_message_timeout"
+		case peerDisconnected:
+			reason = "peer_disconnected"
+		case errors.Is(err, context.Canceled):
+			reason = "request_canceled"
+		}
+		fields := []zap.Field{
 			zap.Error(err),
 			zap.String("client_ip", clientIP),
 			zap.String("close_status", closeStatus),
 			zap.String("close_reason", closeReason),
 			zap.Duration("read_timeout", firstMessageTimeout),
-		)
-		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "missing first response.create message")
+			zap.String("reason", reason),
+		}
+		if reason == "peer_disconnected" || reason == "request_canceled" {
+			reqLog.Info("openai.websocket_read_first_message_failed", fields...)
+		} else {
+			reqLog.Warn("openai.websocket_read_first_message_failed", fields...)
+		}
+		if !closedByServer && peerCloseStatus == -1 && !errors.Is(err, io.EOF) && !errors.Is(err, context.Canceled) {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "missing first response.create message")
+		}
 		return
 	}
-	firstTurnStartedAt := time.Now()
+	firstTurnStartedAt := requesttiming.Now(ctx)
 	if msgType != coderws.MessageText && msgType != coderws.MessageBinary {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "unsupported websocket message type")
 		return
@@ -2701,27 +3290,62 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, err.Error())
 		return
 	}
+	if middleware2.CheckGroupSubagentFrame(c, firstMessage) {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, middleware2.GroupSubagentsBlockedMessage)
+		return
+	}
+	if result := middleware2.CheckGroupCodexClientFrame(c, firstMessage); result.Enabled && !result.Matched {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, middleware2.GroupCodexClientMessage(result))
+		return
+	}
 	reqModel := strings.TrimSpace(gjson.GetBytes(firstMessage, "model").String())
 	if reqModel == "" {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model is required in first response.create payload")
 		return
 	}
+	service.SetOpenAIWSRecoveryPrincipal(c, subject.UserID, apiKey.ID)
+	shadowSession := h.gatewayService.GenerateSessionHashWithFallback(c, firstMessage,
+		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID))
+	ctx, firstMessage = h.gatewayService.RestoreOpenAIReadableShadow(ctx, c, firstMessage, shadowSession)
+	c.Request = c.Request.WithContext(ctx)
+	if err := h.gatewayService.CheckAPIKeyLongContext(c.Request.Context(), apiKey, firstMessage, reqModel, service.MapAPIKeyModel(apiKey, reqModel)); err != nil {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		rejectAPIKeyLongContextWS(wsConn, err)
+		return
+	}
+	// Start the connection's single frame reader after the temporary
+	// first-message reader has joined and before the first key queue wait, so a
+	// client that leaves during admission is observed instead of blocking the
+	// wait until its timeout. The ingress service reuses this same reader.
+	service.EnsureOpenAIWSIngressReader(c, wsConn)
 	// 分组级模型白名单：首帧校验客户端模型，不通过则关闭连接并标记运维原因。
 	// 必须在合成路由解析和上游模型映射之前执行。
 	// 与 HTTP 准入一致：帧内重复 model 键/大小写变体可能被上游按末值绑定，
-	// 全部候选值逐一校验，任一未命中即拒绝。
-	firstModelCandidates := requestmodel.FromBodyCandidates("", "application/json", firstMessage)
-	if blocked := blockedModelAllowlistCandidate(apiKey.Group, firstModelCandidates); blocked != "" {
+	// 全部候选值逐一校验，任一未命中即拒绝。同一快照同时作为本轮队列复核的
+	// 不可变权限，等待 worker 不读取 Gin 上下文。
+	firstTurnQueuePermissions := openAIWSQueueTurnPermissions(reqModel, firstMessage)
+	firstTurnQueuePermissions.Models = service.APIKeyModelCandidates(apiKey, firstTurnQueuePermissions.Models)
+	if blocked := blockedModelAllowlistCandidate(apiKey.Group, firstTurnQueuePermissions.Models); blocked != "" {
 		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
 		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked))
 		return
 	}
+	// 用户在分组内的禁用模型：与 HTTP 准入同一口径，首帧命中即关闭连接。
+	if denied := service.FirstUserGroupDeniedModel(apiKey.DeniedModelsInGroup(), firstTurnQueuePermissions.Models); denied != "" {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+		middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for your account in this group", denied))
+		return
+	}
 	// Keep the client model in the frame for admission, response identity and usage.
 	// Apply the resolved upstream model through MapRequestModel on every turn.
-	wsRouteModel := reqModel
+	wsRouteModel := service.MapAPIKeyModel(apiKey, reqModel)
+	if wsRouteModel != reqModel {
+		c.Request = c.Request.WithContext(context.WithValue(c.Request.Context(), ctxkey.RequestedPublicModel, reqModel))
+	}
 	if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-		decision, resolveErr := h.compositeResolver.Resolve(c.Request.Context(), apiKey.Group.ID, reqModel, service.CompositeRouteEndpointResponses)
+		decision, resolveErr := h.compositeResolver.Resolve(c.Request.Context(), apiKey.Group.ID, wsRouteModel, service.CompositeRouteEndpointResponses)
 		if resolveErr != nil {
 			reqLog.Error("openai.websocket_composite_route_failed", zap.Error(resolveErr))
 			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "Failed to resolve composite model route")
@@ -2761,28 +3385,42 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	)
 	// Establish turn 1 before any account admission. BeforeRequest(1) must not
 	// replace the key of the reservation already acquired by this handler.
-	service.BeginOpsStreamTurn(c, 1)
 	setOpsRequestContext(c, reqModel, true)
-
+	bindOpenAIPriorityObservation(c, apiKey.GroupID, reqModel, firstMessage)
 	ctx = c.Request.Context()
 	setOpsEndpointContext(c, "", int16(service.RequestTypeWSV2))
+	service.BeginOpsStreamTurn(c, 1)
 
+	// Connection-wide audit identity survives proxy restarts/failover, whose
+	// transport-local turn counters restart at 1. Replays keep the current
+	// state; only newly received follow-up frames advance this counter.
+	moderationLogicalTurn := 1
+	c.Set(securityAuditWSTurnContextKey, moderationLogicalTurn)
 	if decision := h.checkSecurityAuditStage(c, reqLog, apiKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, firstMessage, "first_turn"); decision != nil && !decision.AllowNextStage {
 		writeSecurityAuditWSError(ctx, wsConn, decision)
 		closeOpenAIClientWS(wsConn, securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision))
 		return
 	}
 
-	imageIntent := service.IsExplicitImageGenerationIntent("/v1/responses", reqModel, firstMessage)
-
+	imageIntent := firstTurnQueuePermissions.Capabilities&service.APIKeyQueueCapabilityImageGeneration != 0
 	if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
 		return
 	}
 
-	// The first response.create frame is available here, so explicit IDs are
-	// checked directly and body-derived sessions use the coarse scope gate.
-	if cyberBlockKey := h.findBlockedCyberSessionForAPIKey(c, apiKey, firstMessage); cyberBlockKey != "" {
+	cyberSessionBlockEnabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context())
+	cyberSessionIdentityStrict := cyberSessionBlockEnabled && h.gatewayService.CyberSessionIdentityStrictEnabled(c.Request.Context())
+	cyberIdentityBinding := &openAIWSCyberIdentityBinding{}
+	firstIdentityDecision := cyberIdentityBinding.resolve(apiKey.ID, c, firstMessage, cyberSessionBlockEnabled, cyberSessionIdentityStrict)
+	observeOpenAICyberSessionIdentity(firstIdentityDecision.observed, firstIdentityDecision.reject, firstIdentityDecision.identitySwap)
+	if firstIdentityDecision.reject {
+		metadata := cyberIdentityRejectionMetadata(firstIdentityDecision)
+		writeCyberSessionIdentityRejectedWSError(c.Request.Context(), wsConn, metadata)
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid or conflicting session identity")
+		h.enqueueCyberSessionIdentityRejectedOpsEntry(c, apiKey, reqModel, metadata)
+		return
+	}
+	if cyberBlockKey := h.findBlockedCyberSessionForRequest(c, apiKey, firstIdentityDecision.effective, firstMessage); cyberBlockKey != "" {
 		writeCyberSessionBlockedWSError(c.Request.Context(), wsConn)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "session blocked by cyber-security policy")
 		h.enqueueCyberSessionBlockedOpsEntry(c, apiKey, reqModel, cyberBlockKey)
@@ -2791,23 +3429,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	cyberBlockedThisConn := false
 	cyberBlockPendingAfterFailover := false
 	var cyberTurnBodiesMu sync.Mutex
-	cyberTurnBodies := map[int][]byte{1: append([]byte(nil), firstMessage...)}
-	setCyberTurnBody := func(turn int, payload []byte) {
+	cyberTurnBodies := map[int]openAIWSCyberTurnContext{1: {
+		body:     append([]byte(nil), firstMessage...),
+		identity: firstIdentityDecision.effective,
+	}}
+	setCyberTurnBody := func(turn int, payload []byte, identity service.CyberSessionIdentityResolution) {
 		cyberTurnBodiesMu.Lock()
-		cyberTurnBodies[turn] = append([]byte(nil), payload...)
+		cyberTurnBodies[turn] = openAIWSCyberTurnContext{
+			body:     append([]byte(nil), payload...),
+			identity: identity,
+		}
 		cyberTurnBodiesMu.Unlock()
 	}
-	takeCyberTurnBody := func(turn int) []byte {
+	takeCyberTurnBody := func(turn int) openAIWSCyberTurnContext {
 		cyberTurnBodiesMu.Lock()
-		body := cyberTurnBodies[turn]
+		turnContext := cyberTurnBodies[turn]
 		delete(cyberTurnBodies, turn)
 		cyberTurnBodiesMu.Unlock()
-		return body
+		return turnContext
 	}
 
 	// 解析渠道级模型映射
 	channelMappingWS, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, wsRouteModel)
 	wsForwardModel := openAIChannelForwardModel(channelMappingWS, wsRouteModel)
+	if err := h.gatewayService.CheckAPIKeyLongContext(ctx, apiKey, firstMessage, reqModel, wsRouteModel, wsForwardModel); err != nil {
+		service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+		rejectAPIKeyLongContextWS(wsConn, err)
+		return
+	}
 	wsAttemptModel := reqModel
 
 	var currentUserRelease func()
@@ -2829,17 +3478,20 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	defer releaseTurnSlots()
 	groupID, groupMax := apiKeyUserConcurrencyLimit(apiKey)
 
-	userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKeyWithGroup(ctx, subject.UserID, subject.Concurrency, apiKey.ID, groupID, groupMax)
+	// 首轮准入携带本轮的不可变权限快照；failover 重入复用同一 ctx 链条。
+	ctx = service.WithAPIKeyQueueRequestPermissions(ctx, firstTurnQueuePermissions)
+	userReleaseFunc, userAcquired, err := admitOpenAIWSTurn(h.concurrencyHelper, ctx, c, subject.UserID, subject.Concurrency, apiKey.ID, apiKey.ConcurrencyLimit, groupID, groupMax)
 	if err != nil {
-		reqLog.Warn("openai.websocket_user_slot_acquire_failed", zap.Error(err))
-		closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
+		closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_user_slot_acquire_failed", err)
 		return
 	}
 	if !userAcquired {
 		closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "too many concurrent requests, please retry later")
 		return
 	}
-	currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
+	// WS forwarding owns cancellation and joins upstream cleanup before
+	// AfterTurn releases slots. Releasing on ctx.Done would undercount drains.
+	currentUserRelease = userReleaseFunc
 	// A recovered logical turn restarts at turn 1 inside the next relay.
 	// Carry its already admitted key across attempts without consuming RPM again.
 	var retryTurnKey *service.APIKey
@@ -2854,17 +3506,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			userMax = key.User.Concurrency
 		}
 		retryGroup, retryMax := apiKeyUserConcurrencyLimit(key)
-		userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKeyWithGroup(ctx, key.User.ID, userMax, key.ID, retryGroup, retryMax)
+		userReleaseFunc, userAcquired, err := admitOpenAIWSTurn(h.concurrencyHelper, ctx, c, key.User.ID, userMax, key.ID, key.ConcurrencyLimit, retryGroup, retryMax)
 		if err != nil {
-			reqLog.Warn("openai.websocket_user_slot_reacquire_failed", zap.Error(err))
-			closeOpenAIClientWS(wsConn, coderws.StatusInternalError, "failed to acquire user concurrency slot")
+			closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_user_slot_reacquire_failed", err)
 			return false
 		}
 		if !userAcquired {
 			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "too many concurrent requests, please retry later")
 			return false
 		}
-		currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
+		currentUserRelease = userReleaseFunc
 		return true
 	}
 
@@ -2874,7 +3525,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if requestPlatform == service.PlatformGrok {
 		requiredTransport = service.OpenAIUpstreamTransportHTTPSSE
 	}
-	if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(c.Request.Context(), apiKey)); err != nil {
+	if err := h.checkRegionalBillingEligibility(ctx, apiKey, subscription); err != nil {
 		reqLog.Info("openai.websocket_billing_eligibility_check_failed", zap.Error(err))
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
 		return
@@ -2895,11 +3546,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// after acquiring turn slots, including the first account-selection wait.
 	// Restrict this extra check to the opt-in mode so standard-mode RPM checks
 	// are not charged a second time for the same request.
-	checkSimpleModeTurnBilling := func() error {
-		if h.cfg == nil || h.cfg.RunMode != config.RunModeSimple || !h.cfg.SimpleModeKeyRateLimitEnabled {
+	checkFirstTurnBilling := func(key *service.APIKey, effectiveSubscription *service.UserSubscription) error {
+		if h.gatewayService.RegionalFundsReadiness() == nil && (h.cfg == nil || h.cfg.RunMode != config.RunModeSimple || !h.cfg.SimpleModeKeyRateLimitEnabled) {
 			return nil
 		}
-		if err := h.billingCacheService.CheckBillingEligibility(ctx, apiKey.User, apiKey, apiKey.Group, subscription, service.QuotaPlatform(ctx, apiKey)); err != nil {
+		if err := h.checkRegionalBillingEligibility(ctx, key, effectiveSubscription); err != nil {
 			return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
 		}
 		return nil
@@ -2910,18 +3561,33 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		firstMessage,
 		openAIWSIngressFallbackSessionSeed(subject.UserID, apiKey.ID, apiKey.GroupID),
 	)
+	ctx = h.gatewayService.WithOpenAIWSAgentRecovery(ctx, c, firstMessage, sessionHash, wsForwardModel)
 	ctx = service.WithOpenAIGuardianParentAffinity(ctx, c, firstMessage, reqModel)
+	if next, clean, changed, rebuildErr := h.gatewayService.PrepareOpenAI409ReadableContinuation(ctx, c, firstMessage, sessionHash, wsForwardModel); rebuildErr != nil {
+		h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, rebuildErr, c)
+		return
+	} else if changed {
+		ctx, firstMessage, previousResponseID = next, clean, ""
+		ctx = service.ResetOpenAIWSReadableProviderSession(ctx, c)
+		c.Request = c.Request.WithContext(ctx)
+	}
 	maxAccountSwitches := h.maxAccountSwitches
 	switchCount := 0
+	opsTurnOffset := 0
+	var forbiddenBudget grokForbiddenFailoverBudget
 	profitVetoCount := 0
 	failedAccountIDs := make(map[int64]struct{})
 	sameAccountRetryCount := make(map[int64]int)
 	var lastFailoverErr *service.UpstreamFailoverError
+	var rpmAdmission openAIRPMAdmission
 	var oauth429FailoverState service.OpenAIOAuth429FailoverState
 	wsAttemptMessage := append([]byte(nil), firstMessage...)
 	capacityRetryWindow := openAIWSCapacityRetryWindow{}
+	initialDispatchStarted := false
+	wsSameAccountRetryExpired := false
 	waitForWSSameAccountRetry := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
-		if ctx.Err() != nil {
+		wsSameAccountRetryExpired = false
+		if account == nil || failoverErr == nil || !service.OpenAIWSAgentRecoveryCanRetry(ctx) || !service.OpenAIWSIngressCanFailover(ctx, c) {
 			return false
 		}
 		capacityFailure := failoverErr.IsOpenAICapacityShed()
@@ -2941,10 +3607,11 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				failoverErr.NextAccountAction = service.NextAccountStop
 				return false
 			}
-			return ctx.Err() == nil
-		}
-		if account == nil || failoverErr == nil {
-			return false
+			ctx = service.WithOpenAISameAccountRetry(ctx, account.ID, failoverErr)
+			c.Request = c.Request.WithContext(ctx)
+			admissible := service.OpenAISameAccountRetryAdmissible(ctx, account.ID)
+			wsSameAccountRetryExpired = !admissible
+			return admissible && service.OpenAIWSIngressCanFailover(ctx, c)
 		}
 		if !failoverErr.IsOpenAICapacityShed() && (failoverErr.StatusCode != http.StatusTooManyRequests || failoverErr.SameAccountRetryDeadline.IsZero()) {
 			return false
@@ -2958,6 +3625,8 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			failoverErr.NextAccountAction = service.NextAccountStop
 			return false
 		}
+		ctx = service.WithOpenAISameAccountRetry(ctx, account.ID, failoverErr)
+		c.Request = c.Request.WithContext(ctx)
 		sameAccountRetryCount[account.ID]++
 		reqLog.Warn("openai.websocket.same_account_retry",
 			zap.Int64("account_id", account.ID),
@@ -2969,10 +3638,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		case <-ctx.Done():
 			return false
 		case <-time.After(retryDelay):
-			return true
+			admissible := service.OpenAISameAccountRetryAdmissible(ctx, account.ID)
+			wsSameAccountRetryExpired = !admissible
+			return admissible && service.OpenAIWSIngressCanFailover(ctx, c)
 		}
 	}
 	handleWSFailover := func(account *service.Account, failoverErr *service.UpstreamFailoverError) bool {
+		if !service.OpenAIWSAgentRecoveryCanRetry(ctx) {
+			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "agent task was not replayed; original context was preserved")
+			return false
+		}
 		if ctx.Err() != nil {
 			return false
 		}
@@ -2983,13 +3658,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		if failoverErr.IsOpenAICapacityShed() && !capacityRetryWindow.allow(time.Now(), 0) {
 			failoverErr.NextAccountAction = service.NextAccountStop
 		}
-		if !failoverErr.ShouldRetryNextAccount() {
+		if !service.OpenAIWSIngressCanFailover(ctx, c) {
+			return false
+		}
+		if !forbiddenBudget.canRetry(failoverErr, switchCount) {
 			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
 			return false
 		}
 		if ctx.Err() != nil {
 			return false
 		}
+		if failoverErr.SameAccountRetryOnly() {
+			closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
+			return false
+		}
+		ctx = service.WithOpenAISameAccountRetry(ctx, 0, nil)
+		c.Request = c.Request.WithContext(ctx)
 		h.gatewayService.RecordOpenAIAccountSwitch()
 		service.RecordStrictFailoverFailure(c.Request.Context(), account.ID, failoverErr)
 		failedAccountIDs[account.ID] = struct{}{}
@@ -3009,7 +3693,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			zap.Int("switch_count", switchCount),
 			zap.Int("max_switches", maxAccountSwitches),
 		)
-		if ctx.Err() != nil {
+		if !service.OpenAIWSIngressCanFailover(ctx, c) {
 			return false
 		}
 		return ensureUserSlotHeld()
@@ -3029,10 +3713,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	// 继续按建连时刻的谷价计费。生图意图只影响能力路由与图片计费，不关门。
 	// 建连时刻只用于选号/准入，不作为任何 turn 的计费定价时刻。
 	wsPricingCtx, _ := h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
-	ctx = wsPricingCtx
+	ctx = service.WithOpenAIEncryptedReasoningAffinity(wsPricingCtx, firstMessage)
 
 	for {
-		if ctx.Err() != nil {
+		if !service.OpenAIWSIngressCanFailover(ctx, c) {
 			return
 		}
 		reqLog.Debug("openai.websocket_account_selecting", zap.Int("excluded_account_count", len(failedAccountIDs)))
@@ -3052,6 +3736,72 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 		if err != nil {
 			if handleAccountQualityHeldWSError(c, wsConn, err) {
+				return
+			}
+			if !initialDispatchStarted && requestPlatform == service.PlatformOpenAI &&
+				switchCount < maxAccountSwitches && service.OpenAIWSInitialOwnerCanRebuild(err) {
+				next, clean, changed, rebuildErr := h.gatewayService.RebuildOpenAIWSUnsentTurn(ctx, c, wsAttemptMessage, sessionHash, wsForwardModel)
+				if rebuildErr != nil {
+					h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, rebuildErr, c)
+					return
+				}
+				if changed {
+					c.Request = c.Request.WithContext(next)
+					permissions := openAIWSQueueTurnPermissions(reqModel, clean)
+					permissions.Models = service.APIKeyModelCandidates(apiKey, permissions.Models)
+					next = service.WithAPIKeyQueueRequestPermissions(next, permissions)
+					if authErr := h.concurrencyHelper.RevalidateTurnAuth(next); authErr != nil {
+						closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_rebuild_auth_rejected", authErr)
+						return
+					}
+					effectiveSubscription := subscription
+					if activeSubscription, active := service.ActiveAPIKeyFallbackSubscription(next, apiKey); active {
+						effectiveSubscription = activeSubscription
+					}
+					freshKey, authErr := h.authorizeOpenAIWSTurn(next, c, &primaryKey, apiKey, effectiveSubscription)
+					if authErr != nil {
+						closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_rebuild_auth_rejected", authErr)
+						return
+					}
+					if billingErr := h.checkRegionalBillingEligibility(next, freshKey, effectiveSubscription); billingErr != nil {
+						closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+						return
+					}
+					if contextErr := h.gatewayService.CheckAPIKeyLongContext(next, freshKey, clean, reqModel, wsRouteModel, wsForwardModel); contextErr != nil {
+						rejectAPIKeyLongContextWS(wsConn, contextErr)
+						return
+					}
+					if decision := h.checkSecurityAuditStage(c, reqLog, freshKey, subject, service.ContentModerationProtocolOpenAIResponses, reqModel, clean, "first_turn"); decision != nil && !decision.AllowNextStage {
+						writeSecurityAuditWSError(next, wsConn, decision)
+						closeOpenAIClientWS(wsConn, securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision))
+						return
+					}
+					// Existing first-turn hooks still enforce client identity, selected
+					// account moderation, permissions, slots and final payload checks.
+					setCyberTurnBody(1, clean, firstIdentityDecision.effective)
+					ctx = service.ResetOpenAIWSReadableProviderSession(next, c)
+					c.Request = c.Request.WithContext(ctx)
+					wsAttemptMessage, previousResponseID, previousResponseCanMove = clean, "", true
+					firstTurnQueuePermissions = permissions
+					switchCount++
+					continue
+				}
+			}
+			if h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, err, c) {
+				return
+			}
+			if errors.Is(err, service.ErrPriorityLatencyUnavailable) {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "latency scheduling temporarily unavailable; retry after 5 seconds")
+				return
+			}
+
+			err = rpmAdmission.selectionError(err)
+			if errors.Is(err, service.ErrOpenAIRPMExhausted) {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "All eligible OpenAI OAuth accounts are at their per-minute request limit; retry after the current minute resets")
+				return
+			}
+			if errors.Is(err, service.ErrOpenAIRPMUnavailable) {
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "OpenAI OAuth RPM protection is temporarily unavailable; retry later")
 				return
 			}
 			reqLog.Warn("openai.websocket_account_select_failed",
@@ -3082,6 +3832,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// 终检、准入后绑定与后续 turn 级复核都使用选号结果携带的门（composite
 		// 等跨分组调度的门只存在于调度栈局部 ctx）；准入成功后并入连接 ctx。
 		admissionCtx := service.ContextWithSelectionProfitGate(ctx, selection)
+		admissionCtx = service.ContextWithSelectionPriorityRequest(admissionCtx, selection)
 		accountReleaseFunc := selection.ReleaseFunc
 		if selection.Acquired {
 			// 调度器已抢槽路径同样终检：选号与抢槽之间账号倍率可能刷新。
@@ -3143,12 +3894,29 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			selection.Account = latest
 			accountReleaseFunc = fastReleaseFunc
 		}
+		if denied := h.gatewayService.CheckPriorityLatencySelection(admissionCtx, selection); denied != nil {
+			if accountReleaseFunc != nil {
+				accountReleaseFunc()
+			}
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "latency scheduling temporarily unavailable; retry after 5 seconds")
+			return
+		}
 		// 准入完成：门并入连接 ctx，turn 级复核与 failover 重选共用。
 		ctx = admissionCtx
+		c.Request = c.Request.WithContext(service.ContextWithSelectionPriorityRequest(c.Request.Context(), selection))
+		retryRPM, rpmErr := rpmAdmission.acquire(ctx, h.gatewayService, account, accountReleaseFunc, failedAccountIDs)
+		if retryRPM {
+			continue
+		}
+		if rpmErr != nil {
+			closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "OpenAI OAuth RPM protection is temporarily unavailable; retry later")
+			return
+		}
+		ctx = rpmAdmission.forwardContext(ctx, account)
 		// Account selection starts a fresh upstream attempt. Clear any model
 		// captured by the previous failover account before credential lookup.
 		setOpsSelectedAccount(c, account.ID, account.Platform)
-		currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
+		currentAccountRelease = accountReleaseFunc
 		if !selection.PreserveStickyBinding {
 			if err := h.gatewayService.BindStickySessionAfterProfitAdmission(ctx, apiKey.GroupID, sessionHash, account.ID); err != nil {
 				reqLog.Warn("openai.websocket_bind_sticky_session_after_profit_admission_failed", zap.Int64("account_id", account.ID), zap.Error(err))
@@ -3180,6 +3948,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		)
 
 		maxReasoningEffort, reasoningEffortMappings, maxReasoningEffortOverLimit, _ := openAIReasoningEffortPolicyForRequest(c, apiKey)
+		forcedReasoningEffort := ""
+		if effectiveAPIKeyPlatform(c, apiKey) == service.PlatformOpenAI {
+			forcedReasoningEffort = apiKey.ReasoningEffort
+		}
 		var requestPayloadHash string
 		var turnStartsMu sync.Mutex
 		turnStarts := make(map[int]time.Time, 4)
@@ -3198,46 +3970,126 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 			turnStartsMu.Unlock()
 			return startedAt
 		}
-		// Passthrough rejects overlapping response.create frames, so one immutable
-		// turn-tagged slot preserves the exact mapping used for the in-flight request.
+		// MapRequestModel runs before account admission in each ingress mode.
 		var turnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
 		turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: 1, mapping: channelMappingWS})
-		// Native ingress maps before admission; passthrough maps afterward. Freeze
-		// the latter's mapping before admission and reuse it for the same turn.
-		var pendingTurnChannelMapping atomic.Pointer[openAIWSTurnChannelMappingSnapshot]
-		// turn 级定价：首轮回退到 TurnStarted 的所属 turn 时刻；后续 turn 由
-		// BeforeTurn 重新冻结 pricingAt 并按最新门复核当前账号。
 		var turnPricing openAIWSTurnPricing
-		// Freeze the admitted key for the lifetime of each turn.
 		var turnBillingAPIKeys openAIWSTurnBillingAPIKeys
 		var latestAdmitted atomic.Pointer[service.APIKey]
+		var turnQueuePermissions service.APIKeyQueueRequestPermissions
+		var permissionsPreflightTurn int
+		var rebuiltAuditBody []byte
 		boundSubscription := subscription
 		if sub, active := service.ActiveAPIKeyFallbackSubscription(ctx, apiKey); active {
 			boundSubscription = sub
 		}
-		// Passthrough ingress does not invoke BeforeTurn for the first frame.
-		if err := checkSimpleModeTurnBilling(); err != nil {
+		if err := h.concurrencyHelper.RevalidateTurnAuth(ctx); err != nil {
+			closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_key_auth_rejected", err)
+			return
+		}
+		if err := checkFirstTurnBilling(apiKey, boundSubscription); err != nil {
 			closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
 			return
+		}
+		if decision := checkSelectedUpstreamAudit(c, ctx, account); decision != nil && !decision.AllowNextStage {
+			writeSecurityAuditWSError(ctx, wsConn, decision)
+			closeOpenAIClientWS(wsConn, securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision))
+			return
+		}
+
+		// Both the parser and the queue revalidator need client model candidates.
+		// Include the actual model even if the frame omitted it after session.update.
+		turnPermissions := func(key *service.APIKey, model string, body []byte) service.APIKeyQueueRequestPermissions {
+			permissions := openAIWSQueueTurnPermissions(model, body)
+			permissions.Models = service.APIKeyModelCandidates(key, permissions.Models)
+			return permissions
+		}
+		authorizeTurnPermissions := func(key *service.APIKey, permissions service.APIKeyQueueRequestPermissions) error {
+			if blocked := blockedModelAllowlistCandidate(key.Group, permissions.Models); blocked != "" {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+				middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+				return newOpenAIWSLocalAdmissionCloseError(fmt.Sprintf("Model %q is not available for this group", blocked))
+			}
+			if denied := service.FirstUserGroupDeniedModel(key.DeniedModelsInGroup(), permissions.Models); denied != "" {
+				service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
+				middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
+				return newOpenAIWSLocalAdmissionCloseError(fmt.Sprintf("Model %q is not available for your account in this group", denied))
+			}
+			if permissions.Capabilities&service.APIKeyQueueCapabilityImageGeneration != 0 && !service.GroupAllowsImageGeneration(key.Group) {
+				return newOpenAIWSLocalAdmissionCloseError(service.ImageGenerationPermissionMessage())
+			}
+			return nil
 		}
 		hooks := &service.OpenAIWSIngressHooks{
 			ClientLifecycleContext:      clientLifecycleCtx,
 			InitialRequestModel:         wsAttemptModel,
 			InitialTurnStartedAt:        firstTurnStartedAt,
+			InitialFrameArrivedAt:       firstFrameArrivedAt,
 			MaxReasoningEffort:          maxReasoningEffort,
 			MaxReasoningEffortOverLimit: maxReasoningEffortOverLimit,
 			ReasoningEffortMappings:     reasoningEffortMappings,
+			ForcedReasoningEffort:       forcedReasoningEffort,
+			APIKeyModelMapping:          len(apiKey.ModelMapping) > 0,
 			TurnStarted:                 recordTurnStart,
-			BeforeRequest: func(turn int, payload []byte, originalModel string) error {
-				if err := requestmodel.ValidateWebSocketRequestFields(payload); err != nil {
+			BeforePayloadParse: func(turn int, raw []byte, effectiveModel string) error {
+				if middleware2.CheckGroupSubagentFrame(c, raw) {
+					return newOpenAIWSLocalAdmissionCloseError(middleware2.GroupSubagentsBlockedMessage)
+				}
+				if result := middleware2.CheckGroupCodexClientFrame(c, raw); result.Enabled && !result.Matched {
+					return newOpenAIWSLocalAdmissionCloseError(middleware2.GroupCodexClientMessage(result))
+				}
+				if !gjson.ValidBytes(raw) {
+					return nil // The parser reports the malformed frame.
+				}
+				if err := requestmodel.ValidateWebSocketRequestFields(raw); err != nil {
 					middleware2.MarkIngressRejected(c, middleware2.IngressRejectConflictingRequestFields)
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
 				}
-				c.Set(securityAuditWSTurnContextKey, turn)
+				if turn <= 1 {
+					return nil
+				}
+				model := strings.TrimSpace(effectiveModel)
+				if model == "" {
+					model = wsAttemptModel
+				}
+				if err := h.gatewayService.CheckAPIKeyLongContext(ctx, apiKey, raw, model, service.MapAPIKeyModel(apiKey, model)); err != nil {
+					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalFeatureGate)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, apiKeyLongContextWSCloseReason(err), err)
+				}
+				turnQueuePermissions = turnPermissions(apiKey, model, raw)
+				permissionsPreflightTurn = turn
+				preflightCtx := service.WithAPIKeyQueueRequestPermissions(ctx, turnQueuePermissions)
+				if err := h.concurrencyHelper.RevalidateTurnAuth(preflightCtx); err != nil {
+					return mapOpenAIWSTurnAdmissionError(err)
+				}
+				service.SetOpenAIWSRecoveryClientModel(c, model)
+				return nil
+			},
+			BeforeRequestWithClientPayload: func(turn int, payload, clientPayload []byte, originalModel string) error {
+				if len(clientPayload) == 0 {
+					clientPayload = payload
+				}
+				if err := requestmodel.ValidateWebSocketRequestFields(clientPayload); err != nil {
+					middleware2.MarkIngressRejected(c, middleware2.IngressRejectConflictingRequestFields)
+					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, err.Error(), err)
+				}
+				if turn > 1 && rebuiltAuditBody == nil {
+					moderationLogicalTurn++
+					service.BeginOpsStreamTurn(c, opsTurnOffset+turn)
+				} else if turn == 1 {
+					service.ResumeOpsStreamTurn(c, opsTurnOffset+turn)
+				}
+				c.Set(securityAuditWSTurnContextKey, moderationLogicalTurn)
 				if turn == 1 {
-					service.ResumeOpsStreamTurn(c, turn)
-				} else {
-					service.BeginOpsStreamTurn(c, turn)
+					turnKey := turnBillingAPIKeys.forTurn(turn, apiKey)
+					if cyberBlockedThisConn && !h.cyberPolicyLogOnly(c, turnKey) {
+						return newOpenAIWSLocalAdmissionCloseError(cyberSessionBlockedClientMsg)
+					}
+					setCyberTurnBody(turn, payload, firstIdentityDecision.effective)
+					return nil
+				}
+				if !gjson.ValidBytes(payload) || !gjson.ValidBytes(clientPayload) {
+					return newOpenAIWSLocalAdmissionCloseError("invalid websocket request payload")
 				}
 				model := strings.TrimSpace(originalModel)
 				if model == "" {
@@ -3248,47 +4100,54 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				setOpsRequestContext(c, model, true)
 
-				setCyberTurnBody(turn, payload)
-				// 连接级 cyber session gate 也在 BeforeRequest 先执行，使 native 与
-				// passthrough ingress 都能在 BeforeTurn 及上游写入前无副作用地拒绝。
-				// BeforeTurn 中保留同一检查作为防御式兜底。
-				if cyberBlockedThisConn && !h.cyberPolicyLogOnly(c, apiKey) {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
-				}
-				if turn == 1 {
-					return nil
-				}
 				turnKey, err := h.authorizeOpenAIWSTurn(ctx, c, &primaryKey, apiKey, boundSubscription)
 				if err != nil {
 					return err
 				}
-				turnBillingAPIKeys.set(turn, turnKey)
-				if !gjson.ValidBytes(payload) {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "invalid websocket request payload", errors.New("invalid json"))
+				if cyberBlockedThisConn && !h.cyberPolicyLogOnly(c, turnKey) {
+					return newOpenAIWSLocalAdmissionCloseError(cyberSessionBlockedClientMsg)
 				}
-				// 分组级模型白名单：后续 turn 同样校验客户端模型（省略 model 时
-				// 沿用会话实际生效模型，含 session.update 轮换后的模型），不通过
-				// 则关闭整条连接，与推理强度 deny 一致。实际生效模型始终参与校验；
-				// 帧内重复 model 键/大小写变体/嵌套 session.model 额外逐一校验，
-				// 防止候选集非空时掩盖被轮换掉的禁用模型。
-				frameModelCandidates := requestmodel.FromBodyCandidates("", "application/json", payload)
-				candidates := append([]string{model}, frameModelCandidates...)
-				if blocked := blockedModelAllowlistCandidate(turnKey.Group, candidates); blocked != "" {
-					service.MarkOpsClientBusinessLimited(c, service.OpsClientBusinessLimitedReasonLocalModelConfiguration)
-					middleware2.MarkIngressRejected(c, middleware2.IngressRejectModelNotAllowed)
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, fmt.Sprintf("Model %q is not available for this group", blocked), nil)
+				parsedPermissions := turnPermissions(turnKey, model, payload)
+				if permissionsPreflightTurn != turn {
+					turnQueuePermissions = parsedPermissions
+				} else {
+					turnQueuePermissions.Capabilities |= parsedPermissions.Capabilities
 				}
-				strictModel := model
-				if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-					strictModel = wsRouteModel
+				if err := authorizeTurnPermissions(turnKey, turnQueuePermissions); err != nil {
+					return err
 				}
-				if err := h.gatewayService.ValidateStrictFailoverBoundAccount(withOpenAIWSTurnBillingGroup(ctx, turnKey), turnKey.GroupID, account, strictModel, requiredCapability, requiredTransport); err != nil {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "strict priority tier changed or unavailable; reconnect with full conversation context", err)
+
+				cyberEnabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context())
+				cyberStrict := cyberEnabled && h.gatewayService.CyberSessionIdentityStrictEnabled(c.Request.Context())
+				identityDecision := cyberIdentityBinding.resolve(turnKey.ID, c, clientPayload, cyberEnabled, cyberStrict)
+				observeOpenAICyberSessionIdentity(identityDecision.observed, identityDecision.reject, identityDecision.identitySwap)
+				if identityDecision.reject {
+					metadata := cyberIdentityRejectionMetadata(identityDecision)
+					writeCyberSessionIdentityRejectedWSError(ctx, wsConn, metadata)
+					h.enqueueCyberSessionIdentityRejectedOpsEntry(c, turnKey, model, metadata)
+					return newOpenAIWSLocalAdmissionCloseError("invalid or conflicting session identity")
 				}
-				if decision := h.checkSecurityAuditStage(c, reqLog, turnKey, middleware2.AuthSubject{UserID: turnKey.User.ID, Concurrency: turnKey.User.Concurrency}, service.ContentModerationProtocolOpenAIResponses, model, payload, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
+				if cyberBlockKey := h.findBlockedCyberSessionForRequest(c, turnKey, identityDecision.effective, payload); cyberBlockKey != "" {
+					writeCyberSessionBlockedWSError(ctx, wsConn)
+					h.enqueueCyberSessionBlockedOpsEntry(c, turnKey, model, cyberBlockKey)
+					return newOpenAIWSLocalAdmissionCloseError(cyberSessionBlockedClientMsg)
+				}
+				setCyberTurnBody(turn, payload, identityDecision.effective)
+
+				auditBody := clientPayload
+				if rebuiltAuditBody != nil {
+					auditBody = rebuiltAuditBody
+				}
+				turnSubject := middleware2.AuthSubject{UserID: turnKey.User.ID, Concurrency: turnKey.User.Concurrency}
+				if decision := h.checkSecurityAuditStage(c, reqLog, turnKey, turnSubject, service.ContentModerationProtocolOpenAIResponses, model, auditBody, "subsequent_turn"); decision != nil && !decision.AllowNextStage {
 					writeSecurityAuditWSError(ctx, wsConn, decision)
-					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), nil)
+					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), errOpenAIWSLocalAdmissionRejected)
 				}
+				if decision := checkSelectedUpstreamAudit(c, c.Request.Context(), account); decision != nil && !decision.AllowNextStage {
+					writeSecurityAuditWSError(ctx, wsConn, decision)
+					return service.NewOpenAIWSClientCloseError(securityAuditWSCloseStatus(decision), securityAuditWSCloseReason(decision), errOpenAIWSLocalAdmissionRejected)
+				}
+				turnBillingAPIKeys.set(turn, turnKey)
 				return nil
 			},
 			MapRequestModel: func(turn int, originalModel string) (string, error) {
@@ -3297,100 +4156,91 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					model = wsAttemptModel
 				}
 				setOpsRequestContext(c, model, true)
-				routeModel := model
+				bindOpenAIPriorityObservation(c, apiKey.GroupID, model)
+				routeModel := service.MapAPIKeyModel(apiKey, model)
 				if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-					// The account, target platform and route context are connection-scoped.
-					// A different public model needs a new connection and fresh resolution.
+					// The selected member and platform are bound to the connection.
 					if model != reqModel {
 						return "", newOpenAIWSUnsupportedModelSwitchError(model)
 					}
 					routeModel = wsRouteModel
 				}
-				var mapping service.ChannelMappingResult
-				if pending := pendingTurnChannelMapping.Load(); pending != nil && pending.turn == turn {
-					mapping = pending.mapping
-				} else if current := turnChannelMapping.Load(); current != nil && current.turn == turn {
-					mapping = current.mapping
-				} else {
-					mapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, routeModel)
+				previous := turnChannelMapping.Load()
+				if previous != nil && previous.turn == turn {
+					forwardModel := openAIChannelForwardModel(previous.mapping, routeModel)
+					c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(c.Request.Context(), forwardModel, false))
+					return forwardModel, nil
 				}
-				mappedModelUnchanged := false
-				if previous := turnChannelMapping.Load(); previous != nil && previous.turn < turn {
-					mappedModelUnchanged = strings.TrimSpace(previous.mapping.MappedModel) == strings.TrimSpace(mapping.MappedModel)
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, routeModel)
+				forwardModel := openAIChannelForwardModel(mapping, routeModel)
+				if turn > 1 && (previous == nil || strings.TrimSpace(previous.mapping.MappedModel) != forwardModel) &&
+					!account.IsModelSupportedInGroup(apiKey.GroupID, model) && !account.IsModelSupportedInGroup(apiKey.GroupID, forwardModel) {
+					return "", newOpenAIWSUnsupportedModelSwitchError(forwardModel)
 				}
-				if turn > 1 && !mappedModelUnchanged && !account.IsModelSupported(model) && !account.IsModelSupported(mapping.MappedModel) {
-					return "", newOpenAIWSUnsupportedModelSwitchError(mapping.MappedModel)
-				}
+				c.Request = c.Request.WithContext(service.WithOpenAIForwardModel(c.Request.Context(), forwardModel, false))
 				turnChannelMapping.Store(&openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping})
-				return mapping.MappedModel, nil
+				return forwardModel, nil
 			},
 			BeforeTurn: func(turn int) error {
-				// turn==1 的会话屏蔽已由握手层检查覆盖；连接内 flag 只拦截后续 turn。
-				if cyberBlockedThisConn && !h.cyberPolicyLogOnly(c, apiKey) {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, cyberSessionBlockedClientMsg, nil)
-				}
-				// 长连接跨峰谷/倍率刷新防护：每个 turn 按当前时刻重装门并复核
-				// 当前账号，越线即要求客户端重连重选（连接绑定单一上游账号，
-				// 无法中途换号）。本 turn 的准入与计费共用同一 pricingAt。
 				turnKey := turnBillingAPIKeys.forTurn(turn, apiKey)
-				turnBillingCtx := withOpenAIWSTurnBillingGroup(ctx, turnKey)
-
-				turnCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnBillingCtx, apiKey.GroupID)
-				if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(turnCtx, account); vetoed {
-					reqLog.Info("openai.websocket_turn_profit_vetoed",
-						zap.Int("turn", turn),
-						zap.Int64("account_id", account.ID),
-						zap.String("reason", reason))
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is no longer eligible for this connection, please reconnect", nil)
+				if cyberBlockedThisConn && !h.cyberPolicyLogOnly(c, turnKey) {
+					return newOpenAIWSLocalAdmissionCloseError(cyberSessionBlockedClientMsg)
 				}
-				turnPricing.freeze(turnAt)
+				turnCtx := withOpenAIWSTurnBillingGroup(ctx, turnKey)
 				if turn == 1 {
+					pricingCtx, turnAt := h.gatewayService.WithOpenAITurnPricingContext(turnCtx, turnKey.GroupID)
+					if _, vetoed, reason := h.gatewayService.ProfitControlVetoLatest(pricingCtx, account); vetoed {
+						reqLog.Info("openai.websocket_turn_profit_vetoed", zap.Int64("account_id", account.ID), zap.String("reason", reason))
+						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is no longer eligible for this connection, please reconnect", nil)
+					}
+					turnPricing.freeze(turnAt)
 					return nil
 				}
-				// 防御式清理：避免异常路径下旧槽位覆盖导致泄漏。
+
 				releaseTurnSlots()
-				// 非首轮 turn 需要重新抢占并发槽位，避免长连接空闲占槽。
-				turnGroupID, turnGroupMax := apiKeyUserConcurrencyLimit(turnKey)
-				userReleaseFunc, userAcquired, err := h.concurrencyHelper.TryAcquireUserSlotForAPIKeyWithGroup(turnCtx, turnKey.User.ID, turnKey.User.Concurrency, turnKey.ID, turnGroupID, turnGroupMax)
-				if err != nil {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire user concurrency slot", err)
-				}
-				if !userAcquired {
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "too many concurrent requests, please retry later", nil)
-				}
 				publicModel := c.GetString(opsModelKey)
-				admissionCtx := context.WithValue(turnCtx, ctxkey.Model, publicModel)
-				snapshot := turnChannelMapping.Load()
-				if snapshot == nil || snapshot.turn != turn {
-					routeModel := publicModel
-					if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
-						routeModel = wsRouteModel
-					}
-					mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, routeModel)
-					snapshot = &openAIWSTurnChannelMappingSnapshot{turn: turn, mapping: mapping}
-					pendingTurnChannelMapping.Store(snapshot)
+				routeModel := service.MapAPIKeyModel(turnKey, publicModel)
+				if turnKey.Group != nil && turnKey.Group.Platform == service.PlatformComposite {
+					routeModel = wsRouteModel
 				}
-				accountReleaseFunc, accountAcquired, err := h.concurrencyHelper.TryAcquireAccountSlot(admissionCtx, account.ID, accountMaxConcurrency, &account)
+				forwardModel := wsForwardModel
+				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
+					forwardModel = openAIChannelForwardModel(snapshot.mapping, routeModel)
+				}
+				turnCtx = context.WithValue(turnCtx, ctxkey.Model, publicModel)
+				turnCtx = service.WithOpenAIForwardModel(turnCtx, forwardModel, false)
+				turnQueueCtx := service.WithAPIKeyQueueRequestPermissions(turnCtx, turnQueuePermissions)
+				userRelease, accountRelease, err := h.admitOpenAIWSTurnForPricing(turnQueueCtx, c, turnKey, account, accountMaxConcurrency, reqLog, &turnPricing, func() (*service.APIKey, error) {
+					if err := h.concurrencyHelper.RevalidateTurnAuth(turnQueueCtx); err != nil {
+						return nil, mapOpenAIWSTurnAdmissionError(err)
+					}
+					key, err := h.authorizeOpenAIWSTurn(turnQueueCtx, c, &primaryKey, apiKey, boundSubscription)
+					if err != nil {
+						return nil, err
+					}
+					if err := authorizeTurnPermissions(key, turnQueuePermissions); err != nil {
+						return nil, err
+					}
+					currentCtx := withOpenAIWSTurnBillingGroup(turnQueueCtx, key)
+					if err := h.gatewayService.ValidateStrictFailoverBoundAccount(currentCtx, key.GroupID, account, routeModel, requiredCapability, requiredTransport); err != nil {
+						return nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "strict priority tier changed or unavailable; reconnect with full conversation context", err)
+					}
+					if _, err := h.gatewayService.AdmitOpenAITurn(currentCtx, c, account, forwardModel); err != nil {
+						reqLog.Info("openai.websocket_turn_admission_rejected", zap.Int("turn", turn), zap.Int64("account_id", account.ID), zap.Error(err))
+						return nil, service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account eligibility changed; reconnect with complete context", err)
+					}
+					turnKey = key
+					return key, nil
+				})
 				if err != nil {
-					if userReleaseFunc != nil {
-						userReleaseFunc()
-					}
-					if handleAccountQualityHeldWSError(c, wsConn, err) {
-						return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, accountQualityHeldErrorCode, err)
-					}
-					return service.NewOpenAIWSClientCloseError(coderws.StatusInternalError, "failed to acquire account concurrency slot", err)
+					return err
 				}
-				if !accountAcquired {
-					if userReleaseFunc != nil {
-						userReleaseFunc()
-					}
-					return service.NewOpenAIWSClientCloseError(coderws.StatusTryAgainLater, "account is busy, please retry later", nil)
-				}
-				currentUserRelease = wrapReleaseOnDone(ctx, userReleaseFunc)
-				currentAccountRelease = wrapReleaseOnDone(ctx, accountReleaseFunc)
-				if err := h.billingCacheService.CheckBillingEligibility(turnCtx, turnKey.User, turnKey, turnKey.Group, boundSubscription, service.QuotaPlatform(turnCtx, turnKey)); err != nil {
+				currentUserRelease, currentAccountRelease = userRelease, accountRelease
+				if err := h.checkRegionalBillingEligibility(withOpenAIWSTurnBillingGroup(turnQueueCtx, turnKey), turnKey, boundSubscription); err != nil {
+					releaseTurnSlots()
 					return service.NewOpenAIWSClientCloseError(coderws.StatusPolicyViolation, "billing check failed", err)
 				}
+				turnBillingAPIKeys.set(turn, turnKey)
 				latestAdmitted.Store(turnKey)
 				return nil
 			},
@@ -3400,7 +4250,14 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					clear(sameAccountRetryCount)
 				}
 				turnStart := getTurnStart(turn)
-				cyberBlockBody := takeCyberTurnBody(turn)
+				// Each ingress samples its own forward boundary. Callback cleanup is
+				// never queue time. Preserve the current frame across account failover.
+				if turnErr != nil && turn > 1 && !turnStart.IsZero() {
+					firstTurnStartedAt = turnStart
+					firstFrameArrivedAt = turnStart
+				}
+				cyberTurnContext := takeCyberTurnBody(turn)
+				cyberBlockBody := cyberTurnContext.body
 				// 每次 attempt 都清 cyber mark；failover 链结束前保留 recorded guard，
 				// 避免同一逻辑 turn 换号后重复落风控。CyberBlocked 必须在 submit 前
 				// 同步预捕获（task 闭包由 worker 池异步执行，届时 mark 已清除）。
@@ -3418,27 +4275,34 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if result != nil {
 					turnUpstreamModel = strings.TrimSpace(result.UpstreamModel)
 				}
+				turnBillingAPIKey := turnBillingAPIKeys.forTurn(turn, apiKey)
 				var turnMapping service.ChannelMappingResult
 				if snapshot := turnChannelMapping.Load(); snapshot != nil && snapshot.turn == turn {
 					turnMapping = snapshot.mapping
 				} else {
-					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, turnRequestedModel)
+					turnMapping, _ = h.gatewayService.ResolveChannelMappingAndRestrict(ctx, turnBillingAPIKey.GroupID, service.MapAPIKeyModel(turnBillingAPIKey, turnRequestedModel))
 				}
 				if turnUpstreamModel == "" {
 					turnUpstreamModel = turnRequestedModel
 				}
 				turnUsageFields := turnMapping.ToUsageFields(turnRequestedModel, turnUpstreamModel)
-				turnBillingAPIKey := turnBillingAPIKeys.forTurn(turn, apiKey)
+				if mapped := service.MapAPIKeyModel(turnBillingAPIKey, turnRequestedModel); mapped != turnRequestedModel {
+					turnUsageFields.APIKeyMappedModel = mapped
+				}
 				cyberMarked := service.GetOpsCyberPolicy(c) != nil
-				h.recordCyberPolicyIfMarked(c, turnBillingAPIKey, account, boundSubscription, turnRequestedModel, turnErr != nil, cyberBlockBody, turnUsageFields, requestPayloadHash)
+				var cyberIdentityOverride *service.CyberSessionIdentityResolution
+				if cyberTurnContext.identity.Metadata.Status != "" {
+					cyberIdentityOverride = &cyberTurnContext.identity
+				}
+				h.recordCyberPolicyIfMarkedWithIdentity(c, turnBillingAPIKey, account, boundSubscription, turnRequestedModel, turnErr != nil, cyberBlockBody, turnUsageFields, requestPayloadHash, cyberIdentityOverride)
 				cyberBlockedThisConn, cyberBlockPendingAfterFailover = advanceOpenAIWSCyberBlockState(
 					cyberBlockedThisConn,
 					cyberBlockPendingAfterFailover,
-					cyberMarked && !h.cyberPolicyLogOnly(c, apiKey),
+					cyberMarked && !h.cyberPolicyLogOnly(c, turnBillingAPIKey),
 					turnErr,
 				)
 				if turnErr != nil {
-					if result == nil || result.ImageCount <= 0 {
+					if result == nil || (result.ImageCount <= 0 && !result.ObservedUsageOnError) {
 						return
 					}
 					// cyber 命中时该 turn 的用量已由 recordCyberPolicyIfMarked(forwardErrored=true)
@@ -3446,16 +4310,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 					if service.GetOpsCyberPolicy(c) != nil {
 						return
 					}
-					reqLog.Warn("openai.websocket_partial_error_with_image_result",
+					reqLog.Warn("openai.websocket_partial_error_with_observed_result",
 						zap.Int64("account_id", account.ID),
 						zap.Int("image_count", result.ImageCount),
-						zap.Error(turnErr),
+						zap.Bool("observed_usage", result.ObservedUsageOnError),
 					)
 				}
 				if result == nil {
 					return
 				}
-				result.BillingModel = openAIWSTurnBillingModel(result, turnMapping, turnRequestedModel, turnUpstreamModel)
+				result.BillingModel = openAIWSTurnBillingModel(result, turnMapping, service.MapAPIKeyModel(turnBillingAPIKey, turnRequestedModel), turnUpstreamModel)
 				reqLog.Debug("openai.websocket_turn_billing",
 					zap.Int("turn", turn),
 					zap.String("turn_requested_model", turnRequestedModel),
@@ -3470,13 +4334,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if scheduleModel == "" {
 					scheduleModel = turnRequestedModel
 				}
-				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs)
+				h.gatewayService.ReportOpenAIAccountScheduleResult(account, scheduleModel, openAIForwardSucceededForScheduling(result), result.FirstTokenMs, turnErr)
 				inboundEndpoint := GetInboundEndpoint(c)
 				upstreamEndpoint := resolveOpenAIUpstreamEndpoint(c, account, result)
-				quotaPlatform := service.QuotaPlatform(c.Request.Context(), apiKey)
-				sessionID := service.ExtractClientSessionID(c)
+				quotaPlatform := service.QuotaPlatform(c.Request.Context(), turnBillingAPIKey)
+				sessionID := service.ExtractOpenAIClientSessionID(c, cyberBlockBody)
 				turnRecordPricingAt := turnPricing.currentOr(turnStart)
 				cyberBlocked := service.GetOpsCyberPolicy(c) != nil
+				if turnErr == nil && !cyberBlocked {
+					h.gatewayService.ObserveGroupAntiDistillationUsage(ctx, turnBillingAPIKey, account, result, turnStart, cyberBlockBody)
+				}
 				turnUsageCtx := service.WithAPIKeyForUsageContext(ctx, turnBillingAPIKey)
 				h.submitOpenAIUsageRecordTask(turnUsageCtx, result, func(taskCtx context.Context) {
 					if err := h.gatewayService.RecordUsage(taskCtx, &service.OpenAIRecordUsageInput{
@@ -3512,7 +4379,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		// 说明该会话链不属于本次调度到的账号，原样转发会触发上游会话链鉴权失败（“鉴权失败，请检查 API Key”）。
 		// 故剥离首包里的 previous_response_id，改用首包内 input 重建上下文；带 function_call_output 的
 		// 工具续链无法重建，保持原样。仅作用于首轮首包，后续 turn 的续链由 WS 转发层既有逻辑处理。
-		if previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove {
+		if previousResponseID != "" && !scheduleDecision.StickyPreviousHit && previousResponseCanMove && !service.OpenAIWSAgentRecoveryBound(ctx) && !h.gatewayService.ProtectsWSNodeContinuation(account, wsFirstMessage) {
 			wsFirstMessage = service.RemovePreviousResponseIDFromBody(wsFirstMessage)
 			reqLog.Debug("openai.websocket_previous_response_id_stripped_cross_group",
 				zap.Int64("account_id", account.ID),
@@ -3528,6 +4395,9 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		}
 
 		for {
+			if !service.OpenAIWSIngressCanFailover(ctx, c) {
+				return
+			}
 			if capacityRetryWindow.expired(time.Now()) {
 				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "upstream service temporarily unavailable")
 				return
@@ -3543,14 +4413,159 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				}
 				turnBillingAPIKeys.set(1, retryTurnKey)
 			}
+			// A later turn can retry on this same account without rebuilding hooks.
+			// Carry that frame's timestamps into the new ingress attempt too.
+			hooks.InitialTurnStartedAt = firstTurnStartedAt
+			hooks.InitialFrameArrivedAt = firstFrameArrivedAt
+			initialDispatchStarted = true
 			err := h.gatewayService.ProxyResponsesWebSocketFromClient(ctx, c, wsConn, account, token, wsFirstMessage, hooks)
 			if err == nil {
 				reqLog.Info("openai.websocket_ingress_closed", zap.Int64("account_id", account.ID))
 				return
 			}
+			if raw, currentModel, turn, unsent := service.OpenAIWSUnsentTurnPayload(err); unsent && requestPlatform == service.PlatformOpenAI {
+				// This is an explicitly unsent CURRENT frame returned by the
+				// transport, never the connection's warmup or a failed generation.
+				releaseTurnSlots()
+				if switchCount >= maxAccountSwitches || !service.OpenAIWSIngressCanFailover(ctx, c) {
+					if h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, err, c) {
+						return
+					}
+					closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account eligibility changed; continuation budget exhausted")
+					return
+				}
+				if currentModel = strings.TrimSpace(currentModel); currentModel == "" {
+					currentModel = reqModel
+				}
+				if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite && currentModel != reqModel {
+					closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "model route changed during continuation")
+					return
+				}
+				if err := hooks.BeforePayloadParse(turn, raw, currentModel); err != nil {
+					closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_rebuild_auth_rejected", err)
+					return
+				}
+				currentRouteModel := service.MapAPIKeyModel(apiKey, currentModel)
+				if apiKey.Group != nil && apiKey.Group.Platform == service.PlatformComposite {
+					currentRouteModel = wsRouteModel
+				}
+				mapping, _ := h.gatewayService.ResolveChannelMappingAndRestrict(ctx, apiKey.GroupID, currentRouteModel)
+				currentForwardModel := openAIChannelForwardModel(mapping, currentRouteModel)
+				if gjson.GetBytes(raw, "model").String() == "" {
+					var modelErr error
+					raw, modelErr = sjson.SetBytes(raw, "model", currentModel)
+					if modelErr != nil {
+						closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "invalid current request model")
+						return
+					}
+				}
+				next, clean, changed, rebuildErr := h.gatewayService.RebuildOpenAIWSUnsentTurn(service.WithOpenAIWSUnsentOwnerProof(ctx, err), c, raw, sessionHash, currentForwardModel)
+				if rebuildErr != nil {
+					h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, rebuildErr, c)
+					return
+				}
+				if !changed {
+					if h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, err, c) {
+						return
+					}
+					closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account eligibility changed; reconnect with complete context")
+					return
+				}
+				c.Request = c.Request.WithContext(next)
+				if err := h.gatewayService.CheckAPIKeyLongContext(next, apiKey, clean, currentModel, currentRouteModel, currentForwardModel); err != nil {
+					rejectAPIKeyLongContextWS(wsConn, err)
+					return
+				}
+				// Re-run current-frame identity/model/moderation checks on restored
+				// readable text, carrying its no-retention provenance.
+				rebuiltAuditBody = clean
+				auditErr := hooks.BeforeRequestWithClientPayload(turn, clean, raw, currentModel)
+				rebuiltAuditBody = nil
+				if auditErr != nil {
+					closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_rebuild_policy_rejected", auditErr)
+					return
+				}
+				cyberTurn := takeCyberTurnBody(turn)
+				firstIdentityDecision.effective = cyberTurn.identity
+				setCyberTurnBody(1, clean, cyberTurn.identity)
+				permissions := openAIWSQueueTurnPermissions(currentModel, clean)
+				permissions.Models = service.APIKeyModelCandidates(apiKey, permissions.Models)
+				ctx = service.WithAPIKeyQueueRequestPermissions(next, permissions)
+				ctx, _ = h.gatewayService.WithOpenAIRequestPricingContext(ctx, apiKey.GroupID)
+				ctx = service.WithOpenAIForwardModel(ctx, currentForwardModel, false)
+				ctx = service.ResetOpenAIWSReadableProviderSession(ctx, c)
+				c.Request = c.Request.WithContext(ctx)
+				if err := h.concurrencyHelper.RevalidateTurnAuth(ctx); err != nil {
+					closeOpenAIWSAdmissionError(wsConn, reqLog, "openai.websocket_rebuild_auth_rejected", err)
+					return
+				}
+				if err := h.checkRegionalBillingEligibility(ctx, apiKey, subscription); err != nil {
+					closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "billing check failed")
+					return
+				}
+				imageIntent = permissions.Capabilities&service.APIKeyQueueCapabilityImageGeneration != 0
+				if imageIntent && !service.GroupAllowsImageGeneration(apiKey.Group) {
+					closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, service.ImageGenerationPermissionMessage())
+					return
+				}
+				requiredCapability = service.OpenAIEndpointCapabilityChatCompletions
+				if imageIntent {
+					requiredCapability = service.OpenAIEndpointCapabilityResponses
+				}
+				if started := getTurnStart(turn); !started.IsZero() {
+					firstTurnStartedAt, firstFrameArrivedAt = started, started
+				}
+				reqModel, wsRouteModel, wsForwardModel = currentModel, currentRouteModel, currentForwardModel
+				channelMappingWS = mapping
+				opsTurnOffset += turn - 1
+				wsAttemptMessage, previousResponseID, previousResponseCanMove = clean, "", true
+				if !service.OpenAIWSUnsentTurnKeepsAccount(err) {
+					failedAccountIDs[account.ID] = struct{}{}
+				}
+				switchCount++
+				h.gatewayService.RecordOpenAIAccountSwitch()
+				if !ensureUserSlotHeld() {
+					return
+				}
+				reqLog.Info("openai.websocket_readable_continuation", zap.Bool("context_loss", true), zap.Int("switch_count", switchCount))
+				break
+			}
+			if h.handleOpenAIWSAgentRecoveryError(ctx, wsConn, err, c) {
+				releaseTurnSlots()
+				return
+			}
+			if isOpenAIRPMError(err) {
+				releaseTurnSlots()
+				reason := "OpenAI OAuth RPM protection is temporarily unavailable; retry later"
+				if errors.Is(err, service.ErrOpenAIRPMExhausted) {
+					reason = "OpenAI OAuth RPM limit reached; reconnect after the current minute resets"
+				}
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, reason)
+				return
+			}
+			var contextErr *service.APIKeyLongContextError
+			if errors.As(err, &contextErr) {
+				releaseTurnSlots()
+				rejectAPIKeyLongContextWS(wsConn, err)
+				return
+			}
 			if service.IsOpenAIWSSessionPreemptedError(err) {
 				// 关闭帧已由抢占登记在取消前发给本连接，这里只记录并释放。
 				reqLog.Info("openai.websocket_ingress_preempted", zap.Int64("account_id", account.ID))
+				return
+			}
+			if service.IsOpenAITurnAdmissionError(err) {
+				releaseTurnSlots()
+				reason := "account eligibility changed; reconnect with complete context"
+				if errors.Is(err, service.ErrPriorityLatencyUnavailable) {
+					reason = "latency scheduling temporarily unavailable; retry after 5 seconds"
+				}
+				closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, reason)
+				return
+			}
+			if errors.Is(err, service.ErrOpenAIWSNodeOwner) {
+				releaseTurnSlots()
+				closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "continuation requires its original live node and connection; automatic replay is disabled")
 				return
 			}
 			var failoverErr *service.UpstreamFailoverError
@@ -3607,10 +4622,22 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 							closeOpenAIClientWS(wsConn, coderws.StatusTryAgainLater, "account is busy, please retry later")
 							return
 						}
-						currentAccountRelease = wrapReleaseOnDone(ctx, accountRelease)
+						currentAccountRelease = accountRelease
 					}
 					wsFirstMessage = wsAttemptMessage
+					if !service.OpenAISameAccountRetryAdmissible(ctx, account.ID) {
+						releaseTurnSlots()
+						closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
+						return
+					}
 					continue
+				}
+				if wsSameAccountRetryExpired {
+					// This retry was admitted before D and expired during backoff.
+					// Switching accounts would discard its deadline and send after D.
+					releaseTurnSlots()
+					closeOpenAIWSFailoverExhausted(c, wsConn, failoverErr)
+					return
 				}
 				if handleWSFailover(account, failoverErr) {
 					break
@@ -3627,6 +4654,16 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return
 			}
 
+			if service.IsOpenAIWSClientGoneError(err) {
+				// The peer left while admission was still running. The socket is
+				// already gone; never charge this to the upstream account.
+				reqLog.Info("openai.websocket_client_gone_while_admitting",
+					zap.Int64("account_id", account.ID),
+					zap.Error(err),
+				)
+				return
+			}
+
 			var closeErr *service.OpenAIWSClientCloseError
 			hasClientCloseErr := errors.As(err, &closeErr)
 			if openAIWSIngressEndedByClient(err) {
@@ -3634,7 +4671,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				if hasClientCloseErr {
 					closedFields = append(closedFields, zap.String("reason", closeErr.Reason()))
 				} else {
-					closedFields = append(closedFields, zap.Error(err))
+					closedFields = append(closedFields, zap.String("error", openaiwsv2.ErrorStringForLog(err)))
 				}
 				reqLog.Info("openai.websocket_ingress_closed_normally", closedFields...)
 				// A bare coderws.CloseError or a plain cancellation carries no
@@ -3648,13 +4685,30 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 				return
 			}
 
+			if errors.Is(err, errOpenAIWSLocalAdmissionRejected) {
+				fields := []zap.Field{zap.Int64("account_id", account.ID)}
+				if hasClientCloseErr {
+					fields = append(fields, zap.String("reason", closeErr.Reason()))
+					closeOpenAIClientWS(wsConn, closeErr.StatusCode(), closeErr.Reason())
+				} else {
+					fields = append(fields, zap.Error(err))
+					closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "request rejected by local admission policy")
+				}
+				reqLog.Info("openai.websocket_local_admission_rejected", fields...)
+				return
+			}
+
 			if shouldReportOpenAIWSProxyAccountFailure(err) {
 				h.gatewayService.ReportOpenAIAccountScheduleResult(account, openAIAccountScheduleModel(c, account, wsForwardModel, false, nil), false, nil, err)
 			}
 			closeStatus, closeReason := summarizeWSCloseErrorForLog(err)
+			var upstreamClose coderws.CloseError
+			if errors.As(err, &upstreamClose) {
+				closeReason = openaiwsv2.CloseReasonForLog(upstreamClose.Reason)
+			}
 			proxyFailedFields := []zap.Field{
 				zap.Int64("account_id", account.ID),
-				zap.Error(err),
+				zap.String("error", openaiwsv2.ErrorStringForLog(err)),
 				zap.String("close_status", closeStatus),
 				zap.String("close_reason", closeReason),
 			}
@@ -3801,7 +4855,7 @@ func (h *OpenAIGatewayHandler) submitUsageRecordTask(parent context.Context, tas
 		return
 	}
 	task, abandon := wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
+	if h.usageRecordWorkerPool != nil && !h.gatewayService.DurableUsageBillingEnabled() {
 		if mode := h.usageRecordWorkerPool.Submit(task); mode != service.UsageRecordSubmitModeDroppedStopped {
 			if mode.Dropped() {
 				abandon()
@@ -3843,7 +4897,7 @@ func (h *OpenAIGatewayHandler) submitMandatoryUsageRecordTask(parent context.Con
 		return
 	}
 	task, _ = wrapUsageRecordTaskContext(parent, task)
-	if h.usageRecordWorkerPool != nil {
+	if h.usageRecordWorkerPool != nil && !h.gatewayService.DurableUsageBillingEnabled() {
 		if mode := h.usageRecordWorkerPool.Submit(task); !mode.Dropped() {
 			return
 		}
@@ -3897,6 +4951,16 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		return
 	}
 	copyFailoverRetryAfter(c, failoverErr.ResponseHeaders)
+	// Local BPS image admission rejection: nothing reached the upstream, so
+	// keep the fixed code and message of the image relay limit.
+	if failoverErr.IsExcelBPSImageAdmissionRejection() {
+		errType := "server_error"
+		if failoverErr.ClientStatusCode == http.StatusRequestEntityTooLarge {
+			errType = "invalid_request_error"
+		}
+		h.handleStreamingAwareErrorWithCode(c, failoverErr.ClientStatusCode, errType, string(failoverErr.Reason), failoverErr.ClientMessage, streamStarted, false)
+		return
+	}
 	if failoverErr.IsOpenAIRequestBodyTooLarge() {
 		// An operator-configured passthrough rule wins over the built-in body
 		// limit mapping below. Failover on 413 exists because different
@@ -3950,7 +5014,14 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 		if status <= 0 {
 			status = http.StatusServiceUnavailable
 		}
-		h.handleStreamingAwareError(c, status, "server_error", failoverErr.ClientMessage, streamStarted)
+		h.handleStreamingAwareErrorWithCode(c, status, "server_error", service.OpenAIUpstreamCapacityCode, failoverErr.ClientMessage, streamStarted, false)
+		return
+	}
+	// BPS rejections may echo request data: keep the fixed code and message
+	// instead of passthrough rules or the upstream body.
+	if failoverErr.Reason == service.ExcelBPSRateLimitedReason {
+		service.SetOpsUpstreamError(c, failoverErr.StatusCode, failoverErr.ClientMessage, "")
+		h.handleStreamingAwareErrorWithCode(c, failoverErr.ClientStatusCode, "rate_limit_error", string(failoverErr.Reason), failoverErr.ClientMessage, streamStarted, false)
 		return
 	}
 	statusCode := failoverErr.StatusCode
@@ -3981,6 +5052,11 @@ func (h *OpenAIGatewayHandler) handleFailoverExhausted(c *gin.Context, failoverE
 	upstreamMsg := service.ExtractUpstreamErrorMessage(responseBody)
 	service.SetOpsUpstreamError(c, statusCode, upstreamMsg, "")
 
+	if code, message, ok := service.OpenAIUpstreamRecoveryRateLimit(statusCode, responseBody); ok {
+		service.SetOpsUpstreamError(c, statusCode, message, "")
+		h.handleStreamingAwareErrorWithCode(c, statusCode, "rate_limit_error", code, message, streamStarted, false)
+		return
+	}
 	// 使用默认的错误映射
 	status, errType, errMsg := h.mapUpstreamError(statusCode)
 	h.handleStreamingAwareError(c, status, errType, errMsg, streamStarted)
@@ -4026,7 +5102,6 @@ func (h *OpenAIGatewayHandler) applyOpenAIFailoverPassthroughRule(
 	h.handleStreamingAwareError(c, respCode, "upstream_error", msg, streamStarted)
 	return true
 }
-
 func credentialFailoverClientResponse(failoverErr *service.UpstreamFailoverError) (int, string) {
 	if failoverErr != nil && failoverErr.Reason == service.OpenAIUpstreamAccessStateReason && strings.TrimSpace(failoverErr.ClientMessage) != "" {
 		status := failoverErr.ClientStatusCode
@@ -4265,6 +5340,10 @@ func openAIForwardErrorAlreadyCommunicated(c *gin.Context, writerSizeBeforeForwa
 		service.OpenAIImagesJSONKeepaliveAdjustedWrittenSize(c) == writerSizeBeforeForward {
 		return false
 	}
+	var incomplete *service.OpenAIWSSSEIncompleteError
+	if errors.As(err, &incomplete) && incomplete.ResponseWritten {
+		return true
+	}
 
 	// cyber_policy 命中时上游原始错误体已透传给客户端（非流式 c.Data 写出 400 body，
 	// 流式写出 response.failed 事件），不能再让 ensureForwardErrorResponse 追加
@@ -4421,6 +5500,7 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 	errorCode := "upstream_ws_failover_exhausted"
 	message := "upstream websocket proxy failed"
 	closeStatus := coderws.StatusInternalError
+	writeErrorFrame := false
 
 	if failoverErr != nil {
 		if reason := strings.TrimSpace(string(failoverErr.Reason)); reason != "" {
@@ -4431,6 +5511,12 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 			errorType = "upstream_error"
 			message = service.UpstreamBillingExhaustedClientMessage
 			closeStatus = coderws.StatusTryAgainLater
+		} else if failoverErr.Reason == service.OpenAIWSModelUnavailableReason {
+			intendedStatus = failoverErr.StatusCode
+			errorType, errorCode = "invalid_request_error", "model_not_found"
+			message = "requested model is unavailable on eligible upstream accounts; reconnect with complete context"
+			closeStatus = coderws.StatusTryAgainLater
+			writeErrorFrame = true
 		} else if failoverErr.Stage == service.GatewayFailureStageAccountAuth {
 			intendedStatus = http.StatusServiceUnavailable
 			errorType = "api_error"
@@ -4456,6 +5542,19 @@ func closeOpenAIWSFailoverExhausted(c *gin.Context, conn *coderws.Conn, failover
 		}
 	}
 
+	if failoverErr != nil {
+		if code, safeMessage, ok := service.OpenAIUpstreamRecoveryRateLimit(failoverErr.StatusCode, failoverErr.ResponseBody); ok {
+			errorCode, message = code, safeMessage
+			writeErrorFrame = true
+		}
+	}
+	if writeErrorFrame {
+		payload, _ := json.Marshal(gin.H{"type": "error", "status": intendedStatus,
+			"error": gin.H{"type": errorType, "code": errorCode, "message": message}})
+		writeCtx, cancel := context.WithTimeout(c.Request.Context(), 5*time.Second)
+		_ = service.WriteCapturedWSClient(writeCtx, conn, coderws.MessageText, payload)
+		cancel()
+	}
 	service.MarkOpsStreamFailure(c, errorType, errorCode, message, intendedStatus)
 	closeOpenAIClientWS(conn, closeStatus, message)
 }
@@ -4485,7 +5584,7 @@ func writeContentModerationWSError(ctx context.Context, conn *coderws.Conn, deci
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_ = conn.Write(writeCtx, coderws.MessageText, payload)
+	_ = service.WriteCapturedWSClient(writeCtx, conn, coderws.MessageText, payload)
 }
 
 // writeCyberSessionBlockedWSError sends an error frame telling the client this
@@ -4511,7 +5610,32 @@ func writeCyberSessionBlockedWSError(ctx context.Context, conn *coderws.Conn) {
 	}
 	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
-	_ = conn.Write(writeCtx, coderws.MessageText, payload)
+	_ = service.WriteCapturedWSClient(writeCtx, conn, coderws.MessageText, payload)
+}
+
+func writeCyberSessionIdentityRejectedWSError(ctx context.Context, conn *coderws.Conn, metadata service.OpenAIClientSessionIdentityMetadata) {
+	if conn == nil {
+		return
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	code, message := cyberSessionIdentityError(metadata)
+	payload, err := json.Marshal(gin.H{
+		"event_id": "evt_cyber_session_identity_rejected",
+		"type":     "error",
+		"error": gin.H{
+			"type":    "invalid_request_error",
+			"code":    code,
+			"message": message,
+		},
+	})
+	if err != nil {
+		payload = []byte(`{"event_id":"evt_cyber_session_identity_rejected","type":"error","error":{"type":"invalid_request_error","code":"cyber_session_identity_required","message":"A stable thread_id or session_id is required"}}`)
+	}
+	writeCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	_ = service.WriteCapturedWSClient(writeCtx, conn, coderws.MessageText, payload)
 }
 
 // cyberPolicyRecordedKey guards against double-firing recordCyberPolicyIfMarked
@@ -4521,22 +5645,27 @@ const cyberPolicyRecordedKey = "ops_cyber_recorded"
 // cyberPolicyOpsErrorMeta carries request-scoped fields captured outside the
 // async goroutine for building the cyber ops_error_logs entry.
 type cyberPolicyOpsErrorMeta struct {
-	RequestID       string
-	ClientRequestID string
-	Platform        string
-	Model           string
-	RequestPath     string
-	Stream          bool
-	InboundEndpoint string
-	UserAgent       string
-	APIKeyPrefix    string
-	UserID          int64
-	APIKeyID        int64
-	AccountID       int64
-	GroupID         *int64
-	ClientIP        string
-	CreatedAt       time.Time
-	SessionBlockKey string
+	RequestID         string
+	ClientRequestID   string
+	Platform          string
+	Model             string
+	RequestPath       string
+	Stream            bool
+	InboundEndpoint   string
+	UserAgent         string
+	APIKeyPrefix      string
+	UserID            int64
+	APIKeyID          int64
+	AccountID         int64
+	GroupID           *int64
+	ClientIP          string
+	CreatedAt         time.Time
+	SessionBlockKey   string
+	IdentityStatus    string
+	IdentityKind      string
+	IdentitySource    string
+	IdentityInherited bool
+	WSTurnAdmission   bool
 }
 
 // buildCyberPolicyOpsErrorEntry builds the ops_error_logs entry for an upstream
@@ -4560,7 +5689,7 @@ func buildCyberPolicyOpsErrorEntry(meta cyberPolicyOpsErrorMeta, mark *service.C
 		Severity:          "P3",
 		StatusCode:        mark.UpstreamStatus,
 		IsBusinessLimited: true,
-		ErrorMessage:      "cyber_policy: " + mark.Message,
+		ErrorMessage:      appendCyberIdentityMetadata("cyber_policy: "+mark.Message, meta),
 		// 原始 body 直接入队；ops service 落库前统一走 sanitizeErrorBodyForStorage 脱敏与截断。
 		ErrorBody:   mark.Body,
 		ErrorSource: "upstream_http",
@@ -4630,6 +5759,64 @@ func buildCyberSessionBlockedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.Ops
 	return entry
 }
 
+func buildCyberSessionIdentityRejectedOpsEntry(meta cyberPolicyOpsErrorMeta) *service.OpsInsertErrorLogInput {
+	message := "cyber_session_identity_rejected: request rejected before account selection"
+	if meta.WSTurnAdmission {
+		message = "cyber_session_identity_rejected: websocket turn rejected during session identity admission"
+	}
+	rt := int16(service.RequestTypeCyberBlocked)
+	entry := &service.OpsInsertErrorLogInput{
+		RequestID:         meta.RequestID,
+		ClientRequestID:   meta.ClientRequestID,
+		Platform:          meta.Platform,
+		Model:             meta.Model,
+		RequestPath:       meta.RequestPath,
+		Stream:            meta.Stream,
+		InboundEndpoint:   meta.InboundEndpoint,
+		RequestType:       &rt,
+		UserAgent:         meta.UserAgent,
+		APIKeyPrefix:      meta.APIKeyPrefix,
+		ErrorPhase:        "request",
+		ErrorType:         "cyber_session_identity_rejected",
+		Severity:          "P3",
+		StatusCode:        http.StatusBadRequest,
+		IsBusinessLimited: true,
+		ErrorMessage:      appendCyberIdentityMetadata(message, meta),
+		ErrorSource:       "gateway_local",
+		ErrorOwner:        "client",
+		CreatedAt:         meta.CreatedAt,
+	}
+	if meta.UserID > 0 {
+		entry.UserID = &meta.UserID
+	}
+	if meta.APIKeyID > 0 {
+		entry.APIKeyID = &meta.APIKeyID
+	}
+	entry.GroupID = meta.GroupID
+	if meta.ClientIP != "" {
+		entry.ClientIP = &meta.ClientIP
+	}
+	return entry
+}
+
+func appendCyberIdentityMetadata(message string, meta cyberPolicyOpsErrorMeta) string {
+	status := strings.TrimSpace(meta.IdentityStatus)
+	if status == "" {
+		return message
+	}
+	message += "; session_identity_status=" + status
+	if kind := strings.TrimSpace(meta.IdentityKind); kind != "" {
+		message += "; session_identity_kind=" + kind
+	}
+	if source := strings.TrimSpace(meta.IdentitySource); source != "" {
+		message += "; session_identity_source=" + source
+	}
+	if meta.IdentityInherited {
+		message += "; session_identity_inherited=true"
+	}
+	return message
+}
+
 // cyberSessionBlockFormat selects the per-endpoint error envelope for a locally
 // blocked session (用户决策：兼容路径各自格式).
 type cyberSessionBlockFormat int
@@ -4640,19 +5827,26 @@ const (
 	cyberBlockFormatAnthropic
 )
 
-// rejectIfCyberSessionBlocked checks the session-block table BEFORE account
-// selection. Returns true when the request was rejected (response already
-// written + ops entry enqueued). Fail-open: disabled switch / empty key /
-// store error → false.
+// rejectIfCyberSessionBlocked resolves and observes the request identity before
+// account selection. When the default-off strict gate is enabled, untrusted
+// identities are rejected before routing. Exact session blocks are then checked
+// only while the main cyber session block switch is enabled.
 func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKey *service.APIKey, body []byte, model string, format cyberSessionBlockFormat) bool {
 	if h == nil || h.gatewayService == nil || apiKey == nil {
 		return false
 	}
-	// 开关默认关：先走 ~ns 级缓存开关检查，再付出 key 派生(gjson+sha256)成本。
-	if enabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context()); !enabled {
+	identity := service.ResolveCyberSessionIdentity(apiKey.ID, c, body)
+	enabled, _ := h.gatewayService.CyberSessionBlockRuntime(c.Request.Context())
+	strictRejected := enabled && h.gatewayService.CyberSessionIdentityStrictEnabled(c.Request.Context()) && !identity.Resolved()
+	observeOpenAICyberSessionIdentity(identity, strictRejected, false)
+	if strictRejected {
+		h.writeCyberSessionIdentityRejected(c, apiKey, model, format, identity.Metadata)
+		return true
+	}
+	if !enabled {
 		return false
 	}
-	key := h.findBlockedCyberSessionForAPIKey(c, apiKey, body)
+	key := h.findBlockedCyberSessionForRequest(c, apiKey, identity, body)
 	if key == "" {
 		return false
 	}
@@ -4683,32 +5877,58 @@ func (h *OpenAIGatewayHandler) rejectIfCyberSessionBlocked(c *gin.Context, apiKe
 	return true
 }
 
-func buildCyberSessionBlock(apiKeyID int64, c *gin.Context, body []byte) service.CyberSessionBlock {
-	block := service.CyberSessionBlock{APIKeyID: apiKeyID}
-	if key := service.CyberSessionExplicitBlockKey(apiKeyID, c, body); key != "" {
-		block.Keys = append(block.Keys, key)
+func observeOpenAICyberSessionIdentity(identity service.CyberSessionIdentityResolution, strictRejected, wsIdentitySwap bool) {
+	service.ObserveOpenAICyberSessionIdentity(identity.Metadata, identity.Inherited, strictRejected, wsIdentitySwap)
+	if openAICyberIdentityMetricsLogCounter.Add(1)%openAICyberIdentityMetricsLogInterval != 0 {
+		return
 	}
-	transcriptBlocks := service.CyberSessionTranscriptBlocks(apiKeyID, body)
-	for _, transcript := range transcriptBlocks {
-		block.Keys = append(block.Keys, transcript.Key)
-		block.TranscriptLengths = append(block.TranscriptLengths, transcript.Length)
-	}
-	if len(transcriptBlocks) > 0 {
-		block.ScopeKey = cyberSessionScopeKey(apiKeyID, c)
-	}
-	return block
+	metrics := service.SnapshotOpenAICyberSessionIdentityMetrics()
+	logger.L().Info("openai.cyber_session_identity_metrics",
+		zap.Uint64("total", metrics.Total),
+		zap.Uint64("resolved", metrics.Resolved),
+		zap.Uint64("missing", metrics.Missing),
+		zap.Uint64("conflict", metrics.Conflict),
+		zap.Uint64("invalid", metrics.Invalid),
+		zap.Uint64("inherited", metrics.Inherited),
+		zap.Uint64("strict_rejected", metrics.StrictRejected),
+		zap.Uint64("ws_identity_swap", metrics.WSIdentitySwap),
+	)
 }
 
-func findBlockedCyberSessionKey(ctx context.Context, gatewayService *service.OpenAIGatewayService, apiKeyID int64, c *gin.Context, body []byte) string {
-	if gatewayService == nil {
-		return ""
+func cyberSessionIdentityError(metadata service.OpenAIClientSessionIdentityMetadata) (string, string) {
+	switch metadata.Status {
+	case service.OpenAIClientSessionIdentityConflict:
+		return "cyber_session_identity_conflict", "Conflicting session identities were provided; send one stable thread_id or session_id"
+	case service.OpenAIClientSessionIdentityInvalid:
+		return "cyber_session_identity_invalid", "The session identity is invalid; send a valid thread_id or session_id"
+	default:
+		return "cyber_session_identity_required", "A stable thread_id or session_id is required"
 	}
-	clientIP, userAgent := "", ""
-	if c != nil {
-		clientIP = strings.TrimSpace(ip.GetClientIP(c))
-		userAgent = c.GetHeader("User-Agent")
+}
+
+func (h *OpenAIGatewayHandler) writeCyberSessionIdentityRejected(c *gin.Context, apiKey *service.APIKey, model string, format cyberSessionBlockFormat, metadata service.OpenAIClientSessionIdentityMetadata) {
+	code, message := cyberSessionIdentityError(metadata)
+	if format == cyberBlockFormatResponses && service.StopOpenAICompactSSEKeepaliveCommitted(c) {
+		service.MarkOpsStreamError(c, "invalid_request_error", message, http.StatusBadRequest)
+		if writeResponsesFailedSSE(c, "invalid_request_error", code, message) {
+			h.enqueueCyberSessionIdentityRejectedOpsEntry(c, apiKey, model, metadata)
+			return
+		}
 	}
-	return gatewayService.FindCyberSessionBlockedForRequest(ctx, apiKeyID, c, body, clientIP, userAgent)
+	switch format {
+	case cyberBlockFormatAnthropic:
+		c.JSON(http.StatusBadRequest, gin.H{"type": "error", "error": gin.H{
+			"type":    "invalid_request_error",
+			"message": message,
+		}})
+	default:
+		c.JSON(http.StatusBadRequest, gin.H{"error": gin.H{
+			"type":    "invalid_request_error",
+			"code":    code,
+			"message": message,
+		}})
+	}
+	h.enqueueCyberSessionIdentityRejectedOpsEntry(c, apiKey, model, metadata)
 }
 
 func cyberSessionScopeKey(apiKeyID int64, c *gin.Context) string {
@@ -4756,11 +5976,53 @@ func (h *OpenAIGatewayHandler) enqueueCyberSessionBlockedOpsEntry(c *gin.Context
 	enqueueOpsErrorLog(h.opsService, buildCyberSessionBlockedOpsEntry(meta))
 }
 
+func (h *OpenAIGatewayHandler) enqueueCyberSessionIdentityRejectedOpsEntry(c *gin.Context, apiKey *service.APIKey, model string, metadata service.OpenAIClientSessionIdentityMetadata) {
+	if h.opsService == nil || c == nil || apiKey == nil {
+		return
+	}
+	c.Set(opsDedicatedErrorRecordedKey, true)
+	meta := cyberPolicyOpsErrorMeta{
+		Model:           model,
+		InboundEndpoint: GetInboundEndpoint(c),
+		CreatedAt:       time.Now(),
+		IdentityStatus:  string(metadata.Status),
+		IdentityKind:    metadata.Kind,
+		IdentitySource:  metadata.Source,
+	}
+	_, meta.WSTurnAdmission = c.Get(securityAuditWSTurnContextKey)
+	meta.RequestID = c.Writer.Header().Get("X-Request-Id")
+	if c.Request != nil && c.Request.URL != nil {
+		meta.RequestPath = c.Request.URL.Path
+	}
+	if v, ok := c.Get(opsStreamKey); ok {
+		meta.Stream, _ = v.(bool)
+	}
+	requestCtx := context.Background()
+	if c.Request != nil {
+		requestCtx = c.Request.Context()
+		meta.ClientRequestID, _ = requestCtx.Value(ctxkey.ClientRequestID).(string)
+		meta.UserAgent = c.GetHeader("User-Agent")
+		meta.ClientIP = strings.TrimSpace(ip.GetClientIP(c))
+	}
+	meta.Platform = resolveOpsPlatform(requestCtx, apiKey, guessPlatformFromPath(meta.RequestPath))
+	meta.APIKeyID = apiKey.ID
+	meta.GroupID = apiKey.GroupID
+	meta.APIKeyPrefix = keyPrefix(apiKey.Key, 8)
+	if apiKey.User != nil {
+		meta.UserID = apiKey.User.ID
+	}
+	enqueueOpsErrorLog(h.opsService, buildCyberSessionIdentityRejectedOpsEntry(meta))
+}
+
 // recordCyberPolicyIfMarked 在 gateway forward 返回后检查 cyber 标记，异步写风控日志/邮件，
 // 并在 forward 返回错误时写一条 tokens=0 用量行。标记由 gateway 服务层在透传 cyber 后设置；
 // 当前请求已发给用户，本方法只做事后记录，不影响响应。forwardErrored 为 true 时才写用量行，
 // 避免与正常 RecordUsage(forward 成功路径)重复。每请求至多记录一次。
 func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockBody []byte, channelFields service.ChannelUsageFields, requestPayloadHash string) {
+	h.recordCyberPolicyIfMarkedWithIdentity(c, apiKey, account, subscription, model, forwardErrored, cyberBlockBody, channelFields, requestPayloadHash, nil)
+}
+
+func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarkedWithIdentity(c *gin.Context, apiKey *service.APIKey, account *service.Account, subscription *service.UserSubscription, model string, forwardErrored bool, cyberBlockBody []byte, channelFields service.ChannelUsageFields, requestPayloadHash string, identityOverride *service.CyberSessionIdentityResolution) {
 	mark := service.GetOpsCyberPolicy(c)
 	if mark == nil {
 		return
@@ -4772,6 +6034,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	model = clientRequestedModel(c, model)
 
 	requestID := c.Writer.Header().Get("X-Request-Id")
+	if requestID == "" && c.Request != nil {
+		requestID = contentModerationRequestID(c.Request.Context())
+	}
 	var userID, apiKeyID int64
 	var userEmail, apiKeyName, groupName string
 	var groupID *int64
@@ -4791,6 +6056,9 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		}
 	}
 	inboundEndpoint := GetInboundEndpoint(c)
+	if inboundEndpoint == "" && c.Request != nil && c.Request.URL != nil {
+		inboundEndpoint = c.Request.URL.Path
+	}
 	upstreamEndpoint := ""
 	var accountID int64
 	if account != nil {
@@ -4823,7 +6091,11 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 		clientIPStr = strings.TrimSpace(ip.GetClientIP(c))
 	}
 	// 提前拍成标量，避免在下方 goroutine 内访问 gin.Context。
-	sessionID := service.ExtractClientSessionID(c)
+	sessionID := service.ExtractOpenAIClientSessionID(c, cyberBlockBody)
+	identity := service.ResolveCyberSessionIdentity(apiKeyID, c, cyberBlockBody)
+	if identityOverride != nil {
+		identity = *identityOverride
+	}
 	nativeCompactionV2 := service.IsOpenAINativeCompactionV2(c)
 	apiKeyPrefix := ""
 	if apiKey != nil {
@@ -4834,55 +6106,67 @@ func (h *OpenAIGatewayHandler) recordCyberPolicyIfMarked(c *gin.Context, apiKey 
 	// usage-task wrapper does: a later fallback switch must not rewrite billing.
 	usageAPIKey := service.CloneAPIKeyForUsage(apiKey)
 	opsMeta := cyberPolicyOpsErrorMeta{
-		RequestID:       requestID,
-		ClientRequestID: clientRequestID,
-		Platform:        platform,
-		Model:           model,
-		RequestPath:     requestPath,
-		Stream:          stream,
-		InboundEndpoint: inboundEndpoint,
-		UserAgent:       userAgent,
-		APIKeyPrefix:    apiKeyPrefix,
-		UserID:          userID,
-		APIKeyID:        apiKeyID,
-		AccountID:       accountID,
-		GroupID:         groupID,
-		ClientIP:        clientIPStr,
-		CreatedAt:       time.Now(),
+		RequestID:         requestID,
+		ClientRequestID:   clientRequestID,
+		Platform:          platform,
+		Model:             model,
+		RequestPath:       requestPath,
+		Stream:            stream,
+		InboundEndpoint:   inboundEndpoint,
+		UserAgent:         userAgent,
+		APIKeyPrefix:      apiKeyPrefix,
+		UserID:            userID,
+		APIKeyID:          apiKeyID,
+		AccountID:         accountID,
+		GroupID:           groupID,
+		ClientIP:          clientIPStr,
+		CreatedAt:         time.Now(),
+		IdentityStatus:    string(identity.Metadata.Status),
+		IdentityKind:      identity.Metadata.Kind,
+		IdentitySource:    identity.Metadata.Source,
+		IdentityInherited: identity.Inherited,
+	}
+	var moderationVersion *int64
+	if value, ok := c.Get("content_moderation.user_version"); ok {
+		moderationVersion, _ = value.(*int64)
 	}
 	cyberLogOnly := h.cyberPolicyLogOnly(c, apiKey)
 	if gwSvc != nil && apiKey != nil && !cyberLogOnly {
-		block := buildCyberSessionBlock(apiKey.ID, c, cyberBlockBody)
-		if len(block.Keys) > 0 {
-			blockCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
-			gwSvc.MarkCyberSessionBlocked(blockCtx, block)
-			cancel()
-		}
+		blockCtx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
+		gwSvc.MarkCyberSessionBlockedForRequest(blockCtx, apiKey.ID, identity, cyberBlockBody, cyberSessionScopeKey(apiKey.ID, c))
+		cancel()
+	}
+	evidence := cyberevidence.Prepared{Status: "unavailable"}
+	if cmSvc != nil && cmSvc.CyberEvidence() != nil {
+		evidence = cmSvc.CyberEvidence().PrepareWithSession(cyberBlockBody, mark.Message, sessionID, mark.UpstreamStatus)
 	}
 	usageContext := context.Background()
 	if c.Request != nil && !c.IsWebsocket() {
 		usageContext = usageRecordContext(usageHTTPContext(c), usageContext)
 	}
 	go func() {
+		defer evidence.Release()
 		ctx, cancel := context.WithTimeout(usageContext, 30*time.Second)
 		defer cancel()
 		if cmSvc != nil {
 			cmSvc.RecordCyberPolicyEvent(ctx, service.CyberPolicyRecordInput{
-				LogOnly:         cyberLogOnly,
-				RequestID:       requestID,
-				UserID:          userID,
-				UserEmail:       userEmail,
-				APIKeyID:        apiKeyID,
-				APIKeyName:      apiKeyName,
-				GroupID:         groupID,
-				GroupName:       groupName,
-				Endpoint:        inboundEndpoint,
-				Model:           model,
-				UpstreamMessage: mark.Message,
-				UpstreamBody:    mark.Body,
-				UpstreamStatus:  mark.UpstreamStatus,
-				UpstreamInTok:   mark.UpstreamInTok,
-				UpstreamOutTok:  mark.UpstreamOutTok,
+				Evidence:          evidence,
+				ModerationVersion: moderationVersion,
+				LogOnly:           cyberLogOnly,
+				RequestID:         requestID,
+				UserID:            userID,
+				UserEmail:         userEmail,
+				APIKeyID:          apiKeyID,
+				APIKeyName:        apiKeyName,
+				GroupID:           groupID,
+				GroupName:         groupName,
+				Endpoint:          inboundEndpoint,
+				Model:             model,
+				UpstreamMessage:   mark.Message,
+				UpstreamBody:      mark.Body,
+				UpstreamStatus:    mark.UpstreamStatus,
+				UpstreamInTok:     mark.UpstreamInTok,
+				UpstreamOutTok:    mark.UpstreamOutTok,
 			})
 		}
 		if forwardErrored && gwSvc != nil {
@@ -4940,10 +6224,19 @@ func summarizeWSCloseErrorForLog(err error) (string, string) {
 	closeReason := "-"
 	var closeErr coderws.CloseError
 	if errors.As(err, &closeErr) {
-		reason := strings.TrimSpace(closeErr.Reason)
-		if reason != "" {
+		if reason := strings.TrimSpace(closeErr.Reason); reason != "" {
 			closeReason = reason
 		}
 	}
 	return closeStatus, closeReason
+}
+
+func (h *OpenAIGatewayHandler) checkRegionalBillingEligibility(ctx context.Context, key *service.APIKey, subscription *service.UserSubscription) error {
+	if funds := h.gatewayService.RegionalFundsReadiness(); funds != nil {
+		return funds.Check(ctx)
+	}
+	if h.cfg != nil && h.cfg.Runtime.RegionalFundsFile != "" {
+		return errors.New("coordinated funds unavailable")
+	}
+	return h.billingCacheService.CheckBillingEligibility(ctx, key.User, key, key.Group, subscription, service.QuotaPlatform(ctx, key))
 }

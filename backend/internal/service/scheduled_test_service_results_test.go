@@ -15,7 +15,7 @@ type scheduledTestReadResultsStub struct {
 	rows []*ScheduledTestResult
 }
 
-func (r scheduledTestReadResultsStub) ListByPlanID(context.Context, int64, int) ([]*ScheduledTestResult, error) {
+func (r scheduledTestReadResultsStub) ListByPlanID(context.Context, int64, int, ...bool) ([]*ScheduledTestResult, error) {
 	return r.rows, nil
 }
 
@@ -82,7 +82,9 @@ func TestScheduledTestListRepairsLegacyNumericDisplayFromResponse(t *testing.T) 
 				{ID: 5, Status: "success", OutputKind: "number", OutputNumeric: protectionFloat(8), ResponseText: scheduledTestCandyScreenshotResponse},
 			}
 			svc := NewScheduledTestService(nil, scheduledTestReadResultsStub{rows: rows})
-			list := svc.ListResults
+			list := func(ctx context.Context, planID int64, limit int) ([]*ScheduledTestResult, error) {
+				return svc.ListResults(ctx, planID, limit, true)
+			}
 			switch view {
 			case "user":
 				list = svc.ListVisibleResults
@@ -134,7 +136,9 @@ func TestScheduledTestListRepairsLegacyHTMLDisplay(t *testing.T) {
 				nil,
 			}
 			svc := NewScheduledTestService(nil, scheduledTestReadResultsStub{rows: rows})
-			list := svc.ListResults
+			list := func(ctx context.Context, planID int64, limit int) ([]*ScheduledTestResult, error) {
+				return svc.ListResults(ctx, planID, limit, true)
+			}
 			switch view {
 			case "user":
 				list = svc.ListVisibleResults

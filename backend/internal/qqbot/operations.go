@@ -96,7 +96,6 @@ type Overview struct {
 	ChatUsed       int               `json:"chat_used"`
 	ImageUsed      int               `json:"image_used"`
 	ChatRemaining  int               `json:"chat_remaining"`
-	ImageRemaining int               `json:"image_remaining"`
 	RewardAmount   float64           `json:"reward_amount"`
 	PendingRewards int               `json:"pending_rewards"`
 	RewardAlert    bool              `json:"reward_alert"`
@@ -142,7 +141,6 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 		return out, err
 	}
 	out.ChatRemaining = max(0, c.TotalDailyChatLimit-out.ChatUsed)
-	out.ImageRemaining = max(0, c.TotalDailyImageLimit-out.ImageUsed)
 	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(amount),0) FROM qq_bot_rewards WHERE app_id=$1 AND (created_at AT TIME ZONE 'Asia/Shanghai')::date=$2::date`, c.AppID, out.Day).Scan(&out.RewardAmount)
 	if err != nil {
 		return out, err
@@ -182,7 +180,7 @@ func (s *Service) Diagnose(ctx context.Context, group, member string) (Diagnosis
 		if err != nil {
 			return out, err
 		}
-		out.Checks = append(out.Checks, DiagnosticCheck{"cooldown", !recent, "该成员当前未处于聊天/生图冷却时间"})
+		out.Checks = append(out.Checks, DiagnosticCheck{"cooldown", !recent, "该成员当前未处于聊天冷却时间"})
 	}
 	out.Checks = append(out.Checks,
 		DiagnosticCheck{"autonomous", c.autonomousGroup(group), "目标群已开启自主接话（关闭仍可通过提及机器人聊天）"},

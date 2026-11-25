@@ -63,3 +63,23 @@ func TestExcelBPS403RecoveryIntervalValidation(t *testing.T) {
 	require.Equal(t, time.Hour, (&Account{}).ExcelBPS403RecoveryInterval())
 	require.Equal(t, time.Hour, (*Account)(nil).ExcelBPS403RecoveryInterval())
 }
+
+func TestQualityBPSRecoveryInterval(t *testing.T) {
+	policy := &QualityBPSPolicy{FailureThreshold: 2, AllModels: true, AutoDisableOn403: true, AutoRecoverOn403: true}
+	require.NoError(t, validateQualityBPSPolicy(policy))
+	require.Equal(t, 60, QualityBPSExtra(policy)[ExcelBPS403RecoveryIntervalMinutesKey])
+	require.Contains(t, QualityBPSManagedKeys, ExcelBPS403RecoveryIntervalMinutesKey)
+	for _, minutes := range []int{1, 30, 360, 10080, 0, -1, 10081} {
+		policy.RecoveryIntervalMinutes = &minutes
+		err := validateQualityBPSPolicy(policy)
+		if minutes < 1 || minutes > 10080 {
+			require.Error(t, err)
+		} else {
+			require.NoError(t, err)
+			require.Equal(t, minutes, QualityBPSExtra(policy)[ExcelBPS403RecoveryIntervalMinutesKey])
+		}
+	}
+	for _, raw := range []string{"1.5", "\"30\"", "true"} {
+		require.Error(t, json.Unmarshal([]byte("{\"recovery_interval_minutes\":"+raw+"}"), &policy))
+	}
+}

@@ -29,12 +29,15 @@ func (r previewRepository) GetByID(_ context.Context, id int64) (*service.Accoun
 }
 
 type previewTransport struct {
-	service.HTTPUpstream
 	t             *testing.T
 	status        int
 	body          string
 	requests      int
 	expectedProxy string
+}
+
+func (u *previewTransport) Do(r *http.Request, proxy string, id int64, concurrency int) (*http.Response, error) {
+	return u.DoWithTLS(r, proxy, id, concurrency, nil)
 }
 
 func (u *previewTransport) DoWithTLS(r *http.Request, proxy string, id int64, _ int, _ *tlsfingerprint.Profile) (*http.Response, error) {

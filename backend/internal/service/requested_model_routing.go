@@ -35,6 +35,9 @@ func shouldClearStickySessionWithContext(ctx context.Context, account *Account, 
 	if account == nil {
 		return false
 	}
+	if account.IsGateway() && account.gatewayMessagesView != nil {
+		account = account.gatewayMessagesView
+	}
 	if !account.IsSchedulable() || account.ActiveTestModelBlocked(activePassRateRoutingModel(ctx, requestedModel)) {
 		return true
 	}

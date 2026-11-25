@@ -43,10 +43,6 @@ func (s *Service) SetupChecks(ctx context.Context, owner int64) (SetupReadiness,
 	if !c.ChatDisabled {
 		add("chat", status(c.BaseURL != "" && c.APIKey != "" && c.ChatModel != "" && c.DailyChatLimit > 0 && c.TotalDailyChatLimit > 0), "聊天连接、模型与次数额度", "/admin/qqbot/config?tab=chat")
 	}
-	if c.ImageEnabled {
-		base, key := imageConnection(c)
-		add("images", status(base != "" && key != "" && c.ImageModel != "" && c.DailyImageLimit > 0 && c.TotalDailyImageLimit > 0), "图片连接、模型与次数额度", "/admin/qqbot/config?tab=images")
-	}
 	var last sql.NullTime
 	if err = s.db.QueryRowContext(ctx, `SELECT MAX(last_seen_at) FROM qq_bot_groups WHERE app_id=$1`, c.AppID).Scan(&last); err != nil {
 		return out, err

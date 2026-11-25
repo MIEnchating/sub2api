@@ -364,6 +364,7 @@ describe('UseKeyModal', () => {
     expect(configToml).toMatch(/# experimental_bearer_token = "sk-grok-codex-test"/)
     expect(configToml).not.toContain('supports_websockets = true')
     expect(configToml).not.toContain('responses_websockets_v2')
+    expect(configToml).not.toMatch(/^(disable_response_storage|network_access|windows_wsl_setup_acknowledged) =/m)
     expect(wrapper.text()).not.toContain('auth.json')
     expect(codeBlocks.join('\n')).toContain('SUB2API_API_KEY')
 
@@ -406,8 +407,8 @@ describe('UseKeyModal', () => {
     const configToml = codeBlocks.find((content) => content.includes('model_provider = "OpenAI"'))
 
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('model = "gpt-6.1-sol"')
-    expect(configToml).toContain('review_model = "gpt-6.1-sol"')
+    expect(configToml).toContain('model = "gpt-6-astra"')
+    expect(configToml).toContain('review_model = "gpt-6-astra"')
     expect(configToml).not.toContain('model = "gpt-5.4"')
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
@@ -419,9 +420,10 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('image_generation')
     expect(configToml).not.toContain('supports_websockets')
     expect(configToml).not.toContain('responses_websockets_v2')
+    expect(configToml).toContain('disable_response_storage = true')
     const features = configToml?.split('[features]\n')[1]?.split('\n[')[0]
-    expect(features).toContain('api_key_model_discovery = true')
     expect(features).toContain('goals = true')
+    expect(features).toContain('api_key_model_discovery = true')
     expect(configToml).not.toContain('model_reasoning_effort = "xhigh"')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
@@ -467,7 +469,7 @@ describe('UseKeyModal', () => {
     expect(claudeConfig).toContain('ANTHROPIC_BASE_URL="https://example.com"')
   })
 
-  it('defaults to API Key Mode with native image generation in OpenAI Codex config', async () => {
+  it('renders API Key Mode authorization in OpenAI Codex config', async () => {
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -501,6 +503,7 @@ describe('UseKeyModal', () => {
     expect(configToml).toContain('http_headers = { "x-openai-actor-authorization" = "local-image-extension" }')
     expect(configToml).toContain('model_catalog_url = "https://example.com/v1/models"')
     expect(configToml).not.toContain('model_catalog_json')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true')
     expect(configToml).not.toContain('env_key')
     expect(configToml?.split('[features]\n')[1]).toContain('image_generation = true')
     expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
@@ -554,8 +557,8 @@ describe('UseKeyModal', () => {
     const configToml = codeBlocks.find((content) => content.includes('supports_websockets = true'))
 
     expect(configToml).toBeDefined()
-    expect(configToml).toContain('model = "gpt-6.1-sol"')
-    expect(configToml).toContain('review_model = "gpt-6.1-sol"')
+    expect(configToml).toContain('model = "gpt-6-astra"')
+    expect(configToml).toContain('review_model = "gpt-6-astra"')
     expect(configToml).not.toContain('model = "gpt-5.4"')
     expect(configToml).not.toContain('model_context_window')
     expect(configToml).not.toContain('model_auto_compact_token_limit')
@@ -566,10 +569,11 @@ describe('UseKeyModal', () => {
     expect(configToml).not.toContain('env_key')
     expect(configToml).not.toContain('image_generation')
     expect(configToml).toContain('supports_websockets = true')
+    expect(configToml!.split('\n[')[0]).toContain('service_tier = "fast"')
     const features = configToml?.split('[features]\n')[1]?.split('\n[')[0]
-    expect(features).toContain('api_key_model_discovery = true')
     expect(features).toContain('responses_websockets_v2 = true')
     expect(features).toContain('goals = true')
+    expect(features).toContain('api_key_model_discovery = true')
     expect(codeBlocks).toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).toContain('auth.json')
   })
@@ -608,6 +612,7 @@ describe('UseKeyModal', () => {
     const configToml = codeBlocks.find((content) => content.includes('supports_websockets = true'))
     expect(configToml).toContain('model_catalog_url = "https://example.com/v1/models"')
     expect(configToml).not.toContain('model_catalog_json')
+    expect(configToml).toContain('[features]\napi_key_model_discovery = true')
 
     expect(wrapper.get('[data-testid="codex-auth-mode-api-key"]').attributes('aria-checked')).toBe('true')
     expect(configToml).toBeDefined()
@@ -619,9 +624,9 @@ describe('UseKeyModal', () => {
     expect(configToml?.split('[features]\n')[1]).toContain('image_generation = true')
     expect(configToml).toContain('supports_websockets = true')
     const features = configToml?.split('[features]\n')[1]?.split('\n[')[0]
-    expect(features).toContain('api_key_model_discovery = true')
     expect(features).toContain('responses_websockets_v2 = true')
     expect(features).toContain('goals = true')
+    expect(features).toContain('api_key_model_discovery = true')
     expect(codeBlocks).not.toContain('{\n  "OPENAI_API_KEY": "sk-test"\n}')
     expect(wrapper.text()).not.toContain('auth.json')
   })
@@ -887,7 +892,8 @@ describe('UseKeyModal', () => {
         show: true,
         apiKey: 'sk-composite-test',
         baseUrl: 'https://example.com/v1',
-        platform: 'composite'
+        platform: 'composite',
+        siteName: 'Ambi-Sub'
       },
       global: {
         stubs: {
@@ -911,8 +917,9 @@ describe('UseKeyModal', () => {
     const unixConfig = wrapper.findAll('pre code')
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.sub2api]'))
-    expect(unixConfig).toContain('[model_providers.sub2api]\nname = "Sub2API Composite"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
+    expect(unixConfig).toContain('[model_providers.sub2api]\nname = "Ambi-Sub"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
     expect(unixConfig).not.toContain('model_catalog_json')
+    expect(unixConfig).toContain('[features]\napi_key_model_discovery = true')
     expect(unixConfig).toContain('env_key = "SUB2API_API_KEY"')
     expect(fetchMock).not.toHaveBeenCalled()
 
@@ -938,6 +945,7 @@ describe('UseKeyModal', () => {
     expect(loadedUnixConfig).not.toContain('model = "gpt-5.5"')
     expect(loadedUnixConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
     expect(loadedUnixConfig).not.toContain('model_catalog_url')
+    expect(loadedUnixConfig).not.toContain('api_key_model_discovery')
 
     const downloadButton = wrapper.findAll('button').find((button) =>
       button.text().includes('keys.useKeyModal.codexModelCatalog.download')
@@ -998,20 +1006,20 @@ describe('UseKeyModal', () => {
         .find((content) => content.includes('[model_providers.sub2api]'))
       expect(config).toContain('model_catalog_url = "https://example.com/v1/models"')
       expect(config).not.toContain('model_catalog_json')
+      expect(config).toContain('[features]\napi_key_model_discovery = true')
       expect(config).toContain('base_url = "https://example.com/v1"')
       expect(config).toContain('wire_api = "responses"')
     }
   )
 
-  // Scenario: the platform-preferred model remains selected when the downloaded catalog contains it.
-  it('keeps the preferred Composite default when it exists in the catalog', async () => {
+  it('uses the first available catalog model instead of the older Composite fallback', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
       ok: true,
       status: 200,
       text: async () => JSON.stringify({
         models: [
-          { slug: 'claude-opus-4-8' },
-          { slug: 'gpt-6.1-sol' }
+          { slug: 'gpt-6-astra' },
+          { slug: 'gpt-5.5' }
         ]
       })
     }))
@@ -1046,13 +1054,25 @@ describe('UseKeyModal', () => {
     const config = wrapper.findAll('pre code')
       .map((code) => code.text())
       .find((content) => content.includes('[model_providers.sub2api]'))
-    expect(config).toContain('model = "gpt-6.1-sol"')
-    expect(config).toContain('review_model = "gpt-6.1-sol"')
+    expect(config).toContain('model = "gpt-6-astra"')
+    expect(config).toContain('review_model = "gpt-6-astra"')
   })
 
-  it('offers remote and optional file catalogs for OpenAI in both transport modes and on both platforms', async () => {
-    const fetchMock = vi.fn()
-    vi.stubGlobal('fetch', fetchMock)
+  it('derives OpenAI Codex reasoning effort from the selected catalog descriptor', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      text: async () => JSON.stringify({
+        models: [
+          {
+            slug: 'glm-5.3',
+            default_reasoning_level: 'none',
+            supported_reasoning_levels: [{ effort: 'none' }]
+          }
+        ]
+      })
+    }))
+
     const wrapper = mount(UseKeyModal, {
       props: {
         show: true,
@@ -1072,6 +1092,42 @@ describe('UseKeyModal', () => {
       }
     })
 
+    await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('file')
+    await wrapper.get('[data-testid="codex-model-catalog-fetch"]').trigger('click')
+    await flushPromises()
+
+    const configToml = wrapper.findAll('pre code')
+      .map((code) => code.text())
+      .find((content) => content.includes('model_provider = "OpenAI"'))
+    expect(fetch).toHaveBeenCalledWith('https://example.com/v1/models?client_version=0.166.0', expect.any(Object))
+    expect(configToml).toContain('model = "glm-5.3"')
+    expect(configToml).not.toContain('model_reasoning_effort')
+  })
+
+  it.each(['legacy', 'api-key'])('offers Fast and remote/file catalogs across OpenAI transports and platforms in %s mode', async (authMode) => {
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+    const wrapper = mount(UseKeyModal, {
+      props: {
+        show: true,
+        apiKey: 'sk-openai-test',
+        baseUrl: 'https://example.com/v1/',
+        platform: 'openai',
+        siteName: '示例 "站"'
+      },
+      global: {
+        stubs: {
+          BaseDialog: {
+            template: '<div><slot /><slot name="footer" /></div>'
+          },
+          Icon: {
+            template: '<span />'
+          }
+        }
+      }
+    })
+
+    await wrapper.get(`[data-testid="codex-auth-mode-${authMode}"]`).trigger('click')
     for (const transport of ['keys.useKeyModal.cliTabs.codexCli', 'keys.useKeyModal.cliTabs.codexCliWs']) {
       await wrapper.findAll('button').find((button) => button.text().trim() === transport)!.trigger('click')
       for (const os of ['macOS / Linux', 'Windows']) {
@@ -1079,10 +1135,15 @@ describe('UseKeyModal', () => {
         const configToml = wrapper.findAll('pre code')
           .map((code) => code.text())
           .find((content) => content.includes('model_provider = "OpenAI"'))
-        expect(configToml).toContain('model = "gpt-6.1-sol"')
-        expect(configToml).toContain('[model_providers.OpenAI]\nname = "OpenAI"\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
+        expect(configToml).toMatch(/^model = "gpt-6-astra"$/m)
+        expect(configToml).toMatch(/^review_model = "gpt-6-astra"$/m)
+        expect(configToml).toContain('disable_response_storage = true')
+        expect(configToml?.includes('image_generation = true')).toBe(authMode === 'api-key')
+        expect(configToml!.split('\n[')[0]).toContain('service_tier = "fast"')
+        expect(configToml).toContain('[model_providers.OpenAI]\nname = "示例 \\"站\\""\nbase_url = "https://example.com/v1"\nmodel_catalog_url = "https://example.com/v1/models"')
         expect(configToml).not.toContain('model_catalog_json')
-        expect(configToml).toContain('requires_openai_auth = false')
+        expect(configToml).toContain('[features]\napi_key_model_discovery = true')
+        expect(configToml).toContain(`requires_openai_auth = ${authMode === 'legacy'}`)
         expect(configToml).not.toContain('client_version')
         expect(wrapper.find('[data-testid="codex-model-catalog"]').exists()).toBe(true)
 
@@ -1091,7 +1152,9 @@ describe('UseKeyModal', () => {
           .map((code) => code.text())
           .find((content) => content.includes('model_provider = "OpenAI"'))!
         expect(fileConfig).toContain('model_catalog_json = "~/.codex/codex-models.json"')
+        expect(fileConfig.split('\n[')[0]).toContain('service_tier = "fast"')
         expect(fileConfig).not.toContain('model_catalog_url')
+        expect(fileConfig).not.toContain('api_key_model_discovery')
         expect(fileConfig.indexOf('model_catalog_json')).toBeLessThan(fileConfig.indexOf('[model_providers.OpenAI]'))
         await wrapper.get('[data-testid="codex-model-catalog-mode"]').setValue('remote')
       }
@@ -1150,6 +1213,7 @@ describe('UseKeyModal', () => {
       } else {
         expect(config).toContain('model_catalog_url = "https://example.com/v1/models"')
         expect(config).not.toContain('model_catalog_json')
+        expect(config).toContain('[features]\napi_key_model_discovery = true')
       }
     }
   )

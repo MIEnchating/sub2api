@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
+	"github.com/Wei-Shaw/sub2api/internal/service/basispoints"
 	"github.com/gin-gonic/gin"
 	"github.com/tidwall/gjson"
 	"github.com/tidwall/sjson"
@@ -23,6 +24,7 @@ const (
 	OpsUpstreamModelKey        = "ops_upstream_model"
 
 	// Optional stage latencies (milliseconds) for troubleshooting and alerting.
+	OpsRequestDurationMsKey  = "ops_request_duration_ms"
 	OpsAuthLatencyMsKey      = "ops_auth_latency_ms"
 	OpsRoutingLatencyMsKey   = "ops_routing_latency_ms"
 	OpsUpstreamLatencyMsKey  = "ops_upstream_latency_ms"
@@ -178,12 +180,49 @@ func IsOpsRequestScopedError(c *gin.Context) bool {
 	return c != nil && c.GetBool(OpsRequestScopedErrorKey)
 }
 
+// OpsRecoveryFailure is trusted local compatibility evidence, never populated
+// from an upstream error envelope or client metadata.
+type OpsRecoveryFailure struct {
+	Subreason      string // fixed internal allowlist; not supplied by the client
+	Protocol       string
+	Phase          string
+	RequestWritten *bool // nil means no proof of whether the generation was sent
+	Controls       *OpsRecoveryControls
+}
+
+// OpsRecoveryControls contains value-free comparison outcomes for the final
+// encrypted-history wire check. It must never contain field values or hashes.
+type OpsRecoveryControls struct {
+	Observation               string `json:"observation"`
+	Snapshot                  string `json:"snapshot"`
+	Tools                     string `json:"tools"`
+	ToolChoice                string `json:"tool_choice"`
+	ParallelToolCalls         string `json:"parallel_tool_calls"`
+	Instructions              string `json:"instructions"`
+	DigestChanged             bool   `json:"digest_changed"`
+	PreviousResponseIDPresent bool   `json:"previous_response_id_present"`
+	ConversationPresent       bool   `json:"conversation_present"`
+}
+
+// OpsUpstreamWSFailure is set at the native upstream socket boundary, never
+// inferred from an error code. HTTP 101 is not an upstream business status.
+type OpsUpstreamWSFailure struct {
+	Phase     string
+	CloseCode int
+}
+
 // OpsStreamError 描述承载在 2xx 响应上的带内错误：网关在响应状态已固化为 200 之后
 // 就地以 SSE error 帧返回的错误（并发限流回退、Wait 后二次计费校验失败、流开始后才无
 // 可用账号等），以及上游 2xx 正文或事件里携带的错误结果（NonStream 标记非流式正文）。
 // 由于 HTTP 状态码停留在 2xx，ops_error_logger 中间件在 status<400 分支消费该标记并
 // 补记错误日志；标记方是 handler.handleStreamingAwareError 或各 service 的带内检测。
 type OpsStreamError struct {
+	UpstreamWSFailure *OpsUpstreamWSFailure
+	RecoveryFailure   *OpsRecoveryFailure
+	TransportFailure  *OpsTransportFailure
+	// BridgeFailure is set only by the local BPS conversion boundary. It keeps
+	// real upstream HTTP evidence while assigning failure ownership to gateway.
+	BridgeFailure *basispoints.BridgeFailure
 	// ErrType 是写入 SSE 帧的对客错误类型（如 rate_limit_error / upstream_error / api_error）。
 	ErrType string
 	// Code 是可选的稳定错误分类；用于既保留通用 OpenAI error.type，又向客户端和 Ops
@@ -209,7 +248,7 @@ type OpsStreamError struct {
 	UpstreamErrors  []*OpsUpstreamErrorEvent
 	// RequestScoped 表示该带内失败是请求级结果（如上游内容策略截停），与本请求此前的
 	// 上游尝试无关：分类不受上游错误上下文影响、不快照也不落库上游归因、不继承透传规则的
-	// skip_monitoring，按业务限制计，落库状态取 IntendedStatus 以便进入错误列表。
+	// skip_monitoring，按业务限制计（客户端取消除外），落库状态取 IntendedStatus 以便进入错误列表。
 	RequestScoped bool
 	// NonStream 表示带内信号来自非流式 2xx 响应体，落库 stream=false。
 	NonStream bool
@@ -422,20 +461,59 @@ func setOpsUpstreamError(c *gin.Context, upstreamStatusCode int, upstreamMessage
 	if upstreamStatusCode > 0 {
 		c.Set(OpsUpstreamStatusCodeKey, upstreamStatusCode)
 	}
-	if msg := strings.TrimSpace(upstreamMessage); msg != "" {
+	if redactOpenAIEncryptedDiagnostic(upstreamMessage) == openAIEncryptedErrorRedacted {
+		upstreamDetail = openAIEncryptedErrorRedacted
+	}
+	if msg := strings.TrimSpace(redactOpenAIEncryptedDiagnostic(upstreamMessage)); msg != "" {
 		c.Set(OpsUpstreamErrorMessageKey, msg)
 	}
-	if detail := strings.TrimSpace(upstreamDetail); detail != "" {
+	if detail := strings.TrimSpace(redactOpenAIEncryptedDiagnostic(upstreamDetail)); detail != "" {
 		c.Set(OpsUpstreamErrorDetailKey, detail)
 	}
+}
+
+const openAI400HistoryDiagnosticKey = "openai_400_history_diagnostic"
+
+// Only fixed decisions and booleans reach the existing Ops event JSON.
+// Applied means a replacement was prepared, not that upstream received it.
+type OpenAI400HistoryDiagnostic struct {
+	Applied  bool   `json:"applied"`
+	After409 bool   `json:"after_409"`
+	Decision string `json:"decision"`
+}
+
+func sanitizeOpenAI400HistoryDiagnostic(d *OpenAI400HistoryDiagnostic) *OpenAI400HistoryDiagnostic {
+	if d == nil {
+		return nil
+	}
+	switch d.Decision {
+	case "disabled", "retry_exhausted", "canceled_or_output_started", "unsupported_context",
+		"delivery_unconfirmed", "history_integrity", "ownership_unavailable", "no_eligible_history",
+		"same_account_retry_scheduled":
+		copy := *d
+		return &copy
+	default:
+		return nil
+	}
+}
+
+func openAI400HistoryDiagnostic(c *gin.Context) *OpenAI400HistoryDiagnostic {
+	if c == nil {
+		return nil
+	}
+	v, _ := c.Get(openAI400HistoryDiagnosticKey)
+	d, _ := v.(*OpenAI400HistoryDiagnostic)
+	return sanitizeOpenAI400HistoryDiagnostic(d)
 }
 
 // OpsUpstreamErrorEvent describes one upstream error attempt during a single gateway request.
 // It is stored in ops_error_logs.upstream_errors as a JSON array.
 type OpsUpstreamErrorEvent struct {
 	// Observed token counts for a failed generation, independent of billing.
-	FailedUsage *OpenAIUsage `json:"failed_usage,omitempty"`
-	AtUnixMs    int64        `json:"at_unix_ms,omitempty"`
+	FailedUsage         *OpenAIUsage                `json:"failed_usage,omitempty"`
+	EncryptedHistory400 *OpenAI400HistoryDiagnostic `json:"encrypted_history_400,omitempty"`
+	AuthConnectionID    string                      `json:"auth_connection_id,omitempty"`
+	AtUnixMs            int64                       `json:"at_unix_ms,omitempty"`
 
 	// Passthrough 表示本次请求是否命中“原样透传（仅替换认证）”分支。
 	// 该字段用于排障与灰度评估；存入 JSON，不涉及 DB schema 变更。
@@ -468,7 +546,7 @@ type OpsUpstreamErrorEvent struct {
 	// Best-effort upstream response capture (sanitized+trimmed).
 	UpstreamResponseBody string `json:"upstream_response_body,omitempty"`
 
-	// Kind: http_error | request_error | retry_exhausted | failover
+	// Kind: http_error | request_error | transport_error | retry_exhausted | failover | bridge_error
 	Kind string `json:"kind,omitempty"`
 	// Stage/Scope/Reason distinguish credential acquisition from inference
 	// without overloading upstream_status_code with a synthetic HTTP status.
@@ -504,22 +582,48 @@ func appendOpsUpstreamError(c *gin.Context, ev OpsUpstreamErrorEvent) {
 	if c == nil {
 		return
 	}
+	if ev.EncryptedHistory400 == nil {
+		ev.EncryptedHistory400 = openAI400HistoryDiagnostic(c)
+	} else {
+		ev.EncryptedHistory400 = sanitizeOpenAI400HistoryDiagnostic(ev.EncryptedHistory400)
+	}
+	if ev.AuthConnectionID == "" {
+		ev.AuthConnectionID = c.GetString("openai_auth_connection_id")
+	}
 	if ev.AtUnixMs <= 0 {
 		ev.AtUnixMs = time.Now().UnixMilli()
 	}
 	ev.Platform = strings.TrimSpace(ev.Platform)
+	// Request-selected exits are independent of the legacy single-proxy binding.
+	// Copy only durable, credential-free lease metadata for this exact account.
+	if value, ok := c.Get(openAIRequestProxyOpsKey); ok {
+		if route, ok := value.(*openAIRequestProxyRoute); ok && route != nil && route.accountID == ev.AccountID {
+			setUnknownOpsUpstreamProxy(&ev)
+			if route.lease.ProxyID > 0 {
+				id := route.lease.ProxyID
+				ev.ProxyID, ev.ProxyName = &id, route.lease.ProxyName
+			}
+		}
+	}
 	normalizeOpsUpstreamProxyAttribution(&ev)
 	ev.UpstreamRequestID = strings.TrimSpace(ev.UpstreamRequestID)
-	ev.UpstreamResponseBody = strings.TrimSpace(ev.UpstreamResponseBody)
+	ev.UpstreamResponseBody = strings.TrimSpace(redactOpenAIEncryptedDiagnostic(ev.UpstreamResponseBody))
 	ev.Kind = strings.TrimSpace(ev.Kind)
 	ev.Stage = strings.TrimSpace(ev.Stage)
 	ev.Scope = strings.TrimSpace(ev.Scope)
 	ev.Reason = strings.TrimSpace(ev.Reason)
 	ev.UpstreamURL = strings.TrimSpace(ev.UpstreamURL)
 	ev.Message = strings.TrimSpace(ev.Message)
-	ev.Detail = strings.TrimSpace(ev.Detail)
+	ev.Detail = strings.TrimSpace(redactOpenAIEncryptedDiagnostic(ev.Detail))
 	if ev.Message != "" {
 		ev.Message = sanitizeUpstreamErrorMessage(ev.Message)
+		if ev.Message == openAIEncryptedErrorRedacted {
+			ev.Detail = ev.Message
+			ev.UpstreamResponseBody = ev.Message
+		}
+	}
+	if ev.ReportedHeaders == nil && c.Request != nil {
+		ev.ReportedHeaders = headerOverrideReportedHeaders(c.Request.Context(), ev.AccountID)
 	}
 	if ev.ReportedHeaders == nil && c.Request != nil {
 		ev.ReportedHeaders = headerOverrideReportedHeaders(c.Request.Context(), ev.AccountID)

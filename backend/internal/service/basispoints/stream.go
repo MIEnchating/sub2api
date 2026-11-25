@@ -52,8 +52,8 @@ func (b *Bridge) StreamWithRepair(ctx context.Context, upstream io.ReadCloser, r
 	return b.StreamWithRepairs(ctx, upstream, nil, repair)
 }
 
-// StreamWithRepairs keeps known-target transport corrections and first-turn
-// unknown-target regeneration separate; neither can dispatch unvalidated tools.
+// StreamWithRepairs separates transport correction, first-turn regeneration and
+// safe unknown-target continuations. None can dispatch unvalidated tools.
 func (b *Bridge) StreamWithRepairs(ctx context.Context, upstream io.ReadCloser, repair ToolRepairFunc, unknown RepairToolCall) io.ReadCloser {
 	ctx, cancel := context.WithCancel(ctx)
 	reader, writer := io.Pipe()
@@ -91,6 +91,9 @@ func (b *Bridge) StreamWithRepairs(ctx context.Context, upstream io.ReadCloser, 
 func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, writer io.Writer, repair ToolRepairFunc, unknown RepairToolCall) error {
 	sequence := 0
 	terminal := false
+	visibleContent := false
+	rejectedTool, repairSkippedReason := "", ""
+	failureStage := "bridge_protocol_conversion"
 	var terminalResponse object
 	emitted := make(map[string]bool)
 	pendingTools := make(map[string]bool)
@@ -103,6 +106,9 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 			return err
 		}
 		_, err = fmt.Fprintf(writer, "event: %s\ndata: %s\n\n", kind, raw)
+		if err == nil && b.clientStream && hasVisibleStreamContent(kind, payload) {
+			visibleContent = true
+		}
 		return err
 	}
 	emitTool := func(item object, index any) error {
@@ -195,9 +201,39 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 				}
 				repairStart := -1
 				validation := b.validateToolResponse(response)
-				if unknown != nil && b.canRepair(response, validation) {
+				if validation != nil {
+					failureStage = "bridge_tool_validation"
+				}
+				var rejected unknownClientToolError
+				if errors.As(validation, &rejected) {
+					rejectedTool = rejected.name
+					switch {
+					case visibleContent:
+						repairSkippedReason = "visible_content"
+					case b.hasToolHistory && len(b.completedToolHistory) == 0:
+						repairSkippedReason = "incomplete_tool_history"
+					case b.hasToolHistory && repair == nil, !b.hasToolHistory && unknown == nil:
+						repairSkippedReason = "repair_unavailable"
+					default:
+						repairSkippedReason = "unsafe_tool_batch"
+					}
+				}
+				if repair != nil && !visibleContent && b.canRepairUnknownContinuation(response, validation) {
+					repairSkippedReason = "repair_exhausted"
+					fixed, index, err := b.repairUnknownContinuation(ctx, response, repair, validation)
+					if err != nil {
+						return err
+					}
+					response, payload["response"], terminalResponse, repairStart = fixed, fixed, fixed, index
+				} else if unknown != nil && b.canRepair(response, validation) {
+					// Regeneration can change the answer after the client has read it.
+					// Known-target corrections below only replace withheld tool slots.
+					if visibleContent {
+						return validation
+					}
 					callback := unknown
 					unknown = nil
+					repairSkippedReason = "repair_exhausted"
 					fixed, index, err := b.repairResponse(ctx, response, callback)
 					if err != nil {
 						return err
@@ -242,8 +278,8 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 				response["reasoning"] = object{"effort": b.Effort}
 			}
 		}
-		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "error"
-		return emit(kind, payload)
+		terminal = kind == "response.completed" || kind == "response.incomplete" || kind == "response.failed" || kind == "response.cancelled" || kind == "error"
+		return emit(kind, b.normalizeFailureEvent(kind, payload))
 	}
 	err := readEvents(reader, func(event string, data []byte) error {
 		if terminal {
@@ -264,7 +300,20 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		}
 		failed := object{
 			"status": "failed", "output": []any{},
-			"error": object{"code": "basispoints_protocol_error", "message": err.Error()},
+		}
+		failure := &BridgeFailure{Message: err.Error(), FailureStage: failureStage,
+			RejectedTool: rejectedTool, RepairSkippedReason: repairSkippedReason}
+		var argumentError toolArgumentsSchemaError
+		if errors.As(err, &argumentError) {
+			failure.ToolArguments = argumentError.Diagnostic
+		}
+		if text(terminalResponse["status"]) == "completed" {
+			failure.UpstreamTerminalEvent = "response.completed"
+		}
+		failed["error"] = failure.Details()
+		var upstreamFailure *UpstreamFailure
+		if errors.As(err, &upstreamFailure) {
+			failed["error"] = upstreamFailure.Details()
 		}
 		for _, field := range []string{"id", "model", "usage"} {
 			if value := terminalResponse[field]; value != nil {
@@ -277,6 +326,41 @@ func (b *Bridge) transformWithRepairs(ctx context.Context, reader io.Reader, wri
 		return io.ErrUnexpectedEOF
 	}
 	return nil
+}
+
+// Empty lifecycle events and opaque reasoning do not commit visible content.
+// Also recognize content carried by done/item events when deltas are absent.
+func hasVisibleStreamContent(kind string, payload object) bool {
+	partHasText := func(part object) bool {
+		return text(part["text"]) != "" || text(part["refusal"]) != ""
+	}
+	switch kind {
+	case "response.output_text.delta", "response.reasoning_summary_text.delta", "response.refusal.delta":
+		return text(payload["delta"]) != ""
+	case "response.output_text.done", "response.reasoning_summary_text.done", "response.refusal.done":
+		return partHasText(payload)
+	case "response.content_part.added", "response.content_part.done", "response.reasoning_summary_part.added", "response.reasoning_summary_part.done":
+		part, _ := payload["part"].(object)
+		return partHasText(part)
+	case "response.output_item.added", "response.output_item.done":
+		item, _ := payload["item"].(object)
+		field := "content"
+		switch text(item["type"]) {
+		case "message":
+		case "reasoning":
+			field = "summary"
+		default:
+			return false
+		}
+		parts, _ := item[field].([]any)
+		for _, raw := range parts {
+			part, _ := raw.(object)
+			if partHasText(part) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func readEvents(reader io.Reader, consume func(string, []byte) error) error {

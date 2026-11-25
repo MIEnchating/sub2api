@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/Wei-Shaw/sub2api/internal/iprisk"
 	"github.com/gin-gonic/gin"
 )
 
@@ -29,6 +30,10 @@ const (
 	IngressRejectInvalidAuthRateLimited IngressRejectReason = "invalid_auth_rate_limited"
 	IngressRejectAPIKeyAuthOverloaded   IngressRejectReason = "api_key_auth_overloaded"
 	IngressRejectModelNotAllowed        IngressRejectReason = "model_not_allowed"
+	IngressRejectStreamRequired         IngressRejectReason = "stream_required"
+	IngressRejectLongContextDisabled    IngressRejectReason = "long_context_disabled"
+	IngressRejectSubagentsBlocked       IngressRejectReason = "subagents_blocked"
+	IngressRejectCodexClientRequired    IngressRejectReason = "codex_client_required"
 	// IngressRejectConflictingRequestFields：请求体同名字段重复声明（GHSA-p3r4-jcm3-2hph）。
 	IngressRejectConflictingRequestFields IngressRejectReason = "conflicting_request_fields"
 )
@@ -40,7 +45,11 @@ type IngressRejectRecorder interface {
 }
 
 func invalidAuthClientKey(c *gin.Context) string {
-	return normalizeIngressRejectIP(SecurityClientIP(c))
+	network := iprisk.AnonymousNetwork(SecurityClientIP(c))
+	if network == "" {
+		return ""
+	}
+	return netip.MustParsePrefix(network).Addr().String()
 }
 
 func rejectInvalidAuthAbuse(c *gin.Context, apiKeyService interface {

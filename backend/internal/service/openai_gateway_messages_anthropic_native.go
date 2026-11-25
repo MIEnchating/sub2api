@@ -63,16 +63,6 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 		body = normalized
 	}
 
-	// 记录客户端请求的推理强度：优先 Claude 协议的 output_config.effort；
-	// 缺失且 thinking 已启用时，按国产 passback-required 模型兜底为 high
-	// （对齐 Anthropic 网关 gateway_handler 的记录语义，避免该路径长期落 NULL）。
-	requestedReasoningEffort := NormalizeClaudeOutputEffort(gjson.GetBytes(body, "output_config.effort").String())
-	reasoningEffort := ApplyThinkingEnabledFallback(
-		requestedReasoningEffort,
-		body,
-		billingModel,
-	)
-
 	// 与 Anthropic 平台 passthrough 相同的 pre-filter：剥离空文本块与上游
 	// 无法接受的 web-search 历史块（GLM/Kimi/DeepSeek 对 server_tool_use 400）。
 	body = StripEmptyTextBlocks(body)
@@ -102,12 +92,16 @@ func (s *OpenAIGatewayService) forwardAnthropicViaNativeAnthropicEndpoint(
 	}
 
 	upstreamCtx, releaseUpstreamCtx := detachStreamUpstreamContext(ctx, clientStream)
-	upstreamReq, _, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
+	upstreamReq, forwardedBody, err := s.buildNativeAnthropicUpstreamRequest(upstreamCtx, c, account, body, apiKey, targetURL)
 	releaseUpstreamCtx()
 	if err != nil {
 		return nil, err
 	}
 
+	reasoningEffort := nativeMessagesUsageEffort(account, forwardedBody, upstreamModel)
+	if err := s.checkAPIKeyLongContextBeforeSend(ctx, c, forwardedBody, upstreamModel); err != nil {
+		return nil, err
+	}
 	resp, err := s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 	if err != nil {
 		return nil, s.handleOpenAIUpstreamTransportError(ctx, c, account, err, true)
@@ -169,6 +163,13 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	targetURL string,
 	sessionBodies ...[]byte,
 ) (*http.Request, []byte, error) {
+	if len(sessionBodies) > 0 {
+		var err error
+		body, err = qwenBridgedMessagesEffort(account, body, sessionBodies[0])
+		if err != nil {
+			return nil, nil, err
+		}
+	}
 	// 能力维度 body sanitize：与 Anthropic 平台 passthrough 相同，按 beta
 	// header 决定是否保留 body 中的 beta 能力字段，避免客户端"body 带字段但
 	// header 忘带 token"的 bug 让第三方上游 400。
@@ -188,7 +189,7 @@ func (s *OpenAIGatewayService) buildNativeAnthropicUpstreamRequest(
 	// 地址而非 CC/Responses 地址），详见 helper 注释。
 	body = clampOllamaCloudAnthropicMessagesMaxTokens(account, account.GetAnthropicProtocolBaseURL(), body)
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, targetURL, bytes.NewReader(body))
+	req, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, targetURL, bytes.NewReader(body))
 	if err != nil {
 		return nil, nil, err
 	}
@@ -254,6 +255,9 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 
 	body, err := ReadUpstreamResponseBody(resp.Body, s.cfg, c, anthropicTooLargeError)
 	if err != nil {
+		if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), err); handled {
+			return nil, resetErr
+		}
 		return nil, err
 	}
 	observer := upstreamResponseModelObserverFromContext(c)
@@ -277,21 +281,22 @@ func (s *OpenAIGatewayService) handleNativeAnthropicBufferedResponse(
 	body = reverseToolNamesIfPresent(c, body)
 	c.Data(resp.StatusCode, contentType, body)
 
-	return &OpenAIForwardResult{
-		RequestID:                     resp.Header.Get("x-request-id"),
-		UpstreamHeaders:               resp.Header,
-		Usage:                         claudeUsageToOpenAIUsage(usage),
-		Model:                         originalModel,
-		BillingModel:                  billingModel,
-		UpstreamModel:                 upstreamModel,
-		UpstreamResponseModel:         observedUpstreamResponseModel(c),
-		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
-		UpstreamEndpoint:              "/v1/messages",
-		Stream:                        false,
-		ReasoningEffort:               reasoningEffort,
-		Duration:                      time.Since(startTime),
-	}, nil
+	result := &OpenAIForwardResult{
+		RequestID:                   resp.Header.Get("x-request-id"),
+		UpstreamHeaders:             resp.Header,
+		Usage:                       claudeUsageToOpenAIUsage(usage),
+		UsageUnavailable:            !anthropicUsageFieldsObserved(gjson.GetBytes(body, "usage")),
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		UpstreamEndpoint:            "/v1/messages",
+		Stream:                      false,
+		ReasoningEffort:             reasoningEffort,
+		Duration:                    time.Since(startTime),
+	}
+	applyObservedUpstreamResponseModel(c, result)
+	return result, nil
 }
 
 // handleNativeAnthropicStreamingResponse 处理流式原生 Anthropic 响应：
@@ -308,6 +313,16 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 	reasoningEffort *string,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
+	result, err := s.relayAnthropicStream(ctx, resp, c, account, originalModel, upstreamModel, startTime, true, nil)
+	if result == nil {
+		return nil, err
+	}
+	return s.nativeAnthropicStreamResult(c, resp, result.usage, result.usageUnavailable, result.firstTokenMs, result.clientDisconnect, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), err
+}
+
+// relayAnthropicStream shares framing, integrity, bounded drain and terminal
+// handling between native Messages and Anthropic API-key passthrough.
+func (s *OpenAIGatewayService) relayAnthropicStream(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, originalModel, upstreamModel string, startTime time.Time, handlePeerReset bool, onBillingError func(string, bool) error) (*streamingResult, error) {
 	observer := upstreamResponseModelObserverFromContext(c)
 	if observer == nil {
 		observer = beginUpstreamResponseModelObservation(c)
@@ -316,43 +331,49 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
 
-	writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-
-	contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
-	if contentType == "" {
-		contentType = "text/event-stream"
-	}
-	c.Header("Content-Type", contentType)
-	if c.Writer.Header().Get("Cache-Control") == "" {
-		c.Header("Cache-Control", "no-cache")
-	}
-	if c.Writer.Header().Get("Connection") == "" {
-		c.Header("Connection", "keep-alive")
-	}
-	c.Header("X-Accel-Buffering", "no")
-	if v := resp.Header.Get("x-request-id"); v != "" {
-		c.Header("x-request-id", v)
+	var headersWritten bool
+	writeResponseHeaders := func() {
+		if headersWritten {
+			return
+		}
+		headersWritten = true
+		writeAnthropicPassthroughResponseHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		contentType := strings.TrimSpace(resp.Header.Get("Content-Type"))
+		if contentType == "" {
+			contentType = "text/event-stream"
+		}
+		c.Header("Content-Type", contentType)
+		if c.Writer.Header().Get("Cache-Control") == "" {
+			c.Header("Cache-Control", "no-cache")
+		}
+		if c.Writer.Header().Get("Connection") == "" {
+			c.Header("Connection", "keep-alive")
+		}
+		c.Header("X-Accel-Buffering", "no")
+		if v := resp.Header.Get("x-request-id"); v != "" {
+			c.Header("x-request-id", v)
+		}
 	}
 
 	w := c.Writer
-	flusher, ok := w.(http.Flusher)
-	if !ok {
-		return nil, errors.New("streaming not supported")
-	}
 
 	usage := &ClaudeUsage{}
 	var firstTokenMs *int
 	clientDisconnected := false
-	sawTerminalEvent := false
+	var pendingLines []string
+	var terminalFrames strings.Builder
+	status := &anthropicCompatStream{body: resp.Body, pump: &anthropicNativeLinePump{}}
 
 	scanner := bufio.NewScanner(resp.Body)
 	maxLineSize := defaultMaxLineSize
 	if s.cfg != nil && s.cfg.Gateway.MaxLineSize > 0 {
 		maxLineSize = s.cfg.Gateway.MaxLineSize
 	}
+	scanner.Split(newBoundedSSESplit(s.cfg, maxLineSize, anthropicSSELineSplit()))
+	status.maxLineSize = maxLineSize
+	defer func() { _ = resp.Body.Close() }()
 	scanBuf := getSSEScannerBuf64K()
 	scanner.Buffer(scanBuf[:0], maxLineSize)
-	scanner.Split(newBoundedSSESplit(s.cfg, maxLineSize, nil))
 
 	type scanEvent struct {
 		line string
@@ -428,79 +449,200 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 		keepaliveTimer.Reset(keepaliveInterval)
 	}
 	inPartialEvent := false
+	clientCtx := ctx
+	if c.Request != nil {
+		clientCtx = c.Request.Context()
+	}
+	clientGone := clientCtx.Done()
+	upstreamGone := ctx.Done()
+	var drainTimer *time.Timer
+	var drainDeadline <-chan time.Time
+	markDisconnected := func() {
+		if clientDisconnected {
+			return
+		}
+		clientDisconnected = true
+		clientGone = nil
+		upstreamGone = nil
+		drainTimer = time.NewTimer(anthropicCompatDisconnectDrainInterval)
+		drainDeadline = drainTimer.C
+	}
+	defer func() {
+		if drainTimer != nil {
+			drainTimer.Stop()
+		}
+	}()
+
+	result := func() *streamingResult {
+		return &streamingResult{usageUnavailable: !status.usageSeen, usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: clientDisconnected}
+	}
+	fail := func() (*streamingResult, error) {
+		status.clientDisconnected = clientDisconnected
+		failure := status.failure()
+		if failure == nil {
+			return result(), nil
+		}
+		if onBillingError != nil && status.upstreamErrPayload != "" && IsUpstreamBillingError(http.StatusOK, []byte(status.upstreamErrPayload)) {
+			return result(), onBillingError(status.upstreamErrPayload, clientDisconnected)
+		}
+		if !clientDisconnected {
+			writeResponseHeaders()
+			if status.upstreamErrPayload != "" {
+				return result(), writeNativeAnthropicSemanticFailure(c, []byte(status.upstreamErrPayload), originalModel)
+			}
+			payload, _ := json.Marshal(map[string]any{"type": "error", "error": map[string]string{"type": failure.errType, "message": failure.message}})
+			MarkOpsStreamError(c, failure.errType, failure.message, http.StatusBadGateway)
+			MarkResponseCommitted(c)
+			_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", payload)
+			if err := FlushGatewayResponse(w); err != nil {
+				markDisconnected()
+			}
+		}
+		return result(), failure.err
+	}
+	consume := func(line string) bool {
+		name, payload, ready, err := status.frame.line(line, maxLineSize)
+		if err != nil {
+			status.readErr = err
+			return false
+		}
+		pendingLines = append(pendingLines, line)
+		if line != "" {
+			return true
+		}
+		lines := pendingLines
+		pendingLines = nil
+		raw := strings.Join(lines, "\n") + "\n"
+		if strings.TrimSpace(payload) == "[DONE]" {
+			return true
+		}
+		if !ready && knownAnthropicStreamEvent(name) {
+			return true
+		}
+		if ready {
+			event, known := status.decodeFrame(name, payload)
+			if status.protocolFailure != "" {
+				return false
+			}
+			if known {
+				observer.ObserveAnthropic([]byte(payload))
+				status.observe(&event, payload)
+				parseSSEUsagePassthrough(payload, usage)
+				if model := compositeClientModel(ctx, ""); model != "" && event.Type == "message_start" && gjson.Get(payload, "message.model").Exists() {
+					if rewritten, err := sjson.Set(payload, "message.model", model); err == nil {
+						var compact bytes.Buffer
+						if json.Compact(&compact, []byte(rewritten)) == nil {
+							var output strings.Builder
+							wroteData := false
+							for _, line := range lines {
+								if _, ok := extractAnthropicSSEDataLine(line); ok {
+									if wroteData {
+										continue
+									}
+									wroteData = true
+									line = "data: " + compact.String()
+								}
+								_, _ = output.WriteString(line)
+								_ = output.WriteByte('\n')
+							}
+							raw = output.String()
+						}
+					}
+				}
+				if firstTokenMs == nil && status.semanticContent {
+					ms := int(time.Since(startTime).Milliseconds())
+					firstTokenMs = &ms
+				}
+				if event.Type == "error" {
+					return false
+				}
+				if event.Type == "message_stop" || (event.Type == "message_delta" && event.Delta != nil && event.Delta.StopReason != "") {
+					if len(raw) > 2*maxLineSize-terminalFrames.Len() {
+						status.readErr = errAnthropicSSEFrameTooLarge
+						return false
+					}
+					_, _ = terminalFrames.WriteString(raw)
+					return true
+				}
+			}
+		}
+		if !clientDisconnected {
+			writeResponseHeaders()
+			if _, err := io.WriteString(w, reverseToolNamesIfPresentString(c, raw)); err != nil {
+				markDisconnected()
+			} else {
+				if err := FlushGatewayResponse(w); err != nil {
+					markDisconnected()
+				}
+				lastDataAt = time.Now()
+				resetKeepaliveTimer()
+			}
+		}
+		return true
+	}
 
 	for {
+		if !clientDisconnected && (clientCtx.Err() != nil || ctx.Err() != nil) {
+			markDisconnected()
+		}
 		select {
 		case ev, ok := <-events:
 			if ok {
 				queueBudget.release(len(ev.line))
 			}
-			if !ok {
-				if !clientDisconnected {
-					flusher.Flush()
-				}
-				if !sawTerminalEvent {
-					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-						fmt.Errorf("stream usage incomplete: missing terminal event")
-				}
-				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
+			if !clientDisconnected && (clientCtx.Err() != nil || ctx.Err() != nil) {
+				markDisconnected()
 			}
-			if ev.err != nil {
-				if sawTerminalEvent {
-					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), nil
+			if !ok {
+				if len(pendingLines) > 0 && !consume("") {
+					return fail()
+				}
+				status.readErr = io.EOF
+				status.clientDisconnected = clientDisconnected
+				if status.failure() != nil {
+					return fail()
+				}
+				writeResponseHeaders()
+				if _, err := io.WriteString(w, reverseToolNamesIfPresentString(c, terminalFrames.String())); err != nil {
+					markDisconnected()
+					return fail()
+				}
+				if err := FlushGatewayResponse(w); err != nil {
+					markDisconnected()
 				}
 				if clientDisconnected {
-					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-						fmt.Errorf("stream usage incomplete after disconnect: %w", ev.err)
+					return fail()
 				}
+				return result(), nil
+			}
+			if ev.err != nil {
 				if errors.Is(ev.err, context.Canceled) || errors.Is(ev.err, context.DeadlineExceeded) {
-					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-						fmt.Errorf("stream usage incomplete: %w", ev.err)
+					markDisconnected()
 				}
-				if errors.Is(ev.err, bufio.ErrTooLong) {
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, ev.err)
-					return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime), ev.err
+				status.readErr = ev.err
+				if handlePeerReset && !clientDisconnected {
+					if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, resp.Header.Get("x-request-id"), ev.err); handled {
+						return result(), resetErr
+					}
 				}
-				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-					fmt.Errorf("stream read error: %w", ev.err)
+				if status.frame.hasData {
+					payload := status.frame.data.String()
+					if event, known := status.decodeFrame(status.frame.name, payload); known && event.Type != "error" {
+						observer.ObserveAnthropic([]byte(payload))
+						status.observe(&event, payload)
+						parseSSEUsagePassthrough(payload, usage)
+					}
+					if !c.Writer.Written() && !clientDisconnected {
+						// The collector may retain measured usage, but an
+						// incomplete frame stays off the downstream wire.
+						return result(), status.failure().err
+					}
+				}
+				return fail()
 			}
-
-			line := ev.line
-			if data, ok := extractAnthropicSSEDataLine(line); ok {
-				trimmed := strings.TrimSpace(data)
-				observer.ObserveAnthropic([]byte(trimmed))
-				if anthropicStreamEventIsTerminal("", trimmed) {
-					sawTerminalEvent = true
-				}
-				if firstTokenMs == nil && trimmed != "" && trimmed != "[DONE]" {
-					ms := int(time.Since(startTime).Milliseconds())
-					firstTokenMs = &ms
-				}
-				parseSSEUsagePassthrough(data, usage)
-			} else {
-				trimmed := strings.TrimSpace(line)
-				if strings.HasPrefix(trimmed, "event:") && anthropicStreamEventIsTerminal(strings.TrimSpace(strings.TrimPrefix(trimmed, "event:")), "") {
-					sawTerminalEvent = true
-				}
-			}
-
-			if !clientDisconnected {
-				restored := reverseToolNamesIfPresentString(c, line)
-				if _, err := io.WriteString(w, restored); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if _, err := io.WriteString(w, "\n"); err != nil {
-					clientDisconnected = true
-					logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during streaming, continue draining upstream for usage: account=%d", account.ID)
-				} else if line == "" {
-					// 按 SSE 事件边界刷出，减少每行 flush 带来的 syscall 开销。
-					flusher.Flush()
-					lastDataAt = time.Now()
-					resetKeepaliveTimer()
-					inPartialEvent = false
-				} else {
-					inPartialEvent = true
-				}
+			inPartialEvent = ev.line != ""
+			if !consume(ev.line) {
+				return fail()
 			}
 
 		case <-intervalCh:
@@ -508,16 +650,19 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 			if time.Since(lastRead) < streamInterval {
 				continue
 			}
-			if clientDisconnected {
-				return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-					fmt.Errorf("stream usage incomplete after timeout")
-			}
-			logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Stream data interval timeout: account=%d model=%s interval=%s", account.ID, upstreamModel, streamInterval)
-			if s.rateLimitService != nil {
+			if !clientDisconnected && s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, upstreamModel)
 			}
-			return s.nativeAnthropicStreamResult(c, resp, usage, firstTokenMs, clientDisconnected, originalModel, billingModel, upstreamModel, reasoningEffort, startTime),
-				fmt.Errorf("stream data interval timeout")
+			status.readErr = errAnthropicNativeStreamIdle
+			status.pump = &anthropicNativeLinePump{interval: streamInterval}
+			return fail()
+
+		case <-clientGone:
+			markDisconnected()
+		case <-upstreamGone:
+			markDisconnected()
+		case <-drainDeadline:
+			return fail()
 
 		case <-keepaliveCh:
 			if clientDisconnected {
@@ -531,12 +676,15 @@ func (s *OpenAIGatewayService) handleNativeAnthropicStreamingResponse(
 				resetKeepaliveTimer()
 				continue
 			}
+			writeResponseHeaders()
 			if _, err := fmt.Fprint(w, "event: ping\ndata: {\"type\": \"ping\"}\n\n"); err != nil {
-				clientDisconnected = true
+				markDisconnected()
 				logger.LegacyPrintf("service.gateway", "[CN Anthropic 直通] Client disconnected during keepalive ping, continue draining upstream for usage: account=%d", account.ID)
 				continue
 			}
-			flusher.Flush()
+			if err := FlushGatewayResponse(w); err != nil {
+				markDisconnected()
+			}
 			lastDataAt = time.Now()
 			resetKeepaliveTimer()
 		}
@@ -549,6 +697,7 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	c *gin.Context,
 	resp *http.Response,
 	usage *ClaudeUsage,
+	usageUnavailable bool,
 	firstTokenMs *int,
 	clientDisconnect bool,
 	originalModel string,
@@ -560,23 +709,24 @@ func (s *OpenAIGatewayService) nativeAnthropicStreamResult(
 	if usage == nil {
 		usage = &ClaudeUsage{}
 	}
-	return &OpenAIForwardResult{
-		RequestID:                     resp.Header.Get("x-request-id"),
-		UpstreamHeaders:               resp.Header,
-		Usage:                         claudeUsageToOpenAIUsage(usage),
-		Model:                         originalModel,
-		BillingModel:                  billingModel,
-		UpstreamModel:                 upstreamModel,
-		UpstreamResponseModel:         observedUpstreamResponseModel(c),
-		UpstreamResponseModelConflict: observedUpstreamResponseModelConflict(c),
-		UpstreamResponseServiceTier:   observedUpstreamResponseServiceTier(c),
-		UpstreamEndpoint:              "/v1/messages",
-		Stream:                        true,
-		ReasoningEffort:               reasoningEffort,
-		Duration:                      time.Since(startTime),
-		FirstTokenMs:                  firstTokenMs,
-		ClientDisconnect:              clientDisconnect,
+	result := &OpenAIForwardResult{
+		RequestID:                   resp.Header.Get("x-request-id"),
+		UpstreamHeaders:             resp.Header,
+		Usage:                       claudeUsageToOpenAIUsage(usage),
+		UsageUnavailable:            usageUnavailable,
+		Model:                       originalModel,
+		BillingModel:                billingModel,
+		UpstreamModel:               upstreamModel,
+		UpstreamResponseServiceTier: observedUpstreamResponseServiceTier(c),
+		UpstreamEndpoint:            "/v1/messages",
+		Stream:                      true,
+		ReasoningEffort:             reasoningEffort,
+		Duration:                    time.Since(startTime),
+		FirstTokenMs:                firstTokenMs,
+		ClientDisconnect:            clientDisconnect,
 	}
+	applyObservedUpstreamResponseModel(c, result)
+	return result
 }
 
 // claudeUsageToOpenAIUsage 把 Anthropic 格式 usage 映射到 OpenAI 网关统一的

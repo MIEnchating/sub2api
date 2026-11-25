@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"image"
 	_ "image/gif"
+	_ "image/jpeg"
 	"net/http"
 	"strings"
 

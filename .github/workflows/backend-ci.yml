@@ -1,32 +1,79 @@
 name: CI
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - main
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+# PR updates replace older runs; other events keep a separate group per commit.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
+  actions: read
+
+env:
+  EXPECTED_HEAD_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
 
 jobs:
+  changes:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      shell: ${{ steps.select.outputs['shell'] }}
+      unit-test: ${{ steps.select.outputs['unit-test'] }}
+      integration-test: ${{ steps.select.outputs['integration-test'] }}
+      frontend: ${{ steps.select.outputs['frontend'] }}
+      golangci-lint: ${{ steps.select.outputs['golangci-lint'] }}
+      release-helpers: ${{ steps.select.outputs['release-helpers'] }}
+      prism-adapter: ${{ steps.select.outputs['prism-adapter'] }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Install selector dependency
+        run: python3 -m pip install PyYAML==6.0.3
+      - name: Select affected checks
+        id: select
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          if [[ "$GITHUB_EVENT_NAME" == push ]]; then
+            python3 .github/ci/select_jobs.py backend-ci.yml --full
+          else
+            python3 .github/ci/select_jobs.py backend-ci.yml
+          fi
+
   shell:
+    needs: changes
+    if: needs.changes.outputs['shell'] == 'true'
     runs-on: macos-15
     steps:
       - uses: actions/checkout@v6
-      - name: Set up GNU coreutils for Linux automation checks
-        run: |
-          brew list coreutils >/dev/null 2>&1 || brew install coreutils
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
       - name: Check upstream feature exclusions
         run: |
+          brew list coreutils >/dev/null 2>&1 || brew install coreutils
           export PATH="$(brew --prefix coreutils)/libexec/gnubin:$PATH"
-          python3 .github/check-upstream-exclusions.py .
+          git fetch --no-tags https://github.com/Wei-Shaw/sub2api.git refs/heads/main
+          primary="$(git merge-base HEAD FETCH_HEAD)"
+          python3 .github/check-upstream-exclusions.py . --primary "$primary"
           python3 -m unittest discover -s .github -p 'test_upstream*.py'
           /bin/bash -n scripts/upstream-sync.sh
           /bin/bash -n scripts/upstream-sync-validation.sh
       - name: Check deployment scripts
         run: |
+          /bin/bash -n deploy/install.sh deploy/install-mihomo-codex.sh deploy/migrate-mihomo-managed.sh
           /bin/bash -n deploy/apple-container.sh
           /bin/bash deploy/tests/apple-container-test.sh
           /bin/sh deploy/tests/docker-compose-security-test.sh
@@ -34,47 +81,206 @@ jobs:
           /bin/sh deploy/tests/docker-runtime-resources-test.sh
           /bin/sh deploy/test-caddyfile-cache.sh
 
-  test:
+  unit-test:
+    needs: changes
+    if: needs.changes.outputs['unit-test'] == 'true'
     runs-on: ubuntu-latest
-    services:
-      postgres:
-        image: postgres:18-alpine
-        env:
-          POSTGRES_PASSWORD: integration-test
-          POSTGRES_DB: sub2api_test
-        ports:
-          - 5432/tcp
-        options: >-
-          --health-cmd "pg_isready -U postgres -d sub2api_test"
-          --health-interval 5s --health-timeout 5s --health-retries 12
+    timeout-minutes: 40
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@v6
-      - name: Check Docker Compose simple mode environment
-        run: /bin/sh deploy/tests/docker-compose-simple-mode-env-test.sh
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
           check-latest: false
-          cache: true
-          cache-dependency-path: backend/go.sum
+          cache: false
       - name: Verify Go version
         run: |
           required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
           test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
-      - name: Unit tests
-        working-directory: backend
-        run: make test-unit
-      - name: Integration tests
-        working-directory: backend
-        env:
-          MIGRATION_TEST_DATABASE_URL: postgres://postgres:integration-test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/sub2api_test?sslmode=disable
-          QQBOT_TEST_DSN: postgres://postgres:integration-test@127.0.0.1:${{ job.services.postgres.ports['5432'] }}/sub2api_test?sslmode=disable
-        run: make test-integration
+      - name: Resolve Go cache paths and bootstrap key
+        id: go-cache
+        run: |
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          version="$(go env GOVERSION)"
+          arch="$(node -p process.arch)"
+          echo "bootstrap=setup-go-${RUNNER_OS}-${arch}-${ImageOS}-go-${version#go}-" >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-tests-v2-${{ runner.os }}-${{ runner.arch }}-unit-${{ matrix.shard }}-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-${{ env.EXPECTED_HEAD_SHA }}
+          restore-keys: |
+            go-tests-v2-${{ runner.os }}-${{ runner.arch }}-unit-${{ matrix.shard }}-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-
+            ${{ steps.go-cache.outputs.bootstrap }}${{ hashFiles('backend/go.sum') }}
+            ${{ steps.go-cache.outputs.bootstrap }}
+      - name: Install Redis for isolated snapshot adapter checks
+        run: |
+          bash .github/scripts/ci-ubuntu-mirrors.sh
+          if ! command -v redis-server >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends redis-server
+          fi
+          redis-server --version
+      - name: Unit tests with timings
+        run: python3 .github/ci/go_tests.py unit --shard ${{ matrix.shard }} --total ${{ strategy.job-total }} --output "$RUNNER_TEMP/go-test-results"
+      - name: Upload unit test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-unit-${{ matrix.shard }}-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          retention-days: 14
+          if-no-files-found: warn
 
-  frontend:
+  integration-test:
+    needs: changes
+    if: needs.changes.outputs['integration-test'] == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 100
+    services:
+      postgres:
+        image: postgres:18-alpine
+        env:
+          POSTGRES_USER: fixture
+          POSTGRES_PASSWORD: fixture
+          POSTGRES_DB: shadow_audit
+        ports: ['15432:5432']
+        options: >-
+          --health-cmd "pg_isready -U fixture -d shadow_audit"
+          --health-interval 5s --health-timeout 5s --health-retries 10
+      redis:
+        image: redis:7-alpine
+        ports: ['16379:6379']
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - name: Check Docker Compose simple mode environment
+        run: /bin/sh deploy/tests/docker-compose-simple-mode-env-test.sh
+      - name: Check Docker Compose trusted proxy environment
+        run: /bin/sh deploy/tests/docker-compose-trusted-proxies-env-test.sh
+      - uses: actions/setup-go@v6
+        with:
+          go-version-file: backend/go.mod
+          check-latest: false
+          cache: false
+      - name: Verify Go version
+        run: |
+          required="$(awk '$1 == "go" { print $2 }' backend/go.mod)"
+          test "$(GOTOOLCHAIN=local go env GOVERSION)" = "go${required}"
+      - name: Resolve Go cache paths and bootstrap key
+        id: go-cache
+        run: |
+          echo "modules=$(go env GOMODCACHE)" >> "$GITHUB_OUTPUT"
+          echo "build=$(go env GOCACHE)" >> "$GITHUB_OUTPUT"
+          version="$(go env GOVERSION)"
+          arch="$(node -p process.arch)"
+          echo "bootstrap=setup-go-${RUNNER_OS}-${arch}-${ImageOS}-go-${version#go}-" >> "$GITHUB_OUTPUT"
+      - name: Restore Go module and build caches
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.go-cache.outputs.modules }}
+            ${{ steps.go-cache.outputs.build }}
+          key: go-tests-v2-${{ runner.os }}-${{ runner.arch }}-integration-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-${{ env.EXPECTED_HEAD_SHA }}
+          restore-keys: |
+            go-tests-v2-${{ runner.os }}-${{ runner.arch }}-integration-${{ hashFiles('backend/go.mod', 'backend/go.sum') }}-
+            ${{ steps.go-cache.outputs.bootstrap }}${{ hashFiles('backend/go.sum') }}
+            ${{ steps.go-cache.outputs.bootstrap }}
+      - name: Install Redis for isolated integration fixtures
+        run: |
+          bash .github/scripts/ci-ubuntu-mirrors.sh
+          if ! command -v redis-server >/dev/null; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends redis-server
+          fi
+          redis-server --version
+      - name: Integration tests with timings
+        env:
+          PROMPT_AUDIT_TEST_POSTGRES_DSN: 'postgres://fixture:fixture@127.0.0.1:15432/shadow_audit?sslmode=disable'
+          PROMPT_AUDIT_TEST_REDIS_ADDR: '127.0.0.1:16379'
+          MIGRATION_TEST_DATABASE_URL: 'postgres://fixture:fixture@127.0.0.1:15432/shadow_audit?sslmode=disable'
+          QQBOT_TEST_DSN: 'postgres://fixture:fixture@127.0.0.1:15432/shadow_audit?sslmode=disable'
+          # Keep real network timing fixtures isolated from other package/DB workloads.
+          # Every integration package and its existing assertions still run.
+          GOFLAGS: '-p=1'
+        run: python3 .github/ci/go_tests.py integration --output "$RUNNER_TEMP/go-test-results"
+      - name: Anthropic handler and PostgreSQL integrity regression
+        env:
+          ISSUE985_TEST_POSTGRES_DSN: 'postgres://fixture:fixture@127.0.0.1:15432/issue985_fixture?sslmode=disable'
+          PGPASSWORD: fixture
+          GOFLAGS: '-p=1'
+        run: |
+          python3 -m pip install -r .github/scripts/anthropic_integrity_sdk_requirements.txt
+          psql -h 127.0.0.1 -p 15432 -U fixture -d shadow_audit -c 'CREATE DATABASE issue985_fixture'
+          cd backend
+          go test -tags=unit,issue985pg,issue985sdk ./internal/handler -run '^TestIssue985(PostgresBilling|SDKAccumulator)$' -count=1 -timeout=8m
+      - name: Upload integration test timings
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: go-integration-${{ github.run_attempt }}
+          path: ${{ runner.temp }}/go-test-results
+          retention-days: 14
+          if-no-files-found: warn
+
+  # Preserve the existing check name and reject unsuccessful selected suites.
+  # An obsolete cancelled workflow must not queue this gate and block its successor.
+  test:
+    needs: [changes, unit-test, integration-test]
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Require all selected test jobs
+        env:
+          CHANGES_RESULT: ${{ needs.changes.result }}
+          UNIT_SELECTED: ${{ needs.changes.outputs['unit-test'] }}
+          UNIT_RESULT: ${{ needs.unit-test.result }}
+          INTEGRATION_SELECTED: ${{ needs.changes.outputs['integration-test'] }}
+          INTEGRATION_RESULT: ${{ needs.integration-test.result }}
+        run: |
+          test "$CHANGES_RESULT" = success
+          for suite in UNIT INTEGRATION; do
+            selected="${suite}_SELECTED"
+            result="${suite}_RESULT"
+            if [[ "${!selected}" == true ]]; then
+              test "${!result}" = success || exit 1
+            elif [[ "${!selected}" == false ]]; then
+              test "${!result}" = skipped || exit 1
+            else
+              exit 1
+            fi
+          done
+
+  frontend:
+    needs: changes
+    if: needs.changes.outputs['frontend'] == 'true'
+    runs-on: ubuntu-latest
+    env:
+      NODE_OPTIONS: --max-old-space-size=6144
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
       - name: Setup pnpm
         uses: pnpm/action-setup@v6
         with:
@@ -92,9 +298,15 @@ jobs:
         run: make test-frontend
 
   golangci-lint:
+    needs: changes
+    if: needs.changes.outputs['golangci-lint'] == 'true'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
       - uses: actions/setup-go@v6
         with:
           go-version-file: backend/go.mod
@@ -113,12 +325,54 @@ jobs:
           working-directory: backend
 
   release-helpers:
-    runs-on: ubuntu-latest
+    needs: changes
+    if: needs.changes.outputs['release-helpers'] == 'true'
+    runs-on: ${{ vars.SUB2API_SUPPLEMENTARY_RUNNER || 'ubuntu-latest' }}
     steps:
       - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
       - uses: actions/setup-python@v6
         with:
           python-version: '3.12'
       - run: python -m pip install -r .github/release-tools/requirements-release.txt
       - run: python -m unittest discover -s .github/release-tools -p 'test_*.py'
       - run: bash -n .github/release-tools/release-images.sh
+      - run: bash -n deploy/upgrade-k3s.sh
+      - run: python -m unittest discover -s deploy/tests -p 'test_upgrade_k3s.py'
+      - name: Install checksum-pinned Kustomize for offline gateway rendering
+        run: |
+          mkdir -p "$RUNNER_TEMP/sub2api-kustomize"
+          curl --fail --show-error --silent --location \
+            https://github.com/kubernetes-sigs/kustomize/releases/download/kustomize/v5.7.1/kustomize_v5.7.1_linux_amd64.tar.gz \
+            --output "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz"
+          printf '%s  %s\n' 'ea375e7372f9aa029129d4b2d16c66b7750b7f1213c4f66f910d981c895818d8' \
+            "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz" | sha256sum --check -
+          tar -xzf "$RUNNER_TEMP/sub2api-kustomize/kustomize.tar.gz" -C "$RUNNER_TEMP/sub2api-kustomize" kustomize
+          echo "$RUNNER_TEMP/sub2api-kustomize" >> "$GITHUB_PATH"
+      - run: python -m unittest discover -s deploy/tests -p 'test_gateway_render*.py'
+      - name: Offline multi-host contract checks
+        run: python -m unittest discover -s deploy/tests -p 'test_multihost_preflight.py'
+      - run: python -m unittest discover -s deploy/tests -p 'test_migrate_reauth_managed.py'
+      - run: python -m unittest discover -s deploy/connection-diagnostics -p 'test_collect.py'
+
+  prism-adapter:
+    needs: changes
+    if: needs.changes.outputs['prism-adapter'] == 'true'
+    runs-on: ${{ vars.SUB2API_SUPPLEMENTARY_RUNNER || 'ubuntu-latest' }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+      - name: Assert exact candidate head
+        run: test "$(git rev-parse HEAD)" = "$EXPECTED_HEAD_SHA"
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - name: Install adapter wheels
+        run: >-
+          python -m pip install --only-binary=:all: -r prism-adapter/requirements.txt
+      - name: Run offline adapter and cache tests
+        run: python -m unittest discover -s prism-adapter -p 'test_*.py' -v

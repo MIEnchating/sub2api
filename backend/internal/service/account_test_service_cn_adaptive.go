@@ -120,6 +120,7 @@ func (s *AccountTestService) testCNProviderAdaptiveAnthropicConnection(c *gin.Co
 
 func (s *AccountTestService) processCNProviderAdaptiveAnthropicStream(c *gin.Context, body io.Reader) error {
 	reader := bufio.NewReader(body)
+	usage := startPelicanTestStream(c, "anthropic")
 	for {
 		line, err := reader.ReadString('\n')
 		if err != nil {
@@ -134,6 +135,7 @@ func (s *AccountTestService) processCNProviderAdaptiveAnthropicStream(c *gin.Con
 			continue
 		}
 		jsonStr := sseDataPrefix.ReplaceAllString(line, "")
+		usage.read(jsonStr)
 		if jsonStr == "[DONE]" {
 			return nil
 		}
@@ -210,7 +212,7 @@ func (s *AccountTestService) testCNProviderAdaptiveResponsesConnection(c *gin.Co
 		return s.sendErrorAndEnd(c, errMsg)
 	}
 
-	if err := s.processOpenAIStream(c, resp.Body); err != nil {
+	if err := s.processOpenAIStream(accountTestResponseContext(c, resp), resp.Body); err != nil {
 		return err
 	}
 	s.sendEvent(c, TestEvent{Type: "status", Text: "已通过原生 /responses 验证"})
@@ -303,7 +305,7 @@ func (s *AccountTestService) testCNProviderAnthropicConnection(c *gin.Context, a
 		return s.sendErrorAndEnd(c, errMsg)
 	}
 
-	return s.processClaudeStream(c, resp.Body)
+	return s.processClaudeStream(accountTestResponseContext(c, resp), resp.Body)
 }
 
 // cnAnthropicBaseURLMisconfigHint reports an actionable error when an

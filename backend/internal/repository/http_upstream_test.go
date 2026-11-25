@@ -2,9 +2,16 @@ package repository
 
 import (
 	"bytes"
+	"context"
 	"encoding/binary"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/config"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
+	"github.com/stretchr/testify/suite"
 	"io"
 	"net"
 	"net/http"
@@ -14,13 +21,6 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/config"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
-	"github.com/Wei-Shaw/sub2api/internal/pkg/xai"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
-	"github.com/stretchr/testify/suite"
 )
 
 func TestHTTPUpstreamDoCanDisableRedirectsPerRequest(t *testing.T) {
@@ -694,18 +694,6 @@ func (s *HTTPUpstreamSuite) TestOpenAIProfileHTTP2DisabledUsesHTTP1Transport() {
 	require.Equal(s.T(), upstreamProtocolModeOpenAIH1, entry.protocolMode)
 }
 
-func (s *HTTPUpstreamSuite) TestOpenAIHarvestProfileDisablesKeepAlives() {
-	svc := s.newService()
-	entry, err := svc.getClientEntry("socks5h://user:pass@harvest.example:31", 41, 5, service.HTTPUpstreamProfileOpenAIHarvest, false, false)
-	require.NoError(s.T(), err)
-	require.Equal(s.T(), upstreamProtocolModeOpenAIH1NoReuse, entry.protocolMode)
-	transport, ok := entry.client.Transport.(*http.Transport)
-	require.True(s.T(), ok, "expected *http.Transport")
-	require.True(s.T(), transport.DisableKeepAlives)
-	require.False(s.T(), transport.ForceAttemptHTTP2)
-	require.Equal(s.T(), 0, transport.MaxIdleConns)
-}
-
 func (s *HTTPUpstreamSuite) TestOpenAIHeaderTimeoutChangeRebuildsClient() {
 	s.cfg.Gateway = config.GatewayConfig{
 		OpenAIHTTP2: config.GatewayOpenAIHTTP2Config{Enabled: true},
@@ -1052,4 +1040,50 @@ func TestHTTPUpstreamPublicHostsOnlyValidatesEveryRedirectHop(t *testing.T) {
 	require.NoError(t, err)
 	require.NoError(t, client.CheckRedirect(publicHop, via))
 	require.Error(t, client.CheckRedirect(publicHop, make([]*http.Request, 10)), "redirect chain stays capped")
+}
+
+type fakeOpenAIResponseHeaderTimeoutProvider struct {
+	seconds int
+	enabled bool
+}
+
+func (f fakeOpenAIResponseHeaderTimeoutProvider) GetOpenAIResponseHeaderTimeoutCached(context.Context) (int, bool) {
+	return f.seconds, f.enabled
+}
+
+func TestTLSFingerprintHTTPSProxyNegotiatesProxyTLSBeforeTunneling(t *testing.T) {
+	proxy := httptest.NewTLSServer(http.NotFoundHandler())
+	t.Cleanup(proxy.Close)
+	proxyURL, err := url.Parse(proxy.URL)
+	require.NoError(t, err)
+	transport, err := buildUpstreamTransportWithTLSFingerprint(poolSettings{}, proxyURL, &tlsfingerprint.Profile{Name: "test"})
+	require.NoError(t, err)
+	require.Nil(t, transport.Proxy)
+	require.NotNil(t, transport.DialTLSContext)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	defer cancel()
+	conn, err := transport.DialTLSContext(ctx, "tcp", "127.0.0.1:1")
+	require.Nil(t, conn)
+	require.ErrorContains(t, err, "TLS handshake with HTTPS proxy")
+	require.ErrorContains(t, err, "certificate signed by unknown authority")
+}
+
+func TestApplyProfilePoolSettingsUsesRuntimeOpenAIResponseHeaderTimeout(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Gateway.OpenAIResponseHeaderTimeout = 20
+
+	svc, ok := newHTTPUpstream(cfg, fakeOpenAIResponseHeaderTimeoutProvider{seconds: 30, enabled: true}).(*httpUpstreamService)
+	require.True(t, ok)
+	settings := svc.applyProfilePoolSettings(poolSettings{}, service.HTTPUpstreamProfileOpenAI)
+	require.Equal(t, 30*time.Second, settings.responseHeaderTimeout)
+
+	svc, ok = newHTTPUpstream(cfg, fakeOpenAIResponseHeaderTimeoutProvider{seconds: 30, enabled: false}).(*httpUpstreamService)
+	require.True(t, ok)
+	settings = svc.applyProfilePoolSettings(poolSettings{}, service.HTTPUpstreamProfileOpenAI)
+	require.Zero(t, settings.responseHeaderTimeout)
+
+	svc, ok = newHTTPUpstream(cfg, nil).(*httpUpstreamService)
+	require.True(t, ok)
+	settings = svc.applyProfilePoolSettings(poolSettings{}, service.HTTPUpstreamProfileOpenAI)
+	require.Equal(t, 20*time.Second, settings.responseHeaderTimeout)
 }

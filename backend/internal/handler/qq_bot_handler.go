@@ -27,6 +27,10 @@ func (h *QQBotHandler) Webhook(c *gin.Context) {
 		c.Status(http.StatusRequestEntityTooLarge)
 		return
 	}
+	if h == nil || h.bot == nil {
+		c.Status(http.StatusServiceUnavailable)
+		return
+	}
 	cfg, err := h.bot.Config(c.Request.Context())
 	if err != nil || cfg.AppSecret == "" {
 		c.Status(http.StatusServiceUnavailable)
@@ -191,6 +195,9 @@ func (h *QQBotHandler) Unbind(c *gin.Context) {
 }
 func (h *QQBotHandler) Probe(c *gin.Context) {
 	if !requireQQBotAdmin(c) {
+		return
+	}
+	if !requireQQBotProbeConfirmation(c) {
 		return
 	}
 	ctx, cancel := context.WithTimeout(c.Request.Context(), 220*time.Second)

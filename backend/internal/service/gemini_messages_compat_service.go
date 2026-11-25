@@ -179,7 +179,7 @@ func (s *GeminiMessagesCompatService) SelectAccountForModelWithExclusions(ctx co
 
 	// 4. 按优先级 + LRU 选择最佳账号
 	// Select best account by priority + LRU
-	selected := s.selectBestGeminiAccount(ctx, accounts, requestedModel, excludedIDs, platform, useMixedScheduling)
+	selected := s.selectBestGeminiAccount(ctx, groupID, accounts, requestedModel, excludedIDs, platform, useMixedScheduling)
 
 	if selected == nil {
 		if strictFailoverStateFrom(ctx) != nil {
@@ -261,7 +261,7 @@ func (s *GeminiMessagesCompatService) tryStickySessionHit(
 
 	// 验证账号是否可用于当前请求
 	// Verify account is usable for current request
-	if !s.isAccountUsableForRequest(ctx, account, requestedModel, platform, useMixedScheduling) {
+	if !s.isAccountUsableForRequest(ctx, account, groupID, requestedModel, platform, useMixedScheduling) {
 		return nil
 	}
 
@@ -279,15 +279,17 @@ func (s *GeminiMessagesCompatService) tryStickySessionHit(
 func (s *GeminiMessagesCompatService) isAccountUsableForRequest(
 	ctx context.Context,
 	account *Account,
+	groupID *int64,
 	requestedModel, platform string,
 	useMixedScheduling bool,
 ) bool {
-	return s.isAccountUsableForRequestWithPrecheck(ctx, account, requestedModel, platform, useMixedScheduling, nil)
+	return s.isAccountUsableForRequestWithPrecheck(ctx, account, groupID, requestedModel, platform, useMixedScheduling, nil)
 }
 
 func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 	ctx context.Context,
 	account *Account,
+	groupID *int64,
 	requestedModel, platform string,
 	useMixedScheduling bool,
 	precheckResult map[int64]bool,
@@ -301,6 +303,12 @@ func (s *GeminiMessagesCompatService) isAccountUsableForRequestWithPrecheck(
 	// 检查模型支持
 	// Check model support
 	if requestedModel != "" && !s.isModelSupportedByAccount(account, requestedModel) {
+		return false
+	}
+
+	// 检查账号在当前分组内的模型限制
+	// Check the per-group model allowlist of the account binding
+	if requestedModel != "" && !account.IsModelAllowedInGroup(groupID, requestedModel) {
 		return false
 	}
 
@@ -359,6 +367,7 @@ func (s *GeminiMessagesCompatService) passesRateLimitPreCheckWithCache(ctx conte
 // Returns nil if no available account.
 func (s *GeminiMessagesCompatService) selectBestGeminiAccount(
 	ctx context.Context,
+	groupID *int64,
 	accounts []Account,
 	requestedModel string,
 	excludedIDs map[int64]struct{},
@@ -377,7 +386,7 @@ func (s *GeminiMessagesCompatService) selectBestGeminiAccount(
 		}
 
 		// 检查账号是否可用于当前请求
-		if !s.isAccountUsableForRequestWithPrecheck(ctx, acc, requestedModel, platform, useMixedScheduling, precheckResult) {
+		if !s.isAccountUsableForRequestWithPrecheck(ctx, acc, groupID, requestedModel, platform, useMixedScheduling, precheckResult) {
 			continue
 		}
 
@@ -568,6 +577,17 @@ func (s *GeminiMessagesCompatService) HasAntigravityAccounts(ctx context.Context
 }
 
 func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Context, account *Account, body []byte) (*ForwardResult, error) {
+	if account.gatewayProtocolsPending() {
+		view, err := s.gatewayProtocolAccount(ctx, account, "gemini", gatewayProtocolBodyModel(body))
+		if err != nil {
+			return nil, err
+		}
+		account = view
+	}
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
+
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -638,7 +658,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 			if err != nil {
 				return nil, "", err
 			}
@@ -690,7 +710,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				wrapped["request"] = inner
 				wrappedBytes, _ := json.Marshal(wrapped)
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, wrappedBytes), http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
 					return nil, "", err
 				}
@@ -712,7 +732,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 				}
 
 				restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 				if err != nil {
 					return nil, "", err
 				}
@@ -735,7 +755,7 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 			}
 
 			restGeminiReq := normalizeGeminiRequestForAIStudio(geminiReq)
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, restGeminiReq), http.MethodPost, fullURL, bytes.NewReader(restGeminiReq))
 			if err != nil {
 				return nil, "", err
 			}
@@ -775,7 +795,20 @@ func (s *GeminiMessagesCompatService) Forward(ctx context.Context, c *gin.Contex
 		}
 		requestIDHeader = idHeader
 
+		if err := checkAPIKeyLongContextRequestBeforeForward(ctx, c, upstreamReq, originalModel, mappedModel); err != nil {
+			return nil, err
+		}
+		if account.gatewayProtocolSource != nil {
+			latest, err := s.gatewayProtocolAccount(ctx, account.gatewayProtocolSource, "gemini", account.gatewayProtocolModel)
+			if err != nil {
+				return nil, err
+			}
+			if openAITurnRouteFingerprint(latest) != openAITurnRouteFingerprint(account) {
+				return nil, ErrGatewayAccountIdentity
+			}
+		}
 		resp, err = doAccountHTTPUpstream(s.httpUpstream, upstreamReq, proxyURL, account)
+		s.rateLimitService.observeQualityResponse(upstreamReq.Context(), account, resp, err)
 		if err != nil {
 			return nil, s.handleUpstreamTransportError(ctx, c, account, err)
 		}
@@ -1148,6 +1181,17 @@ func isGeminiSignatureRelatedError(respBody []byte) bool {
 }
 
 func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.Context, account *Account, originalModel string, action string, stream bool, body []byte) (*ForwardResult, error) {
+	if account.gatewayProtocolsPending() {
+		view, err := s.gatewayProtocolAccount(ctx, account, "gemini", originalModel)
+		if err != nil {
+			return nil, err
+		}
+		account = view
+	}
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
+
 	beginUpstreamResponseModelObservation(c)
 	beginGeminiImageOutputObservation(c)
 	startTime := time.Now()
@@ -1224,7 +1268,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1271,7 +1315,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				wrapped["request"] = inner
 				wrappedBytes, _ := json.Marshal(wrapped)
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, wrappedBytes), http.MethodPost, fullURL, bytes.NewReader(wrappedBytes))
 				if err != nil {
 					return nil, "", err
 				}
@@ -1292,7 +1336,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 					return nil, "", err
 				}
 
-				upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+				upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 				if err != nil {
 					return nil, "", err
 				}
@@ -1311,7 +1355,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 				return nil, "", err
 			}
 
-			upstreamReq, err := http.NewRequestWithContext(ctx, http.MethodPost, fullURL, bytes.NewReader(body))
+			upstreamReq, err := http.NewRequestWithContext(withOAuth429WireBody(ctx, body), http.MethodPost, fullURL, bytes.NewReader(body))
 			if err != nil {
 				return nil, "", err
 			}
@@ -1349,6 +1393,18 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		}
 		requestIDHeader = idHeader
 
+		if err := checkAPIKeyLongContextRequestBeforeForward(ctx, c, upstreamReq, originalModel, mappedModel); err != nil {
+			return nil, err
+		}
+		if account.gatewayProtocolSource != nil {
+			latest, err := s.gatewayProtocolAccount(ctx, account.gatewayProtocolSource, "gemini", account.gatewayProtocolModel)
+			if err != nil {
+				return nil, err
+			}
+			if openAITurnRouteFingerprint(latest) != openAITurnRouteFingerprint(account) {
+				return nil, ErrGatewayAccountIdentity
+			}
+		}
 		// A bound upstream cache cannot move between the provider's accounts.
 		// Preserve its 429 response without the fork's transparent account retry.
 		if isGeminiBoundCacheUpstreamPassthrough(ctx, account, http.StatusTooManyRequests) {
@@ -1356,6 +1412,7 @@ func (s *GeminiMessagesCompatService) ForwardNative(ctx context.Context, c *gin.
 		} else {
 			resp, err = doAccountHTTPUpstream(s.httpUpstream, upstreamReq, proxyURL, account)
 		}
+		s.rateLimitService.observeQualityResponse(upstreamReq.Context(), account, resp, err)
 		if err != nil {
 			transportErr := s.handleUpstreamTransportError(ctx, c, account, err)
 			// countTokens 不因上游链路故障而失败：本地估算兜底，不换号。
@@ -2015,7 +2072,7 @@ func sanitizeUpstreamErrorMessage(msg string) string {
 	if msg == "" {
 		return msg
 	}
-	return sensitiveQueryParamRegex.ReplaceAllString(msg, `$1***`)
+	return sensitiveQueryParamRegex.ReplaceAllString(redactOpenAIEncryptedDiagnostic(msg), `$1***`)
 }
 
 func (s *GeminiMessagesCompatService) writeGeminiMappedError(c *gin.Context, account *Account, upstreamStatus int, upstreamRequestID string, body []byte) error {
@@ -3183,6 +3240,10 @@ func (s *GeminiMessagesCompatService) handleNativeStreamingResponse(c *gin.Conte
 						finished = true
 					}
 
+					if gjson.GetBytes(rawBytes, "candidates.0.finishReason").String() != "" {
+						finished = true
+					}
+
 					if firstTokenMs == nil {
 						ms := int(time.Since(startTime).Milliseconds())
 						firstTokenMs = &ms
@@ -3910,8 +3971,22 @@ func convertClaudeMessagesToGeminiContents(messages any, toolUseIDToName map[str
 						toolImageParts = append(toolImageParts, images...)
 					}
 					parts = append(parts, map[string]any{"functionResponse": response})
-				case "image":
+				case "image", "document":
 					if src, ok := bm["source"].(map[string]any); ok {
+						if bm["type"] == "document" && src["media_type"] != "application/pdf" && src["media_type"] != "text/plain" {
+							// Keep legacy file carriers for non-Anthropic targets.
+							// Their MIME is not an Anthropic rejection policy here.
+							if b, err := json.Marshal(bm); err == nil {
+								parts = append(parts, map[string]any{"text": string(b)})
+							}
+							continue
+						}
+						if src["type"] == "text" && src["media_type"] == "text/plain" {
+							if data, ok := src["data"].(string); ok {
+								parts = append(parts, map[string]any{"text": data})
+							}
+							continue
+						}
 						if srcType, _ := src["type"].(string); srcType == "base64" {
 							mediaType, _ := src["media_type"].(string)
 							data, _ := src["data"].(string)
@@ -3993,6 +4068,13 @@ func extractClaudeContentText(v any) string {
 					_, _ = sb.WriteString(text)
 				}
 			}
+			if pm["type"] == "document" {
+				if source, ok := pm["source"].(map[string]any); ok && source["type"] == "text" && source["media_type"] == "text/plain" {
+					if text, ok := source["data"].(string); ok {
+						_, _ = sb.WriteString(text)
+					}
+				}
+			}
 		}
 		return sb.String()
 	default:
@@ -4010,7 +4092,7 @@ func extractClaudeToolResultImageParts(v any) []any {
 	parts := make([]any, 0)
 	for _, part := range arr {
 		pm, ok := part.(map[string]any)
-		if !ok || pm["type"] != "image" {
+		if !ok || (pm["type"] != "image" && pm["type"] != "document") {
 			continue
 		}
 		source, ok := pm["source"].(map[string]any)

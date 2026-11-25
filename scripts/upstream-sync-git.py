@@ -36,6 +36,12 @@ def review(repo, exclusions=False):
         if markers.returncode != 1:
             raise RuntimeError(markers.stdout or markers.stderr or 'Conflict marker check failed')
         if exclusions:
+            migration_base = os.environ.get('SUB2API_MIGRATION_BASE')
+            if migration_base:
+                changed = git(repo, 'diff', '--cached', '--no-renames', '--diff-filter=DMT',
+                              '--name-only', migration_base, '--', 'backend/migrations/*.sql', env=env).stdout
+                if changed:
+                    raise RuntimeError('已发布 SQL 迁移必须保留原文：\n' + changed)
             names = git(repo, 'ls-files', '-z', env=env).stdout.split('\0')
             forbidden = [name for name in names if re.search(
                 r'(^|/)(shared.?pool|shared_account|shared-account|SharedPool|add-shared-account-pool)',

@@ -79,11 +79,10 @@ func TestExcelBPSSelectedModelsPreserveCodexTransportAndTickets(t *testing.T) {
 	require.True(t, a.IsOpenAIResponsesWebSocketV2Enabled())
 	require.Equal(t, OpenAIWSIngressModeCtxPool, a.ResolveOpenAIResponsesWebSocketV2Mode("off"))
 	for _, transport := range []OpenAIUpstreamTransport{OpenAIUpstreamTransportResponsesWebsocketV2, OpenAIUpstreamTransportResponsesWebsocketV2Ingress} {
-		// Local scheduling checks account-level capabilities. The ingress
-		// separately rejects each BPS-routed model in its WebSocket frame.
-		require.True(t, svc.isOpenAIAccountTransportCompatible(a, transport))
+		require.False(t, svc.isOpenAIAccountTransportCompatible(a, transport, "gpt-6-astra"))
+		require.True(t, svc.isOpenAIAccountTransportCompatible(a, transport, "gpt-6-sol"))
 	}
-	require.True(t, svc.isOpenAIAccountTransportCompatible(a, OpenAIUpstreamTransportHTTPSSE))
+	require.True(t, svc.isOpenAIAccountTransportCompatible(a, OpenAIUpstreamTransportHTTPSSE, "gpt-6-astra"))
 	require.True(t, isOpenAICodexTicketAccount(a))
 	require.False(t, isOpenAICodexTicketAccount(a, "gpt-6-astra"))
 	require.True(t, isOpenAICodexTicketAccount(a, "gpt-6-sol"))
@@ -97,9 +96,11 @@ func TestExcelBPSSelectedModelsPreserveCodexTransportAndTickets(t *testing.T) {
 	statuses := OpenAICodexTicketStatuses(a, cfg.Gateway.OpenAICodexTicket, time.Now())
 	require.Len(t, statuses, 1)
 	require.Equal(t, "gpt-6-sol", statuses[0].Model)
+	before := openAITurnRouteFingerprint(a)
 	a.Extra["openai_excel_bps_models"] = []string{"gpt-6-sol"}
 	require.False(t, svc.openAICodexTicketBlocksAccount(a, "gpt-6-sol"), "the updated BPS scope does not require a Codex ticket")
 	require.True(t, svc.openAICodexTicketBlocksAccount(a, "gpt-6-astra"), "models removed from the BPS scope require their native ticket")
+	require.NotEqual(t, before, openAITurnRouteFingerprint(a))
 }
 
 func TestExcelBPSSelectedCompactKeepsExcelModel(t *testing.T) {

@@ -83,10 +83,13 @@ func newKeyTestRouter(t *testing.T, key *service.APIKey, resolvers ...*service.C
 		Extra:       map[string]any{"openai_responses_supported": false},
 		Credentials: map[string]any{"api_key": "upstream-test-only", "base_url": "https://upstream.example/v1", "model_mapping": map[string]any{"gpt-5.4-mini": "gpt-5.4-mini"}},
 	}}}}
+	if key.GroupID != nil {
+		accounts.accounts[0].GroupIDs = []int64{*key.GroupID}
+	}
 	upstream, billing, usage := &keyTestUpstream{}, &keyTestBilling{}, &compatibleImagesUsage{}
 	billingCache := service.NewBillingCacheService(&keyTestBalance{}, nil, nil, nil, nil, nil, cfg, nil)
 	t.Cleanup(billingCache.Stop)
-	gateway := service.NewOpenAIGatewayService(accounts, usage, billing, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
+	gateway := service.NewOpenAIGatewayService(accounts, nil, usage, billing, nil, nil, nil, nil, cfg, nil, nil, service.NewBillingService(cfg, nil), nil, billingCache, upstream, &service.DeferredService{}, nil, nil, nil, nil, nil, nil, nil)
 	var resolver *service.CompositeRouteResolver
 	if len(resolvers) > 0 {
 		resolver = resolvers[0]

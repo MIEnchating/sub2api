@@ -77,7 +77,7 @@ func scanCustomerRow(rows *sql.Rows) (service.CustomerUsageRow, int64, error) {
 		&row.InputTokens, &row.OutputTokens, &row.CacheReadTokens, &row.CacheCreationTokens,
 		&row.ActualCost, &row.TotalCost, &row.RateMultiplier, &row.HTTPStatus,
 		&row.ReasoningEffort, &row.Endpoint, &request.RequestType, &request.Stream, &request.OpenAIWSMode,
-		&row.BillingMode, &row.DurationMS, &row.FirstTokenMS, &xid, &row.IPAddress,
+		&row.BillingMode, &row.DurationMS, &row.FirstTokenMS, &xid, &row.IPAddress, &row.UpstreamResponseModel,
 	)
 	row.RequestType = request.EffectiveRequestType().String()
 	return row, xid, err
@@ -97,7 +97,7 @@ func (r *customerUsageRepository) Sync(ctx context.Context, f UsageLogFilters, p
 	cond, args := usageLogConditions(f)
 	n := len(args)
 	cond = append(cond, fmt.Sprintf("(COALESCE(sync_xid,0),id)>($%d,$%d) AND COALESCE(sync_xid,0)<$%d", n+1, n+2, n+3))
-	query := customerUsageColumns + ",'' FROM usage_logs " + buildWhere(cond) + fmt.Sprintf(" ORDER BY COALESCE(sync_xid,0),id LIMIT $%d", n+4)
+	query := customerUsageColumns + ",'','' FROM usage_logs " + buildWhere(cond) + fmt.Sprintf(" ORDER BY COALESCE(sync_xid,0),id LIMIT $%d", n+4)
 	rows, err := r.db.QueryContext(ctx, query, append(args, pos.XID, pos.ID, pos.Fence, limit+1)...)
 	if err != nil {
 		return nil, pos, false, err
@@ -140,7 +140,7 @@ func (r *customerUsageRepository) Export(ctx context.Context, f UsageLogFilters,
 		return service.ErrUsageExportBusy
 	}
 	cond, args := usageLogConditions(f)
-	rows, err := tx.QueryContext(ctx, customerUsageColumns+",COALESCE(ip_address,'') FROM usage_logs "+buildWhere(cond)+" ORDER BY "+usageLogOrderBy(p), args...)
+	rows, err := tx.QueryContext(ctx, customerUsageColumns+",COALESCE(ip_address,''),COALESCE(upstream_response_model,'') FROM usage_logs "+buildWhere(cond)+" ORDER BY "+usageLogOrderBy(p), args...)
 	if err != nil {
 		return err
 	}

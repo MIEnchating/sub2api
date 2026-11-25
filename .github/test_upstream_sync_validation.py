@@ -261,7 +261,7 @@ class ReleaseWindowTest(unittest.TestCase):
         shell = SCRIPT.read_text()
         function = 'evaluate_release_eligibility() {' + shell.split('evaluate_release_eligibility() {', 1)[1].split('\n}\n', 1)[0] + '\n}'
         env = dict(self.env, SCRIPT_DIR=str(SCRIPT.parent), NODE_BIN='node', WORKTREE=str(self.repo), REPO_DIR=str(self.repo),
-            CURRENT_ORIGIN_HEAD=yesterday, ORIGIN_HEAD=yesterday, CURRENT_UPSTREAM_HEAD=head, PRIMARY_HEAD=head, SECOND_HEAD=head,
+            CURRENT_ORIGIN_HEAD=yesterday, ORIGIN_HEAD=yesterday, CURRENT_UPSTREAM_HEAD=head, PRIMARY_HEAD=head, SECOND_HEAD=head, THIRD_HEAD=head,
             CANDIDATE_COMMIT=head, RELEASE_BASE_TAG='v1', RELEASE_BASE_COMMIT=self.base, RELEASE_ENABLED='true',
             RELEASE_MIN_UPSTREAM_COMMITS='5', RELEASE_MIN_CHANGED_FILES='5', RELEASE_MIN_DIFF_LINES='5',
             RELEASE_REQUIRE_NO_RISKS='true', RELEASE_IGNORE_ENVIRONMENT_RISKS='false',
@@ -288,7 +288,7 @@ class ReleaseWindowTest(unittest.TestCase):
                 '\nevaluate_release_eligibility\nprintf "%s\\n%s\\n" "$RELEASE_STATE" "$RELEASE_REASON"'],
                 env=dict(self.env, SCRIPT_DIR=str(SCRIPT.parent.parent / 'scripts'),
                     WORKTREE=str(self.repo), REPO_DIR=str(self.repo), PRIMARY_HEAD=upstream,
-                    SECOND_HEAD=upstream, CANDIDATE_COMMIT=upstream, RELEASE_BASE_TAG='v1',
+                    SECOND_HEAD=upstream, THIRD_HEAD=upstream, CANDIDATE_COMMIT=upstream, RELEASE_BASE_TAG='v1',
                     RELEASE_BASE_COMMIT=self.base, RELEASE_ENABLED='true',
                     RELEASE_MIN_UPSTREAM_COMMITS='3', RELEASE_MIN_CHANGED_FILES='3',
                     RELEASE_MIN_DIFF_LINES='3', RELEASE_REQUIRE_NO_RISKS='true',

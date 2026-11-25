@@ -33,9 +33,60 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	body []byte,
 	promptCacheKey string,
 	defaultMappedModel string,
-) (_ *OpenAIForwardResult, smartWSError error) {
+) (_ *OpenAIForwardResult, resultErr error) {
 	ctx, smartWSAttempt := beginGroupSmartWSAttempt(ctx, c)
-	defer func() { smartWSError = finishGroupSmartWSAttempt(smartWSAttempt, smartWSError) }()
+	defer func() { resultErr = finishGroupSmartWSAttempt(smartWSAttempt, resultErr) }()
+	if account.gatewayProtocolsPending() {
+		view, err := s.gatewayProtocolAccount(ctx, account, "openai", gatewayProtocolBodyModel(body))
+		if err != nil {
+			return nil, err
+		}
+		account = view
+	}
+
+	admittedCtx, admissionErr := s.beginPriorityLatencyTurn(ctx, c, account, gjson.GetBytes(body, "model").String())
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	ctx = admittedCtx
+	ctx = WithObservationRequestEffort(ctx, body)
+	ctx, scope := withPriorityAttemptScope(ctx, gjson.GetBytes(body, "model").String(), "/v1/messages")
+	result, err := s.forwardAsAnthropic(ctx, c, account, body, promptCacheKey, defaultMappedModel)
+	if result != nil && c != nil {
+		result.AuthConnectionID = c.GetString("openai_auth_connection_id")
+	}
+	scope.finish(result)
+	return result, err
+}
+
+func (s *OpenAIGatewayService) forwardAsAnthropic(
+	ctx context.Context,
+	c *gin.Context,
+	account *Account,
+	body []byte,
+	promptCacheKey string,
+	defaultMappedModel string,
+) (*OpenAIForwardResult, error) {
+	latest, admissionErr := s.admitOpenAITurn(
+		ctx,
+		c,
+		account,
+		gjson.GetBytes(body, "model").String(),
+	)
+	if admissionErr != nil {
+		return nil, admissionErr
+	}
+	account = latest
+	body = normalizeQwenRequestEffort(account, body, defaultMappedModel, "output_config.effort")
+	proxyCtx, releaseProxy, proxyErr := s.beginOpenAIRequestProxy(ctx, c, account)
+	if proxyErr != nil {
+		return nil, proxyErr
+	}
+	defer releaseProxy()
+	ctx = proxyCtx
+	if err := CheckUpstreamModeration(ctx, c, account); err != nil {
+		return nil, err
+	}
 	// 工具 Schema 清洗必须先于所有分流：下游每条路径（原生 Anthropic 直通、
 	// Chat Completions 转换、Responses 转换）都会把 tools 原样带给上游，而
 	// xAI / Moonshot 等严格校验方会因 input_schema 里的 required:null 或
@@ -285,7 +336,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		if codexResult.PromptCacheKey != "" {
 			promptCacheKey = codexResult.PromptCacheKey
 		}
-		applyCodexAccountIdentityClientMetadataMap(reqBody, codexAccountIdentitySource(c, account), apiKeyID, codexClientSessionID(c))
+		s.applyCodexAccountIdentityOrHarvestPinMap(ctx, account, codexAccountIdentitySource(c, account), apiKeyID, upstreamModel, reqBody, codexClientSessionID(c))
 		delete(reqBody, "prompt_cache_key")
 		if shouldAutoInjectPromptCacheKeyForCompat(upstreamModel) {
 			compatTurnState = s.getOpenAICompatSessionTurnState(ctx, c, account, promptCacheKey)
@@ -374,7 +425,18 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 		}
 	}
 
+	if err := s.checkAPIKeyLongContextBeforeSend(ctx, c, responsesBody, upstreamModel); err != nil {
+		return nil, err
+	}
+
 	// 5. Get access token
+	if account.gatewayProtocolSource != nil {
+		latest, err := s.admitOpenAITurn(ctx, c, account, upstreamModel, responsesBody)
+		if err != nil {
+			return nil, err
+		}
+		account = latest
+	}
 	token, _, err := s.getRequestCredential(ctx, c, account)
 	if err != nil {
 		return nil, fmt.Errorf("get access token: %w", err)
@@ -402,10 +464,15 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	// Override session_id with a deterministic UUID derived from the isolated
 	// session key, ensuring different API keys produce different upstream sessions.
 	if account.Platform != PlatformGrok && promptCacheKey != "" {
-		isolatedSessionID := generateSessionUUID(isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey))
-		upstreamReq.Header.Set("session_id", isolatedSessionID)
-		if upstreamReq.Header.Get("conversation_id") != "" {
-			upstreamReq.Header.Set("conversation_id", isolatedSessionID)
+		if session := s.harvestPinnedSessionForModel(ctx, account, upstreamModel); session != "" {
+			upstreamReq.Header.Set("session_id", session)
+			upstreamReq.Header.Del("conversation_id")
+		} else {
+			isolatedSessionID := generateSessionUUID(isolateOpenAIUpstreamSessionID(apiKeyID, codexAccountIdentitySource(c, account), promptCacheKey))
+			upstreamReq.Header.Set("session_id", isolatedSessionID)
+			if upstreamReq.Header.Get("conversation_id") != "" {
+				upstreamReq.Header.Set("conversation_id", isolatedSessionID)
+			}
 		}
 	}
 	if account.UsesOpenAICodexProtocol() && account.Platform != PlatformGrok {
@@ -429,6 +496,7 @@ func (s *OpenAIGatewayService) ForwardAsAnthropic(
 	if err := s.applyOpenAICodexTicket(ctx, account, upstreamModel, upstreamReq.Header); err != nil {
 		return nil, err
 	}
+	s.pinBoundCodexTicketHarvestIdentity(upstreamReq, account)
 
 	// 7. Send request
 	proxyURL := ""
@@ -638,6 +706,9 @@ func (s *OpenAIGatewayService) handleAnthropicBufferedStreamingResponse(
 	if err != nil {
 		var readErr *openAICompatBufferedReadError
 		if errors.As(err, &readErr) && readErr != nil {
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, readErr.cause); handled {
+				return nil, resetErr
+			}
 			return nil, readErr.cause
 		}
 		return nil, err
@@ -1215,7 +1286,7 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 					c, account.Platform, payloadBytes, message,
 				); matched {
 					if em == "" {
-						em = errMsg
+						em = clientMsg
 					}
 					errStatus, errType, errMsg = status, et, em
 					clientMsg = em
@@ -1301,6 +1372,12 @@ func (s *OpenAIGatewayService) handleAnthropicStreamingResponse(
 				zap.Error(err),
 				zap.String("request_id", requestID),
 			)
+		}
+		if !clientDisconnected {
+			if resetErr, handled := handleOpenAIHTTP2PeerReset(c, account, requestID, err); handled {
+				held.Reset()
+				return resetErr
+			}
 		}
 		if StrictFailoverRequestActive(c.Request.Context()) && !clientDisconnected && !clientOutputStarted && !errors.Is(err, context.Canceled) &&
 			!errors.Is(err, context.DeadlineExceeded) && !errors.Is(err, bufio.ErrTooLong) {

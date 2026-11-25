@@ -1,9 +1,10 @@
-# 双上游定时同步
+# 三上游定时同步
 
-仓库使用本机定时任务同步两个上游：
+仓库使用本机定时任务同步三个上游：
 
-- `upstream/main`：全部合并，已退役的批量生图功能不得重新引入。
-- `overdraft/sub2api-custom`：全部合并，但排除共享账号池、批量生图及其专属支持代码。
+- `upstream/main`：Wei-Shaw/sub2api，完整保留其原生功能和生图实现。
+- `overdraft/sub2api-custom`：DeanZFC，排除共享账号池与生图二开。
+- `ranxi/production`：ranxi2001，排除共享账号池与生图二开。
 
 同步脚本是 [scripts/upstream-sync.sh](../scripts/upstream-sync.sh)。它在独立 Git worktree 中完成合并，由 Codex 做完整语义审查，然后一次运行完整验证集：后端普通/单元/集成测试、`go vet`、golangci-lint、漏洞检查和生产构建，以及前端依赖锁定安装、ESLint、类型检查、完整 Vitest、依赖审计、i18n/生产构建和部署脚本测试。
 
@@ -13,7 +14,7 @@
 
 每次候选或修复提交成功推送到远端主分支后，立即快进干净且没有进行中 Git 操作的本地主分支。任务退出时，无论发布成功、发布失败或没有新更新，都重新获取远端主分支并执行安全收尾：只清理本任务工作树目录内、使用 `automation/sub2api-upstream-sync-` 前缀、提交已被远端主分支包含的干净工作树，以及不再挂载工作树的已合入同前缀分支。工作树内被 Git 忽略的构建产物随之清理。未推送的修复、未提交文件、冲突现场、锁定工作树和其他分支保留；远端获取失败时不删除。试运行不执行收尾。发布失败仍保留独立的待发布状态，不因 Git 收尾成功而改报发布成功。收尾详情写入本轮日志。
 
-最终提交保留 `origin/main`、`upstream/main` 和 `overdraft/sub2api-custom` 三个父提交。这样既能从最终文件树中排除共享账号池和批量生图，又能记录两个上游版本已经处理，避免后续任务重复合并同一批提交。
+最终提交保留 `origin/main` 和三个上游各自的候选祖先。提交树通过排除检查后才记录这些祖先，后续任务因此能定位各路新增的差异。
 
 脚本使用 `flock` 防止同一任务重叠；正式同步会先保存并推送主分支本地改动，拒绝未完成的 Git 操作和分叉历史。任务不会重启本地服务。合并通过完整验证后，脚本按 new-api 的发布规则评估更新规模：默认至少包含 3 个上游提交、8 个变更文件和 150 行差异，且 Codex 结构化审查确认没有剩余风险时，才生成版本说明并推送下一个可用的日期标签以触发 GitHub Release；未达到门槛时只推送代码。SMTP 默认复用本机 new-api PostgreSQL 中已有的邮件配置，凭据不会写入仓库。
 
@@ -41,7 +42,12 @@ cp scripts/upstream-sync.env.example /root/workspace/automation/sub2api-upstream
 chmod 600 /root/workspace/automation/sub2api-upstream-sync/config.env
 ```
 
-环境变量可通过 cron 的 `config.env` 注入；脚本内置当前仓库和三个 remote 的默认值。
+环境变量可通过 cron 的 `config.env` 注入；脚本内置当前仓库和四个 remote 的默认值。新安装需要先配置第三上游：
+
+```bash
+git remote add -t production ranxi https://github.com/ranxi2001/sub2api.git
+git config remote.ranxi.tagOpt --no-tags
+```
 
 `SUB2API_GO_IMAGE` 留空时，每个后端检查从候选 `backend/go.mod` 读取完整 Go 版本，使用对应的 `golang:<版本>` 镜像；修复改变 Go 版本后会重新选择。自定义镜像必须满足候选的最低版本要求。容器设置 `GOTOOLCHAIN=local`，不会隐式下载其他工具链。lint 和漏洞检查工具按 Go 版本及平台隔离缓存，lint 版本与 CI 对齐。
 

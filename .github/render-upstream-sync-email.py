@@ -16,7 +16,7 @@ SECTION_TITLES = {
     "执行进度", "失败位置", "自动审查摘要", "关键上游变化", "兼容性核对", "合并后行为",
     "冲突处理", "功能排除", "仍需关注的风险", "同步范围与版本",
 }
-REVIEW_HEADINGS = {"上游变化", "影响范围", "合并后行为", "冲突处理", "共享账号池排除路径", "批量生图排除路径", "剩余风险"}
+REVIEW_HEADINGS = {"上游变化", "影响范围", "合并后行为", "冲突处理", "共享账号池排除路径", "生图二开排除路径", "剩余风险"}
 TEMPLATE = Path(__file__).with_name("upstream-sync-email.html")
 
 
@@ -193,19 +193,19 @@ def render_report(text, preview=False):
         lines = sections.get(name, [])
         if any(line.strip() for line in lines):
             content += section("合并审查与排除记录", '<div style="font-size:14px;line-height:25px;color:#42536b;">' + rich_text(lines) + '</div>')
-    refs = [(key, data.get(key, "")) for key in ("目标分支", "主上游", "第二上游", "合并前版本", "主上游版本", "第二上游版本", "候选版本")]
+    refs = [(key, data.get(key, "")) for key in ("目标分支", "主上游", "第二上游", "第三上游", "合并前版本", "主上游版本", "第二上游版本", "第三上游版本", "候选版本")]
     if has_push:
         refs.append(("已推送版本", pushed))
     if any(value for _, value in refs):
         content += section("同步范围与版本", metadata_table(refs))
     values = {
-        "PROJECT": "sub2api", "REPORT_NAME": "双上游同步报告", "TITLE": escape(title),
+        "PROJECT": "sub2api", "REPORT_NAME": "三上游同步报告", "TITLE": escape(title),
         "STATUS": escape(status), "COLOR": color, "SOFT": soft,
         "SUBTITLE": escape(subtitle), "SUMMARY": inline(data.get('结论', '请查看下方执行记录')),
         "PREHEADER": escape(title + ' · ' + data.get('结论', '')[:160]),
         "PREVIEW": '<tr><td style="padding:12px;background:#fff8e6;color:#87530d;font-size:12px;text-align:center;">历史报告排版预览 · 未运行同步或发送邮件</td></tr>' if preview else '',
         "CARDS": cards_html, "CONTENT": content, "LOG": escape(data.get('完整日志', '未记录')),
-        "FOOTER": escape("完整审查记录：" + data["完整审查记录"]) if data.get("完整审查记录") else "保留主上游与第二上游的审查记录，排除项以本次报告为准。",
+        "FOOTER": escape("完整审查记录：" + data["完整审查记录"]) if data.get("完整审查记录") else "保留三个上游的审查记录，排除项以本次报告为准。",
     }
     # Single pass: diagnostic text resembling a placeholder remains literal.
     return re.sub(r"\{\{([A-Z_]+)\}\}", lambda match: values[match[1]], TEMPLATE.read_text(encoding="utf-8"))
@@ -224,7 +224,7 @@ def compose_message(text, html, subject, sender, recipient):
             html = render_report(text)
         except OSError:
             # A missing template must not suppress the failure notification.
-            html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="font-family:Arial,sans-serif;color:#25364a;"><h1>sub2api 双上游同步报告</h1><pre style="white-space:pre-wrap;word-break:break-all;">' + escape(plain_report(text)) + '</pre></body></html>'
+            html = '<!doctype html><html lang="zh-CN"><meta charset="utf-8"><body style="font-family:Arial,sans-serif;color:#25364a;"><h1>sub2api 三上游同步报告</h1><pre style="white-space:pre-wrap;word-break:break-all;">' + escape(plain_report(text)) + '</pre></body></html>'
     message.add_alternative(html, subtype="html", charset="utf-8", cte="quoted-printable")
     return message.as_bytes()
 

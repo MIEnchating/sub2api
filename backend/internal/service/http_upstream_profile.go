@@ -1,6 +1,9 @@
 package service
 
-import "context"
+import (
+	"context"
+	"time"
+)
 
 // HTTPUpstreamProfile marks HTTP upstream requests that need provider-specific
 // transport policy.
@@ -16,8 +19,10 @@ const (
 )
 
 type httpUpstreamProfileContextKey struct{}
+type openAICodexHTTPRequestContextKey struct{}
 type httpUpstreamDisableRedirectsContextKey struct{}
 type httpUpstreamPublicHostsOnlyContextKey struct{}
+type httpUpstreamResponseHeaderTimeoutContextKey struct{}
 
 // WithHTTPUpstreamProfile injects an upstream transport profile into ctx.
 func WithHTTPUpstreamProfile(ctx context.Context, profile HTTPUpstreamProfile) context.Context {
@@ -45,6 +50,45 @@ func HTTPUpstreamProfileFromContext(ctx context.Context) HTTPUpstreamProfile {
 	default:
 		return HTTPUpstreamProfileDefault
 	}
+}
+
+// WithOpenAICodexHTTPRequest marks requests built for the first-party Codex backend.
+func WithOpenAICodexHTTPRequest(ctx context.Context) context.Context {
+	return context.WithValue(ctx, openAICodexHTTPRequestContextKey{}, true)
+}
+
+func IsOpenAICodexHTTPRequest(ctx context.Context) bool {
+	marked, _ := ctx.Value(openAICodexHTTPRequestContextKey{}).(bool)
+	return marked
+}
+
+// Keep single-submission and send-evidence paths on their original wire body.
+func UpstreamCompressionRequiresPlainBody(ctx context.Context) bool {
+	profile := HTTPUpstreamProfileFromContext(ctx)
+	return profile == HTTPUpstreamProfileExcelBPS || profile == HTTPUpstreamProfileOpenAIHarvest ||
+		isControlledExperiment(ctx) || regionalMeterAttemptFrom(ctx) != nil || OpenAIAgentRecoveryNoReplay(ctx) ||
+		IsOpenAICodexStateProbeRequest(ctx) || IsAstraSourceAcquisition(ctx)
+}
+
+// WithHTTPUpstreamResponseHeaderTimeout asks for a longer response-header wait
+// than the transport profile. It never shortens or enables a timeout.
+func WithHTTPUpstreamResponseHeaderTimeout(ctx context.Context, timeout time.Duration) context.Context {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if timeout <= 0 {
+		return ctx
+	}
+	return context.WithValue(ctx, httpUpstreamResponseHeaderTimeoutContextKey{}, timeout)
+}
+
+// HTTPUpstreamResponseHeaderTimeoutFromContext returns the requested wait, or zero.
+func HTTPUpstreamResponseHeaderTimeoutFromContext(ctx context.Context) time.Duration {
+	if ctx == nil {
+		return 0
+	}
+	timeout, _ := ctx.Value(httpUpstreamResponseHeaderTimeoutContextKey{}).(time.Duration)
+	return timeout
 }
 
 // WithHTTPUpstreamRedirectsDisabled prevents credential-bearing probes from

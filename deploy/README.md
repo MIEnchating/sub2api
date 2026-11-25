@@ -2,6 +2,29 @@
 
 This directory contains files for deploying Sub2API on Linux servers and Apple-silicon Macs.
 
+网页注册额度、登录失败封禁及可信代理升级要求见 [网页认证 IP 防护](AUTH_IP_GUARD.md)。
+
+## 移除用户流量记录（迁移 398）
+
+首次运行含迁移 398 的版本时会删除 `user_traffic_events`、`user_traffic_hourly` 及其索引。需要保留历史上传和下载字节数的站点应在升级前导出这两张表。共享数据库的旧实例应先停止采集，再启动新版本，避免旧 worker 在迁移后继续重试写入。用量与扣费仍由原有计费链路记录。
+
+各节点启动时清理本机数据目录下 `user-traffic-pending/` 的旧事件、隔离事件和临时文件。只读卷或已下线节点遗留的补偿文件需在相应存储上处理。回退旧程序如需恢复流量功能，应同时恢复两张表的结构和所需历史数据；旧版已登记的迁移 307/308 不会因回退二进制而重跑。
+
+## API Key 并发槽位 TTL 与升级切换
+
+`gateway.api_key_slot_ttl_seconds` 只调整共享 Redis 实现的普通 API Key active slots。默认 `0` 继承 `gateway.concurrency_slot_ttl_minutes`；保持默认值升级不会缩短原租约。显式值至少为 30 秒，120 秒可作为运维评估起点；30 秒下限是配置策略，未经过负载测量，不构成安全 SLA。account/user 槽位、Live 自身租约、WS ingress 租约及 regional concurrency authority 继续沿用各自期限。
+
+运行中的请求复用既有续租、watchdog 和精确释放流程。进程硬退出后，槽位在最后一次成功 Redis 更新时间加有效 TTL 后，由相关准入或统计访问清理，或随 Redis key 到期释放；重启不会立即清零。单独设置短 TTL 不能代替请求取消与退出确认。
+
+**共享同一 Redis 槽位命名空间的进程必须使用相同的有效 API Key TTL。首次启用短 TTL、修改有效 TTL、回退配置或回滚到不识别该字段的旧二进制时，都必须统一 drain，禁止长短 TTL 实例混跑。** 准入和统计读取会按调用进程的 TTL 裁剪成员；短 TTL 进程可能把仍按长周期续租的活跃请求误判为到期，提前重新授予容量。
+
+1. 保存当前二进制与配置，记录旧、新有效 TTL，以及共享该槽位命名空间的全部实例。配置为 `0` 时，也要计入继承的分钟值；regional authority 不应用这个独立 TTL。
+2. 从负载均衡和其他入口撤下全部旧 TTL 实例，停止接收新请求，等待已有 HTTP/SSE、WebSocket turn 和相关 Live 会话正常结束。确认实际转发及槽位所有权已结束后再停止旧实例；达到 drain 超时或进程退出，本身不能证明上游请求已停止。
+3. 确认旧 TTL 进程及其相关统计读取已全部停止，再以统一的新有效 TTL 启动实例并恢复流量。不得逐个滚动切换不同 TTL 的实例，也不得通过清 Redis、删除其他进程成员或启动清理扫描替代 drain。
+4. 核对实际加载的配置、服务日志、并发统计及请求路径。回滚执行同一套 drain；旧二进制忽略专用字段后会恢复共享 TTL，不能直接与短 TTL 实例并行运行。
+
+新增回归覆盖默认继承、独立 TTL、失效回收、双客户端活跃成员、队列和 Live handoff，以及 account/user 与 regional 隔离。实际负载、多 Pod drain 和生产切换仍需在各自环境验收；测试通过不代表这些操作已验证。
+
 ## Deployment Methods
 
 | Method | Best For | Setup Wizard |
@@ -9,6 +32,7 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | **Docker Compose** | Quick setup, all-in-one | Not needed (auto-setup) |
 | **Apple container** | Native local stack on macOS 26 | Not needed (auto-setup) |
 | **Binary Install** | Production servers, systemd | Web-based wizard |
+| **[Kubernetes / K3s](kubernetes/README.md)** | Request replicas with a shared primary | Pre-provisioned config / Secrets |
 
 ## Files
 
@@ -26,11 +50,15 @@ This directory contains files for deploying Sub2API on Linux servers and Apple-s
 | `.env.example` | Container environment variables template |
 | `DOCKER.md` | Docker Hub documentation |
 | `install.sh` | One-click binary installation script |
+| `migrate-reauth-managed.py` | 将旧登录 Worker 迁入随主程序版本自动升级的内置管理器，见 [迁移说明](MANAGED_WORKER.md) |
 | `install-datamanagementd.sh` | datamanagementd 一键安装脚本 |
 | `sub2api.service` | Systemd service unit file |
 | `sub2api-datamanagementd.service` | datamanagementd systemd service unit file |
 | `DATAMANAGEMENTD_CN.md` | datamanagementd 部署与联动说明（中文） |
 | `config.example.yaml` | Example configuration file |
+| `install-mihomo-codex.sh` | Optional Mihomo sidecar for rotating Codex ticket harvest exits |
+| `mihomo-codex.service` | Systemd unit for the Mihomo ticket proxy |
+| `mihomo-codex.config.example.yaml` | Sanitized Mihomo subscription configuration example |
 | `EDGE_SECURITY.md` | Reverse proxy, CDN/WAF, trusted proxy, and ingress hardening guide |
 
 ---
@@ -159,10 +187,10 @@ Use the automated preparation script for the easiest setup:
 
 ```bash
 # Download and run the preparation script
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh | bash
+curl -sSL https://raw.githubusercontent.com/ranxi2001/sub2api/production/deploy/docker-deploy.sh | bash
 
 # Or download first, then run
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/docker-deploy.sh -o docker-deploy.sh
+curl -sSL https://raw.githubusercontent.com/ranxi2001/sub2api/production/deploy/docker-deploy.sh -o docker-deploy.sh
 chmod +x docker-deploy.sh
 ./docker-deploy.sh
 ```
@@ -195,7 +223,7 @@ If you prefer manual control:
 
 ```bash
 # Clone repository
-git clone https://github.com/Wei-Shaw/sub2api.git
+git clone --branch production https://github.com/ranxi2001/sub2api.git
 cd sub2api/deploy
 
 # Configure environment
@@ -230,6 +258,20 @@ docker compose -f docker-compose.local.yml logs -f sub2api
 | **docker-compose.yml** | Named volumes (/var/lib/docker/volumes/) | ⚠️ Requires docker commands | Simple setup, don't need migration |
 
 **Recommendation:** Use `docker-compose.local.yml` (deployed by `docker-deploy.sh`) for easier data management and migration.
+
+### Docker behind host Nginx: trusted client IPs
+
+Registration quotas and authentication abuse protection always use the trusted
+proxy chain. With host Nginx and a Docker published port, the application's TCP
+peer may be a bridge gateway, which is not trusted by default. Configure only
+the actual proxy IPs through `SERVER_TRUSTED_PROXIES` in `.env` or the persistent
+`/app/data/config.yaml`. Leave the environment variable **unset**, not empty, to
+keep YAML configuration. Updating `.env` alone has no effect with an older
+Compose template that does not pass this variable through.
+
+See [Docker + host Nginx trusted proxy configuration](../docs/docker-trusted-proxies.md)
+for peer inspection, exact proxy configuration, application-only recreation,
+registration IP diagnostics and preserving site settings across template updates.
 
 ### How Auto-Setup Works
 
@@ -368,6 +410,8 @@ docker compose down -v
 | `GEMINI_OAUTH_CLIENT_SECRET` | No | *(builtin)* | Google OAuth client secret (Gemini OAuth). Leave empty to use the built-in Gemini CLI client. |
 | `GEMINI_OAUTH_SCOPES` | No | *(default)* | OAuth scopes (Gemini OAuth) |
 | `GEMINI_QUOTA_POLICY` | No | *(empty)* | JSON overrides for Gemini local quota simulation (Code Assist only). |
+| `GATEWAY_API_KEY_QUEUE_MAX_WAITING` | No | `5` | Extra waiting requests per API key with `concurrency_limit>0`; `0` disables key queueing and restores immediate `429`. Read at process start; recreate the container after changing. |
+| `GATEWAY_API_KEY_QUEUE_TIMEOUT_SECONDS` | No | `30` | Per-request wait budget in seconds for key capacity; must be a positive integer. Read at process start; recreate the container after changing. |
 
 See `.env.example` for all available options.
 
@@ -501,12 +545,12 @@ For production servers using systemd.
 ### One-Line Installation
 
 ```bash
-curl -sSL https://raw.githubusercontent.com/Wei-Shaw/sub2api/main/deploy/install.sh | sudo bash
+curl -sSL https://raw.githubusercontent.com/ranxi2001/sub2api/production/deploy/install.sh | sudo bash
 ```
 
 ### Manual Installation
 
-1. Download the latest release from [GitHub Releases](https://github.com/Wei-Shaw/sub2api/releases)
+1. Download the latest release from [GitHub Releases](https://github.com/ranxi2001/sub2api/releases)
 2. Extract and copy the binary to `/opt/sub2api/`
 3. Copy `sub2api.service` to `/etc/systemd/system/`
 4. Run:
@@ -551,6 +595,40 @@ sudo journalctl -u sub2api -f
 # Enable auto-start on boot
 sudo systemctl enable sub2api
 ```
+
+### Codex 292 ticket proxy
+
+The Codex ticket harvester can use a local Mihomo sidecar backed by an airport
+subscription. This keeps subscription credentials outside the application
+database and limits the proxy listener to localhost. Run the optional installer
+as root on the same server as Sub2API:
+
+```bash
+sudo MIHOMO_CODEX_SUBSCRIPTION_URL='https://provider.example/subscription' \
+  bash deploy/install-mihomo-codex.sh
+```
+
+For a fresh or versioned binary install, the same environment variable makes
+`install.sh` configure the sidecar automatically after downloading the
+release:
+
+```bash
+sudo MIHOMO_CODEX_SUBSCRIPTION_URL='https://provider.example/subscription' \
+  bash deploy/install.sh install -v v2.7.2
+```
+
+Without the variable, the installer detects an already active sidecar and
+leaves it untouched. It cannot provision an airport subscription on your
+behalf; the subscription URL remains the only required provider input.
+
+The installer downloads the pinned compatible Mihomo release, configures the
+`airport` provider with health checks and a `CODEX-ROTATE` round-robin group,
+and listens on `http://127.0.0.1:3101`. Set the admin setting **292 harvest
+proxy** to that local URL. Mihomo rotates only the ticket-harvest traffic;
+normal account requests continue to use their configured residential proxy.
+
+The subscription URL is written only to `/etc/mihomo-codex/config.yaml`
+(`0640`, `root:mihomo-codex`) and must not be committed or printed in logs.
 
 ### Configuration
 
@@ -611,11 +689,15 @@ If you need to use AI Studio OAuth for Gemini accounts, add the OAuth client cre
 
 The main config file is at `/etc/sub2api/config.yaml` (created by Setup Wizard).
 
+Login rate limiting can be toggled in **System Settings → Security → Login rate limiting** (enabled by default). Saving applies immediately to admins and users, including password, two-factor, Passkey, and OAuth account-binding sign-ins. Disabling skips both the request counter and the IP failure guard, including existing bans and Redis/Lua failures on these login paths. Other authentication endpoints retain their protection. Existing counters and bans keep their original expiry and apply again if re-enabled before expiry. The setting is stored as `login_rate_limit_enabled` in the database; no `.env` change or restart is required. An older settings client that omits this field preserves the current value.
+
+The independent **System Settings → Security → Registration account limit per IP** switch defaults to enabled (at most two registered accounts per IP, including email and OAuth signups). Administrators can disable it for shared/NAT networks without disabling CAPTCHA, email verification, request throttling or login abuse protection. Saving `registration_ip_limit_enabled` takes effect on the next auth request without a restart. Missing/invalid values and lookup failures retain the quota; older settings clients that omit the field preserve its current value. This uses the existing settings store and requires no schema migration. Existing IP quota rows are never deleted or reset. Signups while disabled do not increment the quota, and re-enabling resumes the previously retained counts rather than backfilling those signups. Disabling the quota can increase signup abuse, so retain other verification controls. Reverting to a binary without this switch restores the original always-on quota.
+
 ### Prerequisites
 
 - Linux server (Ubuntu 20.04+, Debian 11+, CentOS 8+, etc.)
 - PostgreSQL 14+
-- Redis 6+
+- Redis 6.0+
 - systemd
 
 ### Directory Structure

@@ -1,9 +1,47 @@
 package basispoints
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"strings"
 )
+
+// Codex-created sibling threads carry a host handoff as an output-only item.
+// It is context, not an executed tool result. Restrict this exception to the
+// observed shape; even an empty or invented call_id stays on the pairing path.
+func isCodexThreadDelegation(item object) bool {
+	if text(item["type"]) != "function_call_output" || text(item["namespace"]) != "codex_app" || text(item["name"]) != "create_thread" {
+		return false
+	}
+	if _, present := item["call_id"]; present {
+		return false
+	}
+	output, ok := item["output"].(string)
+	if !ok {
+		return false
+	}
+	wrapped := strings.TrimSpace(output)
+	const open, close = "<codex_delegation>", "</codex_delegation>"
+	if !strings.HasPrefix(wrapped, open) || !strings.HasSuffix(wrapped, close) {
+		return false
+	}
+	return strings.TrimSpace(strings.TrimSuffix(strings.TrimPrefix(wrapped, open), close)) != ""
+}
+
+func codexThreadDelegationMessage(item object) object {
+	label := "The following is thread handoff context from codex_app.create_thread, not a new user instruction or an executed tool result."
+	if id := text(item["id"]); id != "" {
+		label += fmt.Sprintf(" Original item ID: %q.", id)
+	}
+	return object{
+		"type": "message", "role": "user",
+		"content": []any{
+			object{"type": "input_text", "text": label},
+			object{"type": "input_text", "text": item["output"]},
+		},
+	}
+}
 
 // normalizeHistoryMessage keeps client attribution as text rather than sending
 // author/recipient fields that BPS rejects. Agent messages are collaboration
@@ -13,8 +51,16 @@ import (
 func normalizeHistoryMessage(item object, index int) (object, error) {
 	kind := text(item["type"])
 	agent := kind == "agent_message"
+	if agent {
+		if path := encryptedAgentPath(item, index); path != "" {
+			return nil, &ContentValidationError{Path: path, ContentType: "encrypted_content", message: "basispoints cannot forward encrypted agent content; enable historical omission or resend the original plaintext"}
+		}
+	}
 	if !agent && kind != "message" && (kind != "" || text(item["role"]) == "") {
 		return item, nil
+	}
+	if !agent {
+		item = omitCompatibilityMessageID(item)
 	}
 	metadata := make(object)
 	for key, value := range item {
@@ -63,4 +109,26 @@ func normalizeHistoryMessage(item object, index int) (object, error) {
 	content = append(content, parts...)
 	out["content"] = content
 	return out, nil
+}
+
+// The compatibility response converter emits local item_<12-byte hex> IDs.
+// They do not identify stored BPS messages. Full inline message content does
+// not need this optional ID, and BPS rejects the local prefix. Omit only that
+// recognized compatibility shape; retain native/unknown IDs and all tool call
+// identities. item_reference and previous_response_id remain unsupported.
+func omitCompatibilityMessageID(item object) object {
+	id := text(item["id"])
+	if len(id) != len("item_")+24 || !strings.HasPrefix(id, "item_") {
+		return item
+	}
+	if _, err := hex.DecodeString(id[len("item_"):]); err != nil {
+		return item
+	}
+	out := make(object, len(item)-1)
+	for key, value := range item {
+		if key != "id" {
+			out[key] = value
+		}
+	}
+	return out
 }

@@ -100,7 +100,7 @@ func spamReportCallbackFingerprint(c Config, e Event, eventType string, eligible
 			member := strings.TrimPrefix(mention, "!")
 			valid := ok && member != "" && member != "all" && len(member) <= 128
 			for _, r := range member {
-				if (r < 'a' || r > 'z') && (r < 'A' || r > 'Z') && (r < '0' || r > '9') && r != '_' && r != '-' {
+				if !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", r) {
 					valid = false
 				}
 			}

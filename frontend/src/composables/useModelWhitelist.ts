@@ -6,23 +6,16 @@ import { getProviderProfile } from '@/constants/platformCatalog'
 
 // OpenAI
 const openaiModels = [
-  // GPT-5.2 系列
-  'gpt-5.2', 'gpt-5.2-2025-12-11', 'gpt-5.2-chat-latest',
-  'gpt-5.2-pro', 'gpt-5.2-pro-2025-12-11',
 	// GPT-5.6 系列
   'gpt-5.6', 'gpt-5.6-sol', 'gpt-5.6-terra', 'gpt-5.6-luna',
   // GPT-6 系列
-  'gpt-6', 'gpt-6-astra', 'gpt-6.2-sol', 'gpt-6.2-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna',
-  // GPT-5.5 系列
-  'gpt-5.5',
-  // GPT-5.4 系列
-  'gpt-5.4', 'gpt-5.4-mini', 'gpt-5.4-2026-03-05',
+  'gpt-6', 'gpt-6-astra', 'gpt-6.1-sol', 'gpt-6.1-terra', 'gpt-6-sol', 'gpt-6-luna',
+  'gpt-6.2-astra', 'gpt-6.2-astra-pro', 'gpt-6.2-sol',
   // GPT-5.3 / Codex 系列
-  'gpt-5.3-codex-spark', 'codex-auto-review',
+  'codex-auto-review',
   'gpt-4o-audio-preview', 'gpt-4o-realtime-preview',
   // GPT Image 系列
-  'gpt-image-1', 'gpt-image-1.5', 'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst',
-  'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'
+  'gpt-image-2', 'gpt-image-2.5-flare', 'gpt-image-2.5-sunburst', 'gpt-image-2.6-flare', 'gpt-image-2.6-sunburst'
 ]
 
 // Anthropic Claude
@@ -150,15 +143,49 @@ const zhipuModels = [
   'cogview-3', 'cogvideo'
 ]
 
-// 阿里 通义千问
+// 百炼北京区 OpenAI 兼容目录（2026-11-24）：GET /compatible-mode/v1/models。
+// 账号实际可用模型以「同步上游支持的模型」的结果为准。
 const qwenModels = [
-  'qwen-turbo', 'qwen-plus', 'qwen-max', 'qwen-max-longcontext', 'qwen-long',
-  'qwen2-72b-instruct', 'qwen2-57b-a14b-instruct', 'qwen2-7b-instruct',
-  'qwen2.5-72b-instruct', 'qwen2.5-32b-instruct', 'qwen2.5-14b-instruct',
-  'qwen2.5-7b-instruct', 'qwen2.5-3b-instruct', 'qwen2.5-1.5b-instruct',
-  'qwen2.5-coder-32b-instruct', 'qwen2.5-coder-14b-instruct', 'qwen2.5-coder-7b-instruct',
-  'qwen3-235b-a22b',
-  'qwq-32b', 'qwq-32b-preview'
+  // Qwen4、Qwen3.8、Qwen3.7
+  'qwen4-max', 'qwen3.8-max', 'qwen3.8-max-0902', 'qwen3.8-flash', 'qwen3.8-2.4t-a95b',
+  'qwen3.8-27b', 'qwen3.8-livetranslate-flash-realtime', 'qwen3.8-omni-flash',
+  'qwen3.8-omni-flash-realtime', 'qwen3.7-max', 'qwen3.7-max-2026-05-17', 'qwen3.7-max-2026-05-20',
+  'qwen3.7-max-2026-06-08', 'qwen3.7-max-preview', 'qwen3.7-plus', 'qwen3.7-plus-2026-05-26',
+  'qwen3.7-flash', 'qwen3.7-flash-2026-07-15', 'qwen3.7-text-embedding',
+  'qwen3.7-text-embedding-flash', 'qwen3.7-text-rerank',
+  // Qwen3.6、Qwen3.5
+  'qwen3.6-plus', 'qwen3.6-plus-2026-04-02', 'qwen3.6-flash', 'qwen3.6-flash-2026-04-16',
+  'qwen3.6-27b', 'qwen3.6-35b-a3b', 'qwen3.5-plus', 'qwen3.5-plus-2026-02-15',
+  'qwen3.5-plus-2026-04-20', 'qwen3.5-flash', 'qwen3.5-flash-2026-02-23', 'qwen3.5-122b-a10b',
+  'qwen3.5-27b', 'qwen3.5-35b-a3b', 'qwen3.5-397b-a17b', 'qwen3.5-livetranslate-flash-realtime',
+  'qwen3.5-livetranslate-flash-realtime-2026-05-19', 'qwen3.5-ocr', 'qwen3.5-omni-flash',
+  'qwen3.5-omni-flash-2026-03-15', 'qwen3.5-omni-flash-realtime',
+  'qwen3.5-omni-flash-realtime-2026-03-15', 'qwen3.5-omni-plus', 'qwen3.5-omni-plus-2026-03-15',
+  'qwen3.5-omni-plus-realtime', 'qwen3.5-omni-plus-realtime-2026-03-15',
+  // Qwen3 专项模型
+  'qwen3-asr-flash-realtime', 'qwen3-coder-flash', 'qwen3-coder-flash-2025-07-28',
+  'qwen3-livetranslate-flash', 'qwen3-livetranslate-flash-2025-12-01', 'qwen3-omni-flash',
+  'qwen3-omni-flash-realtime-2025-09-15', 'qwen3-s2s-flash-realtime-2025-09-22', 'qwen3-tts-flash',
+  'qwen3-tts-flash-realtime', 'qwen3-vl-plus',
+  // 通用及专项模型
+  'qwen-audio-3.0-asr-flash', 'qwen-audio-3.0-realtime-flash', 'qwen-audio-3.0-realtime-plus',
+  'qwen-audio-3.1-realtime-flash', 'qwen-audio-3.1-realtime-plus', 'qwen-deep-research',
+  'qwen-deep-research-2025-12-15', 'qwen-deep-search-planning', 'qwen-doc-turbo', 'qwen-flash',
+  'qwen-flash-2025-07-28', 'qwen-flash-character', 'qwen-flash-character-2026-02-26',
+  'qwen-image-2.0', 'qwen-image-2.0-2026-03-03', 'qwen-image-2.0-pro',
+  'qwen-image-2.0-pro-2026-03-03', 'qwen-image-2.0-pro-2026-04-22', 'qwen-image-2.0-pro-2026-06-22',
+  'qwen-image-2.1-pro', 'qwen-image-3.0', 'qwen-image-3.0-pro', 'qwen-long', 'qwen-max',
+  'qwen-max-0107', 'qwen-max-1201', 'qwen-max-longcontext', 'qwen-mt-flash', 'qwen-mt-lite',
+  'qwen-mt-plus', 'qwen-mt-uni', 'qwen-plus', 'qwen-plus-2025-01-25', 'qwen-plus-2025-04-28',
+  'qwen-plus-2025-07-14', 'qwen-plus-2025-11-05', 'qwen-plus-2025-12-01', 'qwen-plus-character',
+  'qwen-plus-latest', 'qwen-turbo-0919', 'qwen-turbo-2024-11-01', 'qwen-vl-ocr',
+  'qwen-vl-ocr-2025-11-20',
+  // 早期版本
+  'qwen-1.8b-chat', 'qwen-1.8b-longcontext-chat', 'qwen-14b-chat', 'qwen-72b-chat', 'qwen-7b-chat',
+  'qwen1.5-0.5b-chat', 'qwen1.5-1.8b-chat', 'qwen1.5-110b-chat', 'qwen1.5-14b-chat',
+  'qwen1.5-32b-chat', 'qwen1.5-72b-chat', 'qwen1.5-7b-chat', 'qwen2-0.5b-instruct',
+  'qwen2-1.5b-instruct', 'qwen2-57b-a14b-instruct', 'qwen2-7b-instruct', 'qwen2.5-0.5b-instruct',
+  'qwen2.5-1.5b-instruct', 'qwen2.5-math-1.5b-instruct'
 ]
 
 // DeepSeek
@@ -174,6 +201,7 @@ const deepseekModels = [
 // Mistral
 const mistralModels = [
   'mistral-small-latest', 'mistral-medium-latest', 'mistral-large-latest',
+  'zai-glm-5-3',
   'open-mistral-7b', 'open-mixtral-8x7b', 'open-mixtral-8x22b',
   'codestral-latest', 'codestral-mamba',
   'pixtral-12b-2409', 'pixtral-large-latest'
@@ -350,6 +378,9 @@ const anthropicPresetMappings = [
 ]
 
 const openaiPresetMappings = [
+  { label: 'GPT-6.2 Astra', from: 'gpt-6.2-astra', to: 'gpt-6.2-astra', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: 'GPT-6.2 Astra Pro', from: 'gpt-6.2-astra-pro', to: 'gpt-6.2-astra-pro', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
+  { label: 'GPT-6.2 Sol', from: 'gpt-6.2-sol', to: 'gpt-6.2-sol', color: 'bg-orange-100 text-orange-700 hover:bg-orange-200 dark:bg-orange-900/30 dark:text-orange-400' },
   { label: 'GPT-4o', from: 'gpt-4o', to: 'gpt-4o', color: 'bg-green-100 text-green-700 hover:bg-green-200 dark:bg-green-900/30 dark:text-green-400' },
   { label: 'GPT-4o Mini', from: 'gpt-4o-mini', to: 'gpt-4o-mini', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' },
   { label: 'GPT-4.1', from: 'gpt-4.1', to: 'gpt-4.1', color: 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200 dark:bg-indigo-900/30 dark:text-indigo-400' },
@@ -369,11 +400,6 @@ const openaiPresetMappings = [
   { label: 'GPT-6 Luna', from: 'gpt-6-luna', to: 'gpt-6-luna', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'GPT-5.6 Luna', from: 'gpt-5.6-luna', to: 'gpt-5.6-luna', color: 'bg-sky-100 text-sky-700 hover:bg-sky-200 dark:bg-sky-900/30 dark:text-sky-400' },
   { label: 'GPT-6 Astra', from: 'gpt-6-astra', to: 'gpt-6-astra', color: 'bg-fuchsia-100 text-fuchsia-700 hover:bg-fuchsia-200 dark:bg-fuchsia-900/30 dark:text-fuchsia-400' },
-  { label: 'GPT-5.5', from: 'gpt-5.5', to: 'gpt-5.5', color: 'bg-amber-100 text-amber-700 hover:bg-amber-200 dark:bg-amber-900/30 dark:text-amber-400' },
-  { label: 'GPT-5.4', from: 'gpt-5.4', to: 'gpt-5.4', color: 'bg-rose-100 text-rose-700 hover:bg-rose-200 dark:bg-rose-900/30 dark:text-rose-400' },
-  { label: 'Haiku→5.4', from: 'claude-haiku-4-5-20251001', to: 'gpt-5.4', color: 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400' },
-  { label: 'Opus→5.4', from: 'claude-opus-4-6', to: 'gpt-5.4', color: 'bg-purple-100 text-purple-700 hover:bg-purple-200 dark:bg-purple-900/30 dark:text-purple-400' },
-  { label: 'Sonnet→5.4', from: 'claude-sonnet-4-6', to: 'gpt-5.4', color: 'bg-blue-100 text-blue-700 hover:bg-blue-200 dark:bg-blue-900/30 dark:text-blue-400' }
 ]
 
 const geminiPresetMappings = [
@@ -520,6 +546,9 @@ export const commonErrorCodes = [
 // 按平台获取模型
 export function getModelsByPlatform(platform: string): string[] {
   switch (platform) {
+    // A gateway has no provider-specific defaults. Leave its whitelist
+    // unrestricted until the administrator fetches or selects models.
+    case 'gateway': return []
     case 'openai': return openaiModels
     case 'anthropic':
     case 'claude': return claudeModels
@@ -590,6 +619,23 @@ export type ModelRestrictionMode = 'whitelist' | 'mapping' | 'combined'
 export interface ModelMappingEntry {
   from: string
   to: string
+}
+
+/** Rebuild a declaration from concrete upstream IDs, retaining redirects to live targets. */
+export function reconcileUpstreamModelMapping(
+  upstreamModels: string[],
+  existingMappings: ModelMappingEntry[]
+): { allowedModels: string[]; modelMappings: ModelMappingEntry[] } {
+  const live = new Set(upstreamModels.map(model => model.trim()).filter(model => model && !model.includes('*')))
+  const mapping: Record<string, string> = Object.fromEntries([...live].map(model => [model, model]))
+  for (const entry of existingMappings) {
+    const from = entry.from.trim()
+    const to = entry.to.trim()
+    if (from && from !== to && isValidWildcardPattern(from) && live.has(to)) {
+      mapping[from] = to
+    }
+  }
+  return splitModelMappingObject(mapping)
 }
 
 export function splitModelMappingObject(

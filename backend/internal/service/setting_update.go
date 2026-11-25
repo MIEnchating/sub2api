@@ -50,7 +50,6 @@ func (s *SettingService) UpdateSettingsOmitting(ctx context.Context, settings *S
 	}
 	omitted.dropFrom(updates)
 	wakeHarvest := s.codexHarvestSettingsChanged(ctx, updates)
-
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
@@ -95,7 +94,6 @@ func (s *SettingService) UpdateSettingsWithAuthSourceDefaultsOmitting(ctx contex
 	}
 	omitted.dropFrom(updates)
 	wakeHarvest := s.codexHarvestSettingsChanged(ctx, updates)
-
 	if err := s.settingRepo.SetMultiple(ctx, updates); err != nil {
 		return err
 	}
@@ -130,6 +128,10 @@ func (s *SettingService) refreshCachedSettingsAfterWrite(ctx context.Context, se
 }
 
 func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, settings *SystemSettings) (map[string]string, error) {
+	captureConfig := settings.requestCaptureConfig()
+	if err := captureConfig.Validate(); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_REQUEST_CAPTURE_SETTINGS", err.Error())
+	}
 	imageRelay, err := normalizeExcelBPSImageRelaySettings(settings.ExcelBPSImageRelayEnabled, settings.ExcelBPSImageBaseURL, settings.ExcelBPSImageMode)
 	if err != nil {
 		return nil, err
@@ -162,13 +164,24 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.ExcelBPSImageTTLMinutes == 0 {
 		settings.ExcelBPSImageTTLMinutes = imageRelay.Limits.TTLMinutes
 	}
+	if settings.ExcelBPSImageLimitPolicy == "" {
+		settings.ExcelBPSImageLimitPolicy = "off"
+	}
+	if settings.ExcelBPSImageWarningRemaining == 0 {
+		settings.ExcelBPSImageWarningRemaining = 8
+	}
+	if settings.ExcelBPSImageCompactReserve == 0 {
+		settings.ExcelBPSImageCompactReserve = 3
+	}
+	if err := validateExcelBPSImagePolicy(settings.ExcelBPSImageLimitPolicy, settings.ExcelBPSImageWarningRemaining, settings.ExcelBPSImageCompactReserve, settings.ExcelBPSImageMaxImages); err != nil {
+		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_POLICY", err.Error())
+	}
 	if err := settings.imageRelayLimits().Validate(); err != nil {
 		return nil, infraerrors.BadRequest("INVALID_EXCEL_BPS_IMAGE_LIMITS", err.Error())
 	}
 	if err := validateExcelBPSImageCapacity(settings.ExcelBPSImageBodyLimitMiB, settings.ExcelBPSImageBudgetMiB, settings.ExcelBPSImageMaxRequests); err != nil {
 		return nil, err
 	}
-
 	if err := s.validateDefaultSubscriptionGroups(ctx, settings.DefaultSubscriptions); err != nil {
 		return nil, err
 	}
@@ -241,12 +254,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 
 	// 注册设置
 	updates[SettingKeyRegistrationEnabled] = strconv.FormatBool(settings.RegistrationEnabled)
+	updates[SettingKeyLoginRateLimitEnabled] = strconv.FormatBool(settings.LoginRateLimitEnabled)
+	updates[SettingKeyRegistrationIPLimitEnabled] = strconv.FormatBool(settings.RegistrationIPLimitEnabled)
 	updates[SettingKeyEmailVerifyEnabled] = strconv.FormatBool(settings.EmailVerifyEnabled)
 	registrationEmailSuffixWhitelistJSON, err := json.Marshal(settings.RegistrationEmailSuffixWhitelist)
 	if err != nil {
 		return nil, fmt.Errorf("marshal registration email suffix whitelist: %w", err)
 	}
 	updates[SettingKeyRegistrationEmailSuffixWhitelist] = string(registrationEmailSuffixWhitelistJSON)
+	updates[SettingKeyRegistrationEmailAliasBlockEnabled] = strconv.FormatBool(settings.RegistrationEmailAliasBlockEnabled)
 	updates[SettingKeyRegistrationEmailDomainQuotaEnabled] = strconv.FormatBool(settings.RegistrationEmailDomainQuotaEnabled)
 	updates[SettingKeyPromoCodeEnabled] = strconv.FormatBool(settings.PromoCodeEnabled)
 	updates[SettingKeyPasswordResetEnabled] = strconv.FormatBool(settings.PasswordResetEnabled)
@@ -490,6 +506,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	// Channel monitor feature switch
+	updates[SettingKeyExcelBPSEnabled] = strconv.FormatBool(settings.ExcelBPSEnabled)
 	updates[SettingKeyChannelMonitorEnabled] = strconv.FormatBool(settings.ChannelMonitorEnabled)
 	updates[SettingKeyChannelMonitorMode] = normalizeChannelMonitorMode(settings.ChannelMonitorMode)
 	if v := clampChannelMonitorInterval(settings.ChannelMonitorDefaultIntervalSeconds); v > 0 {
@@ -498,6 +515,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyChannelMonitorHideThroughput] = strconv.FormatBool(settings.ChannelMonitorHideThroughput)
 	updates[SettingKeyChannelMonitorShowQuota] = strconv.FormatBool(settings.ChannelMonitorShowQuota)
 	updates[SettingKeyChannelMonitorHideUserRanking] = strconv.FormatBool(settings.ChannelMonitorHideUserRanking)
+	updates[SettingKeyPrismBrowserEnabled] = strconv.FormatBool(settings.PrismBrowserEnabled)
+	baseURL := strings.TrimSpace(settings.PrismBrowserBaseURL)
+	if baseURL == "" {
+		baseURL = "http://127.0.0.1:8319/v1"
+	}
+	updates[SettingKeyPrismBrowserBaseURL] = baseURL
+	if strings.TrimSpace(settings.PrismBrowserAPIKey) != "" {
+		updates[SettingKeyPrismBrowserAPIKey] = strings.TrimSpace(settings.PrismBrowserAPIKey)
+	}
 
 	// Grok model mapping policy
 	if v := strings.TrimSpace(settings.GrokDefaultTextModel); v != "" {
@@ -507,6 +533,9 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyGrokCrossClientModelMapEnabled] = strconv.FormatBool(settings.GrokCrossClientModelMapEnabled)
 	updates[SettingKeyGrokDefaultBaseURLMode] = normalizeGrokDefaultBaseURLMode(settings.GrokDefaultBaseURLMode)
+	updates[SettingKeyGrokVideoSourceURLEnabled] = strconv.FormatBool(settings.GrokVideoSourceURLEnabled)
+	updates[SettingKeyOpenAI409OmitEncryptedHistoryEnabled] = strconv.FormatBool(settings.OpenAI409OmitEncryptedHistoryEnabled)
+	updates[SettingKeyOpenAI400OmitEncryptedHistoryEnabled] = strconv.FormatBool(settings.OpenAI400OmitEncryptedHistoryEnabled)
 
 	// Available channels feature switch
 	updates[SettingKeyAvailableChannelsEnabled] = strconv.FormatBool(settings.AvailableChannelsEnabled)
@@ -518,6 +547,15 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyUserSubscriptionsPageEnabled] = strconv.FormatBool(settings.UserSubscriptionsPageEnabled)
 	updates[SettingKeyAdminSubscriptionsPageEnabled] = strconv.FormatBool(settings.AdminSubscriptionsPageEnabled)
 
+	// Pelican showcase switch + gallery limits
+	updates[SettingKeyPelicanShowcaseEnabled] = strconv.FormatBool(settings.PelicanShowcaseEnabled)
+	showcase, showcaseErr := NormalizePelicanShowcaseConfig(settings.PelicanShowcase)
+	if showcaseErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_PELICAN_SHOWCASE", showcaseErr.Error())
+	}
+	showcaseJSON, _ := json.Marshal(showcase)
+	updates[SettingKeyPelicanShowcaseConfig] = string(showcaseJSON)
+
 	// Subscription feature switch
 	updates[SettingKeySubscriptionEnabled] = strconv.FormatBool(settings.SubscriptionEnabled)
 
@@ -525,7 +563,30 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyModelPlazaEnabled] = strconv.FormatBool(settings.ModelPlazaEnabled)
 	updates[SettingKeyModelPlazaRequireAuth] = strconv.FormatBool(settings.ModelPlazaRequireAuth)
 	updates[SettingKeyModelPlazaDescription] = settings.ModelPlazaDescription
+	if settings.ModelPlazaUSDToCNYRate == 0 {
+		settings.ModelPlazaUSDToCNYRate = defaultModelPlazaUSDToCNYRate
+	}
+	if settings.ModelPlazaUSDToCNYRate < 0 || math.IsNaN(settings.ModelPlazaUSDToCNYRate) || math.IsInf(settings.ModelPlazaUSDToCNYRate, 0) {
+		return nil, infraerrors.BadRequest("INVALID_MODEL_PLAZA_DISPLAY_RATE", "model plaza USD to CNY display rate must be finite and positive")
+	}
+	plazaCurrency, err := NormalizeModelPlazaCurrency(settings.ModelPlazaCurrency)
+	if err != nil {
+		return nil, infraerrors.BadRequest("INVALID_MODEL_PLAZA_CURRENCY", err.Error())
+	}
+	settings.ModelPlazaCurrency = plazaCurrency
+	plazaCurrencyJSON, _ := json.Marshal(plazaCurrency)
+	updates[SettingKeyModelPlazaCurrency] = string(plazaCurrencyJSON)
+	updates[SettingKeyModelPlazaUSDToCNYRate] = strconv.FormatFloat(settings.ModelPlazaUSDToCNYRate, 'f', -1, 64)
 	updates[SettingKeyPluginManagementEnabled] = strconv.FormatBool(settings.PluginManagementEnabled)
+
+	// Support tickets switch + form config
+	updates[SettingKeySupportTicketEnabled] = strconv.FormatBool(settings.SupportTicketEnabled)
+	ticketConfig, ticketConfigErr := NormalizeSupportTicketConfig(settings.SupportTicket)
+	if ticketConfigErr != nil {
+		return nil, infraerrors.BadRequest("INVALID_SUPPORT_TICKET_CONFIG", ticketConfigErr.Error())
+	}
+	ticketConfigJSON, _ := json.Marshal(ticketConfig)
+	updates[SettingKeySupportTicketConfig] = string(ticketConfigJSON)
 
 	// Affiliate (邀请返利) feature switch
 	updates[SettingKeyAffiliateEnabled] = strconv.FormatBool(settings.AffiliateEnabled)
@@ -542,6 +603,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	if settings.CyberSessionBlockTTLSeconds > 0 {
 		updates[SettingKeyCyberSessionBlockTTLSeconds] = strconv.Itoa(settings.CyberSessionBlockTTLSeconds)
 	}
+	updates[SettingKeyCyberSessionIdentityStrictEnabled] = strconv.FormatBool(settings.CyberSessionIdentityStrictEnabled)
 
 	// Claude Code version check
 	updates[SettingKeyMinClaudeCodeVersion] = settings.MinClaudeCodeVersion
@@ -586,7 +648,8 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	updates[SettingKeyEnableClientDatelineNormalization] = strconv.FormatBool(settings.EnableClientDatelineNormalization)
 	updates[SettingKeyAntigravityUserAgentVersion] = antigravity.NormalizeUserAgentVersion(settings.AntigravityUserAgentVersion)
 	updates[SettingKeyOpenAICodexUserAgent] = strings.TrimSpace(settings.OpenAICodexUserAgent)
-	updates[SettingKeyOpenAICodexTicketCandyObservation] = strconv.FormatBool(settings.OpenAICodexTicketCandyObservation)
+	updates[SettingKeyOpenAIRequestTimezoneEnabled] = strconv.FormatBool(settings.OpenAIRequestTimezoneEnabled)
+	updates[SettingKeyOpenAIRequestTimezoneAuto] = strconv.FormatBool(settings.OpenAIRequestTimezoneAuto)
 	updates[SettingKeyOpenAICodexTicketEnabled] = strconv.FormatBool(settings.OpenAICodexTicketEnabled)
 	updates[SettingKeyOpenAICodexTicketFailClosed] = strconv.FormatBool(settings.OpenAICodexTicketFailClosed)
 	if err := ValidateOpenAICodexTicketHarvestProxyURL(settings.OpenAICodexTicketHarvestProxyURL); err != nil {
@@ -619,6 +682,7 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 	updates[SettingKeyOpenAICodexTicketHarvestScope] = string(scopeJSON)
 	updates[SettingKeyOpenAICodexTicketStrategy] = NormalizeCodexTicketStrategy(settings.OpenAICodexTicketStrategy)
+	updates[SettingKeyOpenAICodexTicketCandyObservation] = strconv.FormatBool(settings.OpenAICodexTicketCandyObservation)
 	updates[SettingKeyOpenAICodexTicketStrict] = strconv.FormatBool(settings.OpenAICodexTicketStrictResponse)
 	if settings.OpenAICodexTicketStaticProxyURL != "" {
 		updates[SettingKeyOpenAICodexTicketStaticProxyURL] = settings.OpenAICodexTicketStaticProxyURL
@@ -714,6 +778,33 @@ func (s *SettingService) buildSystemSettingsUpdates(ctx context.Context, setting
 	}
 
 	updates[SettingKeyAllowUserViewErrorRequests] = strconv.FormatBool(settings.AllowUserViewErrorRequests)
+	updates[SettingKeyUsageShowLongContextBadge] = strconv.FormatBool(settings.UsageShowLongContextBadge)
+	updates[SettingKeyUsageShowCacheRate] = strconv.FormatBool(settings.UsageShowCacheRate)
+	updates[SettingKeyUsageShowCacheRateToUsers] = strconv.FormatBool(settings.UsageShowCacheRateToUsers)
+	updates[SettingKeyUsageShowUpstreamResponseModelToUsers] = strconv.FormatBool(settings.UsageShowUpstreamResponseModelToUsers)
+	hiddenMenuItems, err := json.Marshal(normalizeSmartOpsHiddenMenuItems(settings.SmartOpsHiddenMenuItems))
+	if err != nil {
+		return nil, fmt.Errorf("marshal smart ops hidden menu items: %w", err)
+	}
+	updates[SettingKeySmartOpsHiddenMenuItems] = string(hiddenMenuItems)
+	updates[SettingKeyRequestCaptureEnabled] = strconv.FormatBool(captureConfig.Enabled)
+	updates[SettingKeyRequestCaptureQuotaMiB] = strconv.FormatInt(captureConfig.QuotaMiB, 10)
+	updates[SettingKeyRequestCaptureRetentionDays] = strconv.Itoa(captureConfig.RetentionDays)
+	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
+	updates[SettingKeyExcelBPSImageRelayEnabled] = strconv.FormatBool(imageRelay.Enabled)
+	updates[SettingKeyExcelBPSImageBaseURL] = imageRelay.BaseURL
+	updates[SettingKeyExcelBPSImageBodyLimitMiB] = strconv.Itoa(settings.ExcelBPSImageBodyLimitMiB)
+	updates[SettingKeyExcelBPSImageBudgetMiB] = strconv.Itoa(settings.ExcelBPSImageBudgetMiB)
+	updates[SettingKeyExcelBPSImageMaxRequests] = strconv.Itoa(settings.ExcelBPSImageMaxRequests)
+	updates[SettingKeyExcelBPSImageMaxImageMiB] = strconv.Itoa(settings.ExcelBPSImageMaxImageMiB)
+	updates[SettingKeyExcelBPSImageLimitPolicy] = settings.ExcelBPSImageLimitPolicy
+	updates[SettingKeyExcelBPSImageWarningRemaining] = strconv.Itoa(settings.ExcelBPSImageWarningRemaining)
+	updates[SettingKeyExcelBPSImageCompactReserve] = strconv.Itoa(settings.ExcelBPSImageCompactReserve)
+	updates[SettingKeyExcelBPSImageMaxImages] = strconv.Itoa(settings.ExcelBPSImageMaxImages)
+	updates[SettingKeyExcelBPSImageMaxTotalMiB] = strconv.Itoa(settings.ExcelBPSImageMaxTotalMiB)
+	updates[SettingKeyExcelBPSImageStorageMiB] = strconv.Itoa(settings.ExcelBPSImageStorageMiB)
+	updates[SettingKeyExcelBPSImageStorageEntries] = strconv.Itoa(settings.ExcelBPSImageStorageEntries)
+	updates[SettingKeyExcelBPSImageTTLMinutes] = strconv.Itoa(settings.ExcelBPSImageTTLMinutes)
 
 	updates[SettingKeyExcelBPSImageMode] = imageRelay.Mode
 	updates[SettingKeyExcelBPSEnabled] = strconv.FormatBool(settings.ExcelBPSEnabled)
@@ -923,12 +1014,13 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// 版本号缓存只做失效，不在此重算：生效值还取决于自动同步写入的 synced 键，
 	// 这里没有它的最新值，重算会把同步结果覆盖成陈旧值。
 	s.InvalidateOpenAICodexClientVersionCache()
+	s.InvalidateOpenAIRequestTimezoneEnabledCache()
+	s.InvalidateOpenAIRequestTimezoneAutoCache()
 	s.InvalidateOpenAICodexTicketEnabledCache()
 	s.InvalidateOpenAICodexTicketFailClosedCache()
 	s.InvalidateOpenAICodexTicketModelsCache()
 	s.InvalidateOpenAICodexTicketHarvestProxyCache()
 	s.InvalidateOpenAICodexTicketHarvestScopeCache()
-
 	s.InvalidateClaudeCodeClientVersionCache()
 	openAIAdvancedSchedulerSettingSF.Forget(openAIAdvancedSchedulerSettingKey)
 	openAIAdvancedSchedulerSettingCache.Store(&cachedOpenAIAdvancedSchedulerSetting{
@@ -983,11 +1075,16 @@ func (s *SettingService) refreshCachedSettings(settings *SystemSettings) {
 	// codex_cli_only 加固策略缓存：设置更新后强制下次重载（涉及 4 个键 + JSON 解析，直接置过期）。
 	s.codexRestrictionPolicySF.Forget("codex_restriction_policy")
 	s.codexRestrictionPolicyCache.Store(&cachedCodexRestrictionPolicy{expiresAt: 0})
-	// Retain the successfully saved allowlist if the next DB refresh fails.
+	// Cyber 会话屏蔽与严格身份门控必须在后台保存后立即生效，不能继续
+	// 使用最长 60 秒的旧开关快照。保留刚保存成功的白名单，下一次 DB 刷新失败时沿用。
+	s.cyberSessionBlockRuntimeSF.Forget("cyber_session_block_runtime")
 	s.cyberSessionBlockRuntimeMu.Lock()
 	allowlistedUsers, _ := ParseCyberPolicyUserAllowlist(settings.CyberPolicyUserAllowlist)
 	s.cyberSessionBlockRuntimeCache.Store(&cachedCyberSessionBlockRuntime{allowlistedUsers: allowlistedUsers})
 	s.cyberSessionBlockRuntimeMu.Unlock()
+	if s.requestCapture != nil {
+		s.requestCapture.ApplyConfig(settings.requestCaptureConfig())
+	}
 	if s.onUpdate != nil {
 		s.onUpdate() // Invalidate cache after settings update
 	}

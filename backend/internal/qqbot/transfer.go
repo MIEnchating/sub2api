@@ -402,18 +402,26 @@ func (s *Service) ConfirmTransfer(ctx context.Context, token string) error {
 		return ErrTransferInvalid
 	}
 
-	// Debit sender, credit recipient using exact decimal strings.
-	if _, err = tx.ExecContext(ctx,
-		`UPDATE users SET balance=balance-$1,updated_at=NOW()
-		 WHERE id=$2 AND status='active' AND deleted_at IS NULL`,
-		amount.StringFixed(8), fromUID); err != nil {
-		return err
-	}
-	if _, err = tx.ExecContext(ctx,
-		`UPDATE users SET balance=balance+$1,updated_at=NOW()
-		 WHERE id=$2 AND status='active' AND deleted_at IS NULL`,
-		netAmount.StringFixed(8), toUID); err != nil {
-		return err
+	// Keep the transaction atomic even when a trigger suppresses one update.
+	for _, change := range []struct {
+		query  string
+		amount string
+		userID int64
+	}{
+		{`UPDATE users SET balance=balance-$1,updated_at=NOW() WHERE id=$2 AND status='active' AND deleted_at IS NULL`, amount.StringFixed(8), fromUID},
+		{`UPDATE users SET balance=balance+$1,updated_at=NOW() WHERE id=$2 AND status='active' AND deleted_at IS NULL`, netAmount.StringFixed(8), toUID},
+	} {
+		result, e := tx.ExecContext(ctx, change.query, change.amount, change.userID)
+		if e != nil {
+			return e
+		}
+		count, e := result.RowsAffected()
+		if e != nil {
+			return e
+		}
+		if count != 1 {
+			return ErrTransferInvalid
+		}
 	}
 
 	// Receipt and balances commit atomically. No token or token hash enters history.

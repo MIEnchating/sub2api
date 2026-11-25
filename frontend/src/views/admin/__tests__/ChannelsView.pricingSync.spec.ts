@@ -1,4 +1,5 @@
 import { defineComponent } from 'vue'
+import { createPinia } from 'pinia'
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 
@@ -175,6 +176,7 @@ function makeChannel(): Channel {
 function mountView() {
   return mount(ChannelsView, {
     global: {
+      plugins: [createPinia()],
       stubs: {
         AppLayout: AppLayoutStub,
         TablePageLayout: TablePageLayoutStub,

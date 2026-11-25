@@ -88,7 +88,7 @@ func (c *legacyAdmissionConcurrency) GetAccountsLoadBatch(_ context.Context, acc
 
 func newLegacyAdmissionRedisGateway(t *testing.T, batch bool) (*service.OpenAIGatewayService, *gatewayCache, *legacyAdmissionConcurrency) {
 	t.Helper()
-	cache, _ := newStickyRebindTestCache(t)
+	cache, _ := newHTTPResponseOwnerTestCache(t)
 	repo := &legacyAdmissionRepo{}
 	for _, candidate := range []struct {
 		id       int64
@@ -103,6 +103,7 @@ func newLegacyAdmissionRedisGateway(t *testing.T, batch bool) (*service.OpenAIGa
 		})
 	}
 	cfg := &config.Config{RunMode: config.RunModeStandard}
+	cfg.Runtime.Role = config.RuntimeRoleGateway
 	cfg.Gateway.OpenAIWS.Enabled = true
 	cfg.Gateway.OpenAIWS.APIKeyEnabled = true
 	cfg.Gateway.OpenAIWS.ResponsesWebsocketsV2 = true
@@ -111,7 +112,7 @@ func newLegacyAdmissionRedisGateway(t *testing.T, batch bool) (*service.OpenAIGa
 	cfg.Gateway.Scheduling.StickySessionMaxWaiting = 3
 	concurrency := &legacyAdmissionConcurrency{}
 	gateway := service.NewOpenAIGatewayService(
-		repo, nil, nil, nil, nil, nil, cache, cfg, nil,
+		repo, nil, nil, nil, nil, nil, nil, cache, cfg, nil,
 		service.NewConcurrencyService(concurrency),
 		nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil,
 	)

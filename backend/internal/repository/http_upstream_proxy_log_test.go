@@ -60,7 +60,7 @@ func TestHTTPUpstreamProxyLogsDoNotExposeCredentials(t *testing.T) {
 	for _, event := range []string{"tls_fingerprint_enabled", "tls_fingerprint_creating_new_client", "tls_fingerprint_reusing_client", "tls_fingerprint_evicting_stale_client", "openai_http2_proxy_fallback_activated"} {
 		require.Contains(t, logs, event)
 	}
-	require.Contains(t, logs, "http://proxy.example:8080")
+	require.Contains(t, logs, "proxy=proxy.example:8080 scheme=http")
 	require.NotContains(t, logs, "private-")
 	require.NotContains(t, logs, "cache_key")
 }

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"crypto/ed25519"
-	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"image"
@@ -63,7 +62,7 @@ func TestChatProtocolsUseOnlyOperatorCredentials(t *testing.T) {
 				}
 			}))
 			defer server.Close()
-			s := New(nil, nil, false, nil)
+			s := newMatureFixtureService(nil, nil, false, nil)
 			c := DefaultConfig()
 			c.BaseURL = server.URL + "/v1"
 			c.APIKey = "operator-test-key"
@@ -89,16 +88,12 @@ func TestChatStreamCompleteness(t *testing.T) {
 	_, _, _, err = parseChat([]byte(`{"status":"incomplete","output_text":"partial"}`), "application/json")
 	require.Error(t, err)
 }
-func TestImagesGenerateThenReuseSavedBytesForDelivery(t *testing.T) {
+func TestReusesHistoricalImageBytesForDelivery(t *testing.T) {
 	var picture bytes.Buffer
 	require.NoError(t, png.Encode(&picture, image.NewRGBA(image.Rect(0, 0, 32, 32))))
-	generates, uploads, messages := 0, 0, 0
+	uploads, messages := 0, 0
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
-		case "/v1/images/generations":
-			generates++
-			require.Equal(t, "Bearer operator-image-key", r.Header.Get("Authorization"))
-			_ = json.NewEncoder(w).Encode(map[string]any{"data": []any{map[string]string{"b64_json": base64.StdEncoding.EncodeToString(picture.Bytes())}}})
 		case "/token":
 			_, _ = w.Write([]byte(`{"access_token":"qq-token","expires_in":"7200"}`))
 		case "/v2/groups/group/files":
@@ -123,7 +118,7 @@ func TestImagesGenerateThenReuseSavedBytesForDelivery(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL = server.URL
 	s.tokenURL = server.URL + "/token"
 	c := DefaultConfig()
@@ -131,12 +126,11 @@ func TestImagesGenerateThenReuseSavedBytesForDelivery(t *testing.T) {
 	c.APIKey = "operator-image-key"
 	c.AppID = "app"
 	c.AppSecret = "qq-secret"
-	img, err := s.generateImage(context.Background(), c, "cat")
-	require.NoError(t, err)
-	j := Job{EventType: groupMessageCreate, GroupID: "group", MemberID: "member", MessageID: "msg", CreatedAt: time.Now()}
+	img := picture.Bytes()
+	j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MemberID: "member", MessageID: "msg", CreatedAt: time.Now()}
+	c = expectRepairDelivery(t, s, c, 4)
 	require.NoError(t, s.send(context.Background(), c, j, "", img, 2))
 	require.NoError(t, s.send(context.Background(), c, j, "", img, 3))
-	require.Equal(t, 1, generates)
 	require.Equal(t, 2, uploads)
 	require.Equal(t, 2, messages)
 	j.CreatedAt = time.Now().Add(-6 * time.Minute)
@@ -160,7 +154,7 @@ func TestGroupTextRepliesUseMarkdownWithConsistentMentions(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
 	c.AppID, c.AppSecret = "app", "qq-secret"
@@ -182,7 +176,8 @@ func TestGroupTextRepliesUseMarkdownWithConsistentMentions(t *testing.T) {
 		{"long explicit mention", groupMessageCreate, memberID, strings.Repeat("中", 1900), mention + "\n" + strings.Repeat("中", 1799-len([]rune(mention+"\n"))) + "…", 2},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			j := Job{EventType: tc.eventType, GroupID: "group", MemberID: tc.memberID, MessageID: "incoming", CreatedAt: time.Now()}
+			j := Job{TransientReply: true, EventType: tc.eventType, GroupID: "group", MemberID: tc.memberID, MessageID: "incoming", CreatedAt: time.Now()}
+			c = expectRepairDelivery(t, s, c, 1)
 			require.NoError(t, s.send(context.Background(), c, j, tc.text, nil, 1))
 			require.Equal(t, tc.wantType, reply.MsgType)
 			require.Equal(t, tc.want, reply.text())
@@ -206,11 +201,12 @@ func TestGroupMentionMarkdownRejectionDoesNotSendLiteralTagFallback(t *testing.T
 		_, _ = w.Write([]byte(`{"code":40034127}`))
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL, s.tokenURL = server.URL, server.URL+"/token"
 	c := DefaultConfig()
 	c.AppID, c.AppSecret = "app", "qq-secret"
-	j := Job{EventType: groupMessageCreate, GroupID: "group", MemberID: "member", MessageID: "incoming", CreatedAt: time.Now()}
+	j := Job{TransientReply: true, EventType: groupMessageCreate, GroupID: "group", MemberID: "member", MessageID: "incoming", CreatedAt: time.Now()}
+	c = expectRepairDelivery(t, s, c, 1)
 	require.ErrorContains(t, s.send(context.Background(), c, j, emailBindingAccepted, nil, 1), "40034127")
 	require.Equal(t, 1, calls)
 }
@@ -223,7 +219,7 @@ func TestUpstreamErrorsDoNotExposeCredentialsOrRetry(t *testing.T) {
 		_, _ = w.Write([]byte("secret-token upstream details"))
 	}))
 	defer server.Close()
-	s := New(nil, nil, false, nil)
+	s := newMatureFixtureService(nil, nil, false, nil)
 	c := DefaultConfig()
 	c.BaseURL = server.URL
 	c.APIKey = "operator-key"
@@ -268,7 +264,7 @@ func TestCommandAcceptsKnownNamesAndSlashCompatibility(t *testing.T) {
 		{content: "<@123> /绑定\talice@example.com  ", name: "绑定", arg: "alice@example.com"},
 		{content: "/绑定\nbinding-code", name: "绑定", arg: "binding-code"},
 		{content: "<@123> 签到", name: "签到"},
-		{content: "生图 一只猫", name: "生图", arg: "一只猫"},
+		{content: "生图 一只猫"},
 		{content: "帮助", name: "帮助"},
 		{content: "我的余额", name: "我的余额"},
 		{content: "/我的余额", name: "我的余额"},
@@ -323,21 +319,23 @@ func TestRemovedAndUnknownCommandsDoNotCallModelsOrAccessData(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	// No database is provided: unsupported commands must not read saved results,
-	// delete conversations, reserve model usage, or invoke an upstream model.
-	s := New(nil, nil, false, nil)
+	// The fixture permits only final delivery authorization; unsupported commands
+	// cannot read results, delete conversations, reserve usage or call models.
+	s := newMatureFixtureService(nil, nil, false, nil)
 	s.qqURL = server.URL
 	s.tokenURL = server.URL + "/token"
 	c := DefaultConfig()
 	c.AppID, c.AppSecret, c.BaseURL = "app", "test-secret", server.URL+"/v1"
 	for i, content := range []string{"/查看结果 task-id", "/新对话", "/清空", "/不存在"} {
-		j := Job{GroupID: "group", MessageID: strconv.Itoa(i), CreatedAt: time.Now()}
+		j := Job{TransientReply: true, GroupID: "group", MessageID: strconv.Itoa(i), CreatedAt: time.Now()}
+		c = expectRepairDelivery(t, s, c, 1)
 		require.NoError(t, s.message(context.Background(), c, &j, Event{Content: content}))
 		require.Len(t, replies, i+1)
 		require.Contains(t, replies[i], "帮助")
 	}
-	j := Job{GroupID: "group", MessageID: "help", CreatedAt: time.Now()}
+	j := Job{TransientReply: true, GroupID: "group", MessageID: "help", CreatedAt: time.Now()}
 	before := len(replies)
+	c = expectRepairDelivery(t, s, c, 1)
 	require.NoError(t, s.message(context.Background(), c, &j, Event{Content: "/帮助"}))
 	help := strings.Join(replies[before:], "\n")
 	require.Contains(t, help, "我的余额")

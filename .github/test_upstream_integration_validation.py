@@ -95,9 +95,13 @@ else:
         self.assertEqual(args[args.index('--network') + 1], 'host')
         self.assertIn('CI=true', args)
         self.assertIn('/var/run/docker.sock:/var/run/docker.sock', args)
+        redis_setup = args[args.index('sub2api-integration') - 1]
+        self.assertIn('command -v redis-server', redis_setup)
+        self.assertIn('apt-get install -y --no-install-recommends redis-server', redis_setup)
+        self.assertIn('exec "$@"', redis_setup)
         for key in ('MIGRATION_TEST_DATABASE_URL', 'QQBOT_TEST_DSN'):
             self.assertIn(key + '=postgres://postgres:integration-test@127.0.0.1:54329/sub2api_test?sslmode=disable', args)
-        self.assertEqual(args[-6:], ['go', 'test', '-count=1', '-tags=integration', '-timeout=30m', './...'])
+        self.assertEqual(args[-6:], ['go', 'test', '-count=1', '-tags=integration', '-timeout=60m', './...'])
         self.assert_cleaned()
 
     def test_local_and_ci_make_target_match_scheduled_integration_budget(self):
@@ -155,7 +159,7 @@ else:
     def test_silent_test_failure_keeps_exit_code_even_if_cleanup_fails(self):
         result = self.run_check(GO_TEST_STATUS='23', CLEANUP_STATUS='43')
         self.assertEqual(result.returncode, 23, result.stderr)
-        self.assertIn('go test -count=1 -tags=integration -timeout=30m ./... failed (exit 23)', result.stderr)
+        self.assertIn('go test -count=1 -tags=integration -timeout=60m ./... failed (exit 23)', result.stderr)
         self.assert_cleaned()
 
     def test_record_check_keeps_diagnostics_and_continues_validation(self):

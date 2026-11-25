@@ -63,13 +63,10 @@ func TestChatCapabilitiesReportsKnownFeatureRestrictions(t *testing.T) {
 	c := DefaultConfig()
 	c.Enabled, c.AllowedGroups = true, []string{"group"}
 	j := Job{GroupID: "group"}
-	require.Contains(t, chatCommandStatus(c, j, "image"), "停用")
 	require.Contains(t, chatCommandStatus(c, j, "transfer"), "停用")
-	c.ImageEnabled, c.TransferEnabled = true, true
-	require.Contains(t, chatCommandStatus(c, j, "image"), "入口可用")
+	c.TransferEnabled = true
 	require.Contains(t, chatCommandStatus(c, j, "transfer"), "独立邮件确认")
 	c.GroupPolicies = []GroupPolicy{{GroupID: "group", DisableImages: true, DisableActivities: true}}
-	require.Contains(t, chatCommandStatus(c, j, "image"), "停用")
 	require.Contains(t, chatCommandStatus(c, j, "checkin"), "本群活动奖励已停用")
 	require.Contains(t, chatCommandStatus(c, j, "balance"), "仅查询发起人本人")
 	require.Contains(t, chatCommandStatus(c, Job{GroupID: "other"}, "help"), "未在允许名单")

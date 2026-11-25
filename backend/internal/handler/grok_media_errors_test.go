@@ -8,6 +8,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/assert"
+	"github.com/stretchr/testify/require"
+	"github.com/tidwall/gjson"
 	"io"
 	"mime/multipart"
 	"net/http"
@@ -16,11 +20,6 @@ import (
 	"testing"
 	"testing/iotest"
 	"time"
-
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/stretchr/testify/assert"
-	"github.com/stretchr/testify/require"
-	"github.com/tidwall/gjson"
 )
 
 func TestGrokImageEditLocalValidationSyncAndAsync(t *testing.T) {

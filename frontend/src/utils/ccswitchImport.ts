@@ -1,7 +1,9 @@
+import { buildCodexModelCatalogUrl } from '@/api/codex'
 import type { GroupPlatform } from '@/types'
 import { buildCodexApiKeyAuthConfig } from '@/utils/codexAuthConfig'
+import { OPENAI_CODEX_MODEL } from '@/utils/codexCatalogConfig'
+import { encodeUtf8Base64, escapeTomlBasicString } from '@/utils/codexQuickConfig'
 
-export const OPENAI_CC_SWITCH_CODEX_MODEL = 'gpt-6.1-sol'
 export const GROK_CC_SWITCH_MODEL = 'grok-4.5'
 
 export type CcSwitchClientType = 'claude' | 'gemini'
@@ -23,11 +25,8 @@ export interface CcSwitchImportDeeplinkInput {
 
 /**
  * Balance query CC Switch runs against the imported provider. CC Switch fills
- * `{{baseUrl}}` with the provider's base URL as stored — Codex and Grok imports
- * carry a trailing `/v1` (see `withV1Endpoint`), Claude ones do not, and users
- * may edit it either way afterwards — then evaluates the script, so the URL
- * strips an existing `/v1` instead of blindly appending one (`/v1/v1/usage`
- * is a 404 and CC Switch shows "query failed").
+ * `{{baseUrl}}` with the provider's stored base URL. Strip any trailing
+ * `/v1` before building the usage endpoint.
  */
 export const CC_SWITCH_USAGE_SCRIPT = `({
     request: {
@@ -71,8 +70,8 @@ export function resolveCcSwitchImportConfig(
         app: 'codex',
         // CC Switch's Codex provider appends the OpenAI-compatible path itself.
         // Passing /v1 here can make the client request /v1/v1/....
-        endpoint: withoutTrailingSlashes(baseUrl),
-        model: OPENAI_CC_SWITCH_CODEX_MODEL
+        endpoint: withoutTrailingSlashes(baseUrl.trim()),
+        model: OPENAI_CODEX_MODEL
       }
     case 'gemini':
       return {
@@ -113,21 +112,28 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
   }
 
   if (config.app === 'codex') {
-    // CC Switch's embedded-config import preserves provider auth and headers.
-    // It deliberately leaves global [features] settings to the user.
-    const codexConfig = `model_provider = "sub2api"
-model = ${JSON.stringify(config.model)}
+    // Embed TOML rather than a query parameter: service_tier is a root setting.
+    // CC Switch v4.0.25 still drops this field from imported TOML; its
+    // deeplink/codex_link.rs whitelist uses ROW_TOP_FIELDS + CODEX_EXCLUSIVE_TOP.
+    const model = escapeTomlBasicString(config.model ?? OPENAI_CODEX_MODEL)
+    const toml = `model_provider = "sub2api"
+model = "${model}"
+review_model = "${model}"
+model_reasoning_effort = "high"
 web_search = "live"
+service_tier = "fast"
 
 [model_providers.sub2api]
-name = "Sub2API"
-base_url = ${JSON.stringify(config.endpoint)}
+name = "${escapeTomlBasicString(input.providerName)}"
+base_url = "${escapeTomlBasicString(config.endpoint)}"
+model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(config.endpoint))}"
 wire_api = "responses"
 ${buildCodexApiKeyAuthConfig(input.apiKey)}
 `
-    const payload = JSON.stringify({ config: codexConfig })
-    const bytes = new TextEncoder().encode(payload)
-    entries.push(['config', btoa(Array.from(bytes, (byte) => String.fromCharCode(byte)).join(''))])
+    entries.push(['config', encodeUtf8Base64(JSON.stringify({
+      auth: { OPENAI_API_KEY: input.apiKey },
+      config: toml
+    }))])
   }
 
   return `ccswitch://v1/import?${new URLSearchParams(entries).toString()}`

@@ -63,6 +63,9 @@ func (u *strictRequestUpstream) Do(_ *http.Request, _ string, accountID int64, _
 	body := `{"error":{"message":"account unavailable"}}`
 	if accountID == 5 {
 		status = http.StatusServiceUnavailable
+		// An explicit account state can exhaust this tier. A generic OAuth
+		// service error keeps the current binding for same-account retries.
+		body = `{"error":{"code":"account_suspended","message":"account unavailable"}}`
 	}
 	if accountID == winner {
 		status = http.StatusOK
@@ -105,7 +108,7 @@ func TestStrictFailoverResponsesTraversesTiersWithinOneRequest(t *testing.T) {
 				})
 			}
 			upstream := &strictRequestUpstream{winner: winner}
-			handler := newOpenAIResponsesFailoverTestHandler(t, upstream, repo)
+			handler := newOpenAIResponsesFailoverTestHandlerWithRepository(t, upstream, repo, nil, nil, nil, nil)
 			handler.maxAccountSwitches = 1 // Four primary accounts must still be exhausted.
 			request := func() {
 				c, rec := newOpenAIResponsesFailoverTestContext(t, nil)

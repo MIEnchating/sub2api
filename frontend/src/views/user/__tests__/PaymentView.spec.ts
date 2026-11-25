@@ -5,6 +5,9 @@ import { PAYMENT_RECOVERY_STORAGE_KEY } from '@/components/payment/paymentFlow'
 import { formatPaymentAmount } from '@/components/payment/currency'
 import AmountInput from '@/components/payment/AmountInput.vue'
 import RechargeCouponPicker from '@/components/payment/RechargeCouponPicker.vue'
+import PaymentMethodSelector from '@/components/payment/PaymentMethodSelector.vue'
+import StripeSubtypeSelector from '@/components/payment/StripeSubtypeSelector.vue'
+import LotteryRechargeNotice from '@/components/lottery/LotteryRechargeNotice.vue'
 import SubscriptionPlanCard from '@/components/payment/SubscriptionPlanCard.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -21,6 +24,7 @@ const routerResolve = vi.hoisted(() => vi.fn(() => ({ href: '/payment/stripe?moc
 const createOrder = vi.hoisted(() => vi.fn())
 const refreshUser = vi.hoisted(() => vi.fn())
 const fetchActiveSubscriptions = vi.hoisted(() => vi.fn().mockResolvedValue(undefined))
+const activeSubscriptionsState = vi.hoisted(() => ({ value: [] as Array<Record<string, unknown>> }))
 const showError = vi.hoisted(() => vi.fn())
 const showInfo = vi.hoisted(() => vi.fn())
 const showWarning = vi.hoisted(() => vi.fn())
@@ -74,7 +78,7 @@ vi.mock('@/stores/payment', () => ({
 
 vi.mock('@/stores/subscriptions', () => ({
   useSubscriptionStore: () => ({
-    activeSubscriptions: [],
+    activeSubscriptions: activeSubscriptionsState.value,
     fetchActiveSubscriptions,
   }),
 }))
@@ -220,7 +224,10 @@ function oauthOrderFixture() {
   }
 }
 
-async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoWithPlansFixture>[0] = {}) {
+async function mountSubscriptionConfirm(
+  options: Parameters<typeof checkoutInfoWithPlansFixture>[0] = {},
+  subscriptions: Array<Record<string, unknown>> = [],
+) {
   vi.useRealTimers()
   routeState.path = '/purchase'
   routeState.query = {
@@ -233,6 +240,7 @@ async function mountSubscriptionConfirm(options: Parameters<typeof checkoutInfoW
   createOrder.mockReset()
   refreshUser.mockReset()
   fetchActiveSubscriptions.mockReset().mockResolvedValue(undefined)
+  activeSubscriptionsState.value = subscriptions
   showError.mockReset()
   showInfo.mockReset()
   showWarning.mockReset()
@@ -267,6 +275,7 @@ async function mountSubscriptionPlanList(planCount: number) {
   createOrder.mockReset()
   refreshUser.mockReset()
   fetchActiveSubscriptions.mockReset().mockResolvedValue(undefined)
+  activeSubscriptionsState.value = []
   showError.mockReset()
   showInfo.mockReset()
   showWarning.mockReset()
@@ -372,6 +381,56 @@ describe('PaymentView subscription plan grid', () => {
       'sm:grid-cols-2',
       'lg:grid-cols-3',
     ]))
+  })
+})
+
+describe('PaymentView subscription renewal mode', () => {
+  function activeSubscription() {
+    return {
+      id: 11,
+      user_id: 1,
+      group_id: 3,
+      starts_at: '2026-09-01T00:00:00Z',
+      expires_at: '2026-10-01T00:00:00Z',
+      status: 'active',
+      daily_usage_usd: 5,
+      weekly_usage_usd: 10,
+      monthly_usage_usd: 20,
+    }
+  }
+
+  async function submitSubscription(wrapper: Awaited<ReturnType<typeof mountSubscriptionConfirm>>) {
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))
+    expect(submit).toBeDefined()
+    await submit!.trigger('click')
+    await flushPromises()
+  }
+
+  it('defaults active subscription renewal to restart and submits it', async () => {
+    const wrapper = await mountSubscriptionConfirm({}, [activeSubscription()])
+    createOrder.mockResolvedValue({})
+
+    const selector = wrapper.get('[data-test="renewal-mode-selector"]')
+    expect(selector.findAll('[role="radio"]')[0].attributes('aria-checked')).toBe('true')
+
+    await submitSubscription(wrapper)
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ renewal_mode: 'restart' }))
+  })
+
+  it('allows extending the current term without restarting quota', async () => {
+    const wrapper = await mountSubscriptionConfirm({}, [activeSubscription()])
+    createOrder.mockResolvedValue({})
+
+    const radios = wrapper.get('[data-test="renewal-mode-selector"]').findAll('[role="radio"]')
+    await radios[1].trigger('click')
+    await submitSubscription(wrapper)
+
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ renewal_mode: 'extend' }))
+  })
+
+  it('does not show renewal choices for a first subscription purchase', async () => {
+    const wrapper = await mountSubscriptionConfirm()
+    expect(wrapper.find('[data-test="renewal-mode-selector"]').exists()).toBe(false)
   })
 })
 
@@ -766,7 +825,7 @@ describe('PaymentView WeChat JSAPI flow', () => {
     }))
     expect(locationState.href).toContain('/api/v1/auth/oauth/wechat/payment/start?')
     expect(new URL(locationState.href, 'http://localhost').searchParams.get('redirect')).toBe(
-      '/purchase?from=wechat&payment_type=wxpay&order_type=subscription&plan_id=7',
+      '/purchase?from=wechat&payment_type=wxpay&order_type=subscription&plan_id=7&renewal_mode=restart',
     )
 
     Object.defineProperty(window, 'location', {
@@ -833,6 +892,29 @@ describe('PaymentView subscription feature flag', () => {
       .filter((text) => text === 'payment.tabTopUp' || text === 'payment.tabSubscribe')
   }
 
+  it('shows the lottery notice only on the top-up tab before checkout', async () => {
+    const wrapper = await mountSubscriptionPlanList(2)
+    expect(wrapper.findComponent(LotteryRechargeNotice).exists()).toBe(false)
+    await wrapper.findAll('button').find(button => button.text() === 'payment.tabTopUp')!.trigger('click')
+    expect(wrapper.getComponent(LotteryRechargeNotice).props('source')).toBe('recharge')
+    await wrapper.findAll('button').find(button => button.text() === 'payment.tabSubscribe')!.trigger('click')
+    expect(wrapper.findComponent(LotteryRechargeNotice).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
+  it('keeps the notice visible with no online payment methods without enabling checkout', async () => {
+    routeState.query = {}
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({ methods: {} }))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' } } },
+    })
+    await flushPromises()
+    expect(wrapper.getComponent(LotteryRechargeNotice).props('source')).toBe('recharge')
+    expect(wrapper.text()).toContain('payment.notAvailable')
+    expect(wrapper.findComponent(AmountInput).exists()).toBe(false)
+    wrapper.unmount()
+  })
+
   it('keeps the top-up / subscribe switcher when subscription_enabled is absent (opt-out default)', async () => {
     const wrapper = await mountSubscriptionPlanList(2)
 
@@ -890,21 +972,161 @@ describe('PaymentView subscription feature flag', () => {
 })
 
 describe('PaymentView recharge coupons', () => {
- it('waits for a valid quote and submits the owned coupon with original input amount', async () => {
-  vi.useRealTimers();routeState.path='/purchase';routeState.query={};window.localStorage.clear()
-  appStoreState.setPublicSettings(undefined)
-  getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture())
-  createOrder.mockReset().mockRejectedValue(new Error('test stops before provider redirect'))
-  const w=shallowMount(PaymentView,{global:{stubs:{AppLayout:{template:'<div><slot /></div>'},Teleport:true,Transition:false}}});await flushPromises()
-  w.getComponent(AmountInput).vm.$emit('update:modelValue',100);await flushPromises()
-  const picker=w.getComponent(RechargeCouponPicker)
-  picker.vm.$emit('change',42,null,true);await flushPromises()
-  const submit=w.findAll('button').find(b=>b.text().includes('payment.createOrder'))!
-  expect(submit.attributes()).toHaveProperty('disabled')
-  picker.vm.$emit('change',42,null,false);await flushPromises();expect(submit.attributes()).toHaveProperty('disabled')
-  picker.vm.$emit('change',42,{coupon_id:42,pay_base:90,pay_amount:90,credited:100,bonus_amount:10,coupon_bonus:0,discount_amount:10,fee_rate:0},false);await flushPromises()
-  expect(submit.attributes('disabled')).toBeUndefined()
-  await submit.trigger('click');await flushPromises()
-  expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({coupon_id:42,amount:100,order_type:'balance'}));w.unmount()
- })
+  it('waits for a valid coupon and quotes the provider fee on the discounted base', async () => {
+    vi.useRealTimers()
+    routeState.path = '/purchase'
+    routeState.query = {}
+    window.localStorage.clear()
+    appStoreState.setPublicSettings(undefined)
+    const wxpay = checkoutInfoFixture().data.methods.wxpay
+    getCheckoutInfo.mockReset().mockResolvedValue(checkoutInfoFixture({
+      recharge_fee_rate: 2,
+      methods: { wxpay: { ...wxpay, fee_rate: 3, fee_rate_min: 3, fee_rate_max: 3 } },
+    }))
+    createOrder.mockReset().mockRejectedValue(new Error('test stops before provider redirect'))
+    const wrapper = shallowMount(PaymentView, {
+      global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false } },
+    })
+    await flushPromises()
+    wrapper.getComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+
+    const picker = wrapper.getComponent(RechargeCouponPicker)
+    picker.vm.$emit('change', 42, null, true)
+    await flushPromises()
+    const submit = wrapper.findAll('button').find(button => button.text().includes('payment.createOrder'))!
+    expect(submit.attributes('disabled')).toBeDefined()
+
+    picker.vm.$emit('change', 42, null, false)
+    await flushPromises()
+    expect(submit.attributes('disabled')).toBeDefined()
+
+    picker.vm.$emit('change', 42, {
+      coupon_id: 42, currency: 'CNY', original_amount: 100,
+      pay_base: 90, pay_amount: 91.8, credited: 100,
+      bonus_amount: 10, coupon_bonus: 0, discount_amount: 10, fee_rate: 2,
+    }, false)
+    await flushPromises()
+    expect(submit.attributes('disabled')).toBeUndefined()
+    expect(submit.text()).toContain(formatPaymentAmount(92.7, 'CNY'))
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({
+      coupon_id: 42, amount: 100, order_type: 'balance',
+    }))
+    wrapper.unmount()
+  })
+})
+
+describe('PaymentView provider and method fees', () => {
+  const baseMethod = checkoutInfoFixture().data.methods.wxpay
+
+  async function mountRecharge(methods: CheckoutInfoResponse['methods']) {
+    vi.useRealTimers()
+    routeState.path = '/purchase'
+    routeState.query = {}
+    appStoreState.setPublicSettings(undefined)
+    window.localStorage.clear()
+    getCheckoutInfo.mockResolvedValue(checkoutInfoFixture({ methods, recharge_fee_rate: 2 }))
+    createOrder.mockReset().mockResolvedValue({})
+    const wrapper = shallowMount(PaymentView, { global: { stubs: {
+      AppLayout: { template: '<div><slot /></div>' }, Teleport: true, Transition: false,
+    } } })
+    await flushPromises()
+    wrapper.findComponent(AmountInput).vm.$emit('update:modelValue', 100)
+    await flushPromises()
+    return wrapper
+  }
+
+  it('changes the fee with the selected method and keeps explicit zero free', async () => {
+    const wrapper = await mountRecharge({
+      alipay: { ...baseMethod, fee_rate: 0.6, fee_rate_min: 0.6, fee_rate_max: 0.6 },
+      wxpay: { ...baseMethod, fee_rate: 0, fee_rate_min: 0, fee_rate_max: 0 },
+    })
+    expect(wrapper.text()).toContain(formatPaymentAmount(100.6, 'CNY'))
+    wrapper.findComponent(PaymentMethodSelector).vm.$emit('select', 'wxpay')
+    await flushPromises()
+    expect(wrapper.text()).not.toContain(formatPaymentAmount(102, 'CNY'))
+    expect(wrapper.text()).not.toContain(formatPaymentAmount(100.6, 'CNY'))
+    const submit = wrapper.findAll('button').find(b => b.text().includes('payment.createOrder'))!
+    expect(submit.text()).toContain(formatPaymentAmount(100, 'CNY'))
+  })
+
+  it('shows a payable range instead of quoting the cheapest provider as a fixed price', async () => {
+    const wrapper = await mountRecharge({ alipay: { ...baseMethod, fee_rate: 0.6, fee_rate_min: 0.6, fee_rate_max: 3 } })
+    expect(wrapper.text()).toContain(`${formatPaymentAmount(100.6, 'CNY')} – ${formatPaymentAmount(103, 'CNY')}`)
+    expect(wrapper.find('[data-testid="fee-range-hint"]').exists()).toBe(true)
+  })
+
+  it('selects a Stripe subtype before creating an order without changing its provider route', async () => {
+    const wrapper = await mountRecharge({ stripe: { ...baseMethod, currency: 'USD', fee_rate: 1, fee_rate_min: 1, fee_rate_max: 3,
+      sub_methods: {
+        card: { fee_rate: 3, fee_rate_min: 3, fee_rate_max: 3 },
+        wxpay: { fee_rate: 1, fee_rate_min: 1, fee_rate_max: 1 },
+      },
+    } })
+    expect(wrapper.text()).toContain(formatPaymentAmount(103, 'USD'))
+    wrapper.findComponent(StripeSubtypeSelector).vm.$emit('update:modelValue', 'wxpay')
+    await flushPromises()
+    expect(wrapper.text()).toContain(formatPaymentAmount(101, 'USD'))
+    const submit = wrapper.findAll('button').find(b => b.text().includes('payment.createOrder'))!
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ payment_type: 'stripe', payment_subtype: 'wxpay', amount: 100 }))
+  })
+
+  it('uses each subscription method fee when checking its payable limit', async () => {
+    const wrapper = await mountSubscriptionConfirm({
+      checkout: { recharge_fee_rate: 2, methods: {
+        alipay: { ...baseMethod, single_max: 101, fee_rate: 3, fee_rate_min: 3, fee_rate_max: 3 },
+        wxpay: { ...baseMethod, single_max: 101, fee_rate: 0, fee_rate_min: 0, fee_rate_max: 0 },
+      } },
+      plan: { price: 100 },
+    })
+    const methods = wrapper.findComponent(PaymentMethodSelector).props('methods')
+    expect(methods.find(m => m.type === 'alipay')?.available).toBe(false)
+    expect(methods.find(m => m.type === 'wxpay')?.available).toBe(true)
+  })
+
+  it('blocks an amount with excess decimals after switching the payment currency', async () => {
+    const wrapper = await mountRecharge({
+      alipay: { ...baseMethod, currency: 'CNY' },
+      wxpay: { ...baseMethod, currency: 'JPY' },
+    })
+    wrapper.findComponent(AmountInput).vm.$emit('update:modelValue', 100.5)
+    await flushPromises()
+    wrapper.findComponent(PaymentMethodSelector).vm.$emit('select', 'wxpay')
+    await flushPromises()
+    expect(wrapper.text()).toContain('payment.amountPrecision')
+    const submit = wrapper.findAll('button').find(b => b.text().includes('payment.createOrder'))!
+    expect(submit.attributes('disabled')).toBeDefined()
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).not.toHaveBeenCalled()
+  })
+
+  it('keeps Stripe selected when another subtype fits the limit so the user can choose it', async () => {
+    const wrapper = await mountRecharge({
+      alipay: { ...baseMethod, single_max: 100, fee_rate: 0, fee_rate_min: 0, fee_rate_max: 0 },
+      stripe: { ...baseMethod, single_max: 100, fee_rate: 0, fee_rate_min: 0, fee_rate_max: 10,
+        sub_methods: {
+          card: { fee_rate: 10, fee_rate_min: 10, fee_rate_max: 10 },
+          alipay: { fee_rate: 0, fee_rate_min: 0, fee_rate_max: 0 },
+        },
+      },
+    })
+    const selector = wrapper.findComponent(PaymentMethodSelector)
+    expect(selector.props('methods').find(m => m.type === 'stripe')?.available).toBe(true)
+    selector.vm.$emit('select', 'stripe')
+    await flushPromises()
+    expect(selector.props('selected')).toBe('stripe')
+    const submit = wrapper.findAll('button').find(b => b.text().includes('payment.createOrder'))!
+    expect(submit.attributes('disabled')).toBeDefined()
+    wrapper.findComponent(StripeSubtypeSelector).vm.$emit('update:modelValue', 'alipay')
+    await flushPromises()
+    expect(submit.attributes('disabled')).toBeUndefined()
+    await submit.trigger('click')
+    await flushPromises()
+    expect(createOrder).toHaveBeenCalledWith(expect.objectContaining({ payment_type: 'stripe', payment_subtype: 'alipay' }))
+  })
 })

@@ -21,7 +21,7 @@ func TestOutboxAuthoritativeSnapshotPreservesValuesReader(t *testing.T) {
 		{ID: 7301, Platform: PlatformOpenAI, Status: StatusActive, Schedulable: true},
 	}}
 	svc := newFallbackCoalesceService(cache, &snapshotValuesAuthoritativeRepo{})
-	require.IsType(t, &outboxAuthoritativeSchedulerCache{}, svc.cache)
+	require.IsType(t, &codexOrderedSchedulerCache{}, svc.cache)
 	accounts, _, err := svc.ListSchedulableAccounts(context.Background(), nil, PlatformOpenAI, false)
 	require.NoError(t, err)
 	require.Len(t, accounts, 1)
@@ -54,7 +54,7 @@ func TestOutboxAuthoritativeSnapshotLegacyFallback(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			original := &Account{ID: 1, Name: "original", Schedulable: false}
 			legacy := &legacySnapshotReadCache{accounts: []*Account{nil, original}, hit: tt.hit, err: tt.err}
-			cache := &outboxAuthoritativeSchedulerCache{SchedulerCache: legacy}
+			cache := &codexOrderedSchedulerCache{SchedulerCache: legacy}
 			accounts, hit, err := cache.GetSnapshotValues(context.Background(), SchedulerBucket{})
 			require.ErrorIs(t, err, tt.err)
 			require.Equal(t, tt.hit, hit)

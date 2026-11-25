@@ -37,7 +37,7 @@ func newAstraGroupFixture(t *testing.T) *astraGroupFixture {
 			_, _ = integrationDB.Exec(`DELETE FROM settings WHERE key='astra_routing_experiment_v1'`)
 		}
 	})
-	f.exec(`INSERT INTO account_groups(account_id,group_id,priority) VALUES($1,$2,17)`, f.id, f.other)
+	f.exec(`INSERT INTO account_groups(account_id,group_id,priority,allowed_models) VALUES($1,$2,17,'["gpt-5"]')`, f.id, f.other)
 	f.settings = config.AstraRoutingSettings{AccountScheduling: true, SchedulingMode: "groups", SchedulingGroupIDs: []int64{f.selected}, Revision: "auto-groups", CookiePool: config.CodexGatewayPinConfig{Enabled: true, TargetAccountIDs: []int64{f.id}}}
 	f.save()
 	return f
@@ -60,13 +60,13 @@ func (f *astraGroupFixture) apply(ready, changed bool) {
 	require.NoError(f.t, err)
 	require.Equal(f.t, changed, result.Changed)
 }
-func (f *astraGroupFixture) groups() map[int64]astraSchedulingGroup {
+func (f *astraGroupFixture) groups() map[int64]qualityGroup {
 	f.t.Helper()
 	var raw []byte
 	require.NoError(f.t, integrationDB.QueryRowContext(f.t.Context(), `SELECT COALESCE(jsonb_agg(to_jsonb(g)),'[]'::jsonb) FROM account_groups g WHERE account_id=$1`, f.id).Scan(&raw))
-	var groups []astraSchedulingGroup
+	var groups []qualityGroup
 	require.NoError(f.t, json.Unmarshal(raw, &groups))
-	result := map[int64]astraSchedulingGroup{}
+	result := map[int64]qualityGroup{}
 	for _, g := range groups {
 		result[g.GroupID] = g
 	}
@@ -110,7 +110,7 @@ func TestAstraGroupsPreserveExistingMembershipsAndLegacyRemoval(t *testing.T) {
 			f.save()
 			original := f.groups()[f.other]
 			if legacy {
-				state := astraActionState{Mode: "groups", GroupIDs: f.settings.SchedulingGroupIDs, Removed: []astraSchedulingGroup{original}}
+				state := astraActionState{Mode: "groups", GroupIDs: f.settings.SchedulingGroupIDs, Removed: []qualityGroup{original}}
 				raw, err := json.Marshal(state)
 				require.NoError(t, err)
 				f.exec(`DELETE FROM account_groups WHERE account_id=$1`, f.id)
@@ -125,7 +125,7 @@ func TestAstraGroupsPreserveExistingMembershipsAndLegacyRemoval(t *testing.T) {
 			f.settings.SchedulingMode = "account"
 			f.save()
 			f.apply(true, true)
-			require.Equal(t, map[int64]astraSchedulingGroup{f.other: original}, f.groups())
+			require.Equal(t, map[int64]qualityGroup{f.other: original}, f.groups())
 		})
 	}
 }
@@ -148,13 +148,15 @@ func TestAstraGroupsSelectionChangeRestoresOwnedActions(t *testing.T) {
 }
 
 func TestAstraGroupsManualEditsAreNotOverwritten(t *testing.T) {
-	for _, edit := range []string{"priority", "delete", "recreate", "manual_join"} {
+	for _, edit := range []string{"priority", "models", "delete", "recreate", "manual_join"} {
 		t.Run(edit, func(t *testing.T) {
 			f := newAstraGroupFixture(t)
 			f.apply(true, true)
 			switch edit {
 			case "priority":
 				f.exec(`UPDATE account_groups SET priority=99 WHERE account_id=$1 AND group_id=$2`, f.id, f.selected)
+			case "models":
+				f.exec(`UPDATE account_groups SET allowed_models='["gpt-5"]' WHERE account_id=$1 AND group_id=$2`, f.id, f.selected)
 			case "delete", "recreate":
 				f.exec(`DELETE FROM account_groups WHERE account_id=$1 AND group_id=$2`, f.id, f.selected)
 				if edit == "recreate" {

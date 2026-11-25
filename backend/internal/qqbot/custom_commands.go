@@ -26,7 +26,7 @@ func isBuiltinCommand(cmd string) bool {
 		return true
 	}
 	switch cmd {
-	case "帮助", "签到", "今日用量", "成长任务", "邀请奖励", "邀请活动", "我的邀请", "我的余额", "余额", "我的奖励", "抽奖", "抽奖次数", "我的抽奖", "抽奖活动", "渠道状态", "生图", "价格", "绑定", "转账", "今日排行榜", "今日排行版":
+	case "帮助", "签到", "今日用量", "成长任务", "邀请奖励", "邀请活动", "我的邀请", "我的余额", "余额", "我的奖励", "抽奖", "抽奖次数", "我的抽奖", "抽奖活动", "渠道状态", "价格", "绑定", "转账", "今日排行榜", "今日排行版":
 		return true
 	}
 	return false
@@ -35,7 +35,7 @@ func isBuiltinCommand(cmd string) bool {
 // Removed built-ins cannot be revived accidentally by stored custom replies.
 func isRetiredCommand(cmd string) bool {
 	switch cmd {
-	case "help", "我的", "福利", "领取任务", "画图", "奖励兑换", "举报垃圾信息":
+	case "help", "我的", "福利", "领取任务", "画图", "生图", "奖励兑换", "举报垃圾信息":
 		return true
 	}
 	return false

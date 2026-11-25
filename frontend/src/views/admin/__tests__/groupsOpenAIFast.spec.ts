@@ -55,7 +55,11 @@ describe("groupsOpenAIFast", () => {
       });
       expect(locale.groups.openaiFast.ultrafastHint).toContain("GPT-6 Astra");
       expect(locale.groups.openaiFast.ultrafastHint).toContain("GPT-6.1 Sol");
+      expect(locale.groups.openaiFast.ultrafastHint).toContain("GPT-6.2");
+      expect(locale.groups.openaiFast.ultrafastHint).toContain("2027");
     }
+    expect(zh.groups.openaiFast.ultrafastHint).toContain("太平洋时间 2027 年 2 月 28 日及之前默认按标准价 3 倍计费，之后为 6 倍");
+    expect(en.groups.openaiFast.ultrafastHint).toContain("3× Standard through February 28, 2027 (Pacific time), then 6×");
   });
 
   it("provides localized tier labels and states protocol and billing limits", () => {

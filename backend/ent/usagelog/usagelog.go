@@ -14,6 +14,8 @@ const (
 	Label = "usage_log"
 	// FieldID holds the string denoting the id field in the database.
 	FieldID = "id"
+	// FieldPlatform holds the string denoting the platform field in the database.
+	FieldPlatform = "platform"
 	// FieldUserID holds the string denoting the user_id field in the database.
 	FieldUserID = "user_id"
 	// FieldAPIKeyID holds the string denoting the api_key_id field in the database.
@@ -88,6 +90,8 @@ const (
 	FieldDurationMs = "duration_ms"
 	// FieldFirstTokenMs holds the string denoting the first_token_ms field in the database.
 	FieldFirstTokenMs = "first_token_ms"
+	// FieldQueueWaitMs holds the string denoting the queue_wait_ms field in the database.
+	FieldQueueWaitMs = "queue_wait_ms"
 	// FieldUserAgent holds the string denoting the user_agent field in the database.
 	FieldUserAgent = "user_agent"
 	// FieldIPAddress holds the string denoting the ip_address field in the database.
@@ -116,6 +120,10 @@ const (
 	FieldHTTPStatus = "http_status"
 	// FieldSyncXid holds the string denoting the sync_xid field in the database.
 	FieldSyncXid = "sync_xid"
+	// FieldCustomerCostDetails holds the string denoting the customer_cost_details field in the database.
+	FieldCustomerCostDetails = "customer_cost_details"
+	// FieldQueueTiming holds the string denoting the queue_timing field in the database.
+	FieldQueueTiming = "queue_timing"
 	// FieldCreatedAt holds the string denoting the created_at field in the database.
 	FieldCreatedAt = "created_at"
 	// EdgeUser holds the string denoting the user edge name in mutations.
@@ -170,6 +178,7 @@ const (
 // Columns holds all SQL columns for usagelog fields.
 var Columns = []string{
 	FieldID,
+	FieldPlatform,
 	FieldUserID,
 	FieldAPIKeyID,
 	FieldAccountID,
@@ -207,6 +216,7 @@ var Columns = []string{
 	FieldStream,
 	FieldDurationMs,
 	FieldFirstTokenMs,
+	FieldQueueWaitMs,
 	FieldUserAgent,
 	FieldIPAddress,
 	FieldImageCount,
@@ -221,6 +231,8 @@ var Columns = []string{
 	FieldCacheTTLOverridden,
 	FieldHTTPStatus,
 	FieldSyncXid,
+	FieldCustomerCostDetails,
+	FieldQueueTiming,
 	FieldCreatedAt,
 }
 
@@ -235,6 +247,8 @@ func ValidColumn(column string) bool {
 }
 
 var (
+	// PlatformValidator is a validator for the "platform" field. It is called by the builders before save.
+	PlatformValidator func(string) error
 	// RequestIDValidator is a validator for the "request_id" field. It is called by the builders before save.
 	RequestIDValidator func(string) error
 	// ModelValidator is a validator for the "model" field. It is called by the builders before save.
@@ -319,6 +333,11 @@ type OrderOption func(*sql.Selector)
 // ByID orders the results by the id field.
 func ByID(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldID, opts...).ToFunc()
+}
+
+// ByPlatform orders the results by the platform field.
+func ByPlatform(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldPlatform, opts...).ToFunc()
 }
 
 // ByUserID orders the results by the user_id field.
@@ -504,6 +523,11 @@ func ByDurationMs(opts ...sql.OrderTermOption) OrderOption {
 // ByFirstTokenMs orders the results by the first_token_ms field.
 func ByFirstTokenMs(opts ...sql.OrderTermOption) OrderOption {
 	return sql.OrderByField(FieldFirstTokenMs, opts...).ToFunc()
+}
+
+// ByQueueWaitMs orders the results by the queue_wait_ms field.
+func ByQueueWaitMs(opts ...sql.OrderTermOption) OrderOption {
+	return sql.OrderByField(FieldQueueWaitMs, opts...).ToFunc()
 }
 
 // ByUserAgent orders the results by the user_agent field.

@@ -32,6 +32,26 @@ func (_u *UsageLogUpdate) Where(ps ...predicate.UsageLog) *UsageLogUpdate {
 	return _u
 }
 
+// SetPlatform sets the "platform" field.
+func (_u *UsageLogUpdate) SetPlatform(v string) *UsageLogUpdate {
+	_u.mutation.SetPlatform(v)
+	return _u
+}
+
+// SetNillablePlatform sets the "platform" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillablePlatform(v *string) *UsageLogUpdate {
+	if v != nil {
+		_u.SetPlatform(*v)
+	}
+	return _u
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (_u *UsageLogUpdate) ClearPlatform() *UsageLogUpdate {
+	_u.mutation.ClearPlatform()
+	return _u
+}
+
 // SetUserID sets the "user_id" field.
 func (_u *UsageLogUpdate) SetUserID(v int64) *UsageLogUpdate {
 	_u.mutation.SetUserID(v)
@@ -768,6 +788,33 @@ func (_u *UsageLogUpdate) ClearFirstTokenMs() *UsageLogUpdate {
 	return _u
 }
 
+// SetQueueWaitMs sets the "queue_wait_ms" field.
+func (_u *UsageLogUpdate) SetQueueWaitMs(v int) *UsageLogUpdate {
+	_u.mutation.ResetQueueWaitMs()
+	_u.mutation.SetQueueWaitMs(v)
+	return _u
+}
+
+// SetNillableQueueWaitMs sets the "queue_wait_ms" field if the given value is not nil.
+func (_u *UsageLogUpdate) SetNillableQueueWaitMs(v *int) *UsageLogUpdate {
+	if v != nil {
+		_u.SetQueueWaitMs(*v)
+	}
+	return _u
+}
+
+// AddQueueWaitMs adds value to the "queue_wait_ms" field.
+func (_u *UsageLogUpdate) AddQueueWaitMs(v int) *UsageLogUpdate {
+	_u.mutation.AddQueueWaitMs(v)
+	return _u
+}
+
+// ClearQueueWaitMs clears the value of the "queue_wait_ms" field.
+func (_u *UsageLogUpdate) ClearQueueWaitMs() *UsageLogUpdate {
+	_u.mutation.ClearQueueWaitMs()
+	return _u
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (_u *UsageLogUpdate) SetUserAgent(v string) *UsageLogUpdate {
 	_u.mutation.SetUserAgent(v)
@@ -1030,6 +1077,18 @@ func (_u *UsageLogUpdate) ClearHTTPStatus() *UsageLogUpdate {
 	return _u
 }
 
+// SetQueueTiming sets the "queue_timing" field.
+func (_u *UsageLogUpdate) SetQueueTiming(v map[string]interface{}) *UsageLogUpdate {
+	_u.mutation.SetQueueTiming(v)
+	return _u
+}
+
+// ClearQueueTiming clears the value of the "queue_timing" field.
+func (_u *UsageLogUpdate) ClearQueueTiming() *UsageLogUpdate {
+	_u.mutation.ClearQueueTiming()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UsageLogUpdate) SetUser(v *User) *UsageLogUpdate {
 	return _u.SetUserID(v.ID)
@@ -1119,6 +1178,11 @@ func (_u *UsageLogUpdate) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UsageLogUpdate) check() error {
+	if v, ok := _u.mutation.Platform(); ok {
+		if err := usagelog.PlatformValidator(v); err != nil {
+			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UsageLog.platform": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.RequestID(); ok {
 		if err := usagelog.RequestIDValidator(v); err != nil {
 			return &ValidationError{Name: "request_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.request_id": %w`, err)}
@@ -1217,6 +1281,12 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.Platform(); ok {
+		_spec.SetField(usagelog.FieldPlatform, field.TypeString, value)
+	}
+	if _u.mutation.PlatformCleared() {
+		_spec.ClearField(usagelog.FieldPlatform, field.TypeString)
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
@@ -1407,6 +1477,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	if _u.mutation.FirstTokenMsCleared() {
 		_spec.ClearField(usagelog.FieldFirstTokenMs, field.TypeInt)
 	}
+	if value, ok := _u.mutation.QueueWaitMs(); ok {
+		_spec.SetField(usagelog.FieldQueueWaitMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedQueueWaitMs(); ok {
+		_spec.AddField(usagelog.FieldQueueWaitMs, field.TypeInt, value)
+	}
+	if _u.mutation.QueueWaitMsCleared() {
+		_spec.ClearField(usagelog.FieldQueueWaitMs, field.TypeInt)
+	}
 	if value, ok := _u.mutation.UserAgent(); ok {
 		_spec.SetField(usagelog.FieldUserAgent, field.TypeString, value)
 	}
@@ -1490,6 +1569,15 @@ func (_u *UsageLogUpdate) sqlSave(ctx context.Context) (_node int, err error) {
 	}
 	if _u.mutation.SyncXidCleared() {
 		_spec.ClearField(usagelog.FieldSyncXid, field.TypeInt64)
+	}
+	if _u.mutation.CustomerCostDetailsCleared() {
+		_spec.ClearField(usagelog.FieldCustomerCostDetails, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.QueueTiming(); ok {
+		_spec.SetField(usagelog.FieldQueueTiming, field.TypeJSON, value)
+	}
+	if _u.mutation.QueueTimingCleared() {
+		_spec.ClearField(usagelog.FieldQueueTiming, field.TypeJSON)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{
@@ -1654,6 +1742,26 @@ type UsageLogUpdateOne struct {
 	fields   []string
 	hooks    []Hook
 	mutation *UsageLogMutation
+}
+
+// SetPlatform sets the "platform" field.
+func (_u *UsageLogUpdateOne) SetPlatform(v string) *UsageLogUpdateOne {
+	_u.mutation.SetPlatform(v)
+	return _u
+}
+
+// SetNillablePlatform sets the "platform" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillablePlatform(v *string) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetPlatform(*v)
+	}
+	return _u
+}
+
+// ClearPlatform clears the value of the "platform" field.
+func (_u *UsageLogUpdateOne) ClearPlatform() *UsageLogUpdateOne {
+	_u.mutation.ClearPlatform()
+	return _u
 }
 
 // SetUserID sets the "user_id" field.
@@ -2392,6 +2500,33 @@ func (_u *UsageLogUpdateOne) ClearFirstTokenMs() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetQueueWaitMs sets the "queue_wait_ms" field.
+func (_u *UsageLogUpdateOne) SetQueueWaitMs(v int) *UsageLogUpdateOne {
+	_u.mutation.ResetQueueWaitMs()
+	_u.mutation.SetQueueWaitMs(v)
+	return _u
+}
+
+// SetNillableQueueWaitMs sets the "queue_wait_ms" field if the given value is not nil.
+func (_u *UsageLogUpdateOne) SetNillableQueueWaitMs(v *int) *UsageLogUpdateOne {
+	if v != nil {
+		_u.SetQueueWaitMs(*v)
+	}
+	return _u
+}
+
+// AddQueueWaitMs adds value to the "queue_wait_ms" field.
+func (_u *UsageLogUpdateOne) AddQueueWaitMs(v int) *UsageLogUpdateOne {
+	_u.mutation.AddQueueWaitMs(v)
+	return _u
+}
+
+// ClearQueueWaitMs clears the value of the "queue_wait_ms" field.
+func (_u *UsageLogUpdateOne) ClearQueueWaitMs() *UsageLogUpdateOne {
+	_u.mutation.ClearQueueWaitMs()
+	return _u
+}
+
 // SetUserAgent sets the "user_agent" field.
 func (_u *UsageLogUpdateOne) SetUserAgent(v string) *UsageLogUpdateOne {
 	_u.mutation.SetUserAgent(v)
@@ -2654,6 +2789,18 @@ func (_u *UsageLogUpdateOne) ClearHTTPStatus() *UsageLogUpdateOne {
 	return _u
 }
 
+// SetQueueTiming sets the "queue_timing" field.
+func (_u *UsageLogUpdateOne) SetQueueTiming(v map[string]interface{}) *UsageLogUpdateOne {
+	_u.mutation.SetQueueTiming(v)
+	return _u
+}
+
+// ClearQueueTiming clears the value of the "queue_timing" field.
+func (_u *UsageLogUpdateOne) ClearQueueTiming() *UsageLogUpdateOne {
+	_u.mutation.ClearQueueTiming()
+	return _u
+}
+
 // SetUser sets the "user" edge to the User entity.
 func (_u *UsageLogUpdateOne) SetUser(v *User) *UsageLogUpdateOne {
 	return _u.SetUserID(v.ID)
@@ -2756,6 +2903,11 @@ func (_u *UsageLogUpdateOne) ExecX(ctx context.Context) {
 
 // check runs all checks and user-defined validators on the builder.
 func (_u *UsageLogUpdateOne) check() error {
+	if v, ok := _u.mutation.Platform(); ok {
+		if err := usagelog.PlatformValidator(v); err != nil {
+			return &ValidationError{Name: "platform", err: fmt.Errorf(`ent: validator failed for field "UsageLog.platform": %w`, err)}
+		}
+	}
 	if v, ok := _u.mutation.RequestID(); ok {
 		if err := usagelog.RequestIDValidator(v); err != nil {
 			return &ValidationError{Name: "request_id", err: fmt.Errorf(`ent: validator failed for field "UsageLog.request_id": %w`, err)}
@@ -2871,6 +3023,12 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 				ps[i](selector)
 			}
 		}
+	}
+	if value, ok := _u.mutation.Platform(); ok {
+		_spec.SetField(usagelog.FieldPlatform, field.TypeString, value)
+	}
+	if _u.mutation.PlatformCleared() {
+		_spec.ClearField(usagelog.FieldPlatform, field.TypeString)
 	}
 	if value, ok := _u.mutation.RequestID(); ok {
 		_spec.SetField(usagelog.FieldRequestID, field.TypeString, value)
@@ -3061,6 +3219,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	if _u.mutation.FirstTokenMsCleared() {
 		_spec.ClearField(usagelog.FieldFirstTokenMs, field.TypeInt)
 	}
+	if value, ok := _u.mutation.QueueWaitMs(); ok {
+		_spec.SetField(usagelog.FieldQueueWaitMs, field.TypeInt, value)
+	}
+	if value, ok := _u.mutation.AddedQueueWaitMs(); ok {
+		_spec.AddField(usagelog.FieldQueueWaitMs, field.TypeInt, value)
+	}
+	if _u.mutation.QueueWaitMsCleared() {
+		_spec.ClearField(usagelog.FieldQueueWaitMs, field.TypeInt)
+	}
 	if value, ok := _u.mutation.UserAgent(); ok {
 		_spec.SetField(usagelog.FieldUserAgent, field.TypeString, value)
 	}
@@ -3144,6 +3311,15 @@ func (_u *UsageLogUpdateOne) sqlSave(ctx context.Context) (_node *UsageLog, err 
 	}
 	if _u.mutation.SyncXidCleared() {
 		_spec.ClearField(usagelog.FieldSyncXid, field.TypeInt64)
+	}
+	if _u.mutation.CustomerCostDetailsCleared() {
+		_spec.ClearField(usagelog.FieldCustomerCostDetails, field.TypeJSON)
+	}
+	if value, ok := _u.mutation.QueueTiming(); ok {
+		_spec.SetField(usagelog.FieldQueueTiming, field.TypeJSON, value)
+	}
+	if _u.mutation.QueueTimingCleared() {
+		_spec.ClearField(usagelog.FieldQueueTiming, field.TypeJSON)
 	}
 	if _u.mutation.UserCleared() {
 		edge := &sqlgraph.EdgeSpec{

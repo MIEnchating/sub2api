@@ -11,7 +11,7 @@ import (
 )
 
 func (r *settingRepository) RecordAstraGateway(ctx context.Context, row service.AstraGatewayHistoryRecord, passed bool) error {
-	if !astraGatewayHostPattern.MatchString(row.Gateway) || row.SourceAccountID <= 0 || row.TargetAccountID < 0 {
+	if !astraGatewayHistoryHostPattern.MatchString(row.Gateway) || row.SourceAccountID <= 0 || row.TargetAccountID < 0 {
 		return errors.New("invalid gateway observation")
 	}
 	// Never persist arbitrary upstream strings in the observation table.
@@ -77,4 +77,4 @@ func (r *settingRepository) ListAstraGateways(ctx context.Context, host string, 
 	return page, rows.Err()
 }
 
-var astraGatewayHostPattern = regexp.MustCompile(`^chat\.gateway\.[a-zA-Z0-9-]+\.api\.openai\.com$`)
+var astraGatewayHistoryHostPattern = regexp.MustCompile(`^chat\.gateway\.[a-zA-Z0-9-]+\.api\.openai\.com$`)

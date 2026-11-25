@@ -16,10 +16,43 @@ import (
 type oauth429RateLimitRepo struct {
 	mockAccountRepoForGemini
 	setRateLimitedCalls       int
+	setErrorCalls             int
 	lastRateLimitedUntil      time.Time
 	setModelRateLimitCalls    int
 	lastModelRateLimitKey     string
 	lastModelRateLimitedUntil time.Time
+}
+
+func TestExplicitQuotaWithoutResetCoolsInsteadOfRetrying(t *testing.T) {
+	for _, code := range []string{"insufficient_quota", "quota_exceeded", "usage_limit_reached"} {
+		t.Run(code, func(t *testing.T) {
+			repo := &oauth429RateLimitRepo{}
+			rateLimits := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
+			svc := &OpenAIGatewayService{rateLimitService: rateLimits}
+			rateLimits.SetAccountRuntimeBlocker(svc)
+			account := &Account{ID: 42, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
+			body := []byte(`{"error":{"type":"` + code + `"}}`)
+			disabled := svc.handleOpenAIAccountUpstreamError(context.Background(), account, 429, nil, body)
+			require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+			if code == "insufficient_quota" {
+				require.True(t, disabled)
+				require.Equal(t, 1, repo.setErrorCalls)
+				require.Zero(t, repo.setRateLimitedCalls)
+			} else {
+				require.False(t, disabled)
+				require.Zero(t, repo.setErrorCalls)
+				require.Equal(t, 1, repo.setRateLimitedCalls)
+			}
+			require.False(t, svc.ShouldRetryOpenAIOAuth429(account, nil, body))
+			_, started := svc.openaiOAuth429RetryStartedAt.Load(account.ID)
+			require.False(t, started)
+		})
+	}
+}
+
+func (r *oauth429RateLimitRepo) SetError(context.Context, int64, string) error {
+	r.setErrorCalls++
+	return nil
 }
 
 func (r *oauth429RateLimitRepo) SetRateLimited(_ context.Context, _ int64, until time.Time) error {
@@ -371,8 +404,10 @@ func TestOpenAI429FastPath_OpenCodeGoUsageLimitUsesMessageResetDuration(t *testi
 	repo := &rateLimit429AccountRepoStub{}
 	rateLimitService := NewRateLimitService(repo, nil, &config.Config{}, nil, nil)
 	svc := &OpenAIGatewayService{rateLimitService: rateLimitService}
-	rateLimitService.SetAccountRuntimeBlocker(svc)
-	account := &Account{ID: 44, Platform: PlatformOpenAI, Type: AccountTypeAPIKey}
+	blocker := &runtimeBlockRecorder{}
+	rateLimitService.SetAccountRuntimeBlocker(blocker)
+	// Only an identified provider owns this quota; generic relayed OpenAI keys use fallback.
+	account := &Account{ID: 44, Platform: PlatformOpenCodeGo, Type: AccountTypeAPIKey}
 	body := []byte(`{"type":"error","error":{"type":"GoUsageLimitError","message":"5-hour usage limit reached. Resets in 4hr 59min. To continue using this model now, enable usage from your available balance: https://opencode.ai/workspace/wrk_test/go"},"metadata":{"workspace":"wrk_test","limitName":"5 hour"}}`)
 
 	before := time.Now()
@@ -391,7 +426,8 @@ func TestOpenAI429FastPath_OpenCodeGoUsageLimitUsesMessageResetDuration(t *testi
 	expectedResetAfter := 4*time.Hour + 59*time.Minute
 	require.False(t, repo.lastRateLimitReset.Before(before.Add(expectedResetAfter-time.Second)))
 	require.False(t, repo.lastRateLimitReset.After(after.Add(expectedResetAfter)))
-	require.True(t, svc.isOpenAIAccountRuntimeBlocked(account))
+	require.Equal(t, []*Account{account}, blocker.accounts)
+	require.Equal(t, []time.Time{repo.lastRateLimitReset}, blocker.until)
 }
 
 // TestOpenAI429FastPath_SkipsSparkShadow 外审第8轮 P1:spark 影子被选中后若 /responses 返回 429,

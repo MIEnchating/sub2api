@@ -4,10 +4,11 @@ package repository
 
 import (
 	"context"
-	"github.com/Wei-Shaw/sub2api/internal/service"
-	"github.com/stretchr/testify/require"
 	"testing"
 	"time"
+
+	"github.com/Wei-Shaw/sub2api/internal/service"
+	"github.com/stretchr/testify/require"
 )
 
 func TestSchedulerOutboxPublicationReadsCurrentAndLocksThroughPublish(t *testing.T) {
@@ -28,7 +29,7 @@ func TestSchedulerOutboxPublicationReadsCurrentAndLocksThroughPublish(t *testing
 	})
 	_, err := integrationDB.ExecContext(ctx, "UPDATE accounts SET concurrency=7 WHERE id=$1", a.ID)
 	require.NoError(t, err)
-	require.NoError(t, repo.WithLatestSchedulerAccounts(ctx, []int64{a.ID, a.ID}, func(fresh []service.Account) error {
+	require.NoError(t, repo.WithLatestOutboxSchedulerAccounts(ctx, []int64{a.ID, a.ID}, func(fresh []service.Account) error {
 		require.Len(t, fresh, 1)
 		require.Equal(t, 7, fresh[0].Concurrency)
 		// A concurrent SQL writer cannot overtake the publication callback.
@@ -46,13 +47,13 @@ func TestSchedulerOutboxPublicationReadsCurrentAndLocksThroughPublish(t *testing
 		return nil
 	}))
 	require.NoError(t, repo.BindGroups(ctx, a.ID, []int64{g.ID}))
-	require.NoError(t, repo.WithLatestSchedulerAccounts(ctx, []int64{a.ID}, func(fresh []service.Account) error {
+	require.NoError(t, repo.WithLatestOutboxSchedulerAccounts(ctx, []int64{a.ID}, func(fresh []service.Account) error {
 		require.Len(t, fresh, 1)
 		require.Equal(t, []int64{g.ID}, fresh[0].GroupIDs)
 		return nil
 	}))
 	require.NoError(t, repo.Delete(ctx, a.ID))
-	require.NoError(t, repo.WithLatestSchedulerAccounts(ctx, []int64{a.ID}, func(fresh []service.Account) error {
+	require.NoError(t, repo.WithLatestOutboxSchedulerAccounts(ctx, []int64{a.ID}, func(fresh []service.Account) error {
 		require.Empty(t, fresh, "deleted account cannot be resurrected by a delayed retry")
 		return nil
 	}))

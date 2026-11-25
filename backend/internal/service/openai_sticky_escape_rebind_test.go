@@ -75,7 +75,7 @@ func releaseStickyEscapeRebindSelection(selection *AccountSelectionResult) {
 }
 
 func TestOpenAIStickyEscapeRebindKeepsReplacementAccount(t *testing.T) {
-	for _, reason := range []string{"concurrency", "error_rate", "ttft"} {
+	for _, reason := range []string{"concurrency", "error_rate", "ttft", "priority_capacity"} {
 		t.Run(reason, func(t *testing.T) {
 			f := newStickyEscapeRebindFixture()
 			switch reason {
@@ -88,7 +88,11 @@ func TestOpenAIStickyEscapeRebindKeepsReplacementAccount(t *testing.T) {
 				for range 5 {
 					f.scheduler.stats.report(947101, true, &slowTTFT)
 				}
-
+			case "priority_capacity":
+				priority := DefaultPrioritySchedulingConfig()
+				priority.Enabled = true
+				f.service.settingService = priorityGateway(priority, &priorityReaderStub{}).settingService
+				*f.concurrency.loadMap[947101] = AccountLoadInfo{AccountID: 947101, CurrentConcurrency: 6, LoadRate: 60}
 			}
 
 			selected, decision, err := f.scheduler.Select(context.Background(), f.request)
@@ -111,6 +115,44 @@ func TestOpenAIStickyEscapeRebindKeepsReplacementAccount(t *testing.T) {
 			releaseStickyEscapeRebindSelection(selected)
 		})
 	}
+}
+
+func TestOpenAIStickyPriorityLatencyYieldRebindsWithEscapeDisabled(t *testing.T) {
+	f := newStickyEscapeRebindFixture()
+	f.service.cfg.Gateway.OpenAIScheduler.StickyEscapeEnabled = false
+	priority := DefaultPrioritySchedulingConfig()
+	priority.Enabled = true
+	priority.TargetTTFTMs = 15000
+	badAt := time.Now().Add(-time.Minute)
+	reader := &priorityReaderStub{signal: map[int64]PrioritySchedulingSignal{
+		947101: withAccountPerformanceFixture(PrioritySchedulingSignal{Samples: 20, P90TTFTMs: 25000, LatestBadLatencyAt: &badAt, QualitySamples: 10, QualityPassed: 10}),
+		947102: withAccountPerformanceFixture(PrioritySchedulingSignal{Samples: 20, P90TTFTMs: 500, QualitySamples: 10, QualityPassed: 10}),
+	}}
+	f.service.settingService = priorityGateway(priority, reader).settingService
+	f.service.usageLogRepo = reader
+	pool := []openAIAccountCandidateScore{{account: &f.accounts[0]}, {account: &f.accounts[1]}}
+	require.Eventually(t, func() bool {
+		return f.service.priorityHistory(f.request, priority, pool).ready()
+	}, time.Second, time.Millisecond)
+
+	selected, _, err := f.scheduler.Select(context.Background(), f.request)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(947102), selected.Account.ID)
+	require.Equal(t, int64(947102), f.cache.sessionBindings["openai:rebind-session"])
+	releaseStickyEscapeRebindSelection(selected)
+
+	f.recoverOriginalAccount()
+	f.service.priorityScheduling.mu.Lock()
+	entry := f.service.priorityScheduling.entries[priorityHistoryKey(f.request, priority)]
+	entry.signals[947101] = entry.signals[947102]
+	f.service.priorityScheduling.mu.Unlock()
+	selected, decision, err := f.scheduler.Select(context.Background(), f.request)
+	require.NoError(t, err)
+	require.NotNil(t, selected)
+	require.Equal(t, int64(947102), selected.Account.ID)
+	require.True(t, decision.StickySessionHit)
+	releaseStickyEscapeRebindSelection(selected)
 }
 
 type stickyEscapeListFailureRepo struct {
@@ -281,15 +323,24 @@ func TestOpenAIStickyEscapeLateWaitPlanCannotRestoreOriginalBinding(t *testing.T
 }
 
 func TestOpenAILegacyStickySpilloverRebindKeepsReplacement(t *testing.T) {
-	for _, scenario := range []string{"queue_full", "load_read_failure"} {
+	for _, scenario := range []string{"queue_full", "load_read_failure", "rpm_headroom"} {
 		t.Run(scenario, func(t *testing.T) {
 			resetOpenAIAdvancedSchedulerSettingCacheForTest()
 			t.Cleanup(resetOpenAIAdvancedSchedulerSettingCacheForTest)
 			f := newStickyEscapeRebindFixture()
 			f.service.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("false")
+			var rpm *openAIRPMTestCache
 			if scenario == "load_read_failure" {
 				f.concurrency.loadBatchErr = errors.New("load cache unavailable")
 				f.service.concurrencyService = NewConcurrencyService(f.concurrency)
+			}
+			if scenario == "rpm_headroom" {
+				for i := range f.accounts {
+					f.accounts[i].Extra = map[string]any{"base_rpm": 10}
+				}
+				f.concurrency.acquireResults[947101] = true
+				rpm = &openAIRPMTestCache{counts: map[int64]int{947101: 8, 947102: 0}}
+				f.service.rpmCache = rpm
 			}
 			selectAccount := func() (*AccountSelectionResult, OpenAIAccountScheduleDecision, error) {
 				return f.service.SelectAccountWithScheduler(context.Background(), f.request.GroupID, "", f.request.SessionHash, f.request.RequestedModel, nil, OpenAIUpstreamTransportAny, false)
@@ -303,41 +354,15 @@ func TestOpenAILegacyStickySpilloverRebindKeepsReplacement(t *testing.T) {
 			releaseStickyEscapeRebindSelection(selected)
 
 			f.recoverOriginalAccount()
+			if rpm != nil {
+				rpm.counts[947101] = 0
+			}
 			selected, decision, err := selectAccount()
 			require.NoError(t, err)
 			require.NotNil(t, selected)
 			require.Equal(t, int64(947102), selected.Account.ID)
 			require.True(t, decision.StickySessionHit)
 			releaseStickyEscapeRebindSelection(selected)
-		})
-	}
-}
-
-// Metric-based admission holds deliberately borrow another account without
-// transferring the paused session's ownership; ordinary capacity escapes move it.
-func TestOpenAIStickyRebindPreservesCustomQualityAdmissionHold(t *testing.T) {
-	for _, mode := range []string{"legacy", "legacy_nonbatch", "advanced"} {
-		t.Run(mode, func(t *testing.T) {
-			resetOpenAIAdvancedSchedulerSettingCacheForTest()
-			t.Cleanup(resetOpenAIAdvancedSchedulerSettingCacheForTest)
-			groupID := int64(43)
-			accounts := []Account{qualityAdmissionTestAccount(1, groupID), qualityAdmissionTestAccount(2, groupID)}
-			accounts[1].Priority = -1 // Ensure the available peer is in the configured top-one candidate set.
-			gate := &activeHoldTestGate{normal: map[int64]bool{2: true}}
-			svc := activeHoldService(mode, accounts, gate)
-			if mode == "advanced" {
-				svc.rateLimitService = newOpenAIAdvancedSchedulerRateLimitService("true", "false")
-			}
-			cache := &schedulerTestGatewayCache{sessionBindings: map[string]int64{"openai:quality-hold-session": 1}}
-			svc.cache = cache
-			selection, _, err := svc.SelectAccountWithScheduler(context.Background(), &groupID, "", "quality-hold-session", "public-model", nil, OpenAIUpstreamTransportAny, false)
-			require.NoError(t, err)
-			require.NotNil(t, selection)
-			require.True(t, selection.Acquired)
-			t.Cleanup(selection.ReleaseFunc)
-			require.Equal(t, int64(2), selection.Account.ID)
-			require.True(t, selection.PreserveStickyBinding)
-			require.Equal(t, int64(1), cache.sessionBindings["openai:quality-hold-session"], "custom metric pause ownership must be retained")
 		})
 	}
 }

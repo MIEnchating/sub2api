@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"log/slog"
+	"math"
 	"net/http"
+	"strconv"
 	"strings"
 	"time"
 
@@ -188,18 +191,20 @@ func cnProviderQuotaSnapshotNearExhausted(account *Account, percent float64) boo
 	if cnQuotaHasMonthlyWindow(provider) {
 		suffixes = append(suffixes, cnExtraSuffixMonthlyUsed)
 	}
-	seen := false
 	for _, suffix := range suffixes {
 		raw, ok := account.Extra[cnExtraKey(provider, suffix)]
 		if !ok {
-			continue
+			return true
 		}
-		seen = true
-		if schedulingPercentValue(raw) >= percent {
+		// The scheduling display helper maps malformed values to zero. Zero
+		// cannot prove quota headroom here: unknown/partial snapshots must keep
+		// the existing quota-window cooldown rather than permit rapid retries.
+		used, err := strconv.ParseFloat(strings.TrimSpace(fmt.Sprint(raw)), 64)
+		if err != nil || math.IsNaN(used) || math.IsInf(used, 0) || used < 0 || used >= percent {
 			return true
 		}
 	}
-	return !seen
+	return false
 }
 
 // handleCNProviderInsufficientBalance 把余额不足标记为可恢复的临时停调：

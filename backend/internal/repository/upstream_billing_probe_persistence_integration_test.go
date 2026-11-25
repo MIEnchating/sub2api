@@ -543,6 +543,203 @@ func latestBulkAccountOutboxPayload(t *testing.T, ctx context.Context, tx sqlQue
 	return payload.AccountIDs
 }
 
+func TestProbeSnapshotBalanceRoundTripsThroughCASAndIdentityClear(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	account := mustCreateAccount(t, tx.Client(), &service.Account{
+		Name:        "probe-balance-round-trip",
+		Platform:    service.PlatformOpenAI,
+		Type:        service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-old", "base_url": "https://relay.example/v1"},
+		Extra:       map[string]any{service.UpstreamBillingProbeEnabledExtraKey: true},
+	})
+	receivedAt := time.Date(2026, time.July, 13, 1, 0, 0, 0, time.UTC)
+	freshUntil := receivedAt.Add(time.Hour)
+	snapshotWithBalance := func(remaining float64) *service.UpstreamBillingProbeSnapshot {
+		return &service.UpstreamBillingProbeSnapshot{
+			Status:        service.UpstreamBillingProbeStatusUnsupported,
+			LastAttemptAt: receivedAt,
+			NextProbeAt:   receivedAt.Add(30 * time.Minute),
+			Balance: &service.UpstreamBalanceSnapshot{
+				Status: service.UpstreamBillingProbeStatusOK,
+				Data: map[string]any{
+					"is_valid":  true,
+					"plan_name": "钱包余额",
+					"remaining": remaining,
+					"windows":   []map[string]any{{"window": "5h", "limit": 5.0, "used": 1.25}},
+				},
+				ReceivedAt:    &receivedAt,
+				FreshUntil:    &freshUntil,
+				LastAttemptAt: receivedAt,
+			},
+		}
+	}
+
+	loaded, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshotWithBalance(1084.44), nil, service.BillingGroupInfo{}))
+
+	// The next probe's CAS compares against the snapshot as read back from
+	// JSONB, nested balance included.
+	reloaded, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	items := service.BuildUpstreamBillingRateSnapshotItems([]service.Account{*reloaded})
+	require.Len(t, items, 1)
+	require.NotNil(t, items[0].Snapshot)
+	require.NotNil(t, items[0].Snapshot.Balance)
+	require.Equal(t, 1084.44, items[0].Snapshot.Balance.Data["remaining"])
+	require.Equal(t, []any{map[string]any{"window": "5h", "limit": 5.0, "used": 1.25}}, items[0].Snapshot.Balance.Data["windows"])
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, reloaded, snapshotWithBalance(12.5), nil, service.BillingGroupInfo{}))
+
+	updated, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	raw, err := json.Marshal(updated.Extra[service.UpstreamBillingProbeExtraKey])
+	require.NoError(t, err)
+	require.Contains(t, string(raw), `"remaining":12.5`)
+
+	updated.Credentials["api_key"] = "sk-new"
+	require.NoError(t, repo.Update(ctx, updated))
+	cleared, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.NotContains(t, cleared.Extra, service.UpstreamBillingProbeExtraKey)
+}
+
+func TestProbeReplacesSavedCostMultiplier(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	now := time.Now().UTC()
+	for _, tt := range []struct {
+		name        string
+		status      string
+		accountType string
+		rate        float64
+		want        float64
+	}{
+		{"success without billing sync", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 0.14, 0.14},
+		{"zero upstream", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 0, 0},
+		{"failed cached result", service.UpstreamBillingProbeStatusFailed, service.AccountTypeAPIKey, 0.14, 0.1},
+		{"unsupported cached result", service.UpstreamBillingProbeStatusUnsupported, service.AccountTypeAPIKey, 0.14, 0.1},
+		{"out of range", service.UpstreamBillingProbeStatusOK, service.AccountTypeAPIKey, 1000001, 0.1},
+		{"oauth", service.UpstreamBillingProbeStatusOK, service.AccountTypeOAuth, 0.14, 0.1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			billing := 7.0
+			account := mustCreateAccount(t, tx.Client(), &service.Account{
+				Name: "cost-sync-" + tt.name, Platform: service.PlatformOpenAI, Type: tt.accountType,
+				RateMultiplier: &billing, Credentials: map[string]any{"api_key": "sk-test"},
+				Extra: map[string]any{service.AccountCostMultiplierExtraKey: 0.1, "unrelated": "keep"},
+			})
+			require.NoError(t, tx.Client().Account.UpdateOneID(account.ID).SetRateMultiplier(billing).Exec(ctx))
+			loaded, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			snapshot := &service.UpstreamBillingProbeSnapshot{Status: tt.status, LastAttemptAt: now, Data: map[string]any{
+				"billing_scope": "token", "resolved_rate_multiplier": tt.rate, "peak_rate_enabled": false,
+			}}
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, loaded, snapshot, nil, service.BillingGroupInfo{}))
+			got, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, got.Extra[service.AccountCostMultiplierExtraKey])
+			require.Equal(t, tt.want, got.CostMultiplier())
+			require.Equal(t, billing, got.BillingRateMultiplier())
+			require.Equal(t, "keep", got.Extra["unrelated"])
+			items := service.BuildUpstreamBillingRateSnapshotItems([]service.Account{*got})
+			require.Equal(t, tt.want, items[0].CostMultiplier, "background refresh returns the saved cost")
+			// A name-only save from a form opened before the probe must preserve cost.
+			delete(loaded.Extra, service.AccountCostMultiplierExtraKey)
+			loaded.Name = "renamed-" + tt.name
+			require.NoError(t, repo.Update(ctx, loaded))
+			renamed, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, renamed.CostMultiplier())
+			snapshot.Status = service.UpstreamBillingProbeStatusFailed
+			require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, got, snapshot, nil, service.BillingGroupInfo{}))
+			afterFailure, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			require.Equal(t, tt.want, afterFailure.CostMultiplier(), "failed probes preserve the saved value")
+		})
+	}
+}
+
+func TestProbePreservesManualCostWhenAutoSyncDisabledDuringProbe(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	account := mustCreateAccount(t, tx.Client(), &service.Account{
+		Name: "manual-cost", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+		Credentials: map[string]any{"api_key": "sk-test"},
+		Extra:       map[string]any{service.AccountCostMultiplierExtraKey: 0.1},
+	})
+	inFlight, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.True(t, inFlight.CostMultiplierAutoSyncEnabled())
+	// A 5x recharge credit means the operator's actual cost is 0.2, even though
+	// the upstream reports 1. Complete an already-running probe after saving it.
+	require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{
+		service.AccountCostMultiplierExtraKey: 0.2, service.AccountCostAutoSyncExtraKey: false,
+	}))
+	snapshot := &service.UpstreamBillingProbeSnapshot{Status: service.UpstreamBillingProbeStatusOK, LastAttemptAt: time.Now().UTC(), Data: map[string]any{
+		"billing_scope": "token", "resolved_rate_multiplier": 1.0, "peak_rate_enabled": false,
+	}}
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, inFlight, snapshot, nil, service.BillingGroupInfo{}))
+	manual, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0.2, manual.CostMultiplier())
+	require.False(t, manual.CostMultiplierAutoSyncEnabled())
+	items := service.BuildUpstreamBillingRateSnapshotItems([]service.Account{*manual})
+	require.Equal(t, 0.2, items[0].CostMultiplier)
+	require.Equal(t, 1.0, items[0].Snapshot.Data["resolved_rate_multiplier"], "upstream probing still updates its snapshot")
+	// An unrelated edit from an older client must not clear either setting.
+	delete(inFlight.Extra, service.AccountCostMultiplierExtraKey)
+	inFlight.Name = "renamed"
+	require.NoError(t, repo.Update(ctx, inFlight))
+	renamed, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0.2, renamed.CostMultiplier())
+	require.False(t, renamed.CostMultiplierAutoSyncEnabled())
+	// Subsequent manual probes remain read-only with respect to cost.
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, renamed, snapshot, nil, service.BillingGroupInfo{}))
+	manual, err = repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0.2, manual.CostMultiplier())
+	// Re-enabling only changes the mode; the next successful probe updates cost.
+	require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{service.AccountCostAutoSyncExtraKey: true}))
+	enabled, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 0.2, enabled.CostMultiplier())
+	require.NoError(t, repo.UpdateUpstreamBillingProbeSnapshot(ctx, enabled, snapshot, nil, service.BillingGroupInfo{}))
+	synced, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, 1.0, synced.CostMultiplier())
+}
+
+func TestAccountProbePenaltyOmittedEditPreservesCommittedSetting(t *testing.T) {
+	ctx := context.Background()
+	tx := testEntTx(t)
+	repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+	account := mustCreateAccount(t, tx.Client(), &service.Account{Name: "probe-penalty-omit", Platform: service.PlatformAnthropic, Type: service.AccountTypeAPIKey, Extra: map[string]any{service.AccountProbePenaltyExtraKey: map[string]any{"enabled": true, "minimum_charge": .001}}})
+	stale, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.NoError(t, repo.UpdateExtra(ctx, account.ID, map[string]any{service.AccountProbePenaltyExtraKey: map[string]any{"enabled": false, "minimum_charge": .002}}))
+	delete(stale.Extra, service.AccountProbePenaltyExtraKey)
+	stale.Name = "unrelated rename"
+	require.NoError(t, repo.Update(ctx, stale))
+	saved, err := repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, map[string]any{"enabled": false, "minimum_charge": .002}, saved.Extra[service.AccountProbePenaltyExtraKey])
+	stale.Extra[service.AccountProbePenaltyExtraKey] = map[string]any{"enabled": true, "minimum_charge": .003}
+	require.NoError(t, repo.Update(ctx, stale))
+	saved, err = repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Equal(t, .003, saved.ProbePenaltyMinimum())
+	stale.Extra[service.AccountProbePenaltyExtraKey] = nil
+	require.NoError(t, repo.Update(ctx, stale))
+	saved, err = repo.GetByID(ctx, account.ID)
+	require.NoError(t, err)
+	require.Zero(t, saved.ProbePenaltyMinimum())
+}
+
 func TestProbeGroupWriteHonorsDisableDuringRequest(t *testing.T) {
 	ctx := context.Background()
 	tx := testEntTx(t)
@@ -574,4 +771,66 @@ func TestProbeGroupWriteHonorsDisableDuringRequest(t *testing.T) {
 	require.Equal(t, "Pro", after.Name)
 	require.Equal(t, notes, *after.Notes)
 	require.Equal(t, false, after.Extra[service.UpstreamBillingGroupSyncEnabledExtraKey])
+}
+
+// Deterministically interleave a database edit between the service's read and
+// the repository write. This exercises the real transaction and row lock, not a
+// mock that simply compares versions in memory.
+func TestAccountUpstreamGroupSyncVersionProtectsReadWriteBoundary(t *testing.T) {
+	for _, change := range []string{"none", "name", "notes", "api_key", "base_url", "priority"} {
+		t.Run(change, func(t *testing.T) {
+			ctx := context.Background()
+			tx := testEntTx(t)
+			repo := newAccountRepositoryWithSQL(tx.Client(), tx, nil)
+			account := mustCreateAccount(t, tx.Client(), &service.Account{
+				Name: "Original", Platform: service.PlatformOpenAI, Type: service.AccountTypeAPIKey,
+				Credentials: map[string]any{"api_key": "synthetic-key", "base_url": "https://relay.example/v1"},
+			})
+			loaded, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			version := loaded.UpdatedAt
+			if change != "none" {
+				update := tx.Client().Account.UpdateOneID(account.ID).SetUpdatedAt(version.Add(time.Second))
+				switch change {
+				case "name":
+					update.SetName("Manual name")
+				case "notes":
+					update.SetNotes("Manual notes")
+				case "priority":
+					update.SetPriority(9)
+				case "api_key", "base_url":
+					credentials := map[string]any{"api_key": "synthetic-key", "base_url": "https://relay.example/v1"}
+					credentials[change] = "synthetic-replacement"
+					update.SetCredentials(credentials)
+				}
+				_, err = update.Save(ctx)
+				require.NoError(t, err)
+			}
+			before, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			loaded.Name = "Remote name"
+			notes := "Remote notes"
+			loaded.Notes = &notes
+			err = repo.UpdateWithAccountBillingSettings(ctx, loaded, service.AccountBillingSettingsUpdate{
+				SetName: true, SetNotes: true, ExpectedUpdatedAt: &version,
+			})
+			if change == "none" {
+				require.NoError(t, err)
+			} else {
+				require.ErrorIs(t, err, service.ErrAccountUpdateConflict)
+			}
+			got, err := repo.GetByID(ctx, account.ID)
+			require.NoError(t, err)
+			if change == "none" {
+				require.Equal(t, "Remote name", got.Name)
+				require.Equal(t, "Remote notes", *got.Notes)
+			} else {
+				require.Equal(t, before.Name, got.Name)
+				require.Equal(t, before.Notes, got.Notes)
+				require.Equal(t, before.Credentials, got.Credentials)
+				require.Equal(t, before.Priority, got.Priority)
+				require.Equal(t, before.UpdatedAt, got.UpdatedAt)
+			}
+		})
+	}
 }

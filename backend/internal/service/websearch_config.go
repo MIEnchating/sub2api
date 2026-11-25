@@ -20,9 +20,9 @@ type WebSearchEmulationConfig struct {
 	Providers []WebSearchProviderConfig `json:"providers"`
 }
 
-// WebSearchProviderConfig describes a single search provider (Brave, Tavily or Exa).
+// WebSearchProviderConfig describes a single search provider (Brave, Tavily, DeepSeek, or Exa).
 type WebSearchProviderConfig struct {
-	Type             string `json:"type"`                    // websearch.ProviderTypeBrave | Tavily | Exa
+	Type             string `json:"type"`                    // websearch.ProviderTypeBrave | Tavily | DeepSeek | Exa
 	APIKey           string `json:"api_key,omitempty"`       // secret — omitted in API responses
 	APIKeyConfigured bool   `json:"api_key_configured"`      // read-only mask
 	QuotaLimit       *int64 `json:"quota_limit"`             // nil = unlimited, >0 = limited
@@ -37,9 +37,10 @@ type WebSearchProviderConfig struct {
 const maxWebSearchProviders = 10
 
 var validProviderTypes = map[string]bool{
-	websearch.ProviderTypeBrave:  true,
-	websearch.ProviderTypeTavily: true,
-	websearch.ProviderTypeExa:    true,
+	websearch.ProviderTypeBrave:    true,
+	websearch.ProviderTypeTavily:   true,
+	websearch.ProviderTypeDeepSeek: true,
+	websearch.ProviderTypeExa:      true,
 }
 
 func validateWebSearchConfig(cfg *WebSearchEmulationConfig) error {
@@ -74,7 +75,9 @@ type cachedWebSearchEmulationConfig struct {
 	expiresAt int64 // unix nano
 }
 
-var webSearchEmulationCache atomic.Value // *cachedWebSearchEmulationConfig
+var webSearchEmulationCache atomic.Value
+
+// *cachedWebSearchEmulationConfig
 var webSearchEmulationSF singleflight.Group
 
 const (

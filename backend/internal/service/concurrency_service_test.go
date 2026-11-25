@@ -367,7 +367,7 @@ func TestTrackAPIKeySlot_FailOpen(t *testing.T) {
 	require.Equal(t, []int64{88}, cache.trackedAPIKeyIDs)
 
 	require.NotPanics(t, release)
-	require.Empty(t, cache.releasedAPIKeyIDs)
+	require.Equal(t, cache.trackedAPIKeyRequestIDs, cache.releasedAPIKeyRequestIDs)
 }
 
 func TestGetAPIKeyConcurrencyBatch_Fallbacks(t *testing.T) {
@@ -688,4 +688,42 @@ func TestIncrementAccountWaitCount_NilCache(t *testing.T) {
 	allowed, err := svc.IncrementAccountWaitCount(context.Background(), 1, 10)
 	require.NoError(t, err)
 	require.True(t, allowed)
+}
+
+type unlimitedUserTrackerStub struct {
+	stubConcurrencyCacheForTest
+	trackedID         string
+	releasedID        string
+	releaseCalls      int
+	trackErr          error
+	releaseContextErr error
+}
+
+func (s *unlimitedUserTrackerStub) TrackUserSlot(_ context.Context, _ int64, requestID string) error {
+	s.trackedID = requestID
+	return s.trackErr
+}
+func (s *unlimitedUserTrackerStub) ReleaseTrackedUserSlot(ctx context.Context, _ int64, requestID string) error {
+	s.releasedID = requestID
+	s.releaseCalls++
+	s.releaseContextErr = ctx.Err()
+	return nil
+}
+func TestAcquireUserSlot_UnlimitedTracksAndReleasesAfterCancellation(t *testing.T) {
+	for _, trackErr := range []error{nil, errors.New("redis timeout after write")} {
+		cache := &unlimitedUserTrackerStub{trackErr: trackErr}
+		svc := NewConcurrencyService(cache)
+		ctx, cancel := context.WithCancel(context.Background())
+		result, err := svc.AcquireUserSlot(ctx, 42, 0)
+		require.NoError(t, err)
+		require.True(t, result.Acquired)
+		require.NotEmpty(t, result.RequestID)
+		require.Equal(t, cache.trackedID, result.RequestID)
+		cancel()
+		result.ReleaseFunc()
+		result.ReleaseFunc()
+		require.Equal(t, result.RequestID, cache.releasedID)
+		require.Equal(t, 1, cache.releaseCalls)
+		require.NoError(t, cache.releaseContextErr)
+	}
 }

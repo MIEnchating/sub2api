@@ -234,7 +234,8 @@ func (h *PaymentHandler) GetLimits(c *gin.Context) {
 
 // CreateOrderRequest is the request body for creating a payment order.
 type CreateOrderRequest struct {
-	CouponID          int64   `json:"coupon_id"`
+	CouponID          int64   `json:"coupon_id,omitempty"`
+	PaymentSubtype    string  `json:"payment_subtype,omitempty"`
 	Amount            float64 `json:"amount"`
 	PaymentType       string  `json:"payment_type" binding:"required"`
 	OpenID            string  `json:"openid"`
@@ -243,6 +244,7 @@ type CreateOrderRequest struct {
 	PaymentSource     string  `json:"payment_source"`
 	OrderType         string  `json:"order_type"`
 	PlanID            int64   `json:"plan_id"`
+	RenewalMode       string  `json:"renewal_mode"`
 	// IsMobile lets the frontend declare its mobile status directly. When
 	// nil we fall back to User-Agent heuristics (which miss iPadOS / some
 	// embedded browsers that strip the "Mobile" keyword).
@@ -279,10 +281,11 @@ func (h *PaymentHandler) CreateOrder(c *gin.Context) {
 		mobile = *req.IsMobile
 	}
 	result, err := h.paymentService.CreateOrder(c.Request.Context(), service.CreateOrderRequest{
-		UserID:          subject.UserID,
 		CouponID:        req.CouponID,
+		UserID:          subject.UserID,
 		Amount:          req.Amount,
 		PaymentType:     req.PaymentType,
+		PaymentSubtype:  req.PaymentSubtype,
 		OpenID:          req.OpenID,
 		ClientIP:        c.ClientIP(),
 		IsMobile:        mobile,
@@ -293,6 +296,7 @@ func (h *PaymentHandler) CreateOrder(c *gin.Context) {
 		PaymentSource:   req.PaymentSource,
 		OrderType:       req.OrderType,
 		PlanID:          req.PlanID,
+		RenewalMode:     req.RenewalMode,
 		Locale:          c.GetHeader("Accept-Language"),
 	})
 	if err != nil {
@@ -321,9 +325,12 @@ func applyWeChatPaymentResumeClaims(req *CreateOrderRequest, claims *service.WeC
 			return infraerrors.BadRequest("INVALID_WECHAT_PAYMENT_RESUME_TOKEN", "wechat payment resume token payment type mismatch")
 		}
 	}
+	if claims.CouponID < 0 || (req.CouponID != 0 && req.CouponID != claims.CouponID) {
+		return infraerrors.BadRequest("INVALID_WECHAT_PAYMENT_RESUME_TOKEN", "coupon selection does not match signed payment context")
+	}
+	req.CouponID = claims.CouponID
 	req.PaymentType = paymentType
 	req.OpenID = openid
-	req.CouponID = claims.CouponID
 
 	if strings.TrimSpace(claims.Amount) != "" {
 		amount, err := strconv.ParseFloat(strings.TrimSpace(claims.Amount), 64)
@@ -337,6 +344,22 @@ func applyWeChatPaymentResumeClaims(req *CreateOrderRequest, claims *service.WeC
 	}
 	if claims.PlanID > 0 {
 		req.PlanID = claims.PlanID
+	}
+	if claims.RenewalMode != "" {
+		claimMode, err := service.NormalizeSubscriptionRenewalMode(claims.RenewalMode)
+		if err != nil {
+			return err
+		}
+		if req.RenewalMode != "" {
+			requestMode, err := service.NormalizeSubscriptionRenewalMode(req.RenewalMode)
+			if err != nil {
+				return err
+			}
+			if requestMode != claimMode {
+				return infraerrors.BadRequest("INVALID_WECHAT_PAYMENT_RESUME_TOKEN", "wechat payment resume token renewal mode mismatch")
+			}
+		}
+		req.RenewalMode = string(claimMode)
 	}
 	return nil
 }
@@ -486,6 +509,7 @@ func (h *PaymentHandler) VerifyOrder(c *gin.Context) {
 // proves possession of the checkout session, so the result keeps the legacy
 // frontend contract needed by payment result pages.
 type PublicOrderResult struct {
+	PaymentSubtype      string     `json:"payment_subtype,omitempty"`
 	ID                  int64      `json:"id"`
 	OutTradeNo          string     `json:"out_trade_no"`
 	Amount              float64    `json:"amount"`
@@ -506,6 +530,7 @@ type PublicOrderResult struct {
 	RefundRequestedBy   *string    `json:"refund_requested_by,omitempty"`
 	RefundRequestReason *string    `json:"refund_request_reason,omitempty"`
 	PlanID              *int64     `json:"plan_id,omitempty"`
+	RenewalMode         string     `json:"renewal_mode,omitempty"`
 }
 
 // PublicOrderVerifyResult is returned by the legacy anonymous out_trade_no
@@ -522,6 +547,7 @@ type PublicOrderVerifyResult struct {
 
 func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 	return PublicOrderResult{
+		PaymentSubtype:      service.PaymentOrderSubtype(order),
 		ID:                  order.ID,
 		OutTradeNo:          order.OutTradeNo,
 		Amount:              order.Amount,
@@ -542,6 +568,7 @@ func buildPublicOrderResult(order *dbent.PaymentOrder) PublicOrderResult {
 		RefundRequestedBy:   order.RefundRequestedBy,
 		RefundRequestReason: order.RefundRequestReason,
 		PlanID:              order.PlanID,
+		RenewalMode:         order.SubscriptionRenewalMode,
 	}
 }
 
@@ -632,6 +659,7 @@ func isMobile(c *gin.Context) bool {
 
 type PaymentOrderResult struct {
 	Coupon              *service.PaymentCouponSummary `json:"coupon,omitempty"`
+	PaymentSubtype      string                        `json:"payment_subtype,omitempty"`
 	ID                  int64                         `json:"id"`
 	UserID              int64                         `json:"user_id"`
 	Amount              float64                       `json:"amount"`
@@ -653,6 +681,7 @@ type PaymentOrderResult struct {
 	RefundRequestedBy   *string                       `json:"refund_requested_by,omitempty"`
 	RefundRequestReason *string                       `json:"refund_request_reason,omitempty"`
 	PlanID              *int64                        `json:"plan_id,omitempty"`
+	RenewalMode         string                        `json:"renewal_mode,omitempty"`
 	ProviderInstanceID  *string                       `json:"provider_instance_id,omitempty"`
 }
 
@@ -672,6 +701,7 @@ func sanitizePaymentOrderForResponse(order *dbent.PaymentOrder) *PaymentOrderRes
 	}
 	return &PaymentOrderResult{
 		Coupon:              service.PaymentOrderCoupon(order),
+		PaymentSubtype:      service.PaymentOrderSubtype(order),
 		ID:                  order.ID,
 		UserID:              order.UserID,
 		Amount:              order.Amount,
@@ -693,6 +723,7 @@ func sanitizePaymentOrderForResponse(order *dbent.PaymentOrder) *PaymentOrderRes
 		RefundRequestedBy:   order.RefundRequestedBy,
 		RefundRequestReason: order.RefundRequestReason,
 		PlanID:              order.PlanID,
+		RenewalMode:         order.SubscriptionRenewalMode,
 		ProviderInstanceID:  order.ProviderInstanceID,
 	}
 }

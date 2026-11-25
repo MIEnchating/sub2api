@@ -1127,7 +1127,8 @@ func TestOpenAIGatewayServiceForwardImages_OAuth429CarriesSameAccountRetryWindow
 	}}}
 	parsed, err := svc.ParseOpenAIImagesRequest(c, body)
 	require.NoError(t, err)
-	account := &Account{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeOAuth, RateLimit429RetryCount: retryCountPointer(0), Credentials: map[string]any{"access_token": "token-123"}}
+	account := &Account{ID: 22, Platform: PlatformOpenAI, Type: AccountTypeOAuth, Credentials: map[string]any{"access_token": "token-123"}}
+	account.RateLimit429RetryCount = retryCountPointer(0)
 	startedAt := time.Now()
 
 	result, err := svc.ForwardImages(context.Background(), c, account, body, parsed, "")
@@ -1163,7 +1164,9 @@ func TestOpenAIImagesOAuthBodyReadTransportErrorFailover(t *testing.T) {
 	var failoverErr *UpstreamFailoverError
 	require.ErrorAs(t, err, &failoverErr)
 	require.Equal(t, http.StatusBadGateway, failoverErr.StatusCode)
-	require.JSONEq(t, `{"error":{"type":"upstream_error","code":"upstream_http2_stream_error","message":"Upstream HTTP/2 stream failed"}}`, string(failoverErr.ResponseBody))
+	require.Equal(t, "upstream_error", gjson.GetBytes(failoverErr.ResponseBody, "error.type").String())
+	require.Equal(t, "upstream_http2_stream_error", gjson.GetBytes(failoverErr.ResponseBody, "error.code").String())
+	require.Equal(t, openAIHTTP2PeerResetMessage("INTERNAL_ERROR"), gjson.GetBytes(failoverErr.ResponseBody, "error.message").String())
 	require.Equal(t, "req_h2_read_failure", failoverErr.ResponseHeaders.Get("x-request-id"))
 	require.Equal(t, "preserved", failoverErr.ResponseHeaders.Get("x-upstream"))
 	resp.Header.Set("X-Upstream", "mutated")
@@ -1176,7 +1179,7 @@ func TestOpenAIImagesOAuthBodyReadTransportErrorFailover(t *testing.T) {
 	require.Len(t, events, 1)
 	require.Equal(t, "failover", events[0].Kind)
 	require.Equal(t, "req_h2_read_failure", events[0].UpstreamRequestID)
-	require.Equal(t, "Upstream HTTP/2 stream failed", events[0].Message)
+	require.Equal(t, openAIHTTP2PeerResetMessage("INTERNAL_ERROR"), events[0].Message)
 }
 
 func TestOpenAIImagesOAuthBodyReadErrorsNotMisclassified(t *testing.T) {

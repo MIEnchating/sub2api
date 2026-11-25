@@ -49,7 +49,7 @@ func TestAPIKeyFallbackRejectsZeroBalanceBeforeUpstream(t *testing.T) {
 	fallback := &service.Group{ID: fallbackID, Platform: service.PlatformOpenAI, Status: service.StatusActive, Hydrated: true, SubscriptionType: service.SubscriptionTypeStandard, UserConcurrencyLimit: 1}
 	repo := auditFallbackAccountRepo{strictRequestAccountRepo{openAIImagesFailoverAccountRepo{accounts: []service.Account{{ID: 6, Name: "fallback", Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Status: service.StatusActive, Schedulable: true, GroupIDs: []int64{fallbackID}, Credentials: map[string]any{"access_token": "test-token"}}}}}}
 	upstream := &strictRequestUpstream{winner: 6}
-	h := newOpenAIResponsesFailoverTestHandler(t, upstream, repo)
+	h := newOpenAIResponsesFailoverTestHandlerWithRepository(t, upstream, repo, nil, nil, nil, nil)
 	h.cfg.RunMode = "standard"
 	cache := &helperConcurrencyCacheStub{userGroupSeq: []bool{true}}
 	h.concurrencyHelper = NewConcurrencyHelper(service.NewConcurrencyService(cache), SSEPingFormatNone, time.Millisecond)

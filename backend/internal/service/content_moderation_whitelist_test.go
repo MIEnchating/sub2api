@@ -213,13 +213,14 @@ func TestContentModerationUserWhitelistCyberPolicySkipsSideEffects(t *testing.T)
 	cfg.UserWhitelistIDs = []int64{7}
 	cfg.BanThreshold = 1
 	svc, _ := newModerationWhitelistTestService(t, cfg)
-	repo := &banCountArgsTestRepo{}
 	users := &contentModerationTestUserRepo{user: &User{ID: 7, Role: RoleUser, Status: StatusActive}}
+	repo := &cyberScopeTxRepo{banCountArgsTestRepo: &banCountArgsTestRepo{}, user: users.user}
 	emailSettings := &contentModerationRuntimeSettingRepo{}
 	svc.repo = repo
 	svc.userRepo = users
 	svc.emailService = &EmailService{settingRepo: emailSettings}
-	input := CyberPolicyRecordInput{UserID: 7, UserEmail: "user@example.test", Model: "gpt-5", UpstreamMessage: "cyber_policy"}
+	version := int64(0)
+	input := CyberPolicyRecordInput{UserID: 7, UserEmail: "user@example.test", Model: "gpt-5", UpstreamMessage: "cyber_policy", ModerationVersion: &version}
 
 	svc.RecordCyberPolicyEvent(context.Background(), input)
 	require.Empty(t, repo.snapshotLogs())
@@ -234,7 +235,8 @@ func TestContentModerationUserWhitelistCyberPolicySkipsSideEffects(t *testing.T)
 	svc.RecordCyberPolicyEvent(context.Background(), input)
 	require.Len(t, repo.snapshotLogs(), 1)
 	require.Len(t, repo.snapshotCountCalls(), 1)
-	require.Len(t, users.updated, 1)
+	require.True(t, repo.snapshotLogs()[0].AutoBanned)
+	require.Empty(t, users.updated, "the transactional repository owns the status update")
 	require.Equal(t, StatusDisabled, users.user.Status)
 	_, emailCalls = emailSettings.calls()
 	require.Positive(t, emailCalls, "non-whitelisted cyber events must retain existing notification behavior")
@@ -269,7 +271,7 @@ func TestContentModerationUserWhitelistSkipsAlreadyQueuedAudits(t *testing.T) {
 	// A following non-whitelisted audit acts as a completion marker for both older tasks.
 	input.UserID = 8
 	svc.enqueueAsync(input, cfg, content, content.Hash())
-	go svc.worker(0)
+	go svc.runWorker(t.Context(), 0)
 	repo, ok := svc.repo.(*contentModerationTestRepo)
 	require.True(t, ok)
 	require.Eventually(t, func() bool {

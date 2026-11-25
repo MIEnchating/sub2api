@@ -12,24 +12,51 @@ import (
 const excelBPSWarmSyncInterval = 5 * time.Second
 const excelBPSWarmMaxTarget = 4096
 
-func excelBPSWarmTargets(accounts []Account) (managed, static int) {
+// BPSWarmAccountRepository avoids hydrating credentials, proxies and groups for
+// the periodic pool-sizing pass. Implementations must retain eligibility flags.
+type BPSWarmAccountRepository interface {
+	ListBPSWarmAccounts(context.Context) ([]Account, error)
+}
+
+// Recovery probes remain eligible for warming without mutating the repository
+// account or re-enabling it for normal scheduling.
+func effectiveExcelBPSWarmAccount(account *Account) (*Account, bool) {
+	if !account.IsExcelBPS403RecoveryPending() {
+		return account, false
+	}
+	probe := *account
+	probe.Extra = cloneExcelBPSRecoveryExtra(account.Extra)
+	probe.Extra["openai_excel_bps"] = true
+	return &probe, true
+}
+
+func excelBPSWarmTargets(accounts []Account, bpsEnabled bool) (managed, static int, groups map[int64][]int64) {
+	groups = make(map[int64][]int64)
 	for i := range accounts {
 		a := &accounts[i]
-		if a.IsExcelBPS403RecoveryPending() {
-			probe := *a
-			probe.Extra = cloneExcelBPSRecoveryExtra(a.Extra)
-			probe.Extra["openai_excel_bps"] = true
-			probe.Concurrency = 1
-			a = &probe
-		}
-		if !a.IsActive() || !a.Schedulable || !a.IsExcelBPSMihomoEnabled() {
+		if !a.IsActive() || !a.Schedulable {
 			continue
 		}
 		target := max(1, min(a.Concurrency, excelBPSWarmMaxTarget))
-		if a.ExcelBPSProxySource() == ExcelBPSProxySourceIPPool {
+		if bpsEnabled {
+			var recovery bool
+			a, recovery = effectiveExcelBPSWarmAccount(a)
+			if recovery {
+				target = 1
+			}
+		}
+		_, explicitProxyMode := a.Extra[OpenAIProxyModeKey]
+		if (bpsEnabled || explicitProxyMode) && a.OpenAIRequestProxyEnabled() {
+			groups[a.ID] = a.OpenAIRequestProxyIDs()
 			static = min(excelBPSWarmMaxTarget, static+target)
-		} else {
-			managed = min(excelBPSWarmMaxTarget, managed+target)
+			continue
+		}
+		if bpsEnabled && a.IsExcelBPSMihomoEnabled() {
+			if a.ExcelBPSProxySource() == ExcelBPSProxySourceIPPool {
+				static = min(excelBPSWarmMaxTarget, static+target)
+			} else {
+				managed = min(excelBPSWarmMaxTarget, managed+target)
+			}
 		}
 	}
 	return
@@ -81,12 +108,16 @@ func (s *OpenAIGatewayService) StopBPSWarmPool() {
 	}
 }
 func (s *OpenAIGatewayService) syncBPSWarmPool(ctx context.Context) {
-	if !s.excelBPSGloballyEnabled(ctx) {
-		mihomo.WarmBPSPools(ctx, 0, 0)
-		return
-	}
 	queryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	accounts, err := s.accountRepo.ListByPlatform(queryCtx, PlatformOpenAI)
+	var accounts []Account
+	var err error
+	if repo, ok := s.accountRepo.(BPSWarmAccountRepository); ok {
+		accounts, err = repo.ListBPSWarmAccounts(queryCtx)
+	} else {
+		// Compatibility for alternate repositories; the production repository
+		// implements the narrow projection. Never retry a projection error here.
+		accounts, err = s.accountRepo.ListByPlatform(queryCtx, PlatformOpenAI)
+	}
 	cancel()
 	if err != nil {
 		if ctx.Err() == nil {
@@ -94,7 +125,8 @@ func (s *OpenAIGatewayService) syncBPSWarmPool(ctx context.Context) {
 		}
 		return
 	}
-	managed, static := excelBPSWarmTargets(accounts)
+	managed, static, groups := excelBPSWarmTargets(accounts, s.excelBPSGloballyEnabled(ctx))
+	mihomo.SetBPSStaticRequestGroups(groups)
 	if static > 0 {
 		proxyCtx, stop := context.WithTimeout(ctx, 5*time.Second)
 		s.refreshExcelBPSIPPool(proxyCtx)
