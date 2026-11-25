@@ -22,8 +22,10 @@ def run(*args, stdin=None):
 
 
 def start(args):
-    workflows = json.loads(run('gh', 'api', f'repos/{args.repo}/actions/workflows?per_page=100'))
-    matches = [w for w in workflows['workflows'] if w['name'] == args.workflow]
+    rows = run('gh', 'api', '--paginate', f'repos/{args.repo}/actions/workflows?per_page=100',
+               '--jq', '.workflows[] | {id, name, path, state}')
+    workflows = (json.loads(line) for line in rows.splitlines() if line.strip())
+    matches = [w for w in workflows if w['name'] == args.workflow]
     if len(matches) != 1:
         raise RuntimeError(f'Cannot uniquely identify workflow {args.workflow}')
     workflow = matches[0]

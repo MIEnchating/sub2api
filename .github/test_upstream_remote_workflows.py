@@ -232,7 +232,7 @@ class WorkflowStartupTest(unittest.TestCase):
         self.workflow = dict(id=42, name='CI', state='active', path='.github/workflows/ci.yml')
 
     def responses(self, *, state='active', refs=None, dispatch=True):
-        return [json.dumps({'workflows': [self.workflow | {'state': state}]}),
+        return [json.dumps(self.workflow | {'state': state}),
                 refs if refs is not None else 'a' * 40 + '\trefs/heads/main\n',
                 'on:\n  workflow_dispatch:\n' if dispatch else 'on:\n  push:\n', '']
 
@@ -246,6 +246,17 @@ class WorkflowStartupTest(unittest.TestCase):
                 with self.assertRaisesRegex(RuntimeError, 'ambiguous, missing or no longer'):
                     self.module.start(self.args)
                 self.assertEqual(run.call_count, 2)
+
+    def test_dispatch_finds_a_workflow_after_the_first_page(self):
+        self.args.workflow = 'Security Scan'
+        self.workflow.update(name='Security Scan', path='.github/workflows/security-scan.yml')
+        first_page = [self.workflow | {'id': n + 100, 'name': f'Other workflow {n}'} for n in range(100)]
+        responses = self.responses()
+        responses[0] = '\n'.join(json.dumps(workflow) for workflow in [*first_page, self.workflow])
+        with patch.object(self.module, 'run', side_effect=responses) as run:
+            self.module.start(self.args)
+        self.assertIn('--paginate', run.call_args_list[0].args)
+        self.assertIn('repos/owner/repo/actions/workflows/42/dispatches', run.call_args.args)
 
     def test_annotated_release_tag_dispatch_uses_full_release_inputs(self):
         self.args.workflow = 'Release'
