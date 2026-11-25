@@ -12,12 +12,14 @@ backend_go_image() {
 }
 
 docker_go() (
-  local image scratch_dir
+  local image
   local -a integration_args=()
   image="$(backend_go_image)" || return 1
   # Large test binaries and trimpath builds must not fill Docker's writable
   # layer. Give each check host-backed /tmp space, including nested go commands
   # (ent schema loading), and remove only this invocation's scratch directory.
+  # Keep scratch_dir scoped to the subshell so Bash 3.2 can still read it in
+  # the EXIT trap after a failed command unwinds function-local variables.
   scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-sync-go.XXXXXX")" || return 1
   trap 'rm -rf -- "$scratch_dir"' EXIT
   if [[ " $* " == *' -tags=integration '* ]]; then
