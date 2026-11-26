@@ -15,8 +15,8 @@
     },
     {
       "name": "fork 生图计费扩展",
-      "path_pattern": "^(?:backend/internal/(?:handler/image_billing_response|service/image_usage_billing)(?:_test)?[.]go|frontend/src/i18n/locales/(?:en|zh)/imageUsage[.]ts)$",
-      "content_pattern": "\\b(?:image_minimum_charge(?:_adjustment)?|ImageMinimumCharge(?:Adjustment)?|ImageBillingReceipt|ImageEquivalentOutputPricePerMillion|image_purchase_prices|ImagePurchasePrices(?:Key)?|OpenAIImageResponseHeaderTimeout|image_group_ids|openaiImageHeaderTimeoutGroups)\\b",
+      "path_pattern": "^(?:backend/internal/(?:handler/image_billing_response|service/image_usage_billing)(?:_test)?[.]go|frontend/src/i18n/locales/(?:en|zh)/imageUsage[.]ts|backend/internal/pkg/imageeditcompat/[^/]+[.]go|docs/(?:image-edit-form-compat|extra-image-models|OPENAI_IMAGE_ACCOUNT_ROUTING|features/image-usage-billing)[.]md|docs/screenshots/image-usage/[^/]+|[.]github/(?:workflows/image-header-timeout[.]yml|scripts/image-header-timeout-screenshot[.]mjs))$",
+      "content_pattern": "\\b(?:X-Image-Usage|IsCompletedOpenAIImageEvent|SUB2API_IMAGE_EDIT_FORM_ACCOUNT_IDS|image_minimum_charge(?:_adjustment)?|ImageMinimumCharge(?:Adjustment)?|ImageBillingReceipt|ImageEquivalentOutputPricePerMillion|image_purchase_prices|ImagePurchasePrices(?:Key)?|OpenAIImageResponseHeaderTimeout|image_group_ids|openaiImageHeaderTimeoutGroups)\\b",
       "content_roots": [
         "backend/internal/",
         "frontend/src/"

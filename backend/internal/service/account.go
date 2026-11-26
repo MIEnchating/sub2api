@@ -68,8 +68,9 @@ type Account struct {
 
 	UpstreamBillingRateLimitChanged bool `json:"-"` // explicit admin edit, including clearing the ceiling
 
-	Schedulable       bool
-	PerformancePaused bool
+	Schedulable           bool
+	PerformancePaused     bool       `json:"-"`
+	PerformanceTrialDueAt *time.Time `json:"-"` // Live routing state, never persisted in a scheduler snapshot.
 
 	RateLimitedAt    *time.Time
 	RateLimitResetAt *time.Time

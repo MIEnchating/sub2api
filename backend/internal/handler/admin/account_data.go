@@ -641,6 +641,7 @@ func (h *AccountHandler) importData(ctx context.Context, req DataImportRequest) 
 		enrichCredentialsFromIDToken(&item)
 
 		accountInput := &service.CreateAccountInput{
+			OAuthImportSource:      service.OAuthImportJSON,
 			ProxyMode:              item.ProxyMode,
 			Name:                   item.Name,
 			Notes:                  item.Notes,

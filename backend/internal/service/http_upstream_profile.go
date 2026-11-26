@@ -1,9 +1,6 @@
 package service
 
-import (
-	"context"
-	"time"
-)
+import "context"
 
 // HTTPUpstreamProfile marks HTTP upstream requests that need provider-specific
 // transport policy.
@@ -22,7 +19,6 @@ type httpUpstreamProfileContextKey struct{}
 type openAICodexHTTPRequestContextKey struct{}
 type httpUpstreamDisableRedirectsContextKey struct{}
 type httpUpstreamPublicHostsOnlyContextKey struct{}
-type httpUpstreamResponseHeaderTimeoutContextKey struct{}
 
 // WithHTTPUpstreamProfile injects an upstream transport profile into ctx.
 func WithHTTPUpstreamProfile(ctx context.Context, profile HTTPUpstreamProfile) context.Context {
@@ -68,27 +64,6 @@ func UpstreamCompressionRequiresPlainBody(ctx context.Context) bool {
 	return profile == HTTPUpstreamProfileExcelBPS || profile == HTTPUpstreamProfileOpenAIHarvest ||
 		isControlledExperiment(ctx) || regionalMeterAttemptFrom(ctx) != nil || OpenAIAgentRecoveryNoReplay(ctx) ||
 		IsOpenAICodexStateProbeRequest(ctx) || IsAstraSourceAcquisition(ctx)
-}
-
-// WithHTTPUpstreamResponseHeaderTimeout asks for a longer response-header wait
-// than the transport profile. It never shortens or enables a timeout.
-func WithHTTPUpstreamResponseHeaderTimeout(ctx context.Context, timeout time.Duration) context.Context {
-	if ctx == nil {
-		ctx = context.Background()
-	}
-	if timeout <= 0 {
-		return ctx
-	}
-	return context.WithValue(ctx, httpUpstreamResponseHeaderTimeoutContextKey{}, timeout)
-}
-
-// HTTPUpstreamResponseHeaderTimeoutFromContext returns the requested wait, or zero.
-func HTTPUpstreamResponseHeaderTimeoutFromContext(ctx context.Context) time.Duration {
-	if ctx == nil {
-		return 0
-	}
-	timeout, _ := ctx.Value(httpUpstreamResponseHeaderTimeoutContextKey{}).(time.Duration)
-	return timeout
 }
 
 // WithHTTPUpstreamRedirectsDisabled prevents credential-bearing probes from

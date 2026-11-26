@@ -468,6 +468,7 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 	anthState.Model = originalModel
 	ccState := apicompat.NewResponsesEventToChatState()
 	ccState.Model = originalModel
+	toolNameRestorer := newToolNameStreamRestorer(toolNameRewriteFromContext(c))
 
 	var usage ClaudeUsage
 	var firstTokenMs *int
@@ -584,15 +585,16 @@ func (s *GatewayService) handleCCStreamingFromAnthropic(
 
 		observer.ObserveAnthropic([]byte(payload))
 		stream.observe(&event, payload)
-		if event.Type == "message_stop" {
-			continue
-		}
 		if stream.upstreamErrType != "" {
 			break
 		}
-		processAnthropicEvent(&event)
+		if event.Type == "message_stop" {
+			continue
+		}
+		toolNameRestorer.forwardEvent(&event, payload, processAnthropicEvent)
 	}
 
+	flushToolNameCarry(c, c.Writer.Size() != writerSizeBeforeStream, toolNameRestorer, processAnthropicEvent)
 	if failure := stream.failure(); failure != nil {
 		return finishAnthropicCompatStreamFailure(c, writerSizeBeforeStream, failure, resultWithUsage(), func() {
 			writeAnthropicCompatCCStreamFailure(c, failure)

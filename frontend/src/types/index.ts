@@ -1079,6 +1079,7 @@ export interface Proxy {
   quality_grade?: string
   quality_summary?: string
   quality_checked?: number
+  latency_checked_at?: string
   expires_at: string | null
   fallback_mode: 'none' | 'proxy' | 'direct'
   backup_proxy_id?: number | null
@@ -1112,6 +1113,8 @@ export interface ProxyQualityCheckResult {
   exit_ip?: string
   country?: string
   country_code?: string
+  region?: string
+  city?: string
   base_latency_ms?: number
   passed_count: number
   warn_count: number
@@ -1724,6 +1727,7 @@ export interface WindowStats {
   user_cost?: number
   lifetime_tokens?: number // All-time totals (no time filter)
   lifetime_cost?: number
+  upstream_errors?: number | null // Today stats only; absent when ops monitoring is disabled
 }
 
 export interface UsageProgress {
@@ -2192,6 +2196,8 @@ export interface UsageLog {
   account_id: number | null
   request_id: string
   model: string
+  /** Final response model; only present for user rows when the channel enables expose_response_model. */
+  response_model?: string | null
   service_tier?: string | null
   service_tier_surcharge_waived?: boolean
   reasoning_effort?: string | null
@@ -2277,6 +2283,13 @@ export interface UsageLogAccountSummary {
 }
 
 export interface AdminUsageLog extends UsageLog {
+  quality_usage?: {
+    input_tokens: number | null
+    output_tokens: number | null
+    cache_read_tokens: number | null
+    cache_creation_tokens: number | null
+    reasoning_tokens: number | null
+  } | null
   upstream_model?: string | null
   upstream_reasoning_effort?: string | null
   upstream_response_model?: string | null
@@ -2705,6 +2718,7 @@ export interface AccountUsageHistory {
   cost: number
   actual_cost: number // Account cost (account multiplier)
   user_cost: number // User/API key billed cost (group multiplier)
+  upstream_errors?: number | null // Absent when ops monitoring is disabled
 }
 
 export interface AccountUsageSummary {
@@ -2720,6 +2734,8 @@ export interface AccountUsageSummary {
   avg_daily_requests: number
   avg_daily_tokens: number
   avg_duration_ms: number
+  total_upstream_errors?: number | null // Absent when ops monitoring is disabled
+  today_upstream_errors?: number | null
   today: {
     date: string
     cost: number
@@ -2998,6 +3014,8 @@ export interface PelicanQuestion {
 }
 
 export interface PelicanTestConfig {
+  quality_http_status?: number
+  quality_429_streak?: number
   prompt_mode?: 'custom' | 'random'
   pelican_question?: PelicanQuestion
   actual_prompt?: string

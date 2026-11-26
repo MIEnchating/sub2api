@@ -32,17 +32,19 @@ func TestAccountPerformanceWindowChangesApplyToReadsAndEvaluation(t *testing.T) 
 			if evaluate {
 				mock.ExpectBegin()
 				mock.ExpectQuery("SELECT id FROM accounts.*FOR SHARE").WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
-				mock.ExpectQuery("SELECT config,revision,paused,pause_generation.*FOR UPDATE SKIP LOCKED").WithArgs(int64(7)).WillReturnRows(performanceLockRow(string(raw), false, 0, ""))
+				mock.ExpectQuery("SELECT a.id,COALESCE.*FOR UPDATE OF m SKIP LOCKED").WithArgs(int64(7)).WillReturnRows(performanceLockRow(string(raw), false, 0, ""))
+				expectPerformanceStats(mock)
+			} else {
+				expectBaselinePerformance(mock, string(raw), 1, false, 0, "", 7)
 			}
-			expectBaselinePerformance(mock, string(raw), 1, false, 0, "", 7)
 			mock.ExpectQuery("SELECT value FROM settings").WithArgs(service.SettingKeyAccountPerformanceWindowMinutes).WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow(window.value))
 			since := now.Add(-time.Duration(window.minutes) * time.Minute)
-			mock.ExpectQuery("WITH source").WithArgs("{7}", since, now).WillReturnRows(performanceRow(cfg))
+			mock.ExpectQuery("WITH usage").WithArgs("{7}", since, now).WillReturnRows(performanceRow(cfg))
 			if evaluate {
 				mock.ExpectRollback()
 				require.NoError(t, repo.Evaluate(context.Background(), 7, now))
 			} else {
-				metrics, err := repo.Read(context.Background(), []int64{7}, now)
+				metrics, err := repo.Read(context.Background(), []int64{7}, now, true)
 				require.NoError(t, err)
 				require.Equal(t, since, metrics[7].WindowStart)
 				require.Equal(t, now, metrics[7].WindowEnd)
@@ -62,8 +64,8 @@ func TestAccountPerformanceWindowReadFailureDoesNotEvaluateOrPause(t *testing.T)
 			mock.ExpectBegin()
 			mock.ExpectQuery("SELECT id FROM accounts.*FOR SHARE").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
 			raw := `{"version":2,"enabled":true,"tps":{"min":10},"min_samples":20,"auto_recover":true,"cooldown_minutes":5,"recovery_samples":3}`
-			mock.ExpectQuery("SELECT config,revision,paused,pause_generation.*FOR UPDATE SKIP LOCKED").WillReturnRows(performanceLockRow(raw, false, 0, ""))
-			expectBaselinePerformance(mock, raw, 1, false, 0, "", 7)
+			mock.ExpectQuery("SELECT a.id,COALESCE.*FOR UPDATE OF m SKIP LOCKED").WillReturnRows(performanceLockRow(raw, false, 0, ""))
+			expectPerformanceStats(mock)
 			query := mock.ExpectQuery("SELECT value FROM settings").WithArgs(service.SettingKeyAccountPerformanceWindowMinutes)
 			if invalid {
 				query.WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow("0"))

@@ -44,9 +44,10 @@ func TestChannelMonitorV2RecentRequestsIntegration(t *testing.T) {
 	_, err = db.ExecContext(ctx, `
 CREATE TABLE groups (id bigint PRIMARY KEY, platform text);
 CREATE TABLE accounts (id bigint PRIMARY KEY, platform text);
-CREATE TABLE usage_logs (id bigserial PRIMARY KEY, created_at timestamptz, group_id bigint, account_id bigint DEFAULT 1, api_key_id bigint DEFAULT 1, request_id text, model text, requested_model text, request_type int DEFAULT 2, actual_cost numeric DEFAULT 1, first_token_ms int DEFAULT 1000,
- duration_ms int DEFAULT 3500, output_tokens int DEFAULT 100, image_count int DEFAULT 0, video_count int DEFAULT 0, image_output_tokens int DEFAULT 0, inbound_endpoint text, upstream_endpoint text, native_compaction_v2 boolean DEFAULT false, input_tokens int DEFAULT 100, cache_creation_tokens int DEFAULT 100, cache_read_tokens int DEFAULT 800, stream boolean DEFAULT true, openai_ws_mode boolean DEFAULT false);
-CREATE TABLE ops_error_logs (id bigserial PRIMARY KEY, created_at timestamptz, group_id bigint, account_id bigint DEFAULT 1, api_key_id bigint DEFAULT 1, request_id text, client_request_id text, request_type int DEFAULT 2, platform text DEFAULT 'openai', model text DEFAULT 'gpt-named', requested_model text, is_count_tokens boolean DEFAULT false, status_code int DEFAULT 503, upstream_status_code int, error_type text DEFAULT 'upstream', error_owner text, error_source text, error_message text, upstream_error_message text, upstream_error_detail text, error_body text,
+CREATE TABLE channel_quality_group_sets(id bigserial primary key, group_ids bigint[] unique);
+CREATE TABLE usage_logs (quality_group_set_id bigint, quality_usage jsonb,id bigserial PRIMARY KEY,http_status smallint, created_at timestamptz, group_id bigint, account_id bigint DEFAULT 1, api_key_id bigint DEFAULT 1, request_id text, model text, requested_model text, request_type int DEFAULT 2, actual_cost numeric DEFAULT 1, first_token_ms int DEFAULT 1000,
+ duration_ms int DEFAULT 3500, output_tokens int DEFAULT 100, image_count int DEFAULT 0, video_count int DEFAULT 0, image_output_tokens int DEFAULT 0, billing_mode text,inbound_endpoint text, upstream_endpoint text, native_compaction_v2 boolean DEFAULT false, input_tokens int DEFAULT 100, cache_creation_tokens int DEFAULT 100, cache_read_tokens int DEFAULT 800, stream boolean DEFAULT true, openai_ws_mode boolean DEFAULT false);
+CREATE TABLE ops_error_logs (quality_group_set_id bigint,id bigserial PRIMARY KEY, created_at timestamptz, group_id bigint, account_id bigint DEFAULT 1, api_key_id bigint DEFAULT 1, request_id text, client_request_id text, request_type int DEFAULT 2, platform text DEFAULT 'openai', model text DEFAULT 'gpt-named', requested_model text, is_count_tokens boolean DEFAULT false, status_code int DEFAULT 503, upstream_status_code int, error_type text DEFAULT 'upstream', error_owner text, error_source text, error_message text, upstream_error_message text, upstream_error_detail text, error_body text,
  duration_ms int, time_to_first_token_ms bigint, error_phase text, is_business_limited boolean DEFAULT false, upstream_errors jsonb);
 INSERT INTO groups VALUES(7,'openai'),(8,'openai'),(9,'composite');
 INSERT INTO accounts VALUES(1,'openai');
@@ -64,6 +65,8 @@ INSERT INTO ops_error_logs(created_at,group_id,request_id,status_code,error_type
  ('2026-10-20T00:33:00Z',7,'ignored',401,'authentication'),
  ('2026-10-20T00:53:00Z',7,'attempt-only',0,'attempt-only'),
  ('2026-10-20T00:34:00Z',9,'composite-error',503,'composite-error');
+INSERT INTO ops_error_logs(created_at,group_id,request_id,account_id,model,status_code,error_type,error_source)
+ VALUES ('2026-10-20T00:55:00Z',7,'blocked',NULL,'deepseek-v4.1-flash',403,'cyber_policy_session_blocked','gateway_local');
 UPDATE ops_error_logs SET platform='composite' WHERE group_id=9;
 INSERT INTO ops_error_logs(created_at,group_id,request_id,is_count_tokens,error_type) VALUES('2026-10-20T00:54:00Z',7,'token-count',true,'count-token-error');
 UPDATE usage_logs SET input_tokens=0, cache_creation_tokens=0, cache_read_tokens=0 WHERE request_id='seven-20';
@@ -112,11 +115,11 @@ UPDATE ops_error_logs SET upstream_error_detail='Credential expired', error_mess
 				require.Nil(t, request.CacheRate)
 			}
 			if request.Status == "success" {
-				if request.OccurredAt.Equal(start.Add(21*time.Minute)) || request.OccurredAt.Equal(start.Add(22*time.Minute)) || request.OccurredAt.Equal(start.Add(23*time.Minute)) || request.OccurredAt.Equal(start.Add(25*time.Minute)) {
+				if request.OccurredAt.Equal(start.Add(21*time.Minute)) || request.OccurredAt.Equal(start.Add(23*time.Minute)) || request.OccurredAt.Equal(start.Add(25*time.Minute)) {
 					require.Nil(t, request.OutputTPS)
 				} else {
 					require.NotNil(t, request.OutputTPS)
-					require.InDelta(t, 40.0, *request.OutputTPS, .00001)
+					require.InDelta(t, 100.0/3.5, *request.OutputTPS, .00001)
 				}
 				switch request.OccurredAt.Sub(start) {
 				case 20 * time.Minute:
@@ -215,7 +218,7 @@ INSERT INTO ops_error_logs(created_at,group_id,request_id,client_request_id,acco
 			require.True(t, found, "successful request at minute %d must be retained", minute)
 			require.Equal(t, "success", request.Status)
 			require.NotNil(t, request.OutputTPS)
-			require.InDelta(t, 40, *request.OutputTPS, .000001)
+			require.InDelta(t, 100.0/3.5, *request.OutputTPS, .000001)
 		}
 		for _, minute := range []int{12, 14, 16, 18, 21, 22} {
 			require.Equal(t, "error", byMinute[minute].Status)

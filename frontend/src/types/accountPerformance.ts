@@ -6,6 +6,7 @@ export type PerformanceMetric = typeof metricKeys[number]
 export const observedMetricKeys = ['tps', 'degradation', 'observed_ttft', 'upstream_error'] as const
 export type ObservedPerformanceMetric = typeof observedMetricKeys[number]
 
+export type PerformancePhase = 'disabled' | 'monitoring' | 'paused' | 'trial'
 export interface PerformanceConfig {
  version: 2
  enabled: boolean
@@ -54,6 +55,10 @@ export interface AccountPerformance {
  quality_samples: number
  window_start: string
  window_end: string
+ phase?: PerformancePhase
+ recover_after?: string | null
+ trial_ends_at?: string | null
+ trial_limit?: number
  monitoring_available: boolean
  account_id: number
  metrics: OpsAccountRequestStats
@@ -67,7 +72,14 @@ export interface AccountPerformance {
  metrics_since: string | null
  reason: string
 }
+export type AccountPerformanceState = Omit<AccountPerformance, 'metrics'>
+export function performancePhase(state: Pick<AccountPerformance, 'phase' | 'paused' | 'trial_started_at' | 'config'>): PerformancePhase {
+ if (state.phase) return state.phase
+ if (state.paused) return state.trial_started_at ? 'trial' : 'paused'
+ return state.config.enabled ? 'monitoring' : 'disabled'
+}
 export interface PerformanceEvent {
+ reason?: string
  id: number
  action: 'configure' | 'pause' | 'release' | 'trial' | 'recover' | 'retire'
  actor_id: number | null

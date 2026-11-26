@@ -2323,6 +2323,8 @@ export default {
         todayRequests: '今日请求',
         todayTokens: '今日 Token',
         todayCost: '今日计费',
+        upstreamErrors: '上游错误',
+        totalUpstreamErrors: '30天上游错误',
         usageTrend: '30天费用与请求趋势',
         noData: '该账号暂无使用数据',
         lifetimeTokens: '总计 Token',

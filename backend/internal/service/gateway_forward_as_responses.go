@@ -633,6 +633,7 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 	state.Model = originalModel
 	state.PreserveThinkingSignatures = isClaude55SignedThinkingModel(mappedModel)
 	clientToolRestorer := apicompat.NewResponsesClientToolStreamRestorer(clientToolMapping)
+	toolNameRestorer := newToolNameStreamRestorer(toolNameRewriteFromContext(c))
 	var usage ClaudeUsage
 	var firstTokenMs *int
 	firstChunk := true
@@ -765,15 +766,16 @@ func (s *GatewayService) handleResponsesStreamingResponse(
 		}
 		observer.ObserveAnthropic([]byte(payload))
 		stream.observe(&event, payload)
-		if event.Type == "message_stop" {
-			continue
-		}
 		if stream.upstreamErrType != "" {
 			break
 		}
-		processEvent(&event)
+		if event.Type == "message_stop" {
+			continue
+		}
+		toolNameRestorer.forwardEvent(&event, payload, processEvent)
 	}
 
+	flushToolNameCarry(c, c.Writer.Size() != writerSizeBeforeStream, toolNameRestorer, processEvent)
 	return finalizeStream()
 }
 

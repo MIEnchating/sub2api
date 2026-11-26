@@ -69,13 +69,13 @@ func TestAccountPerformanceUpstreamErrorEvaluateUsesDisplayedEvidence(t *testing
 			require.NoError(t, err)
 			repo := &accountPerformanceRepository{db: db}
 			read := func() {
-				expectBaselinePerformance(mock, string(raw), 1, false, 0, "", 7)
 				mock.ExpectQuery("SELECT value FROM settings").WithArgs(service.SettingKeyAccountPerformanceWindowMinutes).
 					WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow("15"))
-				mock.ExpectQuery("WITH source").WithArgs("{7}", since, now).WillReturnRows(performanceRow(cfg))
+				mock.ExpectQuery("WITH usage").WithArgs("{7}", since, now).WillReturnRows(performanceRow(cfg))
 			}
+			expectBaselinePerformance(mock, string(raw), 1, false, 0, "", 7)
 			read()
-			displayed, err := repo.Read(context.Background(), []int64{7}, now)
+			displayed, err := repo.Read(context.Background(), []int64{7}, now, true)
 			require.NoError(t, err)
 			evidence := displayed[7].UpstreamError
 			require.Equal(t, int64(2), evidence.Total)
@@ -85,8 +85,9 @@ func TestAccountPerformanceUpstreamErrorEvaluateUsesDisplayedEvidence(t *testing
 			require.False(t, evidence.WindowComplete)
 			mock.ExpectBegin()
 			mock.ExpectQuery("SELECT id FROM accounts.*FOR SHARE").WithArgs(int64(7)).WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
-			mock.ExpectQuery("SELECT config,revision,paused,pause_generation.*FOR UPDATE SKIP LOCKED").WithArgs(int64(7)).
+			mock.ExpectQuery("SELECT a.id,COALESCE.*FOR UPDATE OF m SKIP LOCKED").WithArgs(int64(7)).
 				WillReturnRows(performanceLockRow(string(raw), false, 0, ""))
+			expectPerformanceStats(mock)
 			read()
 			mock.ExpectExec("UPDATE account_performance_monitors SET paused=true").WithArgs(int64(7), now, "upstream_error").WillReturnResult(sqlmock.NewResult(0, 1))
 			audit := mock.ExpectExec("INSERT INTO account_performance_events").WithArgs(int64(7), "pause", int64(0), int64(1), int64(1),
@@ -133,11 +134,11 @@ func TestAccountPerformanceUpstreamErrorEvaluateMissingAndBoundarySamples(t *tes
 			require.NoError(t, err)
 			mock.ExpectBegin()
 			mock.ExpectQuery("SELECT id FROM accounts.*FOR SHARE").WillReturnRows(sqlmock.NewRows([]string{"id"}).AddRow(7))
-			mock.ExpectQuery("SELECT config,revision,paused,pause_generation.*FOR UPDATE SKIP LOCKED").
+			mock.ExpectQuery("SELECT a.id,COALESCE.*FOR UPDATE OF m SKIP LOCKED").
 				WillReturnRows(performanceLockRow(string(raw), false, 0, ""))
-			expectBaselinePerformance(mock, string(raw), 1, false, 0, "", 7)
+			expectPerformanceStats(mock)
 			mock.ExpectQuery("SELECT value FROM settings").WillReturnRows(sqlmock.NewRows([]string{"value"}).AddRow("15"))
-			mock.ExpectQuery("WITH source").WillReturnRows(performanceRow(cfg))
+			mock.ExpectQuery("WITH usage").WillReturnRows(performanceRow(cfg))
 			mock.ExpectRollback()
 			require.NoError(t, (&accountPerformanceRepository{db: db}).Evaluate(context.Background(), 7, now))
 			require.NoError(t, mock.ExpectationsWereMet(), "no pause, audit or automatic release is allowed")

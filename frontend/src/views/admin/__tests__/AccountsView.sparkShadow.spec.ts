@@ -48,7 +48,7 @@ vi.mock('@/api/admin', () => ({
       batchRefresh: vi.fn(),
       toggleSchedulable: vi.fn()
     },
-    proxies: { getAll: getAllProxies },
+    proxies: { getAllWithCount: getAllProxies },
     groups: { getAll: getAllGroups }
   }
 }))
@@ -349,6 +349,7 @@ describe('admin AccountsView — 账号行展示', () => {
     const syncButton = tooltip.element.nextElementSibling
     expect(syncButton?.matches('button[type="button"]')).toBe(true)
     expect(link.element.contains(syncButton)).toBe(false)
+    expect(tooltip.classes()).toEqual(expect.arrayContaining(['inline-flex', 'items-center', 'align-middle', '-ml-1']))
     expect(wrapper.text()).toContain('oauth-account')
     expect(wrapper.text()).toContain('invalid-url')
 

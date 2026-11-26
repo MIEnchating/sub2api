@@ -130,7 +130,6 @@ var duplicateAccountDiscardedExtraKeys = map[string]struct{}{
 	// Provider observations, capability probes, and transient scheduling state.
 	"model_rate_limits":                      {},
 	QualityModelIsolationKey:                 {},
-	OAuth429ModelBlocksKey:                   {},
 	"session_window_utilization":             {},
 	"passive_usage_7d_utilization":           {},
 	"passive_usage_7d_reset":                 {},
@@ -509,7 +508,7 @@ func buildAccountForCreate(input *CreateAccountInput, accountExtra map[string]an
 		RateLimit429RetryCount:   &rateLimit429RetryCount,
 		Priority:                 input.Priority,
 		Status:                   StatusActive,
-		Schedulable:              schedulable && input.InitialAdmissionPlan == nil && input.Type != AccountTypeGateway,
+		Schedulable:              schedulable && (input.initialAutoSchedule == nil || *input.initialAutoSchedule) && input.InitialAdmissionPlan == nil && input.Type != AccountTypeGateway,
 	}
 	if err := normalizeUpstreamBillingRateLimitExtra(account.Platform, account.Type, account.Extra); err != nil {
 		return nil, err
@@ -707,7 +706,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		return nil, err
 	}
 	atomicCreator := s.accountDuplicateRepo
-	needsAtomicCreate := account.IsGateway() || account.InitialAdmissionPlan != nil || account.InitialAPIKeyDisposition != nil
+	needsAtomicCreate := input.initialAutoSchedule != nil || account.IsGateway() || account.InitialAdmissionPlan != nil || account.InitialAPIKeyDisposition != nil
 	if needsAtomicCreate && atomicCreator == nil {
 		atomicCreator, _ = s.accountRepo.(AccountDuplicateRepository)
 	}
@@ -1380,7 +1379,6 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 	// Dedicated quality restore/runtime paths use their own transaction/UpdateExtra.
 	updates = SanitizeExcelBPSAuthorizationExtra(updates)
 	delete(updates, QualityModelIsolationKey)
-	delete(updates, OAuth429ModelBlocksKey)
 	delete(updates, OAuthDegradationActionExtraKey)
 	if err := ValidateAccountCostMultiplierExtra(updates); err != nil {
 		return err

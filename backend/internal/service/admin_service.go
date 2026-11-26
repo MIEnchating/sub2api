@@ -447,8 +447,17 @@ type UpdateGroupInput struct {
 	CopyAccountsFromGroupIDs []int64
 }
 
+type OAuthImportSource string
+
+const (
+	OAuthImportJSON  OAuthImportSource = "json"
+	OAuthImportTwoFA OAuthImportSource = "two_fa"
+)
+
 type CreateAccountInput struct {
-	ProxyMode                string // 受限写入在验权后选择代理。
+	ProxyMode                string            // 受限写入在验权后选择代理。
+	OAuthImportSource        OAuthImportSource `json:"-"`
+	initialAutoSchedule      *bool
 	Name                     string
 	Notes                    *string
 	Platform                 string
@@ -677,6 +686,8 @@ type ProxyQualityCheckResult struct {
 	ExitIP         string                  `json:"exit_ip,omitempty"`
 	Country        string                  `json:"country,omitempty"`
 	CountryCode    string                  `json:"country_code,omitempty"`
+	Region         string                  `json:"region,omitempty"`
+	City           string                  `json:"city,omitempty"`
 	BaseLatencyMs  int64                   `json:"base_latency_ms,omitempty"`
 	PassedCount    int                     `json:"passed_count"`
 	WarnCount      int                     `json:"warn_count"`

@@ -1766,7 +1766,6 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		"active_pass_rate_holds",
 		"active_test_all_models_paused",
 		service.QualityModelIsolationKey,
-		service.OAuth429ModelBlocksKey,
 		service.UpstreamBillingProbeExtraKey,
 		service.UpstreamBillingRateLimitExtraKey,
 		service.GrokMediaEligibleExtraKey,

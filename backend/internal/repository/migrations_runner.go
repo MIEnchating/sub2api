@@ -266,6 +266,11 @@ func applyMigrationsFS(ctx context.Context, db *sql.DB, fsys fs.FS) error {
 			return fmt.Errorf("begin migration %s: %w", name, err)
 		}
 
+		if err := archiveRetiredMigrationTables(ctx, tx, name); err != nil {
+			_ = tx.Rollback()
+			return fmt.Errorf("archive tables before migration %s: %w", name, err)
+		}
+
 		// 执行迁移 SQL
 		if _, err := tx.ExecContext(ctx, content); err != nil {
 			_ = tx.Rollback()

@@ -10,13 +10,18 @@ import (
 	entsql "entgo.io/ent/dialect/sql"
 	"github.com/DATA-DOG/go-sqlmock"
 	dbent "github.com/Wei-Shaw/sub2api/ent"
+	"github.com/Wei-Shaw/sub2api/internal/service"
 	"github.com/stretchr/testify/require"
 )
 
-const openAITurnPauseQuery = `SELECT account_id FROM account_performance_monitors WHERE paused AND account_id=ANY($1) AND
- (trial_started_at IS NULL OR next_trial_at>NOW() OR trial_started_at+INTERVAL '10 minutes'<=NOW()
- OR trial_requests >= (config->>'recovery_samples')::int*3)
-UNION SELECT account_id FROM ai_ops_controls WHERE ai_paused AND account_id=ANY($1)`
+const openAITurnPauseQuery = `SELECT account_id, CASE WHEN ` + trialEligibleSQL + `
+ THEN COALESCE(next_trial_at,trial_started_at) END FROM account_performance_monitors WHERE paused AND account_id=ANY($1) AND NOT EXISTS (SELECT FROM ai_ops_controls c WHERE c.account_id=account_performance_monitors.account_id AND c.ai_paused)
+ UNION ALL SELECT account_id,NULL::timestamptz FROM ai_ops_controls WHERE ai_paused AND account_id=ANY($1)`
+
+func expectOpenAITurnPauseQuery(mock sqlmock.Sqlmock) *sqlmock.ExpectedQuery {
+	return mock.ExpectQuery(regexp.QuoteMeta(openAITurnPauseQuery)).
+		WithArgs("{7}", service.PerformanceTrialDuration.Seconds(), service.PerformanceTrialBudgetMultiplier)
+}
 
 func TestOpenAITurnAdmissionReadTransaction(t *testing.T) {
 	for _, failure := range []string{"", "account", "paused", "groups", "commit"} {
@@ -35,12 +40,12 @@ func TestOpenAITurnAdmissionReadTransaction(t *testing.T) {
 			} else {
 				query.WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable"}).
 					AddRow(7, "openai", "oauth", "active", true))
-				paused := mock.ExpectQuery(regexp.QuoteMeta(openAITurnPauseQuery)).WithArgs("{7}")
+				paused := expectOpenAITurnPauseQuery(mock)
 				if failure == "paused" {
 					paused.WillReturnError(errors.New("pause read failed"))
 					mock.ExpectRollback()
 				} else {
-					paused.WillReturnRows(sqlmock.NewRows([]string{"account_id"}))
+					paused.WillReturnRows(sqlmock.NewRows([]string{"account_id", "trial_due_at"}))
 					groups := mock.ExpectQuery(`SELECT .* FROM "account_groups"`)
 					if failure == "groups" {
 						groups.WillReturnError(errors.New("group read failed"))
@@ -82,8 +87,8 @@ func TestOpenAITurnAdmissionLoadsOnlyMembershipAndModelRestrictions(t *testing.T
 	mock.ExpectQuery(`SELECT .* FROM "accounts"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable"}).
 			AddRow(7, "openai", "oauth", "active", true))
-	mock.ExpectQuery(regexp.QuoteMeta(openAITurnPauseQuery)).WithArgs("{7}").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}))
+	expectOpenAITurnPauseQuery(mock).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "trial_due_at"}))
 	mock.ExpectQuery(`SELECT .* FROM "account_groups"`).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "group_id", "priority", "allowed_models"}).
 			AddRow(7, 9, 3, []byte(`["gpt-6-astra"]`)))
@@ -115,8 +120,8 @@ func TestOpenAITurnAdmissionPreservesIndependentPause(t *testing.T) {
 	mock.ExpectQuery(`SELECT .* FROM "accounts"`).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "platform", "type", "status", "schedulable"}).
 			AddRow(7, "openai", "oauth", "active", true))
-	mock.ExpectQuery(regexp.QuoteMeta(openAITurnPauseQuery)).WithArgs("{7}").
-		WillReturnRows(sqlmock.NewRows([]string{"account_id"}).AddRow(7))
+	expectOpenAITurnPauseQuery(mock).
+		WillReturnRows(sqlmock.NewRows([]string{"account_id", "trial_due_at"}).AddRow(7, nil))
 	mock.ExpectQuery(`SELECT .* FROM "account_groups"`).
 		WillReturnRows(sqlmock.NewRows([]string{"account_id", "group_id"}))
 	mock.ExpectCommit()

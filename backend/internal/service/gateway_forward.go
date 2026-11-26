@@ -475,6 +475,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 		if isAnthropicRequestTooLarge(account, resp) {
 			return handleAnthropicRequestTooLarge(c, resp)
 		}
+		if s.interceptAnthropicContextRejection(c, account, resp) {
+			return nil, errGatewayContextRejection
+		}
 
 		if resp.StatusCode == http.StatusUnauthorized && !retriedRotatedToken &&
 			attempt < maxRetryAttempts && time.Since(retryStart) < maxRetryElapsed {
@@ -721,6 +724,9 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 				break
 			}
 			if attempt < maxRetryAttempts {
+				if failure := s.anthropicModelNotFoundFailover(c, account, resp); failure != nil {
+					return nil, failure
+				}
 				elapsed := time.Since(retryStart)
 				if elapsed >= maxRetryElapsed {
 					break
@@ -779,11 +785,17 @@ func (s *GatewayService) Forward(ctx context.Context, c *gin.Context, account *A
 	if isAnthropicRequestTooLarge(account, resp) {
 		return handleAnthropicRequestTooLarge(c, resp)
 	}
+	if s.interceptAnthropicContextRejection(c, account, resp) {
+		return nil, errGatewayContextRejection
+	}
 	if resp == nil || resp.Body == nil {
 		return nil, errors.New("upstream request failed: empty response")
 	}
 	defer func() { _ = resp.Body.Close() }()
 
+	if failure := s.anthropicModelNotFoundFailover(c, account, resp); failure != nil {
+		return nil, failure
+	}
 	// 处理重试耗尽的情况
 	if resp.StatusCode >= 400 && s.shouldRetryUpstreamError(account, resp.StatusCode) {
 		if s.shouldFailoverUpstreamError(resp.StatusCode) {
@@ -1204,6 +1216,9 @@ func (s *GatewayService) sseStreamErrorEventFailover(ctx context.Context, c *gin
 	billingStatus := upstreamBillingStatusCode(http.StatusOK, body)
 	if billingStatus == 0 {
 		s.rateLimitService.observeQualityStatus(ctx, account, status)
+	}
+	if gjson.GetBytes(body, "error.type").String() == "stream_incomplete" {
+		semanticStatus = http.StatusBadGateway
 	}
 	if billingStatus != 0 {
 		semanticStatus = billingStatus

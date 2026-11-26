@@ -164,11 +164,6 @@ backend/internal/service/openai_subscription_long_context_test.go
 backend/internal/service/openai_two_fa_login_test.go
 backend/internal/service/upstream_batch_whitelist_identity_policy_test.go
 
-# Image usage settlement fixtures need the candidate billing implementation.
-backend/internal/handler/image_billing_response_test.go
-backend/internal/service/image_usage_billing_test.go
-backend/internal/repository/image_billing_recovery_integration_test.go
-backend/internal/repository/image_billing_recovery_export_test.go
 backend/internal/repository/usage_billing_delivery_unit_test.go
 backend/internal/repository/usage_billing_delivery_integration_test.go
 
@@ -212,6 +207,15 @@ backend/internal/handler/gateway_gemini_envelope_test.go
 backend/internal/service/model_plaza_currency_test.go
 backend/internal/service/model_plaza_currency_update_test.go
 backend/internal/handler/model_plaza_currency_test.go
+
+# Context-rejection attribution tests require the candidate's native WS failure
+# marker. Historical RED overlays predate that field; candidate GREEN keeps it.
+backend/internal/handler/ops_context_rejection_test.go
+backend/internal/service/compat_context_rejection_test.go
+backend/internal/service/gateway_context_rejection_test.go
+backend/internal/service/openai_context_rejection_scheduler_test.go
+backend/internal/service/openai_ws_ops_failure_test.go
+backend/internal/repository/account_response_client_rejection_test.go
 
 # Anthropic media fixtures share compatEffortPolicyUpstream, absent in historical RED.
 # Current candidate/GREEN retains both files and the complete media assertions.

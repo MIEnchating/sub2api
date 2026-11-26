@@ -67,7 +67,7 @@ func (s *Service) ListJobs(ctx context.Context, f JobFilter) (JobPage, error) {
 	if err = tx.QueryRowContext(ctx, `SELECT COUNT(*)`+where, args...).Scan(&out.Total); err != nil {
 		return out, err
 	}
-	rows, err := tx.QueryContext(ctx, `SELECT id,app_id,event_type,group_id,member_id,kind,status,error,input_tokens,output_tokens,created_at,finished_at,trigger_reason,decision_reason,image_decision,site_query,chat_execution`+where+` ORDER BY created_at DESC,id DESC LIMIT $10 OFFSET $11`, append(args, f.PageSize, (f.Page-1)*f.PageSize)...)
+	rows, err := tx.QueryContext(ctx, `SELECT id,app_id,event_type,group_id,member_id,kind,status,error,input_tokens,output_tokens,created_at,finished_at,trigger_reason,decision_reason,site_query,chat_execution`+where+` ORDER BY created_at DESC,id DESC LIMIT $10 OFFSET $11`, append(args, f.PageSize, (f.Page-1)*f.PageSize)...)
 	if err != nil {
 		return out, err
 	}
@@ -75,7 +75,7 @@ func (s *Service) ListJobs(ctx context.Context, f JobFilter) (JobPage, error) {
 	for rows.Next() {
 		var j Job
 		var chatExecution []byte
-		if err = rows.Scan(&j.ID, &j.AppID, &j.EventType, &j.GroupID, &j.MemberID, &j.Kind, &j.Status, &j.Error, &j.InputTokens, &j.OutputTokens, &j.CreatedAt, &j.FinishedAt, &j.TriggerReason, &j.DecisionReason, &j.ImageDecision, &j.SiteQuery, &chatExecution); err != nil {
+		if err = rows.Scan(&j.ID, &j.AppID, &j.EventType, &j.GroupID, &j.MemberID, &j.Kind, &j.Status, &j.Error, &j.InputTokens, &j.OutputTokens, &j.CreatedAt, &j.FinishedAt, &j.TriggerReason, &j.DecisionReason, &j.SiteQuery, &chatExecution); err != nil {
 			return out, err
 		}
 		j.ChatExecution = json.RawMessage(chatExecution)
@@ -94,7 +94,6 @@ type Overview struct {
 	Running        int               `json:"running"`
 	Failed         int               `json:"failed"`
 	ChatUsed       int               `json:"chat_used"`
-	ImageUsed      int               `json:"image_used"`
 	ChatRemaining  int               `json:"chat_remaining"`
 	RewardAmount   float64           `json:"reward_amount"`
 	PendingRewards int               `json:"pending_rewards"`
@@ -136,7 +135,7 @@ func (s *Service) Overview(ctx context.Context) (Overview, error) {
 	if err != nil {
 		return out, err
 	}
-	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(count) FILTER(WHERE kind='chat'),0),COALESCE(SUM(count) FILTER(WHERE kind='image'),0) FROM qq_bot_daily_usage WHERE app_id=$1 AND scope='all' AND day=$2::date`, c.AppID, out.Day).Scan(&out.ChatUsed, &out.ImageUsed)
+	err = s.db.QueryRowContext(ctx, `SELECT COALESCE(SUM(count),0) FROM qq_bot_daily_usage WHERE kind='chat' AND app_id=$1 AND scope='all' AND day=$2::date`, c.AppID, out.Day).Scan(&out.ChatUsed)
 	if err != nil {
 		return out, err
 	}
@@ -176,7 +175,7 @@ func (s *Service) Diagnose(ctx context.Context, group, member string) (Diagnosis
 	}
 	if member != "" {
 		var recent bool
-		err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM qq_bot_jobs WHERE app_id=$1 AND member_id=$2 AND kind IN ('chat','image') AND started_at>NOW()-($3*INTERVAL '1 second'))`, c.AppID, member, c.CooldownSeconds).Scan(&recent)
+		err = s.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM qq_bot_jobs WHERE app_id=$1 AND member_id=$2 AND kind='chat' AND started_at>NOW()-($3*INTERVAL '1 second'))`, c.AppID, member, c.CooldownSeconds).Scan(&recent)
 		if err != nil {
 			return out, err
 		}

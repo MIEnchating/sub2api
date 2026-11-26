@@ -126,7 +126,7 @@ export interface QQBotRuntime {
   autonomous_stats?: { group_id: string; reason: string; count: number }[]
   encryption_ready: boolean; bindings: number
   groups: { id: string; last_event: string; last_seen_at: string }[]
-  jobs: { autonomous_data?: QQAutonomousExecution; site_query?: QQSiteQueryDecision; chat_execution?: QQChatExecution; image_decision?: { tool?: string; review?: string; basis?: string; reason?: string; execution?: string; message_ref?: string; plan_ref?: string }; trigger_reason?: string; decision_reason?: string; id: string; group_id: string; member_id: string; kind: string; status: string; error: string; input_tokens: number; output_tokens: number; created_at: string }[]
+  jobs: { autonomous_data?: QQAutonomousExecution; site_query?: QQSiteQueryDecision; chat_execution?: QQChatExecution; trigger_reason?: string; decision_reason?: string; id: string; group_id: string; member_id: string; kind: string; status: string; error: string; input_tokens: number; output_tokens: number; created_at: string }[]
   rewards: { id: number; user_id: number; kind: string; amount: number; created_at: string }[]
 }
 export interface QQBindingRequest { code?: string; member_id: string; group_id: string; nickname: string; expires_at: string }
@@ -240,7 +240,7 @@ export interface QQRewardCodesPage { items: QQRewardCode[]; total: number; page:
 export interface QQDiagnosticCheck { code: string; ok: boolean; message: string }
 export interface QQOverview {
   day: string; last_event: string | null; queued: number; running: number; failed: number
-  chat_used: number; image_used: number; chat_remaining: number
+  chat_used: number; chat_remaining: number
   reward_amount: number; pending_rewards: number; reward_alert: boolean; checks: QQDiagnosticCheck[]
 }
 export interface QQJobPage { items: QQBotRuntime['jobs']; total: number; page: number; page_size: number }

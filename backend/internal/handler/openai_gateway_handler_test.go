@@ -2113,10 +2113,11 @@ func newOpenAIWSHandlerTestServer(t *testing.T, h *OpenAIGatewayHandler, subject
 }
 
 type openAIResponsesWSUsageLogCase struct {
-	configureBilling     func(*config.Config) *service.BillingCacheService
-	subscriptionLookup   openAIWSTurnSubscriptionLookup
-	subscription         *service.UserSubscription
-	checkUserConcurrency func(int)
+	admitPerformanceRequest func(context.Context, int64) (bool, error)
+	configureBilling        func(*config.Config) *service.BillingCacheService
+	subscriptionLookup      openAIWSTurnSubscriptionLookup
+	subscription            *service.UserSubscription
+	checkUserConcurrency    func(int)
 
 	timing                 *pr610TimingScenario
 	authSetup              func(*service.APIKey, *config.Config) *service.APIKeyService
@@ -3347,6 +3348,9 @@ func runOpenAIResponsesWebSocketUsageLogCase(t *testing.T, tc openAIResponsesWSU
 	var accountRepo service.AccountRepository = &openAIWSUsageHandlerAccountRepoStub{account: account}
 	if tc.timing != nil {
 		accountRepo = tc.timing.accountRepository(account)
+	}
+	if tc.admitPerformanceRequest != nil {
+		accountRepo = &wsPerformanceAccountRepo{openAIWSUsageHandlerAccountRepoStub: &openAIWSUsageHandlerAccountRepoStub{account: account}, admit: tc.admitPerformanceRequest}
 	}
 	usageRepo := &openAIWSUsageHandlerUsageLogRepoStub{created: make(chan *service.UsageLog, turnCount+1)}
 

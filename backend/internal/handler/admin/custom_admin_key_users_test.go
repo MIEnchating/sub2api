@@ -95,6 +95,8 @@ func TestScopedAdminUserBalanceReplayRespectsActorAndProjection(t *testing.T) {
 				if i == 1 {
 					require.Equal(t, http.StatusConflict, w.Code, w.Body.String())
 					require.Contains(t, w.Body.String(), service.ErrIdempotencyKeyConflict.Reason)
+					require.Empty(t, w.Header().Get("X-Idempotency-Replayed"))
+					require.NotContains(t, w.Body.String(), "内部密钥")
 					require.NotContains(t, w.Body.String(), "内部备注")
 					continue
 				}

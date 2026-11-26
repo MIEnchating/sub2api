@@ -119,7 +119,7 @@ func TestQualitySharedBatchPostgresFinalizationAndRestart(t *testing.T) {
 				require.Equal(t, "no_passing_peer", cfg.QualityBatch.Decision)
 				accountID := runs[0].Plan.TargetAccountID()
 				require.Positive(t, accountID)
-				metrics, err := readAccountPerformance(ctx, integrationDB, []int64{accountID}, time.Now().Add(time.Second))
+				metrics, err := readObservedAccountPerformance(ctx, integrationDB, []int64{accountID}, time.Now().Add(time.Second))
 				require.NoError(t, err)
 				require.Zero(t, metrics[accountID].QualitySamples, "uncalibrated wrong answers cannot penalize the performance monitor")
 			}

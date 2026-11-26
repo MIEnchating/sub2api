@@ -1866,11 +1866,12 @@ func (s *defaultOpenAIAccountScheduler) tryAcquireOpenAISelectionOrderWithBudget
 			return nil, compactBlocked, routeErr
 		}
 		fresh = routed
-		if req.SessionHash != "" && !req.PreserveStickyBinding {
+		preserveBinding := req.PreserveStickyBinding || fresh.PerformanceTrialDueAt != nil
+		if req.SessionHash != "" && !preserveBinding {
 			_ = s.service.bindOpenAIStickySessionDuringSelection(ctx, req.GroupID, req.SessionHash, fresh.ID)
 		}
 		return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-			PreserveStickyBinding: req.PreserveStickyBinding,
+			PreserveStickyBinding: preserveBinding,
 			Account:               fresh,
 			Acquired:              true,
 			ReleaseFunc:           result.ReleaseFunc,
@@ -2259,6 +2260,30 @@ func (s *defaultOpenAIAccountScheduler) selectByLoadBalanceCandidates(
 	budget *openAISelectionProbeBudget,
 	filterStats openAISelectionFilterStats,
 ) (*AccountSelectionResult, int, int, float64, error) {
+	// Strong affinity and request eligibility have already been resolved. Give
+	// the oldest due trial a chance before regular ranking truncates to Top-K.
+	var due []openAIAccountCandidateScore
+	for _, account := range filtered {
+		if account.PerformanceTrialDueAt == nil {
+			continue
+		}
+		if req.RequireCompact && openAICompactSupportTierForRequest(account, req.RequestedModel) == 0 {
+			continue
+		}
+		if load := loadMap[account.ID]; load != nil && account.Concurrency > 0 && load.CurrentConcurrency >= account.TotalConcurrency() {
+			continue
+		}
+		due = append(due, openAIAccountCandidateScore{account: account})
+	}
+	if len(due) > 0 {
+		sort.Slice(due, func(i, j int) bool { return comparePerformanceTrialDue(due[i].account, due[j].account) < 0 })
+		trialRequest := req
+		trialRequest.PreserveStickyBinding = true
+		result, _, err := s.tryAcquireOpenAISelectionOrder(ctx, trialRequest, due)
+		if err != nil || result != nil {
+			return result, len(filtered), 1, 0, err
+		}
+	}
 	if req.SubscriptionPriority {
 		subscriptionAccounts, regularAccounts := partitionOpenAIChatGPTSubscriptionAccounts(filtered)
 		if len(subscriptionAccounts) > 0 {
@@ -2494,7 +2519,7 @@ func (s *defaultOpenAIAccountScheduler) finishLoadBalanceSelectionFallback(
 				continue
 			}
 			return attachSelectionProfitGate(ctx, &AccountSelectionResult{
-				PreserveStickyBinding: req.PreserveStickyBinding,
+				PreserveStickyBinding: req.PreserveStickyBinding || fresh.PerformanceTrialDueAt != nil,
 				Account:               fresh,
 				WaitPlan: &AccountWaitPlan{
 					AccountID:      fresh.ID,
@@ -3543,6 +3568,11 @@ func (s *OpenAIGatewayService) isOpenAIAccountTransportCompatible(account *Accou
 
 func (s *OpenAIGatewayService) ReportOpenAIAccountScheduleResult(account *Account, model string, success bool, firstTokenMs *int, observedErr ...error) bool {
 	if account == nil {
+		return false
+	}
+	// A canonical context rejection belongs to the request. Do not penalize the
+	// account or report a successful recovery for this failed request.
+	if !success && len(observedErr) > 0 && errors.Is(observedErr[0], errGatewayContextRejection) {
 		return false
 	}
 	if !success && len(observedErr) > 0 && (isGrokRequestScopedFailure(observedErr[0]) || IsUpstreamModerationDenied(observedErr[0])) {

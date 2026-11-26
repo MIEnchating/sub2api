@@ -134,7 +134,8 @@ func TestPrepareUsageLogInsert_UpstreamRequestIDArgWiring(t *testing.T) {
 	// share prepareUsageLogInsert's order. Appended fields must not move this
 	// assertion onto session_id (or another nullable text argument).
 	columns := strings.Split(usageLogSelectColumns, ", ")
-	require.Len(t, columns, len(prepared.args)+1)
+	require.Equal(t, "quality_usage", columns[len(columns)-1]) // written independently by scheduled tests
+	require.Len(t, columns[:len(columns)-1], len(prepared.args)+1)
 	idx := slices.Index(columns, "upstream_request_id") - 1
 	require.GreaterOrEqual(t, idx, 0)
 	require.Equal(t, "session_id", columns[idx+2])

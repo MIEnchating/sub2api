@@ -22,6 +22,9 @@ docker_go() (
   # the EXIT trap after a failed command unwinds function-local variables.
   scratch_dir="$(mktemp -d "${TMPDIR:-/tmp}/sub2api-sync-go.XXXXXX")" || return 1
   trap 'rm -rf -- "$scratch_dir"' EXIT
+  # Keep the host parent private while providing normal /tmp permissions to
+  # unprivileged container processes such as APT's signature verifier.
+  mkdir -m 1777 "$scratch_dir/tmp" || return 1
   if [[ " $* " == *' -tags=integration '* ]]; then
     # Testcontainers must reach Docker and the ephemeral ports it publishes.
     integration_args=(--network host -v /var/run/docker.sock:/var/run/docker.sock
@@ -34,7 +37,22 @@ docker_go() (
         apt-get update
         DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends redis-server
       fi
-      exec "$@"
+      # The audit suite flushes its Redis DB. Use the disposable test container
+      # and its private scratch mount, without opening a host-network port.
+      audit_dir="$(mktemp -d /tmp/prompt-audit.XXXXXX)"
+      export PROMPT_AUDIT_TEST_REDIS_ADDR="$audit_dir/redis.sock"
+      redis-server --port 0 --unixsocket "$PROMPT_AUDIT_TEST_REDIS_ADDR" \
+        --dir "$audit_dir" --save "" --appendonly no &
+      redis_pid=$!
+      for attempt in {1..30}; do
+        if [[ "$(redis-cli -s "$PROMPT_AUDIT_TEST_REDIS_ADDR" ping 2>/dev/null)" == PONG ]]; then
+          exec "$@"
+        fi
+        kill -0 "$redis_pid" 2>/dev/null || break
+        sleep 1
+      done
+      printf "Integration audit Redis did not become ready.\n" >&2
+      exit 1
     ' sub2api-integration "$@"
   fi
   docker run --rm \
@@ -43,7 +61,7 @@ docker_go() (
     -v "$TOOLS_DIR:/tools" \
     -v sub2api-sync-go-mod:/go/pkg/mod \
     -v sub2api-sync-go-build:/root/.cache/go-build \
-    -v "$scratch_dir:/tmp" \
+    -v "$scratch_dir/tmp:/tmp" \
     -e TMPDIR=/tmp -e GOTMPDIR=/tmp \
     -e GOTOOLCHAIN=local -e GOMAXPROCS=4 -e GOFLAGS=-p=4 \
     -w /src/backend "$image" "$@"
@@ -121,9 +139,16 @@ check_backend_integration() (
     printf 'Invalid integration PostgreSQL port mapping.\n' >&2
     return 1
   fi
+  # Audit tests truncate their fixture tables while migration and QQ bot
+  # packages may run concurrently in sub2api_test.
+  docker exec "$database_id" createdb -U postgres shadow_audit || {
+    printf 'Failed to create integration PostgreSQL database shadow_audit.\n' >&2
+    return 1
+  }
   # The combined repository suite can exceed 30 minutes while making progress.
   if docker_go env "MIGRATION_TEST_DATABASE_URL=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
     "QQBOT_TEST_DSN=postgres://postgres:integration-test@${port}/sub2api_test?sslmode=disable" \
+    "PROMPT_AUDIT_TEST_POSTGRES_DSN=postgres://postgres:integration-test@${port}/shadow_audit?sslmode=disable" \
     go test -count=1 -tags=integration -timeout=60m ./...; then
     return 0
   else

@@ -30,6 +30,8 @@ if os.environ.get('PROBE_SCRATCH'):
     assert len(mounts) == 1, args
     scratch = Path(mounts[0])
     assert scratch.is_dir(), scratch
+    assert scratch.stat().st_mode & 0o7777 == 0o1777
+    assert scratch.parent.stat().st_mode & 0o077 == 0
     assert 'TMPDIR=/tmp' in args and 'GOTMPDIR=/tmp' in args, args
     (scratch / 'go-build-fixture').mkdir()
     (scratch / 'go-build-fixture/_pkg_.a').write_bytes(b'compiled package')

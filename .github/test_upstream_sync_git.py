@@ -51,6 +51,7 @@ class SyncGitTest(unittest.TestCase):
         self.git(self.repo, 'remote', 'add', 'origin', str(self.remote))
         self.git(self.repo, 'push', '-u', 'origin', 'main')
         self.base = self.git(self.repo, 'rev-parse', 'HEAD')
+        self.env.update(SUB2API_MIGRATION_BASE=self.base, SUB2API_PRIMARY_IMAGE_REF=self.base)
 
     def git(self, repo, *args):
         return subprocess.check_output(['git', '-C', str(repo), *args], env=self.env,

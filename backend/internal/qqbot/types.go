@@ -184,7 +184,6 @@ func (m Message) MarshalJSON() ([]byte, error) {
 type Job struct {
 	AutonomousData  json.RawMessage `json:"autonomous_data,omitempty"`
 	SiteQuery       json.RawMessage `json:"site_query,omitempty"`
-	ImageDecision   json.RawMessage `json:"image_decision,omitempty"`
 	ChatExecution   json.RawMessage `json:"chat_execution,omitempty"`
 	TransientReply  bool            `json:"-"`
 	TriggerReason   string          `json:"trigger_reason"`

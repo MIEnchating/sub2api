@@ -222,7 +222,7 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 	}
 
 	defer releaseJoint()
-	for attempt := 0; attempt <= 3 || StrictFailoverRequestActive(ctx); attempt++ {
+	for attempt := 0; attempt <= 3 || StrictFailoverRequestActive(ctx); {
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
@@ -353,6 +353,18 @@ func (s *OpenAIGatewayService) CreateLiveCall(
 		}
 		leaseID := joint.leaseID
 
+		latest, vetoed, _ := s.AdmitAccountForForward(ctx, account)
+		if vetoed {
+			lastErr = ErrNoAvailableAccounts
+			selection.ReleaseFunc()
+			if _, canTransfer := liveCache.(LiveLeaseTransferCache); !canTransfer {
+				releaseJoint()
+			}
+			excluded[account.ID] = struct{}{}
+			continue
+		}
+		account = latest
+		attempt++
 		// SDP establishment already owns the Live member. Renew it before the
 		// observer/sideband controller exists, and stop the POST on lease loss.
 		pendingCtx, cancelPending := context.WithCancelCause(ctx)

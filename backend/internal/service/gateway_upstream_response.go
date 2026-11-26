@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"syscall"
 	"time"
@@ -382,6 +383,35 @@ func (s *GatewayService) readUpstreamErrorBody(resp *http.Response) ([]byte, err
 
 const anthropicRequestTooLargeMessage = "Request body is too large. Anthropic Messages requests are limited to 32 MiB. Reduce the request size and try again."
 
+const AnthropicModelUnavailableReason GatewayFailureReason = "anthropic_model_unavailable"
+
+// A relay can reject a model offered by a different account in the same local group.
+func (s *GatewayService) anthropicModelNotFoundFailover(c *gin.Context, account *Account, resp *http.Response) *UpstreamFailoverError {
+	if account == nil || account.Platform != PlatformAnthropic || resp == nil || resp.StatusCode != http.StatusNotFound || resp.Body == nil {
+		return nil
+	}
+	body, err := s.readUpstreamErrorBody(resp)
+	_ = resp.Body.Close()
+	resp.Body = io.NopCloser(bytes.NewReader(body))
+	if err != nil || !gjson.ValidBytes(body) {
+		return nil
+	}
+	message := extractUpstreamErrorMessage(body)
+	code := extractUpstreamErrorCode(body)
+	kind := gjson.GetBytes(body, "error.type").String()
+	if !IsOpsModelCapabilityRejection(resp.StatusCode, 0, message) &&
+		code != "model_not_found" && kind != "model_not_found" && code != "model_not_supported" && kind != "model_not_supported" {
+		return nil
+	}
+	appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+		Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+		ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+		Kind: "failover", UpstreamStatusCode: resp.StatusCode, UpstreamRequestID: resp.Header.Get("x-request-id"),
+		Message: sanitizeUpstreamErrorMessage(message),
+	})
+	return &UpstreamFailoverError{StatusCode: resp.StatusCode, ResponseBody: body, Reason: AnthropicModelUnavailableReason}
+}
+
 var errAnthropicRequestTooLarge = errors.New("anthropic request body too large")
 
 func isAnthropicRequestTooLarge(account *Account, resp *http.Response) bool {
@@ -431,6 +461,9 @@ func handleAnthropicRequestTooLarge(c *gin.Context, resp *http.Response) (*Forwa
 func (s *GatewayService) handleErrorResponse(ctx context.Context, resp *http.Response, c *gin.Context, account *Account, requestedModel ...string) (*ForwardResult, error) {
 	if isAnthropicRequestTooLarge(account, resp) {
 		return handleAnthropicRequestTooLarge(c, resp)
+	}
+	if s.interceptAnthropicContextRejection(c, account, resp) {
+		return nil, errGatewayContextRejection
 	}
 	// Upstream returned a non-success HTTP status; count Ollama Cloud / OpenCode Go activity.
 	scheduleOllamaCloudUsageActivity(s.deferredService, account)
@@ -872,20 +905,23 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		s.rateLimitService.UpdateSessionWindow(ctx, account, resp.Header)
 	}
 
-	if s.responseHeaderFilter != nil {
-		responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
-	}
+	// Install upstream headers only for the attempt that writes the downstream response.
+	prepareHeaders := sync.OnceFunc(func() {
+		if s.responseHeaderFilter != nil {
+			responseheaders.WriteFilteredHeaders(c.Writer.Header(), resp.Header, s.responseHeaderFilter)
+		}
 
-	// 设置SSE响应头
-	c.Header("Content-Type", "text/event-stream")
-	c.Header("Cache-Control", "no-cache")
-	c.Header("Connection", "keep-alive")
-	c.Header("X-Accel-Buffering", "no")
+		// 设置SSE响应头
+		c.Header("Content-Type", "text/event-stream")
+		c.Header("Cache-Control", "no-cache")
+		c.Header("Connection", "keep-alive")
+		c.Header("X-Accel-Buffering", "no")
 
-	// 透传其他响应头
-	if v := resp.Header.Get("x-request-id"); v != "" {
-		c.Header("x-request-id", v)
-	}
+		// 透传其他响应头
+		if v := resp.Header.Get("x-request-id"); v != "" {
+			c.Header("x-request-id", v)
+		}
+	})
 
 	w := c.Writer
 	flusher, ok := w.(http.Flusher)
@@ -1006,6 +1042,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			// json.Marshal 不可能在已知 string-only 输入上失败，保守 fallback
 			body = []byte(fmt.Sprintf(`{"type":"error","error":{"type":%q,"message":%q}}`, reason, message))
 		}
+		prepareHeaders()
 		_, _ = fmt.Fprintf(w, "event: error\ndata: %s\n\n", body)
 		flusher.Flush()
 	}
@@ -1015,11 +1052,13 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 	status := &anthropicCompatStream{body: resp.Body, maxLineSize: maxLineSize, pump: &anthropicNativeLinePump{interval: streamInterval}}
 	var terminalFrames strings.Builder
 	pendingBytes := 0
+	toolNameRestorer := newToolNameStreamRestorer(toolNameRewriteFromContext(c))
 	useNoopDeltaKeepalive := c != nil && c.Request != nil && shouldUseClaudeCodeNoopDeltaKeepalive(c.GetHeader("User-Agent"))
 	noopDeltaKeepaliveBlockIndex := -1
 	noopDeltaKeepaliveDeltaType := ""
 
 	pendingEventLines := make([]string, 0, 4)
+	sawUpstreamLine := false
 
 	processSSEEvent := func(lines []string) ([]string, string, *sseUsagePatch, error) {
 		if len(lines) == 0 {
@@ -1209,6 +1248,17 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 		return []string{block}, string(newData), usagePatch, nil
 	}
 
+	flushCarry := func() {
+		if status.clientDisconnected || !c.Writer.Written() || toolNameRestorer == nil {
+			return
+		}
+		for _, rest := range toolNameRestorer.flush() {
+			block := "event: content_block_delta\ndata: " + string(rest) + "\n\n"
+			_, _ = io.WriteString(w, reverseToolNamesIfPresentString(c, block))
+		}
+		flusher.Flush()
+	}
+
 	clientGone := func(cause error) (*streamingResult, error) {
 		logger.LegacyPrintf("service.gateway", "Client disconnected; stopping upstream stream: account=%d observed_input=%d observed_output=%d", account.ID, usage.InputTokens, usage.OutputTokens)
 		result := &streamingResult{usage: usage, firstTokenMs: firstTokenMs, clientDisconnect: true}
@@ -1234,6 +1284,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					kind, message = failure.errType, failure.message
 				}
 				MarkOpsStreamError(c, kind, message, http.StatusBadGateway)
+				flushCarry()
 				MarkResponseCommitted(c)
 				sendErrorEvent(kind, message)
 			}
@@ -1252,6 +1303,18 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 		}
 		kind := gjson.Get(data, "type").String()
+		if toolNameRestorer != nil && (kind == "content_block_delta" || kind == "content_block_stop") {
+			var restored [2][]byte
+			payload := streamEventBytes(data)
+			count := toolNameRestorer.restoreInto(payload, &restored)
+			if count != 1 || !bytes.Equal(restored[0], payload) {
+				outputBlocks = outputBlocks[:0]
+				for _, part := range restored[:count] {
+					eventName := gjson.GetBytes(part, "type").String()
+					outputBlocks = append(outputBlocks, "event: "+eventName+"\ndata: "+string(part)+"\n\n")
+				}
+			}
+		}
 		hold := kind == "message_stop" || (kind == "message_delta" && gjson.Get(data, "delta.stop_reason").String() != "")
 		for _, block := range outputBlocks {
 			if hold {
@@ -1261,6 +1324,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				_, _ = terminalFrames.WriteString(block)
 				continue
 			}
+			prepareHeaders()
 			if _, err := io.WriteString(w, reverseToolNamesIfPresentString(c, block)); err != nil {
 				status.clientDisconnected = true
 				return err
@@ -1309,12 +1373,27 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, err
 				}
 				status.readErr = io.EOF
+				flushCarry()
 				if failure := status.failure(); failure != nil {
+					// An empty stream leaves no client message or measured usage to preserve.
+					if failure.errType == "stream_incomplete" && !c.Writer.Written() && !sawUpstreamLine && !usage.hasObservedTokens() {
+						appendOpsUpstreamError(c, OpsUpstreamErrorEvent{
+							ProxyID: opsUpstreamProxyID(account), ProxyName: opsUpstreamProxyName(account),
+							Platform: account.Platform, AccountID: account.ID, AccountName: account.Name,
+							UpstreamStatusCode: http.StatusBadGateway, UpstreamRequestID: resp.Header.Get("x-request-id"),
+							Kind: "failover", Message: failure.message,
+						})
+						return nil, &UpstreamFailoverError{
+							StatusCode:   http.StatusBadGateway,
+							ResponseBody: []byte(`{"type":"error","error":{"type":"stream_incomplete","message":"upstream stream ended without a terminal event"}}`),
+						}
+					}
 					MarkOpsStreamError(c, failure.errType, failure.message, http.StatusBadGateway)
 					MarkResponseCommitted(c)
 					sendErrorEvent(failure.errType, failure.message)
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, failure.err
 				}
+				prepareHeaders()
 				if _, err := io.WriteString(w, reverseToolNamesIfPresentString(c, terminalFrames.String())); err != nil {
 					return clientGone(err)
 				}
@@ -1331,6 +1410,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 				// 客户端未断开，正常的错误处理
 				if errors.Is(ev.err, bufio.ErrTooLong) {
 					logger.LegacyPrintf("service.gateway", "SSE line too long: account=%d max_size=%d error=%v", account.ID, maxLineSize, ev.err)
+					flushCarry()
 					sendErrorEvent("response_too_large", fmt.Sprintf("upstream SSE line exceeded %d bytes", maxLineSize))
 					return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, ev.err
 				}
@@ -1356,14 +1436,16 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 						ResponseBody:           body,
 						RetryableOnSameAccount: true,
 					}
-					if usesOpenAIOAuthRetryAffinity(account) && !classifyUpstreamTransportError(ev.err).Persistent {
+					if usesOpenAIOAuthRetryAffinity(account) && classifyUpstreamTransportError(ev.err) == upstreamTransportTransient {
 						failoverErr.preserveOpenAIOAuthBinding()
 					}
 					return nil, failoverErr
 				}
+				flushCarry()
 				sendErrorEvent("stream_read_error", disconnectMsg)
 				return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream read error: %w", ev.err)
 			}
+			sawUpstreamLine = true
 			line := ev.line
 			if line == "" {
 				if err := consumePending(); err != nil {
@@ -1391,6 +1473,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			if s.rateLimitService != nil {
 				s.rateLimitService.HandleStreamTimeout(ctx, account, originalModel)
 			}
+			flushCarry()
 			sendErrorEvent("stream_timeout", fmt.Sprintf("upstream stream idle for %s", streamInterval))
 			return &streamingResult{usage: usage, firstTokenMs: firstTokenMs}, fmt.Errorf("stream data interval timeout")
 
@@ -1405,6 +1488,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 					keepaliveBlock = block
 				}
 			}
+			prepareHeaders()
 			if _, werr := fmt.Fprint(w, keepaliveBlock); werr != nil {
 				return clientGone(werr)
 			}

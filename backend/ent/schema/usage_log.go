@@ -34,8 +34,8 @@ func (UsageLog) Fields() []ent.Field {
 		// Historical provider snapshot. NULL remains unknown; never backfill from mutable entities.
 		field.String("platform").MaxLen(50).Optional().Nillable(),
 		// 关联字段
-		field.Int64("user_id"),
-		field.Int64("api_key_id"),
+		field.Int64("user_id").Optional(),
+		field.Int64("api_key_id").Optional(),
 		field.Int64("account_id"),
 		field.String("request_id").
 			MaxLen(64).
@@ -213,12 +213,10 @@ func (UsageLog) Edges() []ent.Edge {
 		edge.From("user", User.Type).
 			Ref("usage_logs").
 			Field("user_id").
-			Required().
 			Unique(),
 		edge.From("api_key", APIKey.Type).
 			Ref("usage_logs").
 			Field("api_key_id").
-			Required().
 			Unique(),
 		edge.From("account", Account.Type).
 			Ref("usage_logs").

@@ -110,6 +110,9 @@ func (s *AccountTestService) testResponsesGatewayAccountConnection(c *gin.Contex
 		recordPelicanTestSSE(ctx, "openai", upstreamModel, probe.Body.Bytes())
 		var failover *UpstreamFailoverError
 		if errors.As(err, &failover) && failover.ClientMessage != "" {
+			if failover.Reason == ExcelBPSRateLimitedReason && failover.StatusCode == http.StatusTooManyRequests {
+				return s.sendHTTPErrorAndEnd(c, failover.StatusCode, failover.ClientMessage)
+			}
 			return s.sendErrorAndEnd(c, failover.ClientMessage)
 		}
 		var bpsErr *excelBPSForwardError

@@ -83,6 +83,39 @@ func (s *GatewayService) GatewayProfitControlVetoLatest(ctx context.Context, sel
 	return profitControlVetoLatest(ctx, selected, s.schedulerSnapshot)
 }
 
+func (s *GatewayService) AdmitAccountForForward(ctx context.Context, selected *Account) (*Account, bool, string) {
+	return admitAccountForForward(ctx, selected, s.schedulerSnapshot, s.accountRepo)
+}
+
+func (s *OpenAIGatewayService) AdmitAccountForForward(ctx context.Context, selected *Account) (*Account, bool, string) {
+	if s == nil {
+		return selected, false, ""
+	}
+	return admitAccountForForward(ctx, selected, s.schedulerSnapshot, s.accountRepo)
+}
+
+// This is the final admission of the selected route, including queued and multi-proxy
+// routes. A candidate abandoned by the scheduler or the price check spends no trial slot.
+func admitAccountForForward(ctx context.Context, selected *Account, snapshot *SchedulerSnapshotService, repo AccountRepository) (*Account, bool, string) {
+	account, vetoed, reason := profitControlVetoLatest(ctx, selected, snapshot)
+	if vetoed || account == nil {
+		return account, vetoed, reason
+	}
+	var authority any = repo
+	if snapshot != nil && snapshot.localSnapshotReader != nil {
+		authority = localPerformancePauseReader{reader: snapshot.localSnapshotReader}
+	}
+	allowed, err := admitPerformanceRequest(ctx, authority, account.ID)
+	if err != nil {
+		slog.WarnContext(ctx, "account_performance_admission_failed", "account_id", account.ID, "error", err)
+		return account, true, "performance_state_unavailable"
+	}
+	if !allowed {
+		return account, true, "performance_paused"
+	}
+	return account, false, ""
+}
+
 func profitControlVetoLatest(ctx context.Context, selected *Account, snapshot *SchedulerSnapshotService) (*Account, bool, string) {
 	gate, _ := ctx.Value(openAIProfitControlGateCtxKey{}).(*openAIProfitControlGate)
 	if gate == nil || selected == nil {

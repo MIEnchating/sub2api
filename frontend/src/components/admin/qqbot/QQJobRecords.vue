@@ -17,11 +17,6 @@
       <p class="flex flex-wrap justify-between gap-2"><strong>{{ kindLabel(job.kind || 'event') }} · {{ job.status }}</strong><time>{{ new Date(job.created_at).toLocaleString() }}</time></p>
       <p class="break-all text-xs text-gray-500">{{ job.group_id }} · {{ job.member_id }} · {{ job.id }}</p>
       <p v-if="job.trigger_reason || job.decision_reason">{{ job.trigger_reason }} → {{ job.decision_reason || job.status }}</p>
-      <div v-if="job.image_decision?.tool" class="rounded bg-gray-50 p-3 text-xs dark:bg-dark-800">
-        <p>{{ t('qqbot.workspace.imageDecision') }}: {{ job.image_decision.tool }} → {{ job.image_decision.review }} → {{ job.image_decision.execution }}</p>
-        <p>{{ t('qqbot.workspace.imageReason') }}: {{ job.image_decision.reason }} · {{ job.image_decision.basis || 'none' }}</p>
-        <p>{{ t('qqbot.workspace.imageMessageRef') }}: {{ job.image_decision.message_ref }}<span v-if="job.image_decision.plan_ref"> · {{ t('qqbot.workspace.imagePlanRef') }}: {{ job.image_decision.plan_ref }}</span></p>
-      </div>
       <div v-if="job.site_query?.kind" class="space-y-1 rounded bg-gray-50 p-3 text-xs dark:bg-dark-800" data-testid="qq-job-site-query">
         <p>{{ t('qqbot.siteQuery.title') }}: {{ queryLabel('kinds', job.site_query.kind) }} · {{ queryLabel('statuses', job.site_query.status) }}</p>
         <p><span v-if="job.site_query.model">{{ job.site_query.model }} · </span>{{ t('qqbot.siteQuery.page', { page: job.site_query.page }) }} · {{ t('qqbot.siteQuery.duration', { ms: job.site_query.duration_ms }) }}</p>
@@ -53,7 +48,7 @@ watch(() => filters.group_id, () => { filters.member_id = '' }, { flush: 'sync' 
 function selectMember(member: QQMemberOption) { filters.group_id = member.group_id; filters.member_id = member.member_id }
 let applied = { ...filters }
 function search() { applied = { ...filters }; void load(1) }
-const kinds = ['chat', 'image', 'ambient_chat', 'spam_report', 'notifications', 'price_notification', 'health_notification', 'ranking_notification', 'announcement']
+const kinds = ['chat', 'ambient_chat', 'spam_report', 'notifications', 'price_notification', 'health_notification', 'ranking_notification', 'announcement']
 function kindLabel(kind: string) { const key = `qqbot.workspace.jobKinds.${kind}`; return te(key) ? t(key) : kind }
 const statuses = ['queued', 'running', 'completed', 'skipped', 'failed', 'delivery_failed', 'expired', 'interrupted', 'cancelled']
 const queryKinds: QQSiteQueryKind[] = ['model_price', 'channel_status', 'activity_rules', 'account_balance', 'today_usage', 'lottery_chances']

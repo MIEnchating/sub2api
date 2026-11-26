@@ -12,18 +12,13 @@ import (
 var _ service.DurableUsageBillingRepository = (*usageBillingRepository)(nil)
 
 func (r *usageBillingRepository) StageUsageBilling(ctx context.Context, cmd *service.UsageBillingCommand, usage *service.UsageLog) error {
-	_, err := r.StageUsageBillingForReceipt(ctx, cmd, usage)
-	return err
-}
-
-func (r *usageBillingRepository) StageUsageBillingForReceipt(ctx context.Context, cmd *service.UsageBillingCommand, usage *service.UsageLog) (bool, error) {
 	if cmd == nil || usage == nil || cmd.RequestID == "" || cmd.APIKeyID <= 0 || cmd.UserID <= 0 ||
 		usage.RequestID != cmd.RequestID || usage.APIKeyID != cmd.APIKeyID || usage.UserID != cmd.UserID || usage.AccountID != cmd.AccountID {
-		return false, service.ErrUsageBillingRequestConflict
+		return service.ErrUsageBillingRequestConflict
 	}
 	releaseSQL, err := r.admission.acquireSQL(ctx, r.db.Stats().MaxOpenConnections)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer releaseSQL()
 	cmd.Normalize()
@@ -34,27 +29,23 @@ func (r *usageBillingRepository) StageUsageBillingForReceipt(ctx context.Context
 	}
 	raw, err := json.Marshal(e)
 	if err != nil {
-		return false, err
+		return err
 	}
 	command, err := json.Marshal(e.Command)
 	if err != nil {
-		return false, err
+		return err
 	}
 	tx, err := r.db.BeginTx(ctx, nil)
 	if err != nil {
-		return false, err
+		return err
 	}
 	defer func() { _ = tx.Rollback() }()
-	inserted, err := tx.ExecContext(ctx, `INSERT INTO usage_billing_events
+	_, err = tx.ExecContext(ctx, `INSERT INTO usage_billing_events
 		(request_id,api_key_id,request_fingerprint,schema_version,payload,observed_at)
 		VALUES($1,$2,$3,1,$4::jsonb,$5) ON CONFLICT(request_id,api_key_id) DO NOTHING`,
 		cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint, string(raw), e.Usage.CreatedAt)
 	if err != nil {
-		return false, err
-	}
-	n, err := inserted.RowsAffected()
-	if err != nil {
-		return false, err
+		return err
 	}
 	// Keep the first immutable usage snapshot. Repeated delivery may observe a
 	// later wall clock, but must never change the command, owner or monetary basis.
@@ -62,13 +53,13 @@ func (r *usageBillingRepository) StageUsageBillingForReceipt(ctx context.Context
 	err = tx.QueryRowContext(ctx, `SELECT schema_version=1 AND request_fingerprint=$3 AND ((payload->'command')-'PlatformUsageAt')=($4::jsonb-'PlatformUsageAt')
 		FROM usage_billing_events WHERE request_id=$1 AND api_key_id=$2`, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint, string(command)).Scan(&same)
 	if err != nil {
-		return false, err
+		return err
 	}
 	if !same {
-		return false, service.ErrUsageBillingRequestConflict
+		return service.ErrUsageBillingRequestConflict
 	}
 	if err = tx.Commit(); err == nil {
-		return n == 1, nil
+		return nil
 	}
 	// A lost COMMIT response is not proof of rollback. Check a fresh connection
 	// before returning; do not re-run either the model or a monetary operation.
@@ -78,11 +69,9 @@ func (r *usageBillingRepository) StageUsageBillingForReceipt(ctx context.Context
 	checkErr := r.db.QueryRowContext(check, `SELECT schema_version=1 AND request_fingerprint=$3 AND ((payload->'command')-'PlatformUsageAt')=($4::jsonb-'PlatformUsageAt')
 		FROM usage_billing_events WHERE request_id=$1 AND api_key_id=$2`, cmd.RequestID, cmd.APIKeyID, cmd.RequestFingerprint, string(command)).Scan(&stored)
 	if checkErr == nil && stored {
-		// Another transaction could have inserted the same command after a
-		// rollback. The read proves the command exists, not who created it.
-		return false, nil
+		return nil
 	}
-	return false, errors.Join(service.ErrUsageBillingOutcomeUnknown, err, checkErr)
+	return errors.Join(service.ErrUsageBillingOutcomeUnknown, err, checkErr)
 }
 
 func validateUsageBillingEvent(e *service.UsageBillingEvent, key service.UsageBillingEventKey, fingerprint string) error {

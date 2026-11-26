@@ -299,6 +299,7 @@ func ProvideAccountUsageService(
 	identityCache IdentityCache,
 	tlsFPProfileService *TLSFingerprintProfileService,
 	openAIGatewayService *OpenAIGatewayService,
+	opsService *OpsService,
 ) *AccountUsageService {
 	service := NewAccountUsageService(
 		accountRepo,
@@ -314,6 +315,9 @@ func ProvideAccountUsageService(
 		tlsFPProfileService,
 	)
 	service.agentIdentityWS = openAIGatewayService
+	if opsService != nil {
+		service.opsMonitoring = opsService
+	}
 	return service
 }
 
@@ -1241,9 +1245,18 @@ var ProviderSet = wire.NewSet(
 // ProvideUsageBillingRepository 以按用户合并结算的通道作为各服务使用的计费仓储。
 func ProvideUsageBillingRepository(lanes *UsageBillingLaneCombiner) UsageBillingRepository {
 	if durable, ok := lanes.repo.(DurableUsageBillingRepository); ok {
-		return &durableUsageBillingLanes{UsageBillingLaneCombiner: lanes, DurableUsageBillingRepository: durable}
+		wrapped := &durableUsageBillingLanes{UsageBillingLaneCombiner: lanes, DurableUsageBillingRepository: durable}
+		if settlement, ok := lanes.repo.(UsageSettlementRepository); ok {
+			return &upstreamUsageBillingLanes{wrapped, settlement}
+		}
+		return wrapped
 	}
 	return lanes
+}
+
+type upstreamUsageBillingLanes struct {
+	*durableUsageBillingLanes
+	UsageSettlementRepository
 }
 
 // Staged delivery keeps its transactional journal and cache acknowledgement.

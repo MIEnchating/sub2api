@@ -25,7 +25,7 @@ func TestListJobsAcceptsPersonalQueryFilters(t *testing.T) {
 				WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(0))
 			mock.ExpectQuery("SELECT id,app_id,event_type").
 				WithArgs(c.AppID, "group", "member", "", "", nil, nil, kind, "succeeded", 10, 0).
-				WillReturnRows(sqlmock.NewRows([]string{"id", "app_id", "event_type", "group_id", "member_id", "kind", "status", "error", "input_tokens", "output_tokens", "created_at", "finished_at", "trigger_reason", "decision_reason", "image_decision", "site_query", "chat_execution"}))
+				WillReturnRows(sqlmock.NewRows([]string{"id", "app_id", "event_type", "group_id", "member_id", "kind", "status", "error", "input_tokens", "output_tokens", "created_at", "finished_at", "trigger_reason", "decision_reason", "site_query", "chat_execution"}))
 			mock.ExpectCommit()
 			page, err := newMatureFixtureService(db, previewEncryptor{}, true, nil).ListJobs(context.Background(), JobFilter{GroupID: "group", MemberID: "member", QueryKind: kind, QueryStatus: "succeeded", Page: 1, PageSize: 10})
 			require.NoError(t, err)

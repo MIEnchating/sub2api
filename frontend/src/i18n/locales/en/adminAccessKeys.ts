@@ -1,4 +1,10 @@
 export default {
+  "fullAccessLabel": "Full access (legacy administrator key compatibility)",
+  "fullAccessWarning": "This key can access all administrative resources, read sensitive data, and change account and financial settings, including future administrative endpoints. Group, platform, account type, and operation rules no longer restrict this key. Endpoints requiring an administrator browser session or step-up verification keep those requirements.",
+  "rulesSuspended": "Resource rules are suspended and resume when full access is disabled. Expiration, IP restrictions, rate limits, and auditing remain active.",
+  "fullAccessConfirmTitle": "Confirm full access",
+  "fullAccessPhrase": "ENABLE FULL ACCESS",
+  "fullAccessPhraseHint": "Type “{phrase}” to confirm:",
   "title": "Admin access keys",
   "authorizationHint": "Grant operations within resource scopes. Unselected operations are denied.",
   "sharedAccountWarning": "Shared account changes affect every associated group. Global permissions apply independently of group scopes.",
@@ -70,12 +76,6 @@ export default {
   "revokeConfirm": "Permanently revoking “{name}” cannot be undone. Continue?",
   "deleteConfirm": "Delete the key record “{name}”? This removes it from the list only. Historical operation records are retained.",
   "legacy": "Legacy full-access key (migration to scoped keys recommended)",
-  "fullAccessLabel": "Full access (legacy administrator key compatibility)",
-  "fullAccessWarning": "This key can access all administrative resources, read sensitive data, and change account and financial settings, including future administrative endpoints. Group, platform, account type, and operation rules no longer restrict this key. Endpoints requiring an administrator browser session or step-up verification keep those requirements.",
-  "rulesSuspended": "Resource rules are suspended and resume when full access is disabled. Expiration, IP restrictions, rate limits, and auditing remain active.",
-  "fullAccessConfirmTitle": "Confirm full access",
-  "fullAccessPhrase": "ENABLE FULL ACCESS",
-  "fullAccessPhraseHint": "Type “{phrase}” to confirm:",
   "unknownPermission": "Unknown permission ({id})",
   "permissions": {
     "accounts_didentity_dread": {

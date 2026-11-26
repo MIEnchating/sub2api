@@ -59,7 +59,7 @@ func TestAccountPerformanceDisplayColdReadNeverWaitsForHistory(t *testing.T) {
 	repo := &accountPerformanceRepository{db: db, display: c}
 	request, cancel := context.WithCancel(context.Background())
 	expectDisplayMetadata(mock, "60", false)
-	got, err := repo.Read(request, []int64{7}, time.Now())
+	got, err := repo.Read(request, []int64{7}, time.Now(), true)
 	require.NoError(t, err)
 	require.Equal(t, "pending", got[7].StatisticsStatus)
 	require.Nil(t, got[7].AvgTPS)
@@ -70,7 +70,7 @@ func TestAccountPerformanceDisplayColdReadNeverWaitsForHistory(t *testing.T) {
 		t.Fatal("refresh did not start")
 	}
 	expectDisplayMetadata(mock, "60", true)
-	got, err = repo.Read(context.Background(), []int64{7}, time.Now())
+	got, err = repo.Read(context.Background(), []int64{7}, time.Now(), true)
 	require.NoError(t, err)
 	require.True(t, got[7].Paused, "pause state is live even while the cache is warming")
 	require.Equal(t, int32(1), calls.Load())
@@ -79,7 +79,7 @@ func TestAccountPerformanceDisplayColdReadNeverWaitsForHistory(t *testing.T) {
 		return client.Exists(context.Background(), c.key(performanceDisplayJob{7, 60})).Val() == 1
 	}, time.Second, time.Millisecond)
 	expectDisplayMetadata(mock, "60", true)
-	got, err = repo.Read(context.Background(), []int64{7}, time.Now())
+	got, err = repo.Read(context.Background(), []int64{7}, time.Now(), true)
 	require.NoError(t, err)
 	require.Equal(t, "ready", got[7].StatisticsStatus)
 	require.Equal(t, 42.0, *got[7].AvgTPS)
@@ -212,7 +212,7 @@ func TestAccountPerformanceDisplayRefreshUsesReadOnlyDatabaseBudget(t *testing.T
 	defer repo.Stop()
 	mock.ExpectBegin()
 	mock.ExpectExec("SET LOCAL statement_timeout='4500ms'; SET LOCAL lock_timeout='500ms'; SET LOCAL work_mem='8MB'; SET LOCAL max_parallel_workers_per_gather=0").WillReturnResult(sqlmock.NewResult(0, 0))
-	mock.ExpectQuery("WITH source").WithArgs("{7}", sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(performanceRow(service.PerformanceConfig{}))
+	mock.ExpectQuery("WITH usage").WithArgs("{7}", sqlmock.AnyArg(), sqlmock.AnyArg()).WillReturnRows(performanceRow(service.PerformanceConfig{}))
 	mock.ExpectCommit()
 	repo.display.refresh([]performanceDisplayJob{{7, 60}})
 	require.Equal(t, int64(1), client.Exists(context.Background(), repo.display.key(performanceDisplayJob{7, 60})).Val())

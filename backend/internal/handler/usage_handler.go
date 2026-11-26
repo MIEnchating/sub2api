@@ -54,6 +54,7 @@ type UsageHandler struct {
 	apiKeyService  *service.APIKeyService
 	opsService     *service.OpsService
 	settingService *service.SettingService
+	channelService *service.ChannelService
 }
 
 // NewUsageHandler creates a new UsageHandler
@@ -63,6 +64,7 @@ func NewUsageHandler(
 	opsService *service.OpsService,
 	settingService *service.SettingService,
 	billing service.CustomerUsageRepository, cfg *config.Config,
+	channelService *service.ChannelService,
 ) *UsageHandler {
 	return &UsageHandler{
 		billing: billing, cursorKey: []byte(cfg.JWT.Secret), exportSlots: make(chan struct{}, 2),
@@ -70,7 +72,43 @@ func NewUsageHandler(
 		apiKeyService:  apiKeyService,
 		opsService:     opsService,
 		settingService: settingService,
+		channelService: channelService,
 	}
+}
+
+// userUsageLogs 将使用记录转换为普通用户 DTO。对于所属渠道开启了
+// "向用户显示实际响应模型"的记录，额外填充 response_model。
+// 渠道开关一次性从渠道内存缓存中批量读取，不产生额外数据库查询。
+func (h *UsageHandler) userUsageLogs(c *gin.Context, records []service.UsageLog) []dto.UsageLog {
+	var exposed map[int64]bool
+	if h.channelService != nil && len(records) > 0 {
+		seen := make(map[int64]struct{}, 2)
+		ids := make([]int64, 0, 2)
+		for i := range records {
+			if records[i].ChannelID == nil {
+				continue
+			}
+			id := *records[i].ChannelID
+			if _, ok := seen[id]; ok {
+				continue
+			}
+			seen[id] = struct{}{}
+			ids = append(ids, id)
+		}
+		exposed = h.channelService.ResponseModelExposedChannels(c.Request.Context(), ids)
+	}
+
+	acceptLanguage := c.GetHeader("Accept-Language")
+	out := make([]dto.UsageLog, 0, len(records))
+	showObservedModel := h.userMaySeeUpstreamResponseModel(c)
+	for i := range records {
+		item := dto.UsageLogFromServiceForUser(&records[i], showObservedModel).Localized(acceptLanguage)
+		if records[i].ChannelID != nil && exposed[*records[i].ChannelID] {
+			item.ApplyResponseModel(&records[i])
+		}
+		out = append(out, *item)
+	}
+	return out
 }
 
 // SettledDebits is a bounded, read-only lookup. It never initiates billing.
@@ -282,7 +320,6 @@ func (h *UsageHandler) List(c *gin.Context) {
 		return
 	}
 
-	h.usageService.EnrichContentTiming(c.Request.Context(), records)
 	if isObserverUsageRequest(c) {
 		out := make([]dto.AdminUsageLog, 0, len(records))
 		for i := range records {
@@ -291,12 +328,7 @@ func (h *UsageHandler) List(c *gin.Context) {
 		response.Paginated(c, out, result.Total, page, pageSize)
 		return
 	}
-	out := make([]dto.UsageLog, 0, len(records))
-	showResponseModel := h.userMaySeeUpstreamResponseModel(c)
-	for i := range records {
-		out = append(out, *h.userUsageLogDTO(c, &records[i], showResponseModel))
-	}
-	response.Paginated(c, out, result.Total, page, pageSize)
+	response.Paginated(c, h.userUsageLogs(c, records), result.Total, page, pageSize)
 }
 
 // ListErrors handles listing the current user's failed requests (redacted).
@@ -486,7 +518,7 @@ func (h *UsageHandler) GetByID(c *gin.Context) {
 		response.Success(c, dto.UsageLogFromServiceAdmin(record))
 		return
 	}
-	response.Success(c, h.userUsageLogDTO(c, record, h.userMaySeeUpstreamResponseModel(c)))
+	response.Success(c, &h.userUsageLogs(c, []service.UsageLog{*record})[0])
 }
 
 func (h *UsageHandler) userMaySeeUpstreamResponseModel(c *gin.Context) bool {

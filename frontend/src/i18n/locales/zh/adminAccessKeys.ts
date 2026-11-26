@@ -1,4 +1,10 @@
 export default {
+  "fullAccessLabel": "全权访问（兼容旧版管理员 Key）",
+  "fullAccessWarning": "开启后，此密钥可访问全部管理资源、读取敏感数据并修改账户和财务配置；未来新增的管理接口也将允许访问。分组、平台、账户类型和操作规则不再限制此密钥。仅限管理员登录会话及二次验证的接口仍遵循原要求。",
+  "rulesSuspended": "资源规则已暂停，关闭全权访问后恢复；有效期、IP 限制、限流和审计继续生效。",
+  "fullAccessConfirmTitle": "确认开启全权访问",
+  "fullAccessPhrase": "开启全权访问",
+  "fullAccessPhraseHint": "请输入“{phrase}”以确认：",
   "title": "管理员访问密钥",
   "authorizationHint": "按操作和资源范围授权；未勾选操作不生效。",
   "sharedAccountWarning": "共享账户操作会影响所有关联分组；全站权限不受分组限制。",
@@ -70,12 +76,6 @@ export default {
   "revokeConfirm": "永久撤销“{name}”后无法恢复，是否继续？",
   "deleteConfirm": "确定删除“{name}”的密钥记录？删除只是从列表移除，历史操作记录仍会继续保留。",
   "legacy": "旧版全权密钥兼容区（建议迁移到受限密钥）",
-  "fullAccessLabel": "全权访问（兼容旧版管理员 Key）",
-  "fullAccessWarning": "开启后，此密钥可访问全部管理资源、读取敏感数据并修改账户和财务配置；未来新增的管理接口也将允许访问。分组、平台、账户类型和操作规则不再限制此密钥。仅限管理员登录会话及二次验证的接口仍遵循原要求。",
-  "rulesSuspended": "资源规则已暂停，关闭全权访问后恢复；有效期、IP 限制、限流和审计继续生效。",
-  "fullAccessConfirmTitle": "确认开启全权访问",
-  "fullAccessPhrase": "开启全权访问",
-  "fullAccessPhraseHint": "请输入“{phrase}”以确认：",
   "unknownPermission": "未知权限（{id}）",
   "permissions": {
     "accounts_didentity_dread": {

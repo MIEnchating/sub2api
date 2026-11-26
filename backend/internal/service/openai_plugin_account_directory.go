@@ -118,7 +118,12 @@ func accountReadableSnapshotJSON(account *Account) []byte {
 	clone.Proxies = nil
 	clone.Groups = nil
 	clone.AccountGroups = nil
-	data, err := json.Marshal(&clone)
+	// The plugin directory exposes the current pause flag. Scheduler snapshots
+	// omit it because they must read performance state afresh on each request.
+	data, err := json.Marshal(struct {
+		*Account
+		PerformancePaused bool
+	}{&clone, clone.PerformancePaused})
 	if err != nil {
 		return nil
 	}

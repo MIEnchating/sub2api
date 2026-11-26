@@ -43,6 +43,9 @@ if args[0] == 'run':
     else:
         sys.exit(int(os.environ.get('GO_TEST_STATUS', '0')))
 elif args[0] == 'exec':
+    if args[2] == 'createdb':
+        assert args == ['exec', 'fixture-postgres', 'createdb', '-U', 'postgres', 'shadow_audit'], args
+        sys.exit(1 if mode == 'createdb_failure' else 0)
     probes = sum(call[0] == 'exec' for call in previous)
     if '-h' not in args:
         # The temporary init server accepts Unix sockets, then stops. The old
@@ -89,7 +92,7 @@ else:
     def test_waits_for_tcp_after_temporary_init_server_stops(self):
         result = self.run_check()
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(self.docker_calls('exec')), 3)
+        self.assertEqual([args[2] for args in self.docker_calls('exec')], ['pg_isready'] * 3 + ['createdb'])
         args = self.docker_calls('run')[-1]
         self.assertIn('--network', args)
         self.assertEqual(args[args.index('--network') + 1], 'host')
@@ -98,9 +101,13 @@ else:
         redis_setup = args[args.index('sub2api-integration') - 1]
         self.assertIn('command -v redis-server', redis_setup)
         self.assertIn('apt-get install -y --no-install-recommends redis-server', redis_setup)
+        self.assertIn('export PROMPT_AUDIT_TEST_REDIS_ADDR="$audit_dir/redis.sock"', redis_setup)
+        self.assertIn('redis-server --port 0 --unixsocket "$PROMPT_AUDIT_TEST_REDIS_ADDR"', redis_setup)
+        self.assertIn('redis-cli -s "$PROMPT_AUDIT_TEST_REDIS_ADDR" ping', redis_setup)
         self.assertIn('exec "$@"', redis_setup)
         for key in ('MIGRATION_TEST_DATABASE_URL', 'QQBOT_TEST_DSN'):
             self.assertIn(key + '=postgres://postgres:integration-test@127.0.0.1:54329/sub2api_test?sslmode=disable', args)
+        self.assertIn('PROMPT_AUDIT_TEST_POSTGRES_DSN=postgres://postgres:integration-test@127.0.0.1:54329/shadow_audit?sslmode=disable', args)
         self.assertEqual(args[-6:], ['go', 'test', '-count=1', '-tags=integration', '-timeout=60m', './...'])
         self.assert_cleaned()
 
@@ -115,7 +122,7 @@ else:
     def test_last_readiness_attempt_is_accepted_without_extra_probe(self):
         result = self.run_check(READY_AFTER='30')
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(len(self.docker_calls('exec')), 30)
+        self.assertEqual([args[2] for args in self.docker_calls('exec')], ['pg_isready'] * 30 + ['createdb'])
         self.assert_cleaned()
 
     def test_timeout_reports_database_logs_and_does_not_start_tests(self):
@@ -142,6 +149,13 @@ else:
         result = self.run_check(DOCKER_SCENARIO='port_failure')
         self.assertNotEqual(result.returncode, 0)
         self.assertIn('Failed to resolve integration PostgreSQL port', result.stderr)
+        self.assert_tests_not_started()
+        self.assert_cleaned()
+
+    def test_audit_database_creation_failure_stops_tests_and_cleans_up(self):
+        result = self.run_check(DOCKER_SCENARIO='createdb_failure')
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn('Failed to create integration PostgreSQL database shadow_audit', result.stderr)
         self.assert_tests_not_started()
         self.assert_cleaned()
 

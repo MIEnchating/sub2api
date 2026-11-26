@@ -28,7 +28,7 @@ func TestAccountPerformancePostgresUpstreamErrorSavePauseAuditAndRelease(t *test
 	cfg.Enabled = true
 	cfg.UpstreamError.Max = &max
 	require.NoError(t, repo.Save(ctx, id, cfg, 0, 0))
-	metrics, err := repo.Read(ctx, []int64{id}, now)
+	metrics, err := repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	m := metrics[id]
 	require.True(t, m.Config.Enabled)
@@ -40,7 +40,7 @@ func TestAccountPerformancePostgresUpstreamErrorSavePauseAuditAndRelease(t *test
 	require.Equal(t, int64(1), m.UpstreamError.Failures)
 	require.False(t, m.UpstreamError.WindowComplete, "a new process still evaluates its real observed samples")
 	require.NoError(t, repo.Evaluate(ctx, id, now))
-	metrics, err = repo.Read(ctx, []int64{id}, now)
+	metrics, err = repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	m = metrics[id]
 	require.True(t, m.Paused)
@@ -62,19 +62,19 @@ func TestAccountPerformancePostgresUpstreamErrorSavePauseAuditAndRelease(t *test
 	require.True(t, m.WindowEnd.Equal(evidence.WindowEnd))
 	// A healthy later window must not clear the latched performance pause.
 	require.NoError(t, repo.Evaluate(ctx, id, now.Add(25*time.Hour)))
-	metrics, err = repo.Read(ctx, []int64{id}, now.Add(25*time.Hour))
+	metrics, err = repo.Read(ctx, []int64{id}, now.Add(25*time.Hour), true)
 	require.NoError(t, err)
 	require.True(t, metrics[id].Paused)
 	cfg.Enabled = false
 	require.NoError(t, repo.Save(ctx, id, cfg, 1, 0))
-	metrics, err = repo.Read(ctx, []int64{id}, now)
+	metrics, err = repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	require.True(t, metrics[id].Paused, "saving or disabling never clears a pause from an observed threshold")
 	require.Equal(t, "upstream_error", metrics[id].Reason)
 	require.Equal(t, int64(1), metrics[id].PauseGeneration)
 	require.ErrorIs(t, repo.Release(ctx, id, 1, 1, 0), service.ErrPerformanceConflict)
 	require.NoError(t, repo.Release(ctx, id, 2, 1, 0))
-	metrics, err = repo.Read(ctx, []int64{id}, now)
+	metrics, err = repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	m = metrics[id]
 	require.False(t, m.Paused)
@@ -95,7 +95,7 @@ func TestAccountPerformancePostgresUpstreamErrorSavePauseAuditAndRelease(t *test
 	cfg.UpstreamError = service.PerformanceBounds{Min: &min}
 	require.NoError(t, repo.Save(ctx, id, cfg, 3, 0))
 	require.NoError(t, repo.Evaluate(ctx, id, now))
-	metrics, err = repo.Read(ctx, []int64{id}, now)
+	metrics, err = repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	require.True(t, metrics[id].Paused)
 	require.Equal(t, int64(2), metrics[id].PauseGeneration)
@@ -120,7 +120,7 @@ func TestAccountPerformancePostgresUpstreamErrorLegacyConfig(t *testing.T) {
 	upstreamstats.Default.Record(id, 503, now)
 	repo := &accountPerformanceRepository{db: integrationDB}
 	require.NoError(t, repo.Evaluate(ctx, id, now))
-	metrics, err := repo.Read(ctx, []int64{id}, now)
+	metrics, err := repo.Read(ctx, []int64{id}, now, true)
 	require.NoError(t, err)
 	require.Nil(t, metrics[id].Config.UpstreamError.Min)
 	require.Nil(t, metrics[id].Config.UpstreamError.Max)

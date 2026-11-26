@@ -86,7 +86,7 @@ func newUserUsageRequestTypeTestRouter(repo *userUsageRepoCapture) *gin.Engine {
 func newUserUsageRequestTypeTestRouterWithSettings(repo *userUsageRepoCapture, settings *service.SettingService) *gin.Engine {
 	gin.SetMode(gin.TestMode)
 	usageSvc := service.NewUsageService(repo, nil, nil, nil)
-	handler := NewUsageHandler(usageSvc, nil, nil, settings, nil, &config.Config{})
+	handler := NewUsageHandler(usageSvc, nil, nil, settings, nil, &config.Config{}, nil)
 	router := gin.New()
 	router.Use(func(c *gin.Context) {
 		c.Set(string(middleware2.ContextKeyUser), middleware2.AuthSubject{UserID: 42})

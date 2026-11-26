@@ -130,6 +130,10 @@ class UpstreamExclusionsTest(unittest.TestCase):
 
     def test_excludes_fork_image_surcharge_and_retains_native_pricing(self):
         self.assertTrue(self.check('backend/internal/service/image_usage_billing.go'))
+        self.assertTrue(self.check('backend/internal/handler/openai_chat_completions.go', 'c.GetHeader("X-Image-Usage")'))
+        self.assertTrue(self.check('backend/internal/pkg/imageeditcompat/convert.go'))
+        self.assertTrue(self.check('docs/features/image-usage-billing.md'))
+        self.assertFalse(self.check('backend/internal/qqbot/image_references.go', 'return imageAttachments(attachments)'))
         self.assertTrue(self.check('frontend/src/api/channels.ts', 'image_minimum_charge?: number'))
         self.assertTrue(self.check('backend/internal/service/account_cost.go', 'const ImagePurchasePricesKey = "image_purchase_prices"'))
         self.assertTrue(self.check('frontend/src/i18n/locales/zh/profitOps.ts', 'imagePurchasePrices: "legacy"'))

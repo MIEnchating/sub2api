@@ -57,8 +57,7 @@ const stats = computed(() => overview.value ? [
  { label: 'qqbot.workspace.pendingRewards', value: overview.value.pending_rewards },
  { label: 'qqbot.workspace.todayRewards', value: `$${overview.value.reward_amount.toFixed(2)}` },
  { label: 'qqbot.workspace.queue', value: `${overview.value.queued} / ${overview.value.running}` },
- { label: 'qqbot.workspace.chatUsed', value: overview.value.chat_used },
- { label: 'qqbot.workspace.imageUsed', value: overview.value.image_used }
+ { label: 'qqbot.workspace.chatUsed', value: overview.value.chat_used }
 ] : [])
 async function load() { loading.value = true; error.value = ''; try { [config.value, overview.value, runtime.value] = await Promise.all([qqbotAPI.config(), qqbotAPI.overview(), qqbotAPI.runtime()]) } catch (e) { error.value = (e as Error).message } finally { loading.value = false } }
 async function diagnose() {

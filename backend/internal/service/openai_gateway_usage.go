@@ -620,9 +620,7 @@ func (s *OpenAIGatewayService) RecordUsage(ctx context.Context, input *OpenAIRec
 	if billingErr != nil {
 		return billingErr
 	}
-	if durableBilling {
-		recordDurableUsageTiming(ctx, s.usageLogRepo, usageLog)
-	} else {
+	if !durableBilling {
 		usageLog.ServiceTierSurchargeWaived = applied && !simpleModeKeyRateLimitOnly && serviceTierSurchargeWaived
 		writeUsageLogBestEffort(ctx, s.usageLogRepo, usageLog, "service.openai_gateway")
 	}

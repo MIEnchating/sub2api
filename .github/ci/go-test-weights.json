@@ -37,7 +37,6 @@
     "github.com/Wei-Shaw/sub2api/internal/pkg/googleapi": 0.011,
     "github.com/Wei-Shaw/sub2api/internal/pkg/httpclient": 0.013,
     "github.com/Wei-Shaw/sub2api/internal/pkg/httputil": 2.412,
-    "github.com/Wei-Shaw/sub2api/internal/pkg/imageeditcompat": 0.026,
     "github.com/Wei-Shaw/sub2api/internal/pkg/ip": 0.027,
     "github.com/Wei-Shaw/sub2api/internal/pkg/logger": 0.023,
     "github.com/Wei-Shaw/sub2api/internal/pkg/modeltrace": 0.035,

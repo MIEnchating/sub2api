@@ -1114,6 +1114,10 @@ readLoop:
 			statusCode := openAIWSErrorHTTPStatusFromRaw(errCodeRaw, errTypeRaw)
 			setOpsUpstreamError(c, statusCode, errMsg, "")
 			clientStatusCode, clientMessage := statusCode, UpstreamErrorClientMessage(ctx, OpenAIUpstreamErrorClientMessage(message, errMsg))
+			contextRejected := IsUpstreamContextRejection(statusCode, message)
+			if contextRejected {
+				clientStatusCode = http.StatusBadRequest
+			}
 			if billingStatus != 0 {
 				clientStatusCode = http.StatusBadGateway
 				clientMessage = UpstreamErrorClientMessage(ctx, UpstreamBillingExhaustedClientMessage)
@@ -1125,14 +1129,16 @@ readLoop:
 					clientEvent = sanitized
 				}
 				emitStreamMessage(clientEvent, true)
+				if contextRejected {
+					markOpenAIWSClientVisibleFailure(c, eventType, message)
+				}
 			}
 			if !reqStream {
-				c.JSON(clientStatusCode, gin.H{
-					"error": gin.H{
-						"type":    "upstream_error",
-						"message": clientMessage,
-					},
-				})
+				fields := gin.H{"type": "upstream_error", "message": clientMessage}
+				if contextRejected {
+					fields["type"], fields["code"] = "invalid_request_error", "context_length_exceeded"
+				}
+				c.JSON(clientStatusCode, gin.H{"error": fields})
 			}
 			if modelUnavailable {
 				return partialResultWithUsage(), ErrOpenAIWSModelUnavailable

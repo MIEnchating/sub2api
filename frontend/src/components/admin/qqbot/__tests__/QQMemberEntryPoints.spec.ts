@@ -31,7 +31,7 @@ function deferred<T>() {
   return { promise, resolve }
 }
 const overviewConfig = { app_id: 'app', enabled: true, allowed_groups: ['first', 'second'], group_policies: [{ group_id: 'first', label: 'First group' }], total_daily_chat_limit: 100, }
-const overviewData = { day: '2026-10-24', checks: [], chat_remaining: 100, image_remaining: 10, failed: 0, pending_rewards: 0, reward_amount: 0, queued: 0, running: 0, chat_used: 0, image_used: 0 }
+const overviewData = { day: '2026-10-24', checks: [], chat_remaining: 100, failed: 0, pending_rewards: 0, reward_amount: 0, queued: 0, running: 0, chat_used: 0 }
 
 describe('QQ member selection entry points', () => {
   beforeEach(() => {
@@ -125,7 +125,7 @@ describe('QQ member selection entry points', () => {
   it('diagnoses the selected member and group, then clears identity after group and app changes', async () => {
     const config = { app_id: 'app', enabled: true, allowed_groups: ['first', 'second'], group_policies: [{ group_id: 'first', label: 'First group' }], total_daily_chat_limit: 100, }
     api.config.mockResolvedValue(config)
-    api.overview.mockResolvedValue({ day: '2026-10-24', checks: [], chat_remaining: 100, image_remaining: 10, failed: 0, pending_rewards: 0, reward_amount: 0, queued: 0, running: 0, chat_used: 0, image_used: 0 })
+    api.overview.mockResolvedValue({ day: '2026-10-24', checks: [], chat_remaining: 100, failed: 0, pending_rewards: 0, reward_amount: 0, queued: 0, running: 0, chat_used: 0 })
     api.runtime.mockResolvedValue({ groups: [], jobs: [] })
     api.diagnose.mockResolvedValue({ checks: [], jobs: [] })
     const wrapper = mount(QQBotOverviewView, { global: global() })
