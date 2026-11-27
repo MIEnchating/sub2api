@@ -13,7 +13,7 @@
         <p class="page-description mt-1.5 text-xs text-gray-500 dark:text-gray-400">
           {{ t(`channelMonitorV3.admin.description.${siteMode}`) }}
         </p>
-        <RouterLink to="/admin/tests?tab=plans" class="mt-3 inline-block text-sm text-primary-600 hover:underline dark:text-primary-400">{{ t('admin.tests.experience.scheduled') }}</RouterLink>
+        <RouterLink to="/admin/tests" class="mt-3 inline-block text-sm text-primary-600 hover:underline dark:text-primary-400">{{ t('channelMonitorV2.intelligence.monitor') }}</RouterLink>
         <div class="mt-4 flex flex-wrap items-center gap-x-3 gap-y-2 rounded-2xl bg-gray-50 px-4 py-3 dark:bg-dark-900/50" data-testid="monitor-mode-switch">
           <span class="text-sm font-medium text-gray-700 dark:text-gray-200">{{ t('channelMonitorV3.admin.siteMode') }}</span>
           <div class="inline-flex rounded-lg border border-gray-200 bg-white p-0.5 dark:border-dark-600 dark:bg-dark-800" role="radiogroup" :aria-label="t('channelMonitorV3.admin.siteMode')">
@@ -65,6 +65,16 @@
             <TabButton
               type="button"
               class="tab flex-1 sm:flex-none"
+              :class="adminMonitorTab === 'probes' ? 'tab-active' : ''"
+              :aria-selected="adminMonitorTab === 'probes'"
+              @click="adminMonitorTab = 'probes'"
+            >
+              {{ t('channelMonitorV2.probes.title') }}
+            </TabButton>
+            <TabButton
+              type="button"
+              role="tab"
+              class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'legacy' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'legacy'"
               @click="adminMonitorTab = 'legacy'"
@@ -78,6 +88,7 @@
       <V3SettingsPanel v-if="adminMonitorTab === 'v3'" />
       <MonitorSettingsPanel v-else-if="adminMonitorTab === 'v2'" />
 
+      <GroupProbePanel v-else-if="adminMonitorTab === 'probes'" />
       <TablePageLayout v-else>
       <template #filters>
         <MonitorFiltersBar
@@ -239,6 +250,7 @@ import MonitorPrimaryModelCell from '@/components/admin/monitor/MonitorPrimaryMo
 import MonitorActionsCell from '@/components/admin/monitor/MonitorActionsCell.vue'
 import { getPersistedPageSize } from '@/composables/usePersistedPageSize'
 import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
+import GroupProbePanel from '@/features/channel-monitor-v2/GroupProbePanel.vue'
 import MonitorSettingsPanel from '@/features/channel-monitor-v2/MonitorSettingsPanel.vue'
 import V3SettingsPanel from '@/features/channel-monitor-v3/V3SettingsPanel.vue'
 import { setMonitorMode } from '@/api/channelMonitorV3'
@@ -250,7 +262,7 @@ const isV1Mode = computed(() => isChannelMonitorV1Mode())
 const modes: ChannelMonitorMode[] = ['v1', 'v2', 'v3']
 const siteMode = computed(() => (appStore.cachedPublicSettings?.channel_monitor_enabled === false ? 'off' : getChannelMonitorMode()))
 const tabForMode = (mode: ChannelMonitorMode) => (mode === 'v1' ? 'legacy' : mode)
-const adminMonitorTab = ref<'v3' | 'v2' | 'legacy'>(tabForMode(getChannelMonitorMode()))
+const adminMonitorTab = ref<'v3' | 'v2' | 'legacy' | 'probes'>(tabForMode(getChannelMonitorMode()))
 const pendingMode = ref<ChannelMonitorMode | null>(null)
 const switchingMode = ref(false)
 

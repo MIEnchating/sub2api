@@ -153,6 +153,10 @@ export default {
       usageHint: "Charges appear in this key’s usage records. Usage statistics may take a moment to update.",
       requireActiveGroup: "Testing requires an active key with an assigned group",
     },
+    singleGroupHint: 'This site uses the primary group only. Existing additional bindings are preserved and resume when multi-group is enabled again.',
+    additionalGroups: 'Use additional groups',
+    multiGroupHint: 'Each request selects an available group with a lower effective multiplier and is billed by the selected group. Select up to 20 groups.',
+    multiGroupCount: 'Auto · {count} groups',
     providerLabel: 'Provider',
     providers: {
       anthropic: 'Anthropic',
@@ -402,9 +406,6 @@ export default {
       invalidBase: 'Use an HTTPS API address without credentials, a query, or a fragment. Local addresses may use HTTP.',
       invalidKey: 'This key is empty or invalid and can’t be imported into Magpie.'
     },
-    additionalGroups: 'Use additional groups',
-    multiGroupHint: 'Each request selects an available group with a lower effective multiplier and is billed by the selected group. Select up to 20 groups.',
-    multiGroupCount: 'Auto · {count} groups',
     usageDateRange: 'Usage dates',
     selectedPeriod: 'Selected period',
     invalidUsageDateRange: 'Select valid start and end dates',

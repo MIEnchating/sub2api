@@ -47,6 +47,46 @@ func (c *oauthHandlerRequestProxyClient) ExchangeCode(_ context.Context, _, _, _
 	return &openai.TokenResponse{AccessToken: token, ExpiresIn: 3600}, nil
 }
 
+func TestOpenAIAdminRequestProxyAuthorizationKeepsExit(t *testing.T) {
+	for _, profile := range []string{"codex", "excel"} {
+		t.Run(profile, func(t *testing.T) {
+			repo := &oauthHandlerRequestProxyRepo{proxies: map[int64]*service.Proxy{
+				11: {ID: 11, Protocol: "http", Host: "192.0.2.11", Port: 8080, Status: service.StatusActive},
+				22: {ID: 22, Protocol: "http", Host: "192.0.2.22", Port: 8080, Status: service.StatusActive},
+			}}
+			client := &oauthHandlerRequestProxyClient{}
+			svc := service.NewOpenAIOAuthService(repo, client)
+			defer svc.Stop()
+			handler := &OpenAIOAuthHandler{openaiOAuthService: svc}
+			router := gin.New()
+			router.POST("/generate-auth-url", handler.GenerateAuthURL)
+			router.POST("/exchange-code", handler.ExchangeCode)
+			post := func(path, body string) *httptest.ResponseRecorder {
+				w := httptest.NewRecorder()
+				req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+				req.Header.Set("Content-Type", "application/json")
+				router.ServeHTTP(w, req)
+				return w
+			}
+			w := post("/generate-auth-url", `{"oauth_client":"`+profile+`","proxy_mode":"request","proxy_ids":[99,11,22]}`)
+			require.Equal(t, http.StatusOK, w.Code)
+			var generated struct {
+				Data service.OpenAIAuthURLResult `json:"data"`
+			}
+			require.NoError(t, json.Unmarshal(w.Body.Bytes(), &generated))
+			require.Equal(t, "request", generated.Data.ProxyMode)
+			require.Equal(t, int64(11), generated.Data.ProxyID)
+			authURL, err := url.Parse(generated.Data.AuthURL)
+			require.NoError(t, err)
+			body, err := json.Marshal(map[string]any{"session_id": generated.Data.SessionID, "code": "synthetic-code", "state": authURL.Query().Get("state"), "proxy_mode": "request", "proxy_ids": []int64{22, 11}, "proxy_id": 22})
+			require.NoError(t, err)
+			w = post("/exchange-code", string(body))
+			require.Equal(t, http.StatusOK, w.Code)
+			require.Equal(t, []string{repo.proxies[11].URL()}, client.proxies)
+		})
+	}
+}
+
 func TestOpenAIAdminRequestProxyAuthorizationRejectsInvalidSettings(t *testing.T) {
 	svc := service.NewOpenAIOAuthService(&oauthHandlerRequestProxyRepo{proxies: map[int64]*service.Proxy{}}, nil)
 	defer svc.Stop()
@@ -129,4 +169,54 @@ func TestOpenAIAdminSingleProxyAuthorizationKeepsCompatibility(t *testing.T) {
 			require.Equal(t, []string{"http://192.0.2.22:8080"}, f.client.proxies)
 		})
 	}
+}
+
+func TestOpenAIAdminRequestProxyAuthorizationRejectsChangedSession(t *testing.T) {
+	for _, change := range []string{"request to single", "single to request", "URL changed"} {
+		t.Run(change, func(t *testing.T) {
+			f := newOAuthHandlerProxyFixture(t)
+			settings := map[string]any{"proxy_mode": "request", "proxy_ids": []int64{11, 22}}
+			if change == "single to request" {
+				settings = map[string]any{"proxy_mode": "single", "proxy_id": 11}
+			}
+			_, exchange := f.generate(t, settings)
+			exchange["proxy_mode"] = "request"
+			exchange["proxy_ids"] = []int64{11, 22}
+			if change == "request to single" {
+				exchange["proxy_mode"] = "single"
+				delete(exchange, "proxy_ids")
+			}
+			if change == "URL changed" {
+				f.repo.proxies[11].Host = "192.0.2.99"
+			}
+			w := f.post(t, "/exchange-code", exchange)
+			require.GreaterOrEqual(t, w.Code, http.StatusBadRequest)
+			require.Empty(t, f.client.proxies)
+			require.NotContains(t, w.Body.String(), "192.0.2")
+			if change == "single to request" {
+				exchange["proxy_mode"] = "single"
+				delete(exchange, "proxy_ids")
+			} else {
+				exchange["proxy_mode"] = "request"
+				exchange["proxy_ids"] = []int64{22, 11}
+			}
+			f.repo.proxies[11].Host = "192.0.2.11"
+			w = f.post(t, "/exchange-code", exchange)
+			require.Equal(t, http.StatusOK, w.Code, "rejected callbacks must preserve the authorization session: %s", w.Body.String())
+			require.Equal(t, []string{"http://192.0.2.11:8080"}, f.client.proxies)
+		})
+	}
+}
+
+func TestOpenAIAdminRequestProxyAuthorizationSkipsExpiredMember(t *testing.T) {
+	f := newOAuthHandlerProxyFixture(t)
+	expired := time.Now().Add(-time.Minute)
+	f.repo.proxies[11].ExpiresAt = &expired
+	generated, exchange := f.generate(t, map[string]any{"proxy_mode": "request", "proxy_ids": []int64{11, 22}})
+	require.Equal(t, int64(22), generated.ProxyID)
+	exchange["proxy_mode"] = "request"
+	exchange["proxy_ids"] = []int64{11, 22}
+	w := f.post(t, "/exchange-code", exchange)
+	require.Equal(t, http.StatusOK, w.Code, w.Body.String())
+	require.Equal(t, []string{"http://192.0.2.22:8080"}, f.client.proxies)
 }

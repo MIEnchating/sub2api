@@ -356,8 +356,8 @@ func TestOpenAIOAuthCapacityShedPreservesRetryAfterAndDeadline(t *testing.T) {
 			svc.openaiOAuth429RetryStartedAt.Store(account.ID, startedAt)
 			err = build()
 			require.Equal(t, startedAt.Add(openAIOAuth429RetryWindow), err.SameAccountRetryDeadline)
-			require.Positive(t, err.SameAccountRetryDelay)
-			require.LessOrEqual(t, err.SameAccountRetryDelay, time.Second)
+			// A nearly exhausted retry window must not shorten an upstream minimum.
+			require.Equal(t, test.want, err.SameAccountRetryDelay)
 		})
 	}
 }

@@ -40,6 +40,40 @@ func TestExcelBPSWarmTargetsUseConfiguredConcurrency(t *testing.T) {
 	require.Equal(t, excelBPSWarmMaxTarget, m)
 }
 
+func TestExcelBPSWarmRequestRecoveryDoesNotMutateAccount(t *testing.T) {
+	account := recoveryTestAccount(time.Now())
+	account.Concurrency = 6
+	account.Extra[ExcelBPSProxyModeKey] = ExcelBPSProxyModeRequest
+	account.Extra[ExcelBPSProxyIDsKey] = []int64{11, 22}
+	projection, recovery := effectiveExcelBPSWarmAccount(account)
+	require.True(t, recovery)
+	require.True(t, projection.ExcelBPSRequestProxyEnabled())
+	require.Equal(t, []int64{11, 22}, projection.ExcelBPSRequestProxyIDs())
+	require.Equal(t, 6, projection.Concurrency, "group projection must retain account settings")
+	managed, static, _ := excelBPSWarmTargets([]Account{*account}, true)
+	require.Zero(t, managed)
+	require.Equal(t, 1, static, "recovery target only needs one healthy exit")
+	require.False(t, account.IsExcelBPSEnabled(), "warming cannot re-enable the stored account")
+	require.Equal(t, 6, account.Concurrency)
+}
+
+func TestExcelBPSWarmTargetsKeepExplicitRequestProxiesWhenBPSDisabled(t *testing.T) {
+	bps := *excelAccount()
+	bps.ID, bps.Concurrency = 1, 5
+	bps.Status, bps.Schedulable = StatusActive, true
+	bps.Extra[ExcelBPSProxyModeKey] = ExcelBPSProxyModeRequest
+	bps.Extra[ExcelBPSProxyIDsKey] = []int64{11}
+	native := *excelAccount()
+	native.ID, native.Concurrency = 2, 3
+	native.Status, native.Schedulable = StatusActive, true
+	native.Extra = map[string]any{OpenAIProxyModeKey: OpenAIProxyModeRequest, OpenAIProxyIDsKey: []int64{22}}
+
+	managed, static, groups := excelBPSWarmTargets([]Account{bps, native}, false)
+	require.Zero(t, managed)
+	require.Equal(t, 3, static)
+	require.Equal(t, map[int64][]int64{2: {22}}, groups)
+}
+
 type warmProjectionRepo struct {
 	AccountRepository
 	projectionCalls int

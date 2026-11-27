@@ -43,6 +43,7 @@ export const SETTINGS_SECTIONS: SettingsSection[] = [
   { tab: 'agreement', id: 'login-agreement' },
   { tab: 'features', id: 'request-capture' },
   { tab: 'features', id: 'smart-ops-sidebar' },
+  { tab: 'features', id: 'api-key-multi-group' },
   { tab: 'features', id: 'features-excel-bps-images' },
   { tab: 'features', id: 'features-channel-monitor' },
   { tab: 'features', id: 'features-available-channels' },

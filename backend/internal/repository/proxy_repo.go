@@ -512,11 +512,53 @@ func (r *proxyRepository) ExistsByHostPortAuth(ctx context.Context, host string,
 	return count > 0, err
 }
 
+// configuredAccountProxyReferencesSQL describes saved configuration, not live
+// traffic. Retained request-mode groups count while BPS is temporarily off.
+// UNION deduplicates both repeated group entries and the legacy proxy_id field.
 const configuredAccountProxyReferencesSQL = `
 WITH configured_account_proxy_refs AS (
-    SELECT id AS account_id, proxy_id
-    FROM accounts
-    WHERE deleted_at IS NULL AND proxy_id IS NOT NULL
+	SELECT id AS account_id, proxy_id
+	FROM accounts
+	WHERE deleted_at IS NULL AND proxy_id IS NOT NULL
+	UNION
+	SELECT ap.account_id, ap.proxy_id
+	FROM account_proxies ap
+	JOIN accounts a ON a.id = ap.account_id
+	WHERE a.deleted_at IS NULL
+	UNION
+	SELECT id AS account_id, proxy_id
+	FROM (
+		SELECT a.id, CASE
+			WHEN selected_id BETWEEN 1 AND 9223372036854775807
+				AND selected_id = trunc(selected_id) THEN selected_id::bigint
+			END AS proxy_id
+		FROM accounts a
+		CROSS JOIN LATERAL (SELECT CASE
+			WHEN a.extra ? 'openai_proxy_mode' THEN a.extra -> 'openai_proxy_ids'
+			ELSE a.extra -> 'openai_excel_bps_proxy_ids' END AS ids, CASE
+			WHEN a.extra ? 'openai_proxy_mode' THEN a.extra ->> 'openai_proxy_mode'
+			ELSE a.extra ->> 'openai_excel_bps_proxy_mode' END AS mode
+		) routing
+		CROSS JOIN LATERAL jsonb_array_elements(CASE
+			WHEN jsonb_typeof(routing.ids) = 'array'
+			THEN routing.ids ELSE '[]'::jsonb END) selected(value)
+		CROSS JOIN LATERAL (SELECT CASE
+			WHEN jsonb_typeof(selected.value) = 'number'
+			THEN selected.value::text::numeric END AS selected_id) parsed
+		-- Match strings.TrimSpace in the account auth-mode helpers.
+		CROSS JOIN (VALUES (U&'\0009\000A\000B\000C\000D\0020\0085\00A0\1680\2000\2001\2002\2003\2004\2005\2006\2007\2008\2009\200A\2028\2029\202F\205F\3000')) AS whitespace(chars)
+		CROSS JOIN LATERAL (SELECT
+			lower(btrim(COALESCE(a.credentials ->> 'auth_mode', ''), whitespace.chars)) AS auth_mode,
+			lower(btrim(COALESCE(a.credentials ->> 'openai_auth_mode', ''), whitespace.chars)) AS legacy_auth_mode
+		) auth
+		WHERE a.deleted_at IS NULL
+			AND a.platform = 'openai' AND a.type = 'oauth'
+			AND a.parent_account_id IS NULL
+			AND auth.auth_mode NOT IN ('agentidentity', 'personalaccesstoken', 'personal_access_token')
+			AND auth.legacy_auth_mode NOT IN ('personalaccesstoken', 'personal_access_token')
+			AND routing.mode = 'request'
+	) selected_refs
+	WHERE proxy_id IS NOT NULL
 )
 `
 

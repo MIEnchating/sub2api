@@ -499,7 +499,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 	grokCacheIdentity string,
 	turn int,
 	writeClientMessage func([]byte) error,
-) (*OpenAIForwardResult, error) {
+) (_ *OpenAIForwardResult, turnErr error) {
 	if s == nil {
 		return nil, errors.New("service is nil")
 	}
@@ -716,8 +716,18 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		c.Set("openai_ws_http_bridge", true)
 	}
 
-	turnStart := requesttiming.Now(ctx)
-	var forwardStart time.Time
+	attemptStart := requesttiming.Now(ctx)
+	timing := openAIWSHTTPBridgeTiming{arrival: openAIWSQueueArrival(ctx), legacyStart: attemptStart}
+	if retryTiming, ok := ctx.Value(openAIWSHTTPBridgeRetryTimingKey{}).(openAIWSHTTPBridgeTiming); turn == 1 && ok && retryTiming.arrival.Equal(timing.arrival) {
+		timing = retryTiming
+	}
+	defer func() {
+		var failover *UpstreamFailoverError
+		if !timing.arrival.IsZero() && !timing.firstForward.IsZero() && errors.As(turnErr, &failover) {
+			turnErr = &openAIWSHTTPBridgeTimedError{cause: turnErr, timing: timing}
+		}
+	}()
+	attemptSent := false
 	rejectedFieldRetryState := newOpenAIResponsesRejectedFieldRetryState(body)
 	var resp *http.Response
 	for {
@@ -744,7 +754,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				account.ID,
 				admissionErr,
 			)
-			if forwardStart.IsZero() {
+			if !attemptSent {
 				source, _ := ctx.Value(openAIWSAgentSourceKey{}).([]byte)
 				admissionErr = openAIWSUnsentTurn(admissionErr, source, originalModel, turn)
 			}
@@ -753,7 +763,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if recovery := openAIWSAgentRecoveryFromContext(ctx); recovery != nil {
 			source, _ := ctx.Value(openAIWSAgentSourceKey{}).([]byte)
 			if err := recovery.begin(latest, source, body, upstreamReq, "http_bridge"); err != nil {
-				if forwardStart.IsZero() {
+				if !attemptSent {
 					return nil, openAIWSUnsentAgentTurn(err, source, originalModel, turn)
 				}
 				return nil, openAIWSAgentRecoveryClose(err)
@@ -761,8 +771,9 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		// Only crossing the physical send boundary makes this turn ineligible
 		// for unsent recovery, including any later rejected-field attempt.
-		if forwardStart.IsZero() {
-			forwardStart = requesttiming.Now(ctx)
+		attemptSent = true
+		if timing.firstForward.IsZero() {
+			timing.firstForward = requesttiming.Now(ctx)
 		}
 		resp, err = s.doOpenAIUpstream(upstreamReq, proxyURL, account)
 		if err != nil {
@@ -844,7 +855,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 					newOpenAIUpstreamFailoverError(resp.StatusCode, resp.Header, respBody, upstreamMsg, false).WithGrokForbiddenPolicy(account),
 				)
 			}
-		} else if canReplay() && shouldFailover && (turn == 1 || resp.StatusCode == http.StatusTooManyRequests || capacityRetry) {
+		} else if canReplay() && shouldFailover && (turn == 1 || resp.StatusCode == http.StatusTooManyRequests || capacityRetry || isOpenAIExplicitAccountCredential401(resp.StatusCode, resp.Header, respBody)) {
 			return nil, s.handleFailoverErrorResponsePassthrough(ctx, resp, c, account, body, respBody)
 		}
 		if account.Platform != PlatformGrok && (shouldFailover || shouldCooldownOpenAITransientUpstreamError(resp.StatusCode, respBody)) {
@@ -933,14 +944,14 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			UpstreamTerminalEvent:         upstreamTerminalEvent,
 			ClientDisconnect:              clientDisconnected,
 			ResponseHeaders:               cloneHeader(resp.Header),
-			Duration:                      requesttiming.Now(ctx).Sub(turnStart),
+			Duration:                      requesttiming.Now(ctx).Sub(timing.legacyStart),
 			FirstTokenMs:                  firstTokenMs,
 			FirstUpstreamEventMs:          firstEventMs,
 			FirstActualContentMs:          firstActualContentMs,
 			FirstActualContentKind:        firstActualContentKind,
 			UpstreamProtocol:              "http",
 		}
-		applyOpenAIQueueTiming(result, openAIWSQueueArrival(ctx), forwardStart, turnStart, "ws_frame_http_bridge", "first_forward_including_internal_retries")
+		applyOpenAIQueueTiming(result, timing.arrival, timing.firstForward, timing.legacyStart, "ws_frame_http_bridge", "first_forward_including_internal_retries")
 		replayInput := replayCollector.Items()
 		if !s.openAILegacyCompatibility() && account.IsOpenAIApiKey() && s.settingService != nil && s.settingService.IsOpenAI409OmitEncryptedHistoryEnabled(ctx) {
 			// Same-response reconstruction needs assistant messages as well as
@@ -1064,7 +1075,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		if eventType != "" {
 			eventCount++
 			if firstEventType == "" {
-				ms := int(time.Since(turnStart).Milliseconds())
+				ms := int(time.Since(attemptStart).Milliseconds())
 				firstEventMs = &ms
 				requesttiming.Mark(ctx, "ws_first_upstream_event")
 				firstEventType = eventType
@@ -1073,7 +1084,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 		}
 		if firstActualContentMs == nil {
 			if kind := openai.ResponseContentKind(upstreamMessage, eventType); kind != "" {
-				ms := int(time.Since(turnStart).Milliseconds())
+				ms := int(time.Since(attemptStart).Milliseconds())
 				firstActualContentMs = &ms
 				firstActualContentKind = kind
 				requesttiming.Mark(ctx, "ws_first_actual_content")
@@ -1083,7 +1094,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 			tokenEventCount++
 		}
 		if firstTokenMs == nil && firstTokenEvent(eventType, upstreamMessage) {
-			ms := int(requesttiming.Now(ctx).Sub(turnStart).Milliseconds())
+			ms := int(requesttiming.Now(ctx).Sub(timing.legacyStart).Milliseconds())
 			firstTokenMs = &ms
 		}
 		if openAIWSMessageShouldParseUsage(eventType, upstreamMessage) {
@@ -1298,7 +1309,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				turn,
 				truncateOpenAIWSLogValue(responseID, openAIWSIDValueMaxLen),
 				payloadBytes,
-				requesttiming.Now(ctx).Sub(turnStart).Milliseconds(),
+				requesttiming.Now(ctx).Sub(timing.legacyStart).Milliseconds(),
 				eventCount,
 				tokenEventCount,
 				terminalEventCount,

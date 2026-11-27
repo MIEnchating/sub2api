@@ -87,6 +87,7 @@ class SyncGitTest(unittest.TestCase):
             self.git(self.repo, 'commit', '-qm', name)
             parents.append(self.git(self.repo, 'rev-parse', 'HEAD'))
         self.git(self.repo, 'checkout', 'main')
+        (self.repo / 'backend/internal/service').mkdir(parents=True)
         command = '\n'.join(('set -eu', functions('create_final_merge_commit'),
                              'create_final_merge_commit'))
         subprocess.run(['bash', '-c', command], check=True,

@@ -3,9 +3,13 @@
 package service
 
 import (
+	"archive/tar"
+	"bytes"
+	"compress/gzip"
 	"context"
 	"crypto/sha256"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"os/exec"
@@ -20,6 +24,7 @@ import (
 type updateInstallClient struct {
 	updateServiceGitHubClientStub
 	failDownload bool
+	archive      []byte
 	latestErr    error
 	latestCalls  int
 	recentCalls  int
@@ -42,7 +47,7 @@ func (c *updateInstallClient) DownloadFile(_ context.Context, _, dest string, _ 
 	if c.failDownload {
 		return errors.New("download unavailable")
 	}
-	return os.WriteFile(dest, []byte("downloaded release"), 0600)
+	return os.WriteFile(dest, c.archive, 0600)
 }
 
 func TestUpdateServicePendingRestartPrecedesReleaseLookup(t *testing.T) {
@@ -112,12 +117,19 @@ func runUpdateInstallScenario(t *testing.T, scenario string) {
 	require.NoError(t, err)
 	client := &updateInstallClient{}
 	svc := NewUpdateService(&updateServiceCacheStub{}, client, "2026.10.19", "release")
+	client.archive = updateInstallArchive(t)
 	release, manifest := publishedFixture("2026.10.20")
-	client.manifests = map[string][]byte{release.Assets[0].BrowserDownloadURL: manifest}
-	release.Assets = append(release.Assets, GitHubAsset{
-		Name:               svc.getArchiveName(),
-		BrowserDownloadURL: "https://github.com/" + releaseRepo + "/releases/download/" + release.TagName + "/" + svc.getArchiveName(),
-	})
+	archiveName := svc.getArchiveName() + ".tar.gz"
+	assetBaseURL := "https://github.com/" + releaseRepo + "/releases/download/" + release.TagName + "/"
+	checksumURL := assetBaseURL + "checksums.txt"
+	client.manifests = map[string][]byte{
+		release.Assets[0].BrowserDownloadURL: manifest,
+		checksumURL:                          fmt.Appendf(nil, "%x  %s\n", sha256.Sum256(client.archive), archiveName),
+	}
+	release.Assets = append(release.Assets,
+		GitHubAsset{Name: archiveName, BrowserDownloadURL: assetBaseURL + archiveName},
+		GitHubAsset{Name: "checksums.txt", BrowserDownloadURL: checksumURL},
+	)
 	client.recentReleases = []*GitHubRelease{release}
 	update := func() error { return svc.PerformUpdate(context.Background()) }
 	if scenario == "failed-update-retry" {
@@ -142,6 +154,20 @@ func runUpdateInstallScenario(t *testing.T, scenario string) {
 	require.Equal(t, "SYSTEM_RESTART_REQUIRED", infraerrors.Reason(err))
 	require.Equal(t, before, updateInstallFileHashes(t, executable), "rejected mutations must preserve the installed binary and backup")
 	require.NoFileExists(t, executable+".backup.backup")
+}
+
+func updateInstallArchive(t *testing.T) []byte {
+	t.Helper()
+	var buffer bytes.Buffer
+	compressed := gzip.NewWriter(&buffer)
+	archive := tar.NewWriter(compressed)
+	binary := []byte("new binary")
+	require.NoError(t, archive.WriteHeader(&tar.Header{Name: "sub2api", Mode: 0755, Size: int64(len(binary)), Typeflag: tar.TypeReg}))
+	_, err := archive.Write(binary)
+	require.NoError(t, err)
+	require.NoError(t, archive.Close())
+	require.NoError(t, compressed.Close())
+	return buffer.Bytes()
 }
 
 func updateInstallFileHashes(t *testing.T, executable string) map[string][sha256.Size]byte {

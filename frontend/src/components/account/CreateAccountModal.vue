@@ -3085,8 +3085,18 @@
           <label class="input-label mb-0">{{ t('admin.accounts.proxy') }}</label>
           <ProxyAdBanner />
         </div>
-        <AccountProxyModeSelect v-model="proxyMode" :allow-managed="allowManagedIPv6" />
-        <ProxySelector v-if="!proxyMode" v-model="form.proxy_id" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" />
+        <OpenAIProxySettings v-if="form.platform === 'openai' && accountCategory === 'oauth-based'"
+          v-model:mode="openaiProxyMode" :single-proxy-id="authProxyID" :hide-single-selector="true" v-model:proxy-ids="openaiProxyIds"
+          :proxies="proxies" :loading="proxiesLoading" :load-error="proxiesLoadError"
+          :user-id="authStore.user?.id" @retry="emit('retry-proxies')" />
+        <p v-if="isOpenAITwoFA && openaiProxyMode === 'request'" class="input-hint" role="alert" data-testid="openai-proxy-two-fa-hint">
+          {{ t('admin.accounts.openai.proxyTwoFAFirstImport') }}
+        </p>
+        <template v-if="!usesOpenAIRequestProxy">
+          <AccountProxyModeSelect v-model="proxyMode" :allow-managed="allowManagedIPv6" />
+          <ProxySelector v-if="!proxyMode" v-model="form.proxy_ids" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" multiple />
+          <p class="input-hint">{{ t('admin.accounts.proxyPoolHint') }}</p>
+        </template>
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -4200,6 +4210,7 @@ import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import MatureProviderImport, { type ProviderSelection } from './MatureProviderImport.vue'
 import GatewayAccountFields from './GatewayAccountFields.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
+import OpenAIProxySettings from '@/components/account/OpenAIProxySettings.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import UpstreamRequestIdHeaderField from '@/components/account/UpstreamRequestIdHeaderField.vue'
 import UpstreamGroupSyncButton from '@/components/account/UpstreamGroupSyncButton.vue'
@@ -4407,6 +4418,7 @@ const selectOpenAIOAuth = (mode: 'codex' | 'excel' | '2fa') => {
   accountCategory.value = 'oauth-based'
   openaiTwoFA.value = mode === '2fa'
   openaiBPSOAuth.value = mode === 'excel'
+  openaiAuthorizationProxy.value = null
   if (mode === 'excel') excelBPSConfig.value.enabled = true
   openaiOAuth.resetState()
   oauthFlowRef.value?.reset()
@@ -4481,6 +4493,52 @@ interface TempUnschedRuleForm {
 const step = ref(1)
 const openaiTwoFA = ref(false)
 const openaiBPSOAuth = ref(false)
+const openaiProxyMode = ref<'single' | 'request'>('single')
+const openaiProxyIds = ref<number[]>([])
+const openaiAuthorizationProxy = ref<{
+  sessionId: string
+  mode: 'single' | 'request'
+  proxyId: number | null
+  fingerprint: string | null
+} | null>(null)
+const openaiProxyFingerprint = (proxy: Proxy) => JSON.stringify([
+  proxy.protocol, proxy.host, proxy.port, proxy.username ?? '', proxy.password ?? '',
+])
+const resolveOpenAIMaintenanceProxyId = () => {
+  if (!usesOpenAIRequestProxy.value) return authProxyID.value
+  return openaiProxyIds.value.find(id => props.proxies.some(proxy => proxy.id === id && proxy.status === 'active' &&
+    (!proxy.expires_at || Date.parse(proxy.expires_at) > Date.now()))) ?? null
+}
+function validateOpenAIRequestProxies(): boolean {
+  if (form.platform !== 'openai' || accountCategory.value !== 'oauth-based' || openaiProxyMode.value !== 'request') return true
+  if (isOpenAITwoFA.value) {
+    appStore.showError(t('admin.accounts.openai.proxyTwoFAFirstImport'))
+    return false
+  }
+  if (openaiProxyIds.value.length === 0) {
+    appStore.showError(t('admin.accounts.openai.proxyRequired'))
+    return false
+  }
+  if (props.proxiesLoading || props.proxiesLoadError || resolveOpenAIMaintenanceProxyId() === null) {
+    appStore.showError(t('admin.accounts.openai.proxyNoUsable'))
+    return false
+  }
+  return true
+}
+function validateOpenAIAuthorizationProxy(): boolean {
+  const authorization = openaiAuthorizationProxy.value
+  if (authorization?.sessionId === openaiOAuth.sessionId.value && authorization.mode === openaiProxyMode.value) {
+    if (authorization.mode === 'single') return true
+    const proxy = props.proxies.find(candidate => candidate.id === authorization.proxyId)
+    if (!props.proxiesLoading && !props.proxiesLoadError && proxy &&
+      openaiProxyIds.value.includes(proxy.id) && proxy.status === 'active' &&
+      (!proxy.expires_at || Date.parse(proxy.expires_at) > Date.now()) &&
+      openaiProxyFingerprint(proxy) === authorization.fingerprint) return true
+  }
+  openaiOAuth.error.value = t('admin.accounts.openai.proxyAuthorizationChanged')
+  appStore.showError(openaiOAuth.error.value)
+  return false
+}
 const isOpenAIBPSOAuth = computed(() => form.platform === 'openai' && accountCategory.value === 'oauth-based' && openaiBPSOAuth.value)
 // Includes unresolved login ownership while the importer is paused for Retry.
 const twoFABusy = ref(false)
@@ -5217,7 +5275,7 @@ const form = reactive({
   platform: 'anthropic' as AccountPlatform,
   type: 'oauth' as AccountType, // Will be 'oauth', 'setup-token', or 'apikey'
   credentials: {} as Record<string, unknown>,
-  proxy_id: null as number | null,
+  proxy_ids: [] as number[],
   concurrency: 10,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -5228,15 +5286,23 @@ const form = reactive({
 })
 
 
-const allowManagedIPv6 = computed(() => form.platform === 'openai' && form.type === 'oauth' && accountCategory.value === 'oauth-based' && !isOpenAIBPSOAuth.value && !excelBPSConfig.value.enabled && !excelBPSConfig.value.recoveryPending && oauthFlowRef.value?.inputMethod !== 'agent_identity')
+// OAuth 验证只能使用一个出口；多代理模式使用池中第一个代理认证，
+// 账号保存后实际请求仍按整个代理池调度。
+const usesOpenAIRequestProxy = computed(() => form.platform === 'openai' && accountCategory.value === 'oauth-based' && openaiProxyMode.value === 'request')
+const allowManagedIPv6 = computed(() => form.platform === 'openai' && form.type === 'oauth' && accountCategory.value === 'oauth-based' && !usesOpenAIRequestProxy.value && !isOpenAIBPSOAuth.value && !excelBPSConfig.value.enabled && !excelBPSConfig.value.recoveryPending && oauthFlowRef.value?.inputMethod !== 'agent_identity')
 watch(allowManagedIPv6, allowed => { if (!allowed && proxyMode.value === 'ovh_ipv6') proxyMode.value = '' })
 const authProxyID = computed(() =>
-  proxyMode.value ? null : form.proxy_id
+  proxyMode.value ? null : form.proxy_ids[0] ?? null
 )
 
 const accountProxyForCreate = () => {
   if (authStore.isObserver) return {}
-  return accountProxyPayload(proxyMode.value, form.proxy_id === null ? [] : [form.proxy_id])
+  if (usesOpenAIRequestProxy.value) {
+    // Keep the manually selected pool for switching back. OAuth exchange and
+    // active request routing use the independently selected request proxies.
+    return accountProxyPayload('', proxyMode.value ? [] : form.proxy_ids)
+  }
+  return accountProxyPayload(proxyMode.value, form.proxy_ids)
 }
 
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
@@ -5941,6 +6007,9 @@ const resetForm = () => {
   step.value = 1
   openaiTwoFA.value = false
   openaiBPSOAuth.value = false
+  openaiProxyMode.value = 'single'
+  openaiProxyIds.value = []
+  openaiAuthorizationProxy.value = null
   autoBPS.reset()
   twoFABusy.value = false
   form.name = ''
@@ -5949,7 +6018,7 @@ const resetForm = () => {
   form.platform = 'anthropic'
   form.type = 'oauth'
   form.credentials = {}
-  form.proxy_id = null
+  form.proxy_ids = []
   proxyMode.value = ''
   form.concurrency = 10
   form.rate_limit_429_retry_count = DEFAULT_RATE_LIMIT_429_RETRY_COUNT
@@ -6100,6 +6169,8 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   const extra: Record<string, unknown> = { ...(base || {}) }
   extra.openai_request_timezone = openAIRequestTimezone.value
   if (accountCategory.value === 'oauth-based') {
+    extra.openai_proxy_mode = openaiProxyMode.value
+    extra.openai_proxy_ids = usesOpenAIRequestProxy.value ? [...openaiProxyIds.value] : []
     extra.openai_oauth_responses_websockets_v2_mode = openaiOAuthResponsesWebSocketV2Mode.value
     extra.openai_oauth_responses_websockets_v2_enabled = isOpenAIWSModeEnabled(openaiOAuthResponsesWebSocketV2Mode.value)
     applyAccountRPMSettings(extra, {
@@ -6204,13 +6275,17 @@ const buildOpenAIExtra = (base?: Record<string, unknown>): Record<string, unknow
   return Object.keys(result).length > 0 ? result : undefined
 }
 
-const buildOpenAICodexImportExtra = (): Record<string, unknown> | undefined => {
+const buildOpenAICodexImportExtra = (supportsProxyGroup = true): Record<string, unknown> | undefined => {
   const extra = buildOpenAIExtra()
   if (!extra) {
     return undefined
   }
   if (!openAILongContextBillingTouched.value) {
     delete extra.openai_long_context_billing_enabled
+  }
+  if (!supportsProxyGroup) {
+    delete extra.openai_proxy_mode
+    delete extra.openai_proxy_ids
   }
   return Object.keys(extra).length > 0 ? extra : undefined
 }
@@ -6373,6 +6448,7 @@ const handleSubmit = async () => {
     })
     return
   }
+  if (!validateOpenAIRequestProxies()) return
   if ((excelBPSConfig.value.enabled || excelBPSConfig.value.recoveryPending) && excelBPSConfig.value.autoDisableOn403 && excelBPSConfig.value.autoRecoverOn403 && !validBPSRecoveryInterval(excelBPSConfig.value.recoveryIntervalMinutes)) {
     appStore.showError(t('admin.accounts.openai.excelBPS403RecoveryIntervalInvalid'))
     return
@@ -6698,7 +6774,23 @@ const goBackToBasicInfo = () => {
 
 const handleGenerateUrl = async () => {
   if (form.platform === 'openai') {
-    await openaiOAuth.generateAuthUrl(authProxyID.value, undefined, isOpenAIBPSOAuth.value ? 'excel' : 'codex')
+    if (!validateOpenAIRequestProxies()) return
+    const mode = openaiProxyMode.value
+    const fingerprints = new Map(props.proxies.map(proxy => [proxy.id, openaiProxyFingerprint(proxy)]))
+    openaiAuthorizationProxy.value = null
+    const generated = await openaiOAuth.generateAuthUrl(
+      mode === 'request' ? undefined : authProxyID.value,
+      undefined,
+      isOpenAIBPSOAuth.value ? 'excel' : 'codex',
+      mode === 'request' ? { mode, ids: [...openaiProxyIds.value] } : undefined,
+    )
+    if (generated) {
+      const proxyId = mode === 'request' ? openaiOAuth.authorizationProxyId.value : authProxyID.value
+      openaiAuthorizationProxy.value = {
+        sessionId: openaiOAuth.sessionId.value, mode, proxyId,
+        fingerprint: proxyId === null ? null : fingerprints.get(proxyId) ?? null,
+      }
+    }
   } else if (form.platform === 'gemini') {
     await geminiOAuth.generateAuthUrl(
       authProxyID.value,
@@ -7117,6 +7209,8 @@ const createdImportAccountIds = (result: CodexSessionImportResult) =>
 const handleOpenAIExchange = async (authCode: string) => {
   const oauthClient = openaiOAuth
   if (!authCode.trim() || !oauthClient.sessionId.value) return
+  if (!validateOpenAIAuthorizationProxy()) return
+  if (!validateOpenAIRequestProxies()) return
 
   oauthClient.loading.value = true
   oauthClient.error.value = ''
@@ -7133,7 +7227,8 @@ const handleOpenAIExchange = async (authCode: string) => {
       authCode.trim(),
       oauthClient.sessionId.value,
       stateToUse,
-      authProxyID.value,
+      openaiProxyMode.value === 'request' ? undefined : authProxyID.value,
+      openaiProxyMode.value === 'request' ? { mode: 'request', ids: [...openaiProxyIds.value] } : undefined,
     )
     if (!tokenInfo) return
     if (isOpenAIBPSOAuth.value && tokenInfo.client_id !== OPENAI_EXCEL_OAUTH_CLIENT_ID) {
@@ -7256,9 +7351,29 @@ const isAgentIdentityImportContent = (content: string) => {
   }
 }
 
+const containsUnsupportedProxyGroupIdentity = (content: string): boolean => {
+  const unsupported = (value: unknown): boolean => {
+    if (Array.isArray(value)) return value.some(unsupported)
+    if (!value || typeof value !== 'object') return false
+    const record = value as Record<string, unknown>
+    const modes = [record.auth_mode, record.authMode, record.openai_auth_mode]
+      .map(mode => String(mode ?? '').trim().toLowerCase())
+    return modes.some(mode => ['agentidentity', 'personalaccesstoken', 'personal_access_token'].includes(mode))
+      || !!(record.agent_identity ?? record.agentIdentity)
+  }
+  try {
+    return unsupported(JSON.parse(content))
+  } catch {
+    return content.split('\n').filter(line => line.trim()).some(line => {
+      try { return unsupported(JSON.parse(line)) } catch { return false }
+    })
+  }
+}
+
 // Reuse Session import normalization and identity deduplication after 2FA login.
 const importTwoFACredential = async (credential: Record<string, unknown>, email: string, login: OpenAIReloginCredentials, signal?: AbortSignal): Promise<'created' | 'skipped'> => {
   signal?.throwIfAborted()
+  if (!validateOpenAIRequestProxies()) throw new Error(t('admin.accounts.openai.proxyNoUsable'))
   const credentialExtras = buildOpenAICodexImportCredentialExtras()
   if (credentialExtras === null) throw new Error('invalid_account_settings')
   const result = await importWithUpstream({
@@ -7320,6 +7435,13 @@ const handleOpenAIImportCodexSession = async (content: string) => {
     oauthClient.error.value = t('admin.accounts.oauth.openai.agentIdentityInvalid')
     return
   }
+  const supportsProxyGroup = !containsUnsupportedProxyGroupIdentity(trimmed)
+  if (openaiProxyMode.value === 'request' && !supportsProxyGroup) {
+    oauthClient.error.value = t('admin.accounts.openai.proxyUnsupportedImport')
+    return
+  }
+  if (!validateOpenAIRequestProxies()) return
+
   const credentialExtras = buildOpenAICodexImportCredentialExtras()
   if (credentialExtras === null) {
     return
@@ -7329,7 +7451,7 @@ const handleOpenAIImportCodexSession = async (content: string) => {
   oauthClient.error.value = ''
 
   try {
-    const extra = buildOpenAICodexImportExtra()
+    const extra = buildOpenAICodexImportExtra(supportsProxyGroup)
     const result = await importWithUpstream({
       content: trimmed,
       name: form.name,
@@ -7397,6 +7519,10 @@ const handleOpenAIImportCodexSession = async (content: string) => {
 
 const handleOpenAIImportCodexPAT = async (accessToken: string) => {
   const oauthClient = openaiOAuth
+  if (openaiProxyMode.value === 'request') {
+    oauthClient.error.value = t('admin.accounts.openai.proxyUnsupportedImport')
+    return
+  }
   const trimmed = accessToken.trim()
   if (!trimmed) {
     oauthClient.error.value = t('admin.accounts.oauth.openai.codexPatEmpty')
@@ -7450,6 +7576,7 @@ const handleOpenAIImportCodexPAT = async (accessToken: string) => {
 const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string) => {
   const oauthClient = openaiOAuth
   if (!refreshTokenInput.trim()) return
+  if (!validateOpenAIRequestProxies()) return
 
   const refreshTokens = refreshTokenInput
     .split('\n')
@@ -7473,9 +7600,10 @@ const handleOpenAIBatchRT = async (refreshTokenInput: string, clientId?: string)
   try {
     for (let i = 0; i < refreshTokens.length; i++) {
       try {
+        if (!validateOpenAIRequestProxies()) throw new Error(t('admin.accounts.openai.proxyNoUsable'))
         const tokenInfo = await oauthClient.validateRefreshToken(
           refreshTokens[i],
-          authProxyID.value,
+          resolveOpenAIMaintenanceProxyId(),
           clientId
         )
         if (!tokenInfo) {

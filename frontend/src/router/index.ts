@@ -258,7 +258,7 @@ const routes: RouteRecordRaw[] = [
   {
     path: '/test-results',
     name: 'TestResults',
-    component: () => import('@/views/user/TestResultsView.vue'),
+    redirect: to => ({ path: '/monitor', query: { ...to.query, section: 'intelligence' } }),
     meta: { requiresAuth: true, requiresAdmin: false, title: 'Channel Quality Checks', titleKey: 'tests.title', descriptionKey: 'tests.description' }
   },
   {
@@ -403,29 +403,20 @@ const routes: RouteRecordRaw[] = [
   },
   {
     path: '/orders',
-    name: 'OrderList',
-    component: () => import('@/views/user/UserOrdersView.vue'),
+    component: () => import('@/views/user/UserOrdersLayout.vue'),
     meta: {
       requiresAuth: true,
       requiresAdmin: false,
       title: 'My Orders',
       titleKey: 'nav.myOrders',
       requiresPayment: true
-    }
+    },
+    children: [
+      { path: '', name: 'OrderList', component: () => import('@/views/user/UserOrdersView.vue') },
+      { path: 'invoices', name: 'UserInvoices', component: () => import('@/views/user/UserInvoicesView.vue') }
+    ]
   },
-  { path: '/coupons', name: 'UserCoupons', component: () => import('@/views/user/UserCouponsView.vue'), meta: { requiresAuth: true, requiresAdmin: false, title: 'My coupons', titleKey: 'coupon.title' } },
-  {
-    path: '/invoices',
-    name: 'UserInvoices',
-    component: () => import('@/views/user/UserInvoicesView.vue'),
-    meta: {
-      requiresAuth: true,
-      requiresAdmin: false,
-      title: 'Self-service invoicing',
-      titleKey: 'invoice.title',
-      requiresPayment: true
-    }
-  },
+  { path: '/invoices', redirect: { name: 'UserInvoices' } },
   {
     path: '/payment/qrcode',
     name: 'PaymentQRCode',
@@ -653,7 +644,6 @@ const routes: RouteRecordRaw[] = [
   { path: '/admin/auto-config', name: 'AdminAutoConfig', component: () => import('@/views/admin/AutoConfigView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Auto Configuration', titleKey: 'autoConfig.title' } },
   { path: '/admin/group-cache-tests', name: 'AdminGroupCacheTests', component: () => import('@/views/admin/GroupCacheTestView.vue'), meta: { requiresAuth: true, requiresAdmin: true, title: 'Group cache test', titleKey: 'admin.groupCacheTest.title', descriptionKey: 'admin.groupCacheTest.description' } },
   { path: '/coupons', name: 'UserCoupons', component: () => import('@/views/user/UserCouponsView.vue'), meta: { requiresAuth: true, titleKey: 'coupon.title' } },
-  { path: '/admin/orders/coupons', name: 'AdminCoupons', component: () => import('@/views/admin/orders/AdminCouponsView.vue'), meta: { requiresAuth: true, requiresAdmin: true, titleKey: 'coupon.adminTitle' } },
   { path: '/qqbot/bind', name: 'QQBotBind', component: () => import('@/views/auth/QQBotBindView.vue'), meta: { requiresAuth: false, titleKey: 'qqbot.emailBindTitle' } },
   { path: '/qqbot/transfer', name: 'QQBotTransfer', component: () => import('@/views/auth/QQBotTransferView.vue'), meta: { requiresAuth: false, titleKey: 'qqbot.transferConfirmTitle' } },
   { path: '/admin/qqbot', redirect: '/admin/qqbot/overview' },

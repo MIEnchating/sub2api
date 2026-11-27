@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/tlsfingerprint"
@@ -31,6 +32,23 @@ type account429RetryResponseBody struct {
 }
 
 type account429RetryScopeContextKey struct{}
+
+type openAI429RecoveryScopeKey struct{}
+
+// OpenAI429RecoveryScope lets the handler own OAuth 429 retries and their
+// request-wide budget while other account types retain their usual retries.
+type OpenAI429RecoveryScope struct {
+	Active atomic.Bool
+}
+
+func WithOpenAI429RecoveryScope(ctx context.Context, scope *OpenAI429RecoveryScope) context.Context {
+	return context.WithValue(ctx, openAI429RecoveryScopeKey{}, scope)
+}
+
+func usesOpenAI429Recovery(ctx context.Context, account *Account) bool {
+	scope, _ := ctx.Value(openAI429RecoveryScopeKey{}).(*OpenAI429RecoveryScope)
+	return scope != nil && (scope.Active.Load() || account.IsOpenAIOAuthLike())
+}
 
 type account429RetryMarkerContextKey struct{}
 
@@ -143,7 +161,7 @@ func doAccount429Retry(req *http.Request, account *Account, do account429RetryDo
 	retryLimit := account.GetRateLimit429RetryCount()
 	// Continuations carrying provider history must reach the protocol's quota
 	// classifier before a retry. It can prove a refusal and switch accounts.
-	if retryLimit <= 0 || req.Context().Value(qualityProbeSingleAttemptKey{}) == true || OpenAIAgentRecoveryNoReplay(req.Context()) {
+	if retryLimit <= 0 || usesOpenAI429Recovery(req.Context(), account) || req.Context().Value(qualityProbeSingleAttemptKey{}) == true || OpenAIAgentRecoveryNoReplay(req.Context()) {
 		return do(req)
 	}
 	retryCtx, retryBudget := ensureAccount429RetryBudget(req.Context())
@@ -265,7 +283,7 @@ func dialAccount429Retry(
 	}
 	ctx, retryBudget := ensureAccount429RetryBudget(ctx)
 	retryLimit := account.GetRateLimit429RetryCount()
-	if ctx.Value(qualityProbeSingleAttemptKey{}) == true {
+	if usesOpenAI429Recovery(ctx, account) || ctx.Value(qualityProbeSingleAttemptKey{}) == true {
 		retryLimit = 0
 	}
 	for {

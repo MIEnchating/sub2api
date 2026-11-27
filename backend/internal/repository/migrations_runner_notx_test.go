@@ -2,7 +2,9 @@ package repository
 
 import (
 	"context"
+	"crypto/sha256"
 	"database/sql"
+	"encoding/hex"
 	"io/fs"
 	"strings"
 	"testing"
@@ -449,4 +451,63 @@ func prepareMigrationsBootstrapExpectations(mock sqlmock.Sqlmock) {
 		WillReturnRows(sqlmock.NewRows([]string{"exists"}).AddRow(true))
 	mock.ExpectQuery("SELECT COUNT\\(\\*\\) FROM atlas_schema_revisions").
 		WillReturnRows(sqlmock.NewRows([]string{"count"}).AddRow(1))
+}
+
+func TestApplyMigrationsFS_RetiredProxyMigrationPreservesRoutes(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	name := "404_retire_vip_credit_and_account_multi_proxy.sql"
+	content := "UPDATE auto_credit_config SET enabled = false; DELETE FROM account_proxies;"
+	checksum := sha256.Sum256([]byte(content))
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(name).WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectExec("UPDATE auto_credit_config SET enabled = false, version = version \\+ 1 WHERE enabled").
+		WillReturnResult(sqlmock.NewResult(0, 1))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(name, hex.EncodeToString(checksum[:])).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	err = applyMigrationsFS(context.Background(), db, fstest.MapFS{name: &fstest.MapFile{Data: []byte(content)}})
+	require.NoError(t, err)
+	require.NoError(t, mock.ExpectationsWereMet())
+}
+
+func TestApplyMigrationsFS_QQImageIntentPreservesReferencesOnly(t *testing.T) {
+	db, mock, err := sqlmock.New()
+	require.NoError(t, err)
+	defer func() { _ = db.Close() }()
+
+	prepareMigrationsBootstrapExpectations(mock)
+	name := "302_qq_bot_image_intent.sql"
+	content := "ALTER TABLE qq_bot_jobs ADD COLUMN image_decision JSONB; CREATE TABLE qq_bot_pending_image_plans (id TEXT);"
+	checksum := sha256.Sum256([]byte(content))
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(name).WillReturnError(sql.ErrNoRows)
+	mock.ExpectBegin()
+	mock.ExpectExec("ALTER TABLE qq_bot_message_references ADD COLUMN IF NOT EXISTS source_job_id TEXT NOT NULL DEFAULT ''").
+		WillReturnResult(sqlmock.NewResult(0, 0))
+	mock.ExpectExec("INSERT INTO schema_migrations \\(filename, checksum\\) VALUES \\(\\$1, \\$2\\)").
+		WithArgs(name, hex.EncodeToString(checksum[:])).WillReturnResult(sqlmock.NewResult(1, 1))
+	mock.ExpectCommit()
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	fsys := fstest.MapFS{name: &fstest.MapFile{Data: []byte(content)}}
+	require.NoError(t, applyMigrationsFS(context.Background(), db, fsys))
+
+	// An existing database skips the original DDL without dropping its old data.
+	prepareMigrationsBootstrapExpectations(mock)
+	mock.ExpectQuery("SELECT checksum FROM schema_migrations WHERE filename = \\$1").
+		WithArgs(name).WillReturnRows(sqlmock.NewRows([]string{"checksum"}).AddRow(hex.EncodeToString(checksum[:])))
+	mock.ExpectExec("SELECT pg_advisory_unlock\\(\\$1\\)").WithArgs(migrationsAdvisoryLockID).
+		WillReturnResult(sqlmock.NewResult(0, 1))
+
+	require.NoError(t, applyMigrationsFS(context.Background(), db, fsys))
+	require.NoError(t, mock.ExpectationsWereMet())
 }

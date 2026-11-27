@@ -25,9 +25,9 @@ import (
 const (
 	schedulerBucketSetKey       = "sched:buckets"
 	schedulerOutboxWatermarkKey = "sched:outbox:watermark"
-	// Rehydrate account snapshots after the proxy-pool retirement migration.
-	schedulerAccountPrefix         = "sched:acc:v3:"
-	schedulerAccountMetaPrefix     = "sched:meta:v3:"
+	// Rehydrate account snapshots with restored proxy-pool bindings.
+	schedulerAccountPrefix         = "sched:acc:v4:"
+	schedulerAccountMetaPrefix     = "sched:meta:v4:"
 	schedulerAccountLastUsedPrefix = "sched:acc:last_used:"
 	schedulerActivePrefix          = "sched:active:"
 	schedulerReadyPrefix           = "sched:ready:"
@@ -44,8 +44,8 @@ const (
 	// 改写精简记录后写入所涉平台的修订号；删除记录、改写平台为空或平台发生变化的记录、写入出错时写入全局修订号。
 	// 取值都是新的随机串，读侧只比较是否相等，键丢失后重建也不会与旧取值相同；
 	// Redis 回滚恢复出缓存记录过的旧取值时，由进程内快照缓存的直接复用时长与宽限期兜底。
-	schedulerAccountMetaRevisionKey            = "sched:meta:v3:rev"
-	schedulerAccountMetaPlatformRevisionPrefix = "sched:meta:v3:rev:"
+	schedulerAccountMetaRevisionKey            = "sched:meta:v4:rev"
+	schedulerAccountMetaPlatformRevisionPrefix = "sched:meta:v4:rev:"
 
 	defaultSchedulerSnapshotMGetChunkSize  = 128
 	defaultSchedulerSnapshotWriteChunkSize = 256
@@ -1724,6 +1724,8 @@ func filterSchedulerExtra(extra map[string]any) map[string]any {
 		service.AccountExtraOpenAIImageSizeTiers,
 		service.ExcelBPSProxyModeKey,
 		service.ExcelBPSProxyIDsKey,
+		service.OpenAIProxyModeKey,
+		service.OpenAIProxyIDsKey,
 		service.RetiredMultiProxyNeedsReviewKey,
 		service.ExcelBPSAutoRecoverOn403Key,
 		service.ExcelBPS403RecoveryIntervalMinutesKey,

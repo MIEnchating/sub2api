@@ -20,6 +20,12 @@ export default {
         payment: 'Payment',
       },
       features: {
+        apiKeyMultiGroup: {
+          title: 'API key multi-group routing',
+          description: 'Enabled by default. When disabled, keys select and route through their primary group only. Existing additional bindings are preserved and resume when enabled again. Historical usage stays unchanged.',
+          enabled: 'Allow API keys to use multiple groups',
+        },
+
         navigation: {
           title: 'Navigation and Pages',
           description: 'Control whether built-in pages appear in the sidebar and block direct access to hidden pages.',

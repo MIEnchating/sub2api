@@ -227,7 +227,7 @@ func (s *keyPouchImportStore) ConfirmMembership(ctx context.Context, accountID, 
 	if err != nil {
 		return err
 	}
-	defer rows.Close()
+	defer func() { _ = rows.Close() }()
 	if rows.Next() {
 		return nil
 	}

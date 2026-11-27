@@ -1121,6 +1121,24 @@ describe("admin SettingsView payment visible method controls", () => {
     wrapper.unmount();
   });
 
+  it.each([undefined, true, false])("Issue1081 defaults, saves and reloads multi-group policy %s", async enabled => {
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, ...(enabled === undefined ? {} : { api_key_multi_group_enabled: enabled }) });
+    const wrapper = mountView();
+    await flushPromises();
+    const input = wrapper.get<HTMLInputElement>('#api-key-multi-group-enabled');
+    expect(input.element.checked).toBe(enabled !== false);
+    await input.setValue(false);
+    await wrapper.find('form').trigger('submit.prevent');
+    await flushPromises();
+    expect(updateSettings.mock.calls[0]?.[0]).toMatchObject({ api_key_multi_group_enabled: false });
+    wrapper.unmount();
+    getSettings.mockResolvedValueOnce({ ...baseSettingsResponse, api_key_multi_group_enabled: false });
+    const loaded = mountView();
+    await flushPromises();
+    expect(loaded.get<HTMLInputElement>('#api-key-multi-group-enabled').element.checked).toBe(false);
+    loaded.unmount();
+  });
+
   it("saves BPS independently of Prism protocol settings", async () => {
     const bps = mount(ExcelBPSProtocolSettings, { global: { stubs: { Toggle: ToggleStub } } });
     await flushPromises();
@@ -1128,6 +1146,7 @@ describe("admin SettingsView payment visible method controls", () => {
     await bps.get('button').trigger('click');
     await flushPromises();
     expect(updateSettings.mock.calls[0]?.[0]).toEqual({ excel_bps_enabled: false });
+    bps.unmount();
 
     const wrapper = mountView();
     await flushPromises();

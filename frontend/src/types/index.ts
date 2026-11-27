@@ -295,6 +295,7 @@ export interface PublicSettings {
   pelican_showcase_enabled?: boolean
   /** When false, the whole user-facing subscription surface is hidden. Default true. */
   subscription_enabled: boolean
+  api_key_multi_group_enabled?: boolean
   /** Mirrors payment config BALANCE_PAYMENT_DISABLED; true = balance top-up closed (subscription-only site). */
   payment_balance_disabled: boolean
   model_plaza_enabled: boolean
@@ -1593,12 +1594,13 @@ export interface Account {
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_ids?: number[]
+  proxy_pool?: Array<{ proxy_id: number; proxy_name: string; current_concurrency: number; max_concurrency: number }>
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number
   rate_limit_429_retry_count?: number
   load_factor?: number | null
-  current_concurrency?: number // Real-time concurrency count from Redis
+  current_concurrency?: number | null // Redis slot count; null means observation unavailable
   scheduler_score?: {
     base_score: number
     sticky_score?: number
@@ -3272,7 +3274,17 @@ export interface TestAllPassProgress {
   blocked: boolean
 }
 
+export interface IntelligencePolicy {
+  version?: string
+  auto_isolate: boolean
+  pause_on_any?: boolean
+  model_default_effort?: boolean
+  interval_minutes: number
+  cooldown_minutes: number
+  recovery_passes: number
+}
 export interface TestProtectionConfig {
+  intelligence?: IntelligencePolicy
   enabled: boolean
   mode?: 'per_test' | 'combined' | 'all_pass'
   /** Complete successful rounds required before the all-pass action runs; defaults to 1. */

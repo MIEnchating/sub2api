@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
@@ -156,7 +157,6 @@ type refreshAPIExecutorStub struct {
 	canRefresh       func(*Account) bool
 	onRefresh        func()
 	onRefreshContext func(context.Context)
-	delay            time.Duration
 	waitForCancel    bool
 }
 
@@ -178,9 +178,6 @@ func (e *refreshAPIExecutorStub) Refresh(ctx context.Context, _ *Account) (map[s
 	e.refreshCalls++
 	if e.waitForCancel {
 		<-ctx.Done()
-	}
-	if e.delay > 0 {
-		time.Sleep(e.delay)
 	}
 	if e.onRefresh != nil {
 		e.onRefresh()
@@ -685,22 +682,25 @@ func TestRefreshIfNeeded_RequestPathDBRereadMissingGrokRefreshCredentialReturnsP
 }
 
 func TestRefreshIfNeeded_LateSuccessAfterDeadlineDoesNotPersist(t *testing.T) {
-	account := &Account{ID: 85, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive}
-	repo := &refreshAPIAccountRepo{account: account}
-	executor := &refreshAPIExecutorStub{
-		needsRefresh:  true,
-		credentials:   map[string]any{"access_token": "late-token"},
-		waitForCancel: true,
-	}
-	api := NewOAuthRefreshAPI(repo, nil)
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
-	defer cancel()
+	synctest.Test(t, func(t *testing.T) {
+		account := &Account{ID: 85, Platform: PlatformGrok, Type: AccountTypeOAuth, Status: StatusActive}
+		repo := &refreshAPIAccountRepo{account: account}
+		executor := &refreshAPIExecutorStub{
+			needsRefresh:  true,
+			credentials:   map[string]any{"access_token": "late-token"},
+			waitForCancel: true,
+		}
+		api := NewOAuthRefreshAPI(repo, nil)
+		ctx, cancel := context.WithTimeout(context.Background(), 10*time.Millisecond)
+		defer cancel()
 
-	result, err := api.RefreshIfNeeded(ctx, account, executor, time.Hour)
+		result, err := api.RefreshIfNeeded(ctx, account, executor, time.Hour)
 
-	require.ErrorIs(t, err, context.DeadlineExceeded)
-	require.Nil(t, result)
-	require.Zero(t, repo.updateCredentialsCalls, "late credentials must not cross the unified API persistence boundary")
+		require.Equal(t, 1, executor.refreshCalls, "the deadline must expire during the provider call")
+		require.ErrorIs(t, err, context.DeadlineExceeded)
+		require.Nil(t, result)
+		require.Zero(t, repo.updateCredentialsCalls, "late credentials must not cross the unified API persistence boundary")
+	})
 }
 
 type openAIRotationClientStub struct {

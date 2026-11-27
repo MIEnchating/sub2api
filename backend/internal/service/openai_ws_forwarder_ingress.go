@@ -1430,6 +1430,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 		bridgeReplayInputExists := false
 		var bridgeAccountFailoverInput []json.RawMessage
 		bridgeAccountFailoverInputExists := false
+		var bridgeAccountFailoverTools json.RawMessage
 		preserveOAuthOutput := account.IsOpenAIOAuth() && openAIWSPlaintextBridgeAccount(account) && !smartStateful
 		bridgeResponseID := ""
 		bridgeIdentity := openAIWSBridgeFrameIdentity(c, firstPayload.clientPayloadRaw)
@@ -1494,6 +1495,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					bridgeReplayInput, bridgeAccountFailoverInput = nil, nil
 					bridgeReplayInputExists, bridgeAccountFailoverInputExists = false, false
 					bridgeResponseID, turnState = "", ""
+					bridgeAccountFailoverTools = nil
 					bridgeIdentity = identity
 				} else {
 					if identity.thread != "" {
@@ -1648,8 +1650,23 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				var failoverErr *UpstreamFailoverError
 				if turn > 1 && errors.As(bridgeErr, &failoverErr) && failoverErr != nil {
+					retrySource := currentBridgePayload.accountIdentitySourceRaw
+					// An omitted tools field cannot erase resource bindings from
+					// the delivered conversation. Preserve client declarations,
+					// before account lowering, when certifying a replacement.
+					tools := gjson.GetBytes(currentBridgePayload.clientPayloadRaw, "tools")
+					if !tools.Exists() && len(bridgeAccountFailoverTools) > 0 {
+						tools = gjson.ParseBytes(bridgeAccountFailoverTools)
+					}
+					if tools.Exists() {
+						var sourceErr error
+						retrySource, sourceErr = sjson.SetRawBytes(retrySource, "tools", []byte(tools.Raw))
+						if sourceErr != nil {
+							return fmt.Errorf("restore websocket retry tool declarations: %w", sourceErr)
+						}
+					}
 					retryPayload, retrySafe, retryPayloadErr := buildOpenAIWSCurrentTurnRetryPayload(
-						currentBridgePayload.accountIdentitySourceRaw,
+						retrySource,
 						turnAccountFailoverInput,
 						turnAccountFailoverInputExists,
 						currentBridgePayload.originalModel,
@@ -1660,7 +1677,7 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 					if failoverErr.IsOpenAICapacityShed() && openAIWSRawItemsHasFunctionCallOutput(turnAccountFailoverInput) {
 						retrySafe = false
 					}
-					if !retrySafe {
+					if !retrySafe || !openAIWSReplayToolsPortable(tools) {
 						retryPayload = nil
 					}
 					return newOpenAIWSCurrentTurnFailoverError(bridgeErr, retryPayload)
@@ -1669,6 +1686,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 			}
 			if result == nil {
 				return errors.New("websocket http bridge turn result is nil")
+			}
+			if tools := gjson.GetBytes(currentBridgePayload.clientPayloadRaw, "tools"); tools.Exists() {
+				bridgeAccountFailoverTools = append(bridgeAccountFailoverTools[:0], tools.Raw...)
 			}
 			// turnReplayInput/turnAccountFailoverInput 可能共享同一头数组（转移自
 			// bridgeCurrentItems），保存历史必须经 combine 新建头，禁止就地 append。

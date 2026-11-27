@@ -131,11 +131,11 @@ func (r *trialAdmissionStub) AdmitPerformanceRequest(_ context.Context, id int64
 	r.paused = map[int64]bool{id: true}
 	return true, nil
 }
-func TestMetricTrialGateCoversUnlimitedAndFixedProxy(t *testing.T) {
+func TestMetricTrialGateCoversUnlimitedAndProxyPool(t *testing.T) {
 	ctx := context.Background()
-	for _, account := range []*Account{{ID: 7}, {ID: 8, Concurrency: 2, ProxyID: new(int64)}} {
+	for _, account := range []*Account{{ID: 7}, proxyRoutingAccount()} {
 		r := &trialAdmissionStub{trialID: account.ID}
-		s := NewConcurrencyService(&proxyLegacyCache{acquireResult: true})
+		s := NewConcurrencyService(&routingTestCache{proxyLegacyCache: &proxyLegacyCache{}, selected: 22})
 		gateway := &GatewayService{concurrencyService: s, accountRepo: r}
 		result, err := s.AcquireAccountRoute(ctx, &account, account.Concurrency)
 		require.NoError(t, err)

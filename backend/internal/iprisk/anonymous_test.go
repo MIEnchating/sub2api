@@ -3,11 +3,11 @@ package iprisk
 import (
 	"context"
 	"fmt"
-	"sync"
 	"testing"
 	"time"
 
 	"github.com/stretchr/testify/require"
+	"golang.org/x/sync/errgroup"
 )
 
 func TestAnonymousSlidingWindowBanExpiryAndUnban(t *testing.T) {
@@ -47,12 +47,19 @@ func TestAnonymousAtomicCapacityWhitelistAndFailure(t *testing.T) {
 		c.Whitelist = []string{"9.9.9.0/24"}
 	})
 	ctx := context.Background()
-	var wg sync.WaitGroup
+	_, err := m.Config(ctx)
+	require.NoError(t, err)
+	// Exercise concurrent increments without queuing 100 Lua scripts at once
+	// against the test Redis server's single execution lock.
+	var failures errgroup.Group
+	failures.SetLimit(8)
 	for i := 0; i < 100; i++ {
-		wg.Add(1)
-		go func() { defer wg.Done(); _, _ = m.AnonymousFailure(ctx, "2001:4860:4860::8888", "missing") }()
+		failures.Go(func() error {
+			_, err := m.AnonymousFailure(ctx, "2001:4860:4860::8888", "missing")
+			return err
+		})
 	}
-	wg.Wait()
+	require.NoError(t, failures.Wait())
 	bans, e := m.AnonymousBans(ctx)
 	require.NoError(t, e)
 	require.Len(t, bans, 1)

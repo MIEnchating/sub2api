@@ -38,7 +38,7 @@ func TestAccountDataOpenAIProxyPortableRoundTrip(t *testing.T) {
 			require.Len(t, svc.createdAccounts, 1)
 			restored := &service.Account{Platform: service.PlatformOpenAI, Type: service.AccountTypeOAuth, Extra: svc.createdAccounts[0].Extra}
 			require.Equal(t, []int64{101, 202}, restored.OpenAIRequestProxyIDs())
-			require.False(t, restored.OpenAIRequestProxyEnabled())
+			require.Equal(t, mode == service.OpenAIProxyModeRequest, restored.OpenAIRequestProxyEnabled())
 		})
 	}
 }

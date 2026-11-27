@@ -140,6 +140,7 @@ import { useRoute } from 'vue-router'
 import CapabilityBankEditor from '@/components/tests/CapabilityBankEditor.vue'
 import { parseCapabilityConfig, validCapabilityConfig } from '@/utils/qualityCapability'
 import { adminAPI } from '@/api/admin'
+import { loadTestAccounts } from '@/utils/testAccounts'
 import { useAppStore } from '@/stores/app'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { reasoningEffortsForTestModel } from '@/utils/testReasoningEfforts'
@@ -161,7 +162,7 @@ const togglingPlanId = ref<number | null>(null)
 const reportError = (error: unknown) => app.showError(extractApiErrorMessage(error, t('tests.loadFailed')))
 const route = useRoute()
 const props = withDefaults(defineProps<{ tab?: string }>(), { tab: 'plans' })
-const emit = defineEmits<{ catalog: [groups: AdminGroup[], accounts: AccountListItem[]] }>()
+const emit = defineEmits<{ catalog: [groups: AdminGroup[], accounts: AccountListItem[], plans: TestPlan[]] }>()
 const activeTab = computed(() => props.tab)
 const loading = ref(false)
 const saving = ref(false)
@@ -311,27 +312,15 @@ const load = async () => {
   try {
     const [loadedTypes, loadedPlans, loadedGroups, loadedAccounts] = await Promise.all([adminAPI.tests.listTypes(false), adminAPI.tests.listPlans(), adminAPI.groups.getAll(), loadTestAccounts()])
     types.value = loadedTypes.filter(type => type.output_kind !== 'statistics')
-    plans.value = loadedPlans
+    plans.value = loadedPlans.filter(plan => !plan.protection?.intelligence)
     groups.value = loadedGroups
     accounts.value = loadedAccounts
-    emit('catalog', groups.value, accounts.value)
+    emit('catalog', groups.value, accounts.value, loadedPlans)
   } catch (error) {
     reportError(error)
   } finally {
     loading.value = false
   }
-}
-
-// Include every status so exclusions can be configured before an account is
-// re-enabled. Only schedulable accounts constrain strategy reasoning options.
-const loadTestAccounts = async (): Promise<AccountListItem[]> => {
-  const pageSize = 1000
-  const first = await adminAPI.accounts.list(1, pageSize, { lite: '1' })
-  const items = [...(first.items || [])]
-  const pages = Math.max(first.pages || 1, Math.ceil((first.total || items.length) / pageSize))
-  const rest = await Promise.all(Array.from({ length: pages - 1 }, (_, index) => adminAPI.accounts.list(index + 2, pageSize, { lite: '1' })))
-  for (const page of rest) items.push(...(page.items || []))
-  return [...new Map(items.map(account => [account.id, account])).values()]
 }
 
 const openType = (type?: TestType) => { editingType.value = type ? { id: type.id, name: type.name, key: type.key, output_kind: type.output_kind, prompt: type.prompt, max_output_tokens: type.max_output_tokens ?? 0, description: type.description || '', enabled: type.enabled, sort_order: type.sort_order ?? 0 } : { name: '', key: '', output_kind: 'html', prompt: '', max_output_tokens: 0, description: '', enabled: true, sort_order: orderedTypes.value.length ? Math.max(...orderedTypes.value.map(item => item.sort_order ?? 0)) + 1 : 0 } }

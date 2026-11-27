@@ -230,6 +230,7 @@
 import { computed, h, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
+import { useIntelligenceGroupsStore } from '@/stores/intelligenceGroups'
 import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useSupportTicketStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
@@ -788,7 +789,12 @@ const ChevronDownIcon = {
 // Public-settings flags go through the registry in utils/featureFlags.ts,
 // which handles the opt-in vs opt-out fallback when settings haven't loaded
 // yet. Admin-only flags (not in public settings) stay inline below.
+const intelligence = useIntelligenceGroupsStore()
 const flagChannelMonitor = makeSidebarFlag(FeatureFlags.channelMonitor)
+const flagUserChannelStatus = () => flagChannelMonitor() || (!authStore.isSimpleMode && intelligence.groups.length > 0)
+watch([() => authStore.user?.id, flagChannelMonitor], ([userId, monitor]) => {
+  if (userId && !monitor && !authStore.isSimpleMode) void intelligence.load()
+}, { immediate: true })
 const flagPayment = makeSidebarFlag(FeatureFlags.payment)
 const flagAvailableChannels = makeSidebarFlag(FeatureFlags.availableChannels)
 const flagPelicanShowcase = makeSidebarFlag(FeatureFlags.pelicanShowcase)
@@ -833,14 +839,13 @@ function buildSelfNavItems(withDashboard: boolean): NavItem[] {
     { path: '/batch-image', label: t('nav.batchImage'), icon: BatchImageIcon, hideInSimpleMode: true, featureFlag: flagBatchImageAccess },
     { path: '/usage', label: t('nav.usage'), icon: ChartIcon, hideInSimpleMode: !authStore.isObserver },
     { path: '/available-channels', label: t('nav.availableChannels'), icon: ChannelIcon, hideInSimpleMode: true, featureFlag: flagAvailableChannels },
-    { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagChannelMonitor },
+    { path: '/monitor', label: t('nav.channelStatus'), icon: SignalIcon, featureFlag: flagUserChannelStatus },
     { path: '/test-results', label: t('nav.testResults'), icon: TestIcon, hideInSimpleMode: true },
     { path: '/pelican-showcase', label: t('nav.pelicanShowcase'), icon: GalleryIcon, featureFlag: flagPelicanShowcase },
     { path: '/subscriptions', label: t('nav.mySubscriptions'), icon: CreditCardIcon, hideInSimpleMode: true, featureFlag: flagSubscription },
     { path: '/purchase', label: purchaseNavLabel.value, icon: RechargeSubscriptionIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/orders', label: t('nav.myOrders'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/coupons', label: t('coupon.title'), icon: GiftIcon, hideInSimpleMode: true },
-    { path: '/invoices', label: t('invoice.title'), icon: OrderListIcon, hideInSimpleMode: true, featureFlag: flagPayment },
     { path: '/gpt-direct', label: t('gptDirect.title'), icon: GiftIcon, featureFlag: makeSidebarFlag(FeatureFlags.gptDirect) },
     { path: '/redeem', label: t('nav.redeem'), icon: GiftIcon, hideInSimpleMode: true },
     { path: '/lottery', label: t('lottery.title'), icon: GiftIcon, hideInSimpleMode: true, featureFlag: makeSidebarFlag(FeatureFlags.lottery) },

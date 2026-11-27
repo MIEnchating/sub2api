@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
+	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/googleapi"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ip"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -23,8 +24,7 @@ func APIKeyAuthGoogle(apiKeyService *service.APIKeyService, cfg *config.Config) 
 //
 // It is intended for Gemini native endpoints (/v1beta) to match Gemini SDK expectations.
 func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config) gin.HandlerFunc {
-	var authenticate gin.HandlerFunc
-	authenticate = func(c *gin.Context) {
+	return func(c *gin.Context) {
 
 		if apiKeyHeadersTooLarge(c) {
 			if rejectAnonymousCredentialFailure(c, apiKeyService, "malformed", true) {
@@ -82,6 +82,10 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			if errors.Is(err, service.ErrAPIKeyAuthOverloaded) {
 				MarkIngressRejected(c, IngressRejectAPIKeyAuthOverloaded)
 				abortWithGoogleError(c, 503, "API key authentication is temporarily unavailable")
+				return
+			}
+			if errors.Is(err, service.ErrAPIKeyPrimaryGroupRequired) || errors.Is(err, service.ErrAPIKeyGroupPolicyUnavailable) {
+				abortWithGoogleError(c, infraerrors.Code(err), infraerrors.Message(err))
 				return
 			}
 			if abortIfAPIKeyLookupClientGone(c, err) {
@@ -246,7 +250,6 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 		_ = apiKeyService.TouchLastUsed(c.Request.Context(), apiKey.ID)
 		nextWithAPIKeyAdmissionOwner(c, apiKeyService, apiKeyString, ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), apiKey, true)
 	}
-	return authenticate
 }
 
 // extractAPIKeyForGoogle extracts API key for Google/Gemini endpoints.

@@ -308,6 +308,7 @@ type RateLimitCacheInvalidator interface {
 }
 
 type APIKeyService struct {
+	groupPolicy               APIKeyGroupPolicy
 	groupAntiDistillation     *GroupAntiDistillationService
 	balanceRejectionNotifier  BalanceRejectionNotifier
 	localAuth                 *RegionalAuthReader
@@ -581,6 +582,9 @@ func (s *APIKeyService) Create(ctx context.Context, userID int64, req CreateAPIK
 		}
 	}
 
+	if _, err := s.validateGroupSubmission(ctx, req.GroupID, req.GroupIDs); err != nil {
+		return nil, err
+	}
 	groupIDs, err := normalizeAPIKeyGroupIDs(req.GroupID, req.GroupIDs)
 	if err != nil {
 		return nil, err
@@ -835,6 +839,17 @@ func (s *APIKeyService) GetByID(ctx context.Context, id int64) (*APIKey, error) 
 
 // GetByKey 根据Key字符串获取API Key（用于认证）
 func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, error) {
+	apiKey, err := s.getByKey(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if s.localAuth != nil {
+		return apiKey, nil
+	}
+	return s.applyGroupPolicy(ctx, apiKey)
+}
+
+func (s *APIKeyService) getByKey(ctx context.Context, key string) (*APIKey, error) {
 	// Reject malformed credentials before any cache or PostgreSQL lookup.
 	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) || strings.HasPrefix(key, apiKeyDigestPrefix) {
 		return nil, ErrAPIKeyNotFound
@@ -910,6 +925,17 @@ func (s *APIKeyService) GetByKey(ctx context.Context, key string) (*APIKey, erro
 // not a prerequisite for revocation. The normal auth lookup concurrency bound
 // and the caller's admission timeout still apply.
 func (s *APIKeyService) GetByKeyUncached(ctx context.Context, key string) (*APIKey, error) {
+	apiKey, err := s.getByKeyUncached(ctx, key)
+	if err != nil {
+		return nil, err
+	}
+	if s.localAuth != nil {
+		return apiKey, nil
+	}
+	return s.applyGroupPolicy(ctx, apiKey)
+}
+
+func (s *APIKeyService) getByKeyUncached(ctx context.Context, key string) (*APIKey, error) {
 	if len(key) == 0 || len(key) > MaxAPIKeyCredentialBytes || !utf8.ValidString(key) || strings.HasPrefix(key, apiKeyDigestPrefix) {
 		return nil, ErrAPIKeyNotFound
 	}
@@ -992,6 +1018,9 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			if req.GroupIDs != nil {
 				requested = *req.GroupIDs
 			}
+			if _, err := s.validateGroupSubmission(ctx, req.GroupID, requested); err != nil {
+				return nil, err
+			}
 			groupIDs, err = normalizeAPIKeyGroupIDs(req.GroupID, requested)
 			if err != nil {
 				return nil, err
@@ -1000,11 +1029,20 @@ func (s *APIKeyService) Update(ctx context.Context, id int64, userID int64, req 
 			if err != nil {
 				return nil, err
 			}
-			apiKey.GroupIDs, apiKey.GroupID, apiKey.Group = groupIDs, nil, primary
-			if len(groupIDs) > 0 {
-				apiKey.GroupID = &groupIDs[0]
+			if req.GroupIDs == nil {
+				for _, saved := range apiKey.ConfiguredGroupIDs() {
+					if (apiKey.GroupID == nil || saved != *apiKey.GroupID) && (len(groupIDs) == 0 || saved != groupIDs[0]) {
+						groupIDs = append(groupIDs, saved)
+					}
+				}
 			}
-			fields.GroupID = true
+			if req.GroupIDs != nil || apiKey.GroupID == nil || req.GroupID == nil || *apiKey.GroupID != *req.GroupID {
+				apiKey.GroupIDs, apiKey.GroupID, apiKey.Group = groupIDs, nil, primary
+				if len(groupIDs) > 0 {
+					apiKey.GroupID = &groupIDs[0]
+				}
+				fields.GroupID = true
+			}
 		}
 
 		fallback := apiKey.FallbackGroup

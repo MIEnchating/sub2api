@@ -39,10 +39,16 @@ func (a *Account) OpenAIProxyMode() string {
 	return OpenAIProxyModeSingle
 }
 
-// OpenAIRequestProxyEnabled is retained for callers during legacy configuration decoding.
-// Account-owned request routing is retired, including on stale configurations.
+// OpenAIRequestProxyEnabled keeps invalid explicit configuration on the
+// fail-closed route instead of silently reverting to a single/direct exit.
 func (a *Account) OpenAIRequestProxyEnabled() bool {
-	return false
+	if !a.supportsOpenAIRequestProxies() {
+		return false
+	}
+	if _, explicit := a.Extra[OpenAIProxyModeKey]; explicit {
+		return a.OpenAIProxyMode() != OpenAIProxyModeSingle
+	}
+	return a.IsExcelBPSEnabled() && a.OpenAIProxyMode() == OpenAIProxyModeRequest
 }
 
 func (a *Account) OpenAIRequestProxyIDs() []int64 {

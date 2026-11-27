@@ -242,7 +242,7 @@ describe('admin AccountsView bulk edit scope', () => {
     await flushPromises()
     await wrapper.get('[data-test="persist-filters"]').trigger('click')
     await flushPromises()
-    expect(JSON.parse(localStorage.getItem('account-filter-values')!)).toEqual({ platform: 'gemini', status: 'error' })
+    expect(JSON.parse(localStorage.getItem('account-filter-values')!)).toEqual({ platform: 'gemini', status: 'error', group: '' })
     wrapper.unmount()
     listAccounts.mockClear()
     const restored = mountProbeView()
@@ -301,6 +301,7 @@ describe('admin AccountsView bulk edit scope', () => {
     vi.useFakeTimers()
     const filters = { platform: 'openai', type: 'oauth', status: 'rate_limited', group: '10', privacy_mode: 'training_off', search: 'account-7' }
     localStorage.setItem('account-filter-values', JSON.stringify(filters))
+    getAllGroups.mockResolvedValue([{ id: 10, name: 'OpenAI', platform: 'openai' }])
     const row = {
       ...makeProbeAccount(7), type: 'oauth', group_ids: [10],
       extra: { privacy_mode: 'training_off' }, rate_limit_reset_at: '2099-01-01T00:00:00Z'

@@ -85,13 +85,6 @@
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
                 <span class="truncate font-medium">{{ proxy.name }}</span>
-                <!-- Account count badge -->
-                <span
-                  v-if="proxy.account_count !== undefined"
-                  class="inline-flex flex-shrink-0 items-center rounded bg-gray-100 px-1.5 py-0.5 text-xs text-gray-600 dark:bg-dark-600 dark:text-gray-400"
-                >
-                  {{ proxy.account_count }}
-                </span>
                 <!-- Test result badges -->
                 <template v-if="testResults[proxy.id]">
                   <span
@@ -117,6 +110,16 @@
                 {{ proxy.managed_ipv6 || `${proxy.protocol}://${proxy.host}:${proxy.port}` }}
               </div>
             </div>
+
+            <!-- Account count: accounts currently bound to this proxy -->
+            <span
+              v-if="proxy.account_count !== undefined"
+              class="account-count-badge"
+              :title="t('admin.proxies.selectorAccountCountTitle')"
+              data-test="proxy-account-count"
+            >
+              {{ t('admin.proxies.selectorAccountCount', proxy.account_count) }}
+            </span>
 
             <!-- Individual test button -->
             <button
@@ -188,9 +191,10 @@ interface ProxyTestResult {
 }
 
 interface Props {
-  modelValue: number | null
+  modelValue: number | null | number[]
   proxies: Proxy[]
   disabled?: boolean
+  multiple?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -198,7 +202,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: number | null]
+  'update:modelValue': [value: number | null | number[]]
 }>()
 
 const isOpen = ref(false)
@@ -212,12 +216,15 @@ const testingProxyIds = reactive(new Set<number>())
 const batchTesting = ref(false)
 
 const selectedProxy = computed(() => {
-  const id = props.modelValue
+  const id = Array.isArray(props.modelValue) ? props.modelValue[0] : props.modelValue
   if (id == null) return null
   return props.proxies.find((p) => p.id === id) || null
 })
 
 const selectedLabel = computed(() => {
+  if (props.multiple && Array.isArray(props.modelValue) && props.modelValue.length > 1) {
+    return t('admin.accounts.proxyPoolCount', { count: props.modelValue.length })
+  }
   if (!selectedProxy.value) {
     return t('admin.accounts.noProxy')
   }
@@ -226,7 +233,7 @@ const selectedLabel = computed(() => {
 })
 
 const selectableProxies = computed(() => props.proxies.filter(proxy => !isManagedIPv6Proxy(proxy) ||
-  proxy.managed_ipv6_state === 'reserved' || props.modelValue === proxy.id))
+  proxy.managed_ipv6_state === 'reserved' || (Array.isArray(props.modelValue) ? props.modelValue.includes(proxy.id) : props.modelValue === proxy.id)))
 const filteredProxies = computed(() => {
   if (!searchQuery.value) {
     return selectableProxies.value
@@ -259,12 +266,30 @@ watch(() => props.disabled, (disabled) => {
 const selectOption = (value: number | null) => {
   if (props.disabled) return
   if (value !== null && !selectableProxies.value.some(proxy => proxy.id === value)) return
-  emit('update:modelValue', value)
-  isOpen.value = false
+  if (props.multiple) {
+    const current = Array.isArray(props.modelValue) ? [...props.modelValue] : []
+    if (value === null) current.splice(0)
+    else {
+      const i = current.indexOf(value)
+      if (i >= 0) current.splice(i, 1)
+      else {
+        // Managed IPv6 is exclusive; selecting it replaces a regular pool, and vice versa.
+        const managed = props.proxies.some(proxy => proxy.id === value && isManagedIPv6Proxy(proxy))
+        if (managed || current.some(id => props.proxies.some(proxy => proxy.id === id && isManagedIPv6Proxy(proxy)))) current.splice(0)
+        current.push(value)
+      }
+    }
+    emit('update:modelValue', current)
+  } else {
+    emit('update:modelValue', value)
+    isOpen.value = false
+  }
   searchQuery.value = ''
 }
 
-const isSelected = (value: number | null) => props.modelValue === value
+const isSelected = (value: number | null) => props.multiple
+  ? Array.isArray(props.modelValue) && (value === null ? props.modelValue.length === 0 : props.modelValue.includes(value))
+  : props.modelValue === value
 
 const handleTestProxy = async (proxy: Proxy) => {
   if (testingProxyIds.has(proxy.id)) return
@@ -375,6 +400,11 @@ onUnmounted(() => {
 .select-empty {
   @apply px-4 py-8 text-center text-sm;
   @apply text-gray-500 dark:text-dark-400;
+}
+
+.account-count-badge {
+  @apply inline-flex flex-shrink-0 items-center whitespace-nowrap rounded px-1.5 py-0.5 text-xs tabular-nums;
+  @apply bg-gray-100 text-gray-600 dark:bg-dark-600 dark:text-gray-400;
 }
 
 .test-btn {

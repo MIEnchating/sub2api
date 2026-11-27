@@ -20,6 +20,12 @@ export default {
         payment: '支付设置',
       },
       features: {
+        apiKeyMultiGroup: {
+          title: 'API Key 多分组',
+          description: '默认开启。关闭后，新建和编辑 Key 只选择主分组，网关只使用主分组。已有额外绑定会保留，重新开启后恢复；历史用量不变。',
+          enabled: '允许 API Key 同时使用多个分组',
+        },
+
         navigation: {
           title: '导航与页面',
           description: '控制内置页面是否出现在侧边栏，并阻止用户直接访问已隐藏的页面。',

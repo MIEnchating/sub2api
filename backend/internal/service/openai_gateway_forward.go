@@ -111,6 +111,12 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			return nil, err
 		}
 	}
+	portable := OpenAIWSAgentRecoveryCanRetry(ctx) && !OpenAIAgentRecoveryNoReplay(ctx) &&
+		codexWSAnchorFromContext(ctx) == nil && openAIWSHandshakePayloadPortable(body)
+	if original, ok := ctx.Value(openAIWSHandshakeClientSourceKey{}).(bool); ok {
+		portable = portable && original
+	}
+	ctx = context.WithValue(ctx, openAIWSHandshakeReplayKey{}, portable)
 	if account.gatewayProtocolsPending() {
 		view, err := s.gatewayProtocolAccount(ctx, account, "openai", gatewayProtocolBodyModel(body))
 		if err != nil {
@@ -1285,7 +1291,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			var capacityFailover *UpstreamFailoverError
 			if errors.As(wsErr, &capacityFailover) && !c.Writer.Written() {
-				return nil, capacityFailover
+				return nil, wsErr
 			}
 			if IsOpenAITurnAdmissionError(wsErr) {
 				return nil, wsErr

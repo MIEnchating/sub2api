@@ -51,7 +51,7 @@ func TestGatewayReadinessUsesScopedSnapshotAndRecovers(t *testing.T) {
 	probe(503)
 	require.NoError(t, cache.SetSnapshot(ctx, bucket, token, []service.Account{{ID: 7}}))
 	probe(200)
-	deleted, err := redisClient.Del(ctx, "sched:meta:v2:7").Result()
+	deleted, err := redisClient.Del(ctx, "sched:meta:v4:7").Result()
 	require.NoError(t, err)
 	require.EqualValues(t, 1, deleted, "remove the cached projection without changing snapshot membership")
 	probe(503)

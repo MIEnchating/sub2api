@@ -4,6 +4,7 @@
  * browser; use a new ID to announce the feature again in a later release.
  */
 export const NEW_FEATURE_NOTICES = {
+  apiKeyMultiGroupPolicy: 'api-key-multi-group-policy-v1',
   monitorV3ComponentModels: 'channel-monitor-v3-component-models',
   adminKeyFullAccess: 'admin-key-full-access-compatibility',
   upstreamBillingGroupSync: 'upstream-billing-group-sync',
@@ -96,6 +97,7 @@ export const NEW_FEATURE_NOTICES = {
   tempUnschedStreamCountWindow: 'temp-unsched-stream-timing-count-window',
   bpsAccountSearch: 'bps-account-search-initial-announcement',
   bpsAccountMultiProxy: 'bps-account-multi-proxy-request-routing',
+  openaiAccountMultiProxy: '2026-11-16-openai-account-multi-proxy',
   cacheTtlBillingFromRequest: 'anthropic-apikey-cache-ttl-billing-from-request-initial-announcement',
   accountProbePenalty: 'account-claude-probe-penalty-initial-announcement',
 } as const

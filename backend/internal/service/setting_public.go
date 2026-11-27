@@ -242,6 +242,7 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		SettingKeyAdminSubscriptionsPageEnabled,
 		SettingKeyPelicanShowcaseEnabled,
 		SettingKeySubscriptionEnabled,
+		SettingKeyAPIKeyMultiGroupEnabled,
 		SettingKeyModelPlazaEnabled,
 		SettingKeyModelPlazaRequireAuth,
 		SettingKeyPluginManagementEnabled,
@@ -400,7 +401,8 @@ func (s *SettingService) GetPublicSettings(ctx context.Context) (*PublicSettings
 		AdminSubscriptionsPageEnabled: !isFalseSettingValue(settings[SettingKeyAdminSubscriptionsPageEnabled]),
 		PelicanShowcaseEnabled:        settings[SettingKeyPelicanShowcaseEnabled] == "true",
 
-		SubscriptionEnabled: !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
+		SubscriptionEnabled:     !isFalseSettingValue(settings[SettingKeySubscriptionEnabled]),
+		APIKeyMultiGroupEnabled: !isFalseSettingValue(settings[SettingKeyAPIKeyMultiGroupEnabled]),
 
 		ModelPlazaEnabled:       settings[SettingKeyModelPlazaEnabled] == "true",
 		ModelPlazaRequireAuth:   settings[SettingKeyModelPlazaRequireAuth] == "true",
@@ -761,6 +763,7 @@ type PublicSettingsInjectionPayload struct {
 	UsageShowCacheRate                    bool            `json:"usage_show_cache_rate"`
 	UsageShowCacheRateToUsers             bool            `json:"usage_show_cache_rate_to_users"`
 	UsageShowUpstreamResponseModelToUsers bool            `json:"usage_show_upstream_response_model_to_users"`
+	APIKeyMultiGroupEnabled               bool            `json:"api_key_multi_group_enabled"`
 }
 
 // GetPublicSettingsForInjection returns public settings in a format suitable for HTML injection.
@@ -845,6 +848,7 @@ func (s *SettingService) GetPublicSettingsForInjection(ctx context.Context) (any
 		UserSubscriptionsPageEnabled:          settings.UserSubscriptionsPageEnabled,
 		AdminSubscriptionsPageEnabled:         settings.AdminSubscriptionsPageEnabled,
 		SubscriptionEnabled:                   settings.SubscriptionEnabled,
+		APIKeyMultiGroupEnabled:               settings.APIKeyMultiGroupEnabled,
 		ModelPlazaEnabled:                     settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:                 settings.ModelPlazaRequireAuth,
 		PluginManagementEnabled:               settings.PluginManagementEnabled,

@@ -185,7 +185,7 @@
                 <button
                   :ref="(el) => setGroupButtonRef(row.id, 'primary', el)"
                   :data-test="`primary-group-trigger-${row.id}`"
-                  @click="(row.group_ids?.length ?? 0) > 1 ? editKey(row) : openGroupSelector(row, 'primary')"
+                  @click="multiGroupEnabled && (row.group_ids?.length ?? 0) > 1 ? editKey(row) : openGroupSelector(row, 'primary')"
                   class="key-group-control -mx-2 -my-1 flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 transition-all duration-200 hover:bg-gray-100 dark:hover:bg-dark-700"
                   :title="t('keys.clickToChangeGroup')"
                 >
@@ -207,7 +207,7 @@
                     >{{ t("keys.noGroup") }}</span
                   >
                   <span class="key-group-hint text-xs text-gray-500 dark:text-gray-400">{{
-                    (row.group_ids?.length ?? 0) > 1 ? t('keys.multiGroupCount', { count: row.group_ids?.length }) : t('keys.selectGroup')
+                    multiGroupEnabled && (row.group_ids?.length ?? 0) > 1 ? t('keys.multiGroupCount', { count: row.group_ids?.length }) : t('keys.selectGroup')
                   }}</span>
                   <svg
                     class="h-3.5 w-3.5 text-gray-400 opacity-60 transition-opacity group-hover/dropdown:opacity-100"
@@ -811,7 +811,7 @@
               </GroupOptionItem>
             </template>
           </Select>
-          <fieldset class="mt-3 space-y-2" data-testid="key-additional-groups">
+          <fieldset v-if="!publicSettingsLoading && multiGroupEnabled" class="mt-3 space-y-2" data-testid="key-additional-groups">
             <legend class="input-label">{{ t('keys.additionalGroups') }}</legend>
             <p class="input-hint">{{ t('keys.multiGroupHint') }}</p>
             <div class="max-h-48 space-y-2 overflow-y-auto">
@@ -824,6 +824,7 @@
               </label>
             </div>
           </fieldset>
+          <p v-if="!multiGroupEnabled" class="input-hint" data-testid="key-single-group-hint">{{ t('keys.singleGroupHint') }}</p>
         </div>
 
         <div>
@@ -2144,6 +2145,7 @@ const copiedKeyId = ref<number | null>(null);
 const groupSelectorKeyId = ref<number | null>(null);
 const groupSelectorTarget = ref<GroupSelectorTarget>("primary");
 const publicSettings = ref<PublicSettings | null>(null);
+const multiGroupEnabled = computed(() => publicSettings.value?.api_key_multi_group_enabled !== false);
 const publicSettingsLoading = ref(true);
 const formGroupSelectorOpen = ref(false);
 const fallbackGroupSelectorOpen = ref(false);
@@ -2781,7 +2783,7 @@ const changeGroup = async (key: ApiKey, newGroupId: number | null) => {
 
     if (newGroupId === null || key.group_id === newGroupId) return;
 
-    const updates: UpdateApiKeyRequest = { group_id: newGroupId, group_ids: [newGroupId] };
+    const updates: UpdateApiKeyRequest = { group_id: newGroupId, ...(multiGroupEnabled.value ? { group_ids: [newGroupId] } : {}) };
     let fallbackCleared = false;
     if (key.fallback_group_id !== null) {
       const primary = groups.value.find((group) => group.id === newGroupId);
@@ -2947,7 +2949,7 @@ const handleSubmit = async () => {
         concurrency_limit: concurrencyLimit,
         group_id: formData.value.group_id,
         fallback_group_id: formData.value.fallback_group_id,
-        group_ids: selectedFormGroupIDs(),
+        ...(multiGroupEnabled.value ? { group_ids: selectedFormGroupIDs() } : {}),
         ip_whitelist: ipWhitelist,
         ip_blacklist: ipBlacklist,
         quota: quota,
@@ -2976,7 +2978,7 @@ const handleSubmit = async () => {
         expiresInDays,
         rateLimitData,
         concurrencyLimit,
-        selectedFormGroupIDs(),
+        multiGroupEnabled.value ? selectedFormGroupIDs() : undefined,
       ));
       oneTimeKey.value = createdKey?.secret_available
         ? { ...createdKey, group: groups.value.find(group => group.id === createdKey.group_id) }

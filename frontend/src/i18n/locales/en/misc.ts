@@ -421,6 +421,7 @@ export default {
     },
     orders: {
       title: 'My Orders',
+      list: 'Order list',
       empty: 'No orders yet',
       orderId: 'Order ID',
       orderNo: 'Order No.',

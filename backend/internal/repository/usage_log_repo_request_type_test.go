@@ -112,6 +112,7 @@ func TestUsageLogRepositoryCreateSyncRequestTypeAndLegacyFields(t *testing.T) {
 			sql.NullString{}, // platform
 			nil,              // customer_cost_details
 			nil,              // procurement_cost_snapshot
+			false,            // sla_excluded
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(99), createdAt))
 
@@ -215,6 +216,7 @@ func TestUsageLogRepositoryCreate_PersistsServiceTier(t *testing.T) {
 			sql.NullString{}, // platform
 			nil,              // customer_cost_details
 			nil,              // procurement_cost_snapshot
+			false,            // sla_excluded
 		).
 		WillReturnRows(sqlmock.NewRows([]string{"id", "created_at"}).AddRow(int64(100), createdAt))
 
@@ -998,6 +1000,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // platform
 			sql.NullString{}, // customer_cost_details
 			sql.NullString{}, // procurement_cost_snapshot
+			false,            // sla_excluded
 			sql.NullString{}, // quality_usage
 		}})
 		require.NoError(t, err)
@@ -1087,6 +1090,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // platform
 			sql.NullString{}, // customer_cost_details
 			sql.NullString{}, // procurement_cost_snapshot
+			false,            // sla_excluded
 			sql.NullString{}, // quality_usage
 		}})
 		require.NoError(t, err)
@@ -1159,6 +1163,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // platform
 			sql.NullString{}, // customer_cost_details
 			sql.NullString{}, // procurement_cost_snapshot
+			false,            // sla_excluded
 			sql.NullString{}, // quality_usage
 		}})
 		require.NoError(t, err)
@@ -1232,6 +1237,7 @@ func TestScanUsageLogRequestTypeAndLegacyFallback(t *testing.T) {
 			sql.NullString{}, // platform
 			sql.NullString{}, // customer_cost_details
 			sql.NullString{}, // procurement_cost_snapshot
+			false,            // sla_excluded
 			sql.NullString{}, // quality_usage
 		}})
 		require.NoError(t, err)

@@ -57,3 +57,49 @@ func TestActiveTestAdmissionDoesNotQueryWhileSaturated(t *testing.T) {
 	}
 	require.Empty(t, cache.releasedAccountIDs)
 }
+
+func TestActiveTestAdmissionChecksEachProxyAndWebSocketTurn(t *testing.T) {
+	for _, limit := range []int{0, 2} {
+		cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{}, selected: 22}
+		svc := NewConcurrencyService(cache)
+		account := proxyRoutingAccount()
+		calls := 0
+		svc.SetAccountAdmissionGate(accountAdmissionGateFunc(func(_ context.Context, id int64) (bool, error) {
+			require.Equal(t, account.ID, id)
+			calls++
+			return calls == 1, nil
+		}))
+		first, err := svc.AcquireAccountRoute(context.Background(), &account, limit)
+		require.NoError(t, err)
+		require.True(t, first.Acquired)
+		require.Equal(t, int64(22), account.SelectedProxyID)
+		first.ReleaseFunc()
+		cache.released = 0
+		second, err := svc.AcquireAccountRoute(context.Background(), &account, limit)
+		require.ErrorIs(t, err, ErrAccountAdmissionDenied)
+		require.False(t, second.Acquired)
+		require.Equal(t, 2, calls, "a pinned later turn still needs its own admission")
+		require.Equal(t, int64(22), cache.pinned)
+		require.Equal(t, int64(22), cache.released)
+	}
+}
+
+func TestActiveTestAdmissionProxyErrorAndSaturation(t *testing.T) {
+	cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{}}
+	svc := NewConcurrencyService(cache)
+	calls := 0
+	svc.SetAccountAdmissionGate(accountAdmissionGateFunc(func(context.Context, int64) (bool, error) {
+		calls++
+		return false, errors.New("admission database unavailable")
+	}))
+	result, err := svc.AcquireAccountSlot(context.Background(), 7, 1, 11, 22)
+	require.NoError(t, err)
+	require.False(t, result.Acquired)
+	require.Zero(t, calls)
+	cache.selected = 11
+	result, err = svc.AcquireAccountSlot(context.Background(), 7, 1, 11, 22)
+	require.ErrorContains(t, err, "admission database unavailable")
+	require.False(t, result.Acquired)
+	require.Equal(t, int64(11), cache.released)
+	require.Equal(t, 1, calls)
+}

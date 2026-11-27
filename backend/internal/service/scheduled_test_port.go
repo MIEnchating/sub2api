@@ -41,7 +41,9 @@ type PelicanTestConfig struct {
 
 // ScheduledTestPlan represents a scheduled test plan domain model.
 type ScheduledTestPlan struct {
-	degradationRetest bool
+	IntelligenceRetest  bool                 `json:"-"`
+	IntelligenceTargets []IntelligenceTarget `json:"-"`
+	degradationRetest   bool
 	// Populated only from the repository's one-shot manual trigger marker.
 	ManualQualityRun      bool              `json:"-"`
 	ManualQualityRunID    string            `json:"-"`
@@ -110,6 +112,7 @@ type ScheduledTestResult struct {
 	QualityJudgment     *QualityJudgment              `json:"quality_judgment,omitempty"`
 	QualityAction       string                        `json:"quality_action,omitempty"`
 	PelicanConfig       *PelicanTestConfig            `json:"pelican_config,omitempty"`
+	RetryExpectedFinish *time.Time                    `json:"-"`
 	ExecutionLeaseOwner string                        `json:"-"`
 	ExecutionLeaseScope string                        `json:"-"`
 	AllPassProgress     *ScheduledTestAllPassProgress `json:"all_pass_progress,omitempty"`

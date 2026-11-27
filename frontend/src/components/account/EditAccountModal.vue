@@ -2008,13 +2008,20 @@
         </div>
         <p v-if="legacyIPv6Bound" class="input-hint text-amber-600">{{ t('ovhIPv6.legacyBinding') }}</p>
         <template v-else>
+          <OpenAIProxySettings v-if="openaiProxySupported"
+          v-model:mode="openaiProxyMode" :single-proxy-id="selectedProxyID" :hide-single-selector="true" v-model:proxy-ids="openaiProxyIds"
+          :proxies="proxies" :loading="proxiesLoading" :load-error="proxiesLoadError" :current-account-id="editingAccount.id"
+          :user-id="authStore.user?.id" @retry="emit('retry-proxies')" />
           <p v-if="editingAccount.extra?.retired_multi_proxy_needs_review === true" class="input-hint text-amber-700 dark:text-amber-300">
             {{ t('ovhIPv6.retiredMultiProxyNeedsReview') }}
           </p>
+          <template v-if="!usesOpenAIRequestProxy">
           <AccountProxyModeSelect v-model="proxyMode" :allow-managed="allowManagedIPv6" />
-          <ProxySelector v-if="!proxyMode" v-model="form.proxy_id" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" />
+          <ProxySelector v-if="!proxyMode" v-model="form.proxy_ids" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" multiple />
+          </template>
           <p v-if="currentManagedIPv6" class="input-hint">{{ t('ovhIPv6.currentBinding', { address: currentManagedIPv6 }) }} {{ t('ovhIPv6.drainHint') }}</p>
         </template>
+        <p class="input-hint">{{ t('admin.accounts.proxyPoolHint') }}</p>
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -2325,9 +2332,9 @@
               data-testid="excel-bps-403-target-group" />
           </div>
         </div>
-        <div v-if="excelBPSEnabled" class="mt-3">
+        <div v-if="excelBPSEnabled && openaiProxyMode === 'single'" class="mt-3">
           <label class="flex items-center gap-2">
-            <FormInput v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
+            <input v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSMihomo') }}</span>
           </label>
@@ -3693,6 +3700,7 @@ import { useAuthStore } from '@/stores/auth'
 import GatewayAccountFields from './GatewayAccountFields.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import ProbePenaltySettings from './ProbePenaltySettings.vue'
+import OpenAIProxySettings from '@/components/account/OpenAIProxySettings.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 
 import { adminAPI } from '@/api/admin'
@@ -4596,6 +4604,8 @@ const excelBPSAllModels = ref(false)
 const excelBPSModels = ref<string[]>([...DEFAULT_EXCEL_BPS_MODELS])
 const excelBPSMihomo = ref(false)
 const excelBPSProxySource = ref<'mihomo' | 'ip_pool'>('mihomo')
+const openaiProxyMode = ref<'single' | 'request'>('single')
+const openaiProxyIds = ref<number[]>([])
 const excelBPSCacheCreationAsInput = ref(false)
 const excelBPSAutoDisableOn403 = ref(false)
 const excelBPSAutoRecoverOn403 = ref(false)
@@ -5093,8 +5103,9 @@ const probePenaltyMinimum = ref(0.001)
 const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const costMultiplierAutoSync = ref(true)
 
+const usesOpenAIRequestProxy = computed(() => openaiProxySupported.value && openaiProxyMode.value === 'request' && !legacyIPv6Bound.value)
 const proxyMode = ref<AccountProxyMode>('')
-const allowManagedIPv6 = computed(() => props.account?.platform === 'openai' && props.account.type === 'oauth' && !props.account.parent_account_id && props.account.credentials?.client_id !== OPENAI_EXCEL_OAUTH_CLIENT_ID && String(props.account.credentials?.auth_mode || '').trim().toLowerCase() !== 'agentidentity' && !excelBPSEnabled.value && !excelBPS403RecoveryPending.value && !props.account.extra?.openai_vm_bound && !props.account.extra?.openai_vm_retired)
+const allowManagedIPv6 = computed(() => props.account?.platform === 'openai' && props.account.type === 'oauth' && !props.account.parent_account_id && props.account.credentials?.client_id !== OPENAI_EXCEL_OAUTH_CLIENT_ID && String(props.account.credentials?.auth_mode || '').trim().toLowerCase() !== 'agentidentity' && !usesOpenAIRequestProxy.value && !excelBPSEnabled.value && !excelBPS403RecoveryPending.value && !props.account.extra?.openai_vm_bound && !props.account.extra?.openai_vm_retired)
 watch(allowManagedIPv6, allowed => { if (!allowed && proxyMode.value === 'ovh_ipv6') proxyMode.value = '' })
 const legacyIPv6Bound = computed(() => props.account?.extra?.openai_ipv6_bound === true)
 const currentManagedIPv6 = computed(() => props.proxies.find(proxy => proxy.id === props.account?.proxy_id)?.managed_ipv6)
@@ -5102,6 +5113,7 @@ const form = reactive({
   name: '',
   notes: '',
   proxy_id: null as number | null,
+  proxy_ids: [] as number[],
   concurrency: 1,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -5113,7 +5125,7 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-const selectedProxyID = computed(() => !proxyMode.value ? form.proxy_id : null)
+const selectedProxyID = computed(() => !proxyMode.value ? form.proxy_ids[0] ?? null : null)
 
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
   const parsed = Number(value)
@@ -5255,6 +5267,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   proxyMode.value = ''
   form.proxy_id = newAccount.proxy_id
+  form.proxy_ids = newAccount.proxy_ids?.length ? [...newAccount.proxy_ids] : (newAccount.proxy_id ? [newAccount.proxy_id] : [])
   form.concurrency = newAccount.concurrency
   form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
     newAccount.rate_limit_429_retry_count ?? DEFAULT_RATE_LIMIT_429_RETRY_COUNT
@@ -5332,6 +5345,8 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   excelBPSModels.value = [...DEFAULT_EXCEL_BPS_MODELS]
   excelBPSMihomo.value = false
   excelBPSProxySource.value = 'mihomo'
+  openaiProxyMode.value = 'single'
+  openaiProxyIds.value = []
   excelBPSCacheCreationAsInput.value = false
   excelBPSAutoDisableOn403.value = false
   excelBPSAutoRecoverOn403.value = false
@@ -5390,6 +5405,12 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
     excelBPSMihomo.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_mihomo === true
     excelBPSProxySource.value = extra?.openai_excel_bps_proxy_source === 'ip_pool' ? 'ip_pool' : 'mihomo'
+    const hasUnifiedProxyMode = Object.prototype.hasOwnProperty.call(extra ?? {}, 'openai_proxy_mode')
+    openaiProxyMode.value = (hasUnifiedProxyMode ? extra?.openai_proxy_mode : extra?.openai_excel_bps_proxy_mode) === 'request' ? 'request' : 'single'
+    const configuredProxyIds = hasUnifiedProxyMode ? extra?.openai_proxy_ids : extra?.openai_excel_bps_proxy_ids
+    openaiProxyIds.value = Array.isArray(configuredProxyIds)
+      ? [...new Set(configuredProxyIds.filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0))]
+      : []
     excelBPSCacheCreationAsInput.value = excelBPSEnabled.value && extra?.openai_excel_bps_cache_creation_as_input === true
     excelBPSAutoDisableOn403.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_auto_disable_on_403 === true
     excelBPSAutoRecoverOn403.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_auto_recover_on_403 === true
@@ -6564,6 +6585,10 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 const handleSubmit = async () => {
   if (bpsDefaults.loading.value) return
   if (!editingAccount.value || legacyProtectionBusy.value) return
+  if (usesOpenAIRequestProxy.value && openaiProxyIds.value.length === 0) {
+    appStore.showError(t('admin.accounts.openai.proxyRequired'))
+    return
+  }
   if (editingAccount.value.type === 'apikey' && upstreamBillingRateLimit.value != null &&
     (!Number.isFinite(upstreamBillingRateLimit.value) || upstreamBillingRateLimit.value < 0)) {
     appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
@@ -6627,8 +6652,11 @@ const handleSubmit = async () => {
       delete updatePayload.proxy_id
       delete updatePayload.proxy_ids
       delete updatePayload.proxy_mode
+    } else if (usesOpenAIRequestProxy.value) {
+      Object.assign(updatePayload, accountProxyPayload('', proxyMode.value ? [] : form.proxy_ids, true))
+      delete updatePayload.proxy_mode
     } else {
-      Object.assign(updatePayload, accountProxyPayload(proxyMode.value, form.proxy_id === null ? [] : [form.proxy_id], true))
+      Object.assign(updatePayload, accountProxyPayload(proxyMode.value, form.proxy_ids, true))
       if (proxyMode.value && !['direct', 'specified'].includes(proxyMode.value)) delete updatePayload.proxy_ids
     }
     if (form.expires_at === null) {
@@ -7249,6 +7277,13 @@ const handleSubmit = async () => {
           newExtra.openai_excel_bps_mihomo = true
         } else {
           delete newExtra.openai_excel_bps_mihomo
+        }
+        if (!authStore.isObserver && !legacyIPv6Bound.value && openaiProxySupported.value) {
+          newExtra.openai_proxy_mode = openaiProxyMode.value
+          newExtra.openai_proxy_ids = [...openaiProxyIds.value]
+        } else if (!openaiProxySupported.value) {
+          delete newExtra.openai_proxy_mode
+          delete newExtra.openai_proxy_ids
         }
         if (newExtra.openai_excel_bps === true && excelBPSCacheCreationAsInput.value) {
           newExtra.openai_excel_bps_cache_creation_as_input = true

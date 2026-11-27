@@ -147,6 +147,7 @@ func provideCleanup(
 	backupSvc *service.BackupService,
 	paymentOrderExpiry *service.PaymentOrderExpiryService,
 	channelMonitorRunner *service.ChannelMonitorRunner,
+	groupProbes *service.GroupProbeService,
 	channelMonitorV2Aggregator *service.ChannelMonitorV2Aggregator,
 	channelMonitorV3Prober *service.ChannelMonitorV3Prober,
 	quotaFlusher *service.UserPlatformQuotaUsageFlusher,
@@ -499,6 +500,12 @@ func provideCleanup(
 			{"PaymentOrderExpiryService", func() error {
 				if paymentOrderExpiry != nil {
 					paymentOrderExpiry.Stop()
+				}
+				return nil
+			}},
+			{"GroupProbes", func() error {
+				if groupProbes != nil {
+					groupProbes.Stop()
 				}
 				return nil
 			}},

@@ -242,62 +242,63 @@ func (s *AccountTestService) doOpenAIAccountTestUpstream(
 				}
 			}
 			request = request.WithContext(context.WithValue(request.Context(), astraCandySkipObservationKey{}, true))
-			started := time.Now().UTC()
-			response, sendErr := gateway.doOpenAIUpstream(request, proxyURL, account)
-			recordOAuth429TestStatus(request, account.ID, response, sendErr)
-			return observeAccountTestResponse(request.Context(), started, response, sendErr)
+			return executeQualityTestHTTP(request, account.ID, func(attemptRequest *http.Request) (*http.Response, error) {
+				response, sendErr := gateway.doOpenAIUpstream(attemptRequest, proxyURL, account)
+				recordOAuth429TestStatus(attemptRequest, account.ID, response, sendErr)
+				return response, sendErr
+			})
 		}
 	}
 	profile, err := resolveAccountTLSProfileForOpenAI(account, s.cfg)
 	if err != nil {
 		return nil, err
 	}
-	perform := func(attemptRequest *http.Request) (*http.Response, error) {
-		if err := validateManagedAccountProxy(account, account.Proxy); err != nil {
-			return nil, err
-		}
-		if gateway != nil && gateway.openaiIPv6 != nil {
-			if err := gateway.openaiIPv6.CheckRoute(attemptRequest.Context(), account, proxyURL); err != nil {
+	perform := func(request *http.Request) (*http.Response, error) {
+		return executeQualityTestHTTP(request, account.ID, func(attemptRequest *http.Request) (*http.Response, error) {
+			if err := validateManagedAccountProxy(account, account.Proxy); err != nil {
 				return nil, err
 			}
-		}
-		if err := validateOpenAIIPv6Route(account, proxyURL); err != nil {
-			return nil, err
-		}
-
-		_, independent429 := attemptRequest.Context().Value(oauth429ExecutionKey{}).(*oauth429Execution)
-		if s.pluginManager != nil && !account.IsManagedIPv6Bound() && !account.OpenAIRequestProxyEnabled() && !independent429 {
-			started := time.Now().UTC()
-			response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
-			if handled {
-				if options, ok := pelicanTestOptionsFromContext(attemptRequest.Context()); ok && options.nativeOAuthTransport != nil && !IsAstraSourceAcquisition(attemptRequest.Context()) {
-					*options.nativeOAuthTransport = false
+			if gateway != nil && gateway.openaiIPv6 != nil {
+				if err := gateway.openaiIPv6.CheckRoute(attemptRequest.Context(), account, proxyURL); err != nil {
+					return nil, err
 				}
-				return observeAccountTestResponse(attemptRequest.Context(), started, response, err)
 			}
-		}
-		if gateway != nil && !account.OpenAIRequestProxyEnabled() && !independent429 {
-			started := time.Now().UTC()
-			if response, handled, err := gateway.tryGroupSmartWS(attemptRequest, proxyURL, account); handled {
-				return observeAccountTestResponse(attemptRequest.Context(), started, response, err)
+			if err := validateOpenAIIPv6Route(account, proxyURL); err != nil {
+				return nil, err
 			}
-		}
-		if options, ok := pelicanTestOptionsFromContext(attemptRequest.Context()); ok && options.nativeOAuthTransport != nil && !IsAstraSourceAcquisition(attemptRequest.Context()) {
-			*options.nativeOAuthTransport = true
-		}
-		if profile != nil {
-			return s.doAccountTestHTTPWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
-		}
-		if useTLSFallback && s.tlsFPProfileService != nil && !account.IdentityProtectionEnabled() {
-			return s.doAccountTestHTTPWithTLS(
-				attemptRequest,
-				proxyURL,
-				account.ID,
-				account.Mode1EffectiveConcurrency(),
-				s.tlsFPProfileService.ResolveTLSProfile(account),
-			)
-		}
-		return s.doAccountTestHTTP(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
+
+			_, independent429 := attemptRequest.Context().Value(oauth429ExecutionKey{}).(*oauth429Execution)
+			if s.pluginManager != nil && !account.IsManagedIPv6Bound() && !account.OpenAIRequestProxyEnabled() && !independent429 {
+				response, handled, err := s.pluginManager.RoundTripOpenAIOAuth(attemptRequest.Context(), attemptRequest, proxyURL, account)
+				if handled {
+					if options, ok := pelicanTestOptionsFromContext(attemptRequest.Context()); ok && options.nativeOAuthTransport != nil && !IsAstraSourceAcquisition(attemptRequest.Context()) {
+						*options.nativeOAuthTransport = false
+					}
+					return response, err
+				}
+			}
+			if gateway != nil && !account.OpenAIRequestProxyEnabled() && !independent429 {
+				if response, handled, err := gateway.tryGroupSmartWS(attemptRequest, proxyURL, account); handled {
+					return response, err
+				}
+			}
+			if options, ok := pelicanTestOptionsFromContext(attemptRequest.Context()); ok && options.nativeOAuthTransport != nil && !IsAstraSourceAcquisition(attemptRequest.Context()) {
+				*options.nativeOAuthTransport = true
+			}
+			if profile != nil {
+				return timedAccountTestUpstream(s.httpUpstream).DoWithTLS(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency(), profile)
+			}
+			if useTLSFallback && s.tlsFPProfileService != nil && !account.IdentityProtectionEnabled() {
+				return timedAccountTestUpstream(s.httpUpstream).DoWithTLS(
+					attemptRequest,
+					proxyURL,
+					account.ID,
+					account.Mode1EffectiveConcurrency(),
+					s.tlsFPProfileService.ResolveTLSProfile(account),
+				)
+			}
+			return timedAccountTestUpstream(s.httpUpstream).Do(attemptRequest, proxyURL, account.ID, account.Mode1EffectiveConcurrency())
+		})
 	}
 	if _, independent := request.Context().Value(oauth429ExecutionKey{}).(*oauth429Execution); independent || IsGatewayAccountTest(request.Context()) || request.Context().Value(generationPreviewContextKey{}) == true || request.Context().Value(accountTestUsageKey{}) != nil {
 		return perform(request)

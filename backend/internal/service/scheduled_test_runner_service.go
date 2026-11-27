@@ -12,6 +12,7 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/google/uuid"
 	"github.com/robfig/cron/v3"
 	"golang.org/x/net/html"
 )
@@ -279,6 +280,8 @@ func (s *ScheduledTestRunnerService) runDuePlans(ctx context.Context) {
 
 func (s *ScheduledTestRunnerService) runDuePlansAt(ctx context.Context, now time.Time) {
 	s.pruneQualityOperations(ctx, now)
+	// Give regular sweeps first access to the plan lease.
+	defer s.retryDueIntelligenceArt(ctx, now)
 	queryCtx, cancel := context.WithTimeout(ctx, scheduledTestPersistenceTimeout)
 	plans, err := s.planRepo.ListDue(queryCtx, now)
 	cancel()
@@ -305,6 +308,22 @@ func (s *ScheduledTestRunnerService) runDuePlansAt(ctx context.Context, now time
 	for _, plan := range plans {
 		if ctx.Err() != nil {
 			return
+		}
+		if plan.Protection.Intelligence != nil && plan.NextRunAt != nil && plan.NextRunAt.After(now) {
+			repo, ok := s.planRepo.(IntelligenceRetestRepository)
+			if !ok {
+				continue
+			}
+			targets, err := repo.DueIntelligenceTargets(ctx, plan.ID, now)
+			if err != nil {
+				logger.LegacyPrintf("service.scheduled_test_runner", "list intelligence retests: %v", err)
+				continue
+			}
+			if len(targets) == 0 {
+				continue
+			}
+			plan.IntelligenceRetest = true
+			plan.IntelligenceTargets = targets
 		}
 		// An overdue run (for example after downtime) must wait if discovery
 		// happens outside the configured periods. Do not record a phantom run.
@@ -467,7 +486,9 @@ func (s *ScheduledTestRunnerService) executeAccountPlan(ctx context.Context, pla
 }
 
 func (s *ScheduledTestRunnerService) executeGroupPlan(ctx context.Context, plan *ScheduledTestPlan) {
-	defer s.advancePlan(ctx, plan)
+	if !plan.IntelligenceRetest {
+		defer s.advancePlan(ctx, plan)
+	}
 	if s.scheduledSvc != nil {
 		if repo, ok := s.scheduledSvc.resultRepo.(ScheduledTestRunRepository); ok {
 			s.executePlanSnapshot(ctx, plan, repo)
@@ -616,6 +637,9 @@ dispatchAccounts:
 }
 
 func (s *ScheduledTestRunnerService) resolveDefinition(ctx context.Context, plan *ScheduledTestPlan) (string, string, int, error) {
+	if p := plan.Protection.Intelligence; p != nil && p.ArtworkPrompt != "" {
+		return p.ArtworkPrompt, "html", p.ArtworkMaxOutputTokens, nil
+	}
 	// Legacy account plans predate configurable definitions and intentionally use
 	// the existing account probe when no definition is attached.
 	if plan.TestDefinitionID == nil {
@@ -787,7 +811,8 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	if pending != nil {
 		started = pending.StartedAt
 	}
-	execute := func(attemptCtx context.Context, prompt string) *ScheduledTestResult {
+	executeKind := func(attemptCtx context.Context, prompt, kind string, tokens int) *ScheduledTestResult {
+		attemptCtx = withScheduledTestOutputKind(withAccountTestMaxOutputTokens(attemptCtx, tokens), kind)
 		if !s.acquireWorker(attemptCtx) {
 			return scheduledTestFailedAttempt(started, attemptCtx.Err())
 		}
@@ -839,11 +864,16 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 		}
 		// Background tests encode upstream errors in Status, often with a nil
 		// Go error. Output validation can also turn a response into a failure.
-		s.applyOutputContract(result, outputKind)
+		s.applyOutputContract(result, kind)
 		return result
 	}
+	execute := func(c context.Context, q string) *ScheduledTestResult {
+		return executeKind(c, q, outputKind, accountTestOutputTokenLimit(c))
+	}
 	var result *ScheduledTestResult
-	if outputKind == "capability" {
+	if plan.Protection.Intelligence != nil {
+		result = s.runIntelligence(ctx, plan, pending, prompt, executeKind)
+	} else if outputKind == "capability" {
 		result = s.runCapabilitySuite(ctx, plan, accountID, prompt, execute)
 	} else {
 		result = s.runWithAutomaticRetries(ctx, plan, &accountID, func(attemptCtx context.Context) *ScheduledTestResult { return execute(attemptCtx, prompt) })
@@ -867,7 +897,9 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	if outputKind == "model_check" {
 		applyScheduledTestModelCheck(result, plan)
 	}
-	s.runAutomaticVisualReview(ctx, plan, result)
+	if plan.Protection.Intelligence == nil {
+		s.runAutomaticVisualReview(ctx, plan, result)
+	}
 	persistCtx, cancel := scheduledTestPersistenceContext()
 	defer cancel()
 	if s.scheduledSvc == nil {
@@ -882,6 +914,9 @@ func (s *ScheduledTestRunnerService) runAccountWithResult(ctx context.Context, p
 	} else if err := s.scheduledSvc.SaveResult(persistCtx, plan.ID, plan.MaxResults, result); err != nil {
 		logger.LegacyPrintf("service.scheduled_test_runner", "[ScheduledTestRunner] plan=%d account=%d SaveResult error: %v", plan.ID, accountID, err)
 		return nil
+	}
+	if plan.Protection.Intelligence != nil {
+		return result
 	}
 	// Shutdown/cancellation is not an account-quality observation.
 	if ctx.Err() == nil {
@@ -1195,6 +1230,9 @@ func (s *ScheduledTestRunnerService) RetryAccount(ctx context.Context, plan *Sch
 	if previous.Status != "failed" {
 		return nil, ErrScheduledTestResultNotFailed
 	}
+	if policy := plan.Protection.Intelligence; policy != nil && !retryableIntelligenceArtwork(previous, policy.Version) {
+		return nil, fmt.Errorf("仅可补测本策略版本缺失的鹈鹕作品；重新验证监测结果请发起新一轮检测")
+	}
 	copyPlan := *plan
 	plan = &copyPlan
 	if previous.ModelID != "" && !plan.SelectsModel(previous.ModelID) {
@@ -1210,6 +1248,12 @@ func (s *ScheduledTestRunnerService) RetryAccount(ctx context.Context, plan *Sch
 		return nil, err
 	}
 	bg = leased
+	if plan.Protection.Intelligence != nil {
+		if automatic, _ := ctx.Value(scheduledTestAutomaticRunKey{}).(bool); automatic {
+			bg = context.WithValue(bg, scheduledTestAutomaticRunKey{}, true)
+		}
+		bg = context.WithValue(bg, qualityRunKey{}, "intelligence-retest:"+uuid.NewString())
+	}
 	finishLifecycle := finish
 	finish = func() { release(); finishLifecycle() }
 	// Validation still respects the HTTP caller, but shutdown must also
@@ -1261,6 +1305,9 @@ func (s *ScheduledTestRunnerService) RetryAccount(ctx context.Context, plan *Sch
 	if account == nil {
 		return nil, fmt.Errorf("test account unavailable")
 	}
+	if plan.Protection.Intelligence != nil && (!account.IntelligenceMonitoringEligible(time.Now()) || !account.SupportsIntelligenceModel(plan.ModelID)) {
+		return nil, errIntelligenceTargetUnavailable
+	}
 	if eligible, err := s.runAccountEligible(ctx, plan, previous, accountID); err != nil || !eligible {
 		return nil, fmt.Errorf("account is not enabled for detection")
 	}
@@ -1296,6 +1343,10 @@ func (s *ScheduledTestRunnerService) RetryAccount(ctx context.Context, plan *Sch
 		Status: "running", OutputKind: outputKind, AccountID: &accountID,
 		ModelID: plan.ModelID, ReasoningEffort: plan.ReasoningEffort, GroupID: plan.GroupID,
 		StartedAt: started, FinishedAt: started,
+	}
+	if plan.Protection.Intelligence != nil {
+		pending.StartedAt = previous.StartedAt
+		pending.RetryExpectedFinish = &previous.FinishedAt
 	}
 	if err := s.scheduledSvc.RestartFailedResult(ctx, pending); err != nil {
 		return nil, err

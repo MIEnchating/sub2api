@@ -37,11 +37,7 @@ func TestAntiDegradeOrdinaryUpdateRejectsRandomAndMultipleProxies(t *testing.T) 
 		t.Run(tc.name, func(t *testing.T) {
 			admin, repo := protectedProxyAdmin(t)
 			_, err := admin.UpdateAccount(context.Background(), 1, &tc.input)
-			if tc.name == "multiple" {
-				require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
-			} else {
-				require.ErrorIs(t, err, ErrProtectedProxyModeChange)
-			}
+			require.ErrorIs(t, err, ErrProtectedProxyModeChange)
 			require.Empty(t, repo.accounts[1].ProxyIDs)
 			require.True(t, repo.accounts[1].AntiDegradationEnabled())
 		})
@@ -56,8 +52,8 @@ func TestAntiDegradeProxyUpdateRetainsSingleAndDisabledBehavior(t *testing.T) {
 	}{
 		{"fixed", false, []int64{10}},
 		{"direct", false, []int64{}},
-
-		{"disabled allows fixed", true, []int64{10}},
+		{"duplicates remain one proxy", false, []int64{10, 10}},
+		{"disabled allows multiple", true, []int64{10, 20}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			admin, repo := protectedProxyAdmin(t)
@@ -68,7 +64,7 @@ func TestAntiDegradeProxyUpdateRetainsSingleAndDisabledBehavior(t *testing.T) {
 			updated, err := admin.UpdateAccount(context.Background(), 1, &UpdateAccountInput{ProxyIDs: &tc.ids})
 			require.NoError(t, err)
 			if tc.disable {
-				require.Empty(t, updated.ProxyIDs)
+				require.Equal(t, tc.ids, updated.ProxyIDs)
 			} else {
 				require.Empty(t, updated.ProxyIDs)
 				require.True(t, updated.AntiDegradationEnabled())
@@ -95,11 +91,7 @@ func TestAntiDegradeBulkProxyConflictRejectsWholeBatch(t *testing.T) {
 			repo.accounts[2] = &Account{ID: 2, Platform: PlatformOpenAI, Type: AccountTypeOAuth}
 			tc.input.AccountIDs = []int64{2, 1}
 			_, err := admin.BulkUpdateAccounts(context.Background(), &tc.input)
-			if tc.name == "multiple" {
-				require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
-			} else {
-				require.ErrorIs(t, err, ErrProtectedProxyModeChange)
-			}
+			require.ErrorIs(t, err, ErrProtectedProxyModeChange)
 			require.Empty(t, repo.bulkUpdates)
 		})
 	}

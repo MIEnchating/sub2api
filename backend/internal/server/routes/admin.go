@@ -831,6 +831,9 @@ func registerSettingsRoutes(admin *gin.RouterGroup, h *handler.Handlers, stepUpA
 		adminSettings.GET("/registration-email-blacklist", h.Admin.Setting.GetRegistrationEmailBlacklist)
 		adminSettings.PUT("/registration-email-blacklist", h.Admin.Setting.UpdateRegistrationEmailBlacklist)
 		// 面板 API 限流配置
+		adminSettings.GET("/intelligence-visibility", h.Admin.Setting.GetIntelligenceVisibility)
+		adminSettings.PUT("/intelligence-visibility", h.Admin.Setting.UpdateIntelligenceVisibility)
+
 		adminSettings.GET("/panel-rate-limit", h.Admin.Setting.GetPanelRateLimitSettings)
 		adminSettings.PUT("/panel-rate-limit", h.Admin.Setting.UpdatePanelRateLimitSettings)
 		// 流超时处理配置
@@ -1072,6 +1075,11 @@ func registerScheduledTestRoutes(admin *gin.RouterGroup, h *handler.Handlers) {
 	admin.POST("/test-plans/:id/run", h.Admin.ScheduledTest.RunNow)
 	admin.DELETE("/test-results/:id", h.Admin.ScheduledTest.DeleteResult)
 	admin.POST("/test-results/:id/retry", h.Admin.ScheduledTest.RetryResult)
+	admin.POST("/intelligence/scope", h.Admin.Group.IntelligenceScope)
+	admin.POST("/test-plans/:id/intelligence-release", h.Admin.ScheduledTest.ReleaseIntelligenceHold)
+	admin.GET("/test-plans/:id/intelligence", h.Admin.ScheduledTest.IntelligenceOverview)
+	admin.GET("/test-results/:id/intelligence-artwork", h.Admin.ScheduledTest.IntelligenceArtwork)
+	admin.POST("/test-results/:id/intelligence-review", h.Admin.ScheduledTest.ReviewIntelligenceArt)
 	admin.GET("/test-reviews", h.Admin.ScheduledTest.ListAdminReviews)
 	admin.POST("/test-results/:id/decision", h.Admin.ScheduledTest.DecideResult)
 	admin.DELETE("/scheduled-test-results/:id", h.Admin.ScheduledTest.DeleteResult)
@@ -1251,6 +1259,9 @@ func registerChannelMonitorV2Routes(admin *gin.RouterGroup, h *handler.Handlers,
 		config := monitor.Group("")
 		config.Use(featureGuard)
 		{
+			config.GET("/group-probes", h.Admin.GroupProbe.List)
+			config.PUT("/group-probes/:id", h.Admin.GroupProbe.Configure)
+			config.POST("/group-probes/:id/run", h.Admin.GroupProbe.Run)
 			config.GET("/config", h.ChannelMonitorV2.GetConfig)
 			config.PUT("/config", h.ChannelMonitorV2.UpdateConfig)
 		}

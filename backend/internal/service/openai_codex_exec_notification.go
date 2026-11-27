@@ -7,7 +7,7 @@ import (
 	"github.com/tidwall/gjson"
 )
 
-const codexExecNotificationConversionMessage = "Codex exec notifications require a native Responses route"
+const codexExecNotificationConversionMessage = "codex exec notifications require a native Responses route"
 
 func codexExecNotificationOutput(kind, name, namespace, status, output string) bool {
 	return kind == "custom_tool_call_output" && name == "exec" && namespace == "" && status == "" && strings.TrimSpace(output) != ""

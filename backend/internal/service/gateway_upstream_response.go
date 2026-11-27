@@ -1447,7 +1447,7 @@ func (s *GatewayService) handleStreamingResponse(ctx context.Context, resp *http
 			}
 			sawUpstreamLine = true
 			line := ev.line
-			if line == "" {
+			if strings.TrimSpace(line) == "" {
 				if err := consumePending(); err != nil {
 					if status.clientDisconnected {
 						return clientGone(err)

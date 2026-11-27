@@ -1,5 +1,5 @@
 <template>
-  <AppLayout>
+  <component :is="embedded ? 'div' : AppLayout">
     <div class="w-full min-w-0 pb-10">
       <p v-if="error" class="mb-4 rounded-xl border border-red-200 bg-red-50 px-4 py-2.5 text-sm text-red-700 dark:border-red-900/40 dark:bg-red-900/20 dark:text-red-200" role="alert">
         {{ error }}
@@ -13,7 +13,7 @@
       />
     </div>
     <IncidentsDialog :show="showIncidents" :admin="false" @close="showIncidents = false" />
-  </AppLayout>
+  </component>
 </template>
 
 <script setup lang="ts">
@@ -24,6 +24,8 @@ import StatusPage from '@/features/channel-monitor-v3/StatusPage.vue'
 import IncidentsDialog from '@/features/channel-monitor-v3/IncidentsDialog.vue'
 import { getStatus, type MonitorV3StatusPage } from '@/api/channelMonitorV3'
 import { extractApiErrorMessage } from '@/utils/apiError'
+
+defineProps<{ embedded?: boolean }>()
 
 const REFRESH_MS = 60_000
 const { t } = useI18n()

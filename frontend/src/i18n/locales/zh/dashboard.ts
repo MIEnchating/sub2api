@@ -153,6 +153,10 @@ export default {
       usageHint: "费用会计入该 Key 的使用记录，用量统计可能稍有延迟。",
       requireActiveGroup: "测试需要密钥处于活跃状态且已选择分组",
     },
+    singleGroupHint: '站点已关闭多分组，只使用主分组。已有额外绑定会保留，重新开启后恢复。',
+    additionalGroups: '同时使用其他分组',
+    multiGroupHint: '每次请求自动选择可用且倍率较低的分组，并按实际使用分组计费。最多选择 20 个分组。',
+    multiGroupCount: '自动分配 · {count} 个分组',
     providerLabel: '厂商',
     providers: {
       anthropic: 'Anthropic',
@@ -407,9 +411,6 @@ export default {
       invalidBase: 'API 地址无效。请使用不含账号、查询参数或片段的 HTTPS 地址；本机或局域网可使用 HTTP。',
       invalidKey: '此密钥为空或格式无效，无法导入到 Magpie。'
     },
-    additionalGroups: '同时使用其他分组',
-    multiGroupHint: '每次请求自动选择可用且倍率较低的分组，并按实际使用分组计费。最多选择 20 个分组。',
-    multiGroupCount: '自动分配 · {count} 个分组',
     usageDateRange: '用量日期',
     selectedPeriod: '所选时段',
     invalidUsageDateRange: '请选择有效的开始和结束日期',

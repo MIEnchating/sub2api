@@ -575,9 +575,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if input == nil {
 		return nil, ErrAccountNilInput
 	}
-	if err := rejectRetiredAccountProxyConfig(input.ProxyIDs, input.Extra); err != nil {
-		return nil, err
-	}
 	if err := ValidateGatewayAccountIdentity(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -777,13 +774,6 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
-	}
-	var requestedProxyIDs []int64
-	if input.ProxyIDs != nil {
-		requestedProxyIDs = *input.ProxyIDs
-	}
-	if err := rejectRetiredAccountProxyConfig(requestedProxyIDs, input.Extra); err != nil {
-		return nil, err
 	}
 	if input.ProxyIDs != nil && len(*input.ProxyIDs) == 1 && s.managedProxyID(ctx, &(*input.ProxyIDs)[0]) {
 		input.ProxyID = &(*input.ProxyIDs)[0]
@@ -1397,9 +1387,6 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
-	if err := rejectRetiredAccountProxyConfig(nil, updates); err != nil {
-		return err
-	}
 	// Ordinary partial saves cannot write server-owned quality isolation.
 	// Dedicated quality restore/runtime paths use their own transaction/UpdateExtra.
 	updates = SanitizeExcelBPSAuthorizationExtra(updates)
@@ -1534,13 +1521,6 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
-	}
-	var requestedProxyIDs []int64
-	if input.ProxyIDs != nil {
-		requestedProxyIDs = *input.ProxyIDs
-	}
-	if err := rejectRetiredAccountProxyConfig(requestedProxyIDs, input.Extra); err != nil {
-		return nil, err
 	}
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
 		return nil, err

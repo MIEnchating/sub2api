@@ -29,13 +29,17 @@ func TestRetireVIPCreditAndAccountMultiProxy(t *testing.T) {
 	_, err = tx.ExecContext(ctx, `
 CREATE TEMP TABLE accounts (
  id bigint PRIMARY KEY, extra jsonb DEFAULT '{}', proxy_id bigint, schedulable boolean DEFAULT true,
- updated_at timestamptz DEFAULT now(), deleted_at timestamptz
+ updated_at timestamptz DEFAULT now(), deleted_at timestamptz, parent_account_id bigint
 );
 CREATE TEMP TABLE proxies (id bigint PRIMARY KEY, protocol text, status text, expires_at timestamptz, deleted_at timestamptz);
-CREATE TEMP TABLE account_proxies (account_id bigint, proxy_id bigint, position int, created_at timestamptz DEFAULT now());
+CREATE TEMP TABLE account_proxies (account_id bigint, proxy_id bigint, position int, created_at timestamptz DEFAULT now(), PRIMARY KEY (account_id, proxy_id));
 CREATE TEMP TABLE scheduler_outbox (event_type text, account_id bigint);
 CREATE TEMP TABLE auto_credit_config (enabled boolean, version bigint);
 CREATE TEMP TABLE auto_credit_ledger (id bigint, amount numeric);
+CREATE TEMP TABLE schema_migrations (filename text PRIMARY KEY);
+CREATE TEMP TABLE openai_vm_bindings (account_id bigint, managed_proxy_id bigint);
+CREATE TEMP TABLE openai_ipv6_bindings (account_id bigint, managed_proxy_id bigint);
+CREATE TEMP TABLE ovh_ipv6_leases (owner_account_id bigint, proxy_id bigint);
 INSERT INTO auto_credit_config VALUES (true, 7), (false, 5);
 INSERT INTO auto_credit_ledger VALUES (1, 42.50);
 INSERT INTO proxies VALUES (11, 'https', 'active', NULL, NULL), (12, 'socks5', 'active', NULL, NULL),
@@ -64,6 +68,22 @@ INSERT INTO account_proxies (account_id, proxy_id, position) VALUES (1,11,0),(1,
 		"SELECT proxy_id IS NULL AND NOT schedulable AND extra->'retired_multi_proxy_needs_review'='true' FROM accounts WHERE id=3",
 		"SELECT count(*)=3 FROM accounts WHERE id IN (4,5,6) AND proxy_id IS NULL AND schedulable",
 		"SELECT count(*)=5 FROM scheduler_outbox WHERE event_type='account_changed'",
+	} {
+		var ok bool
+		require.NoError(t, tx.QueryRowContext(ctx, check).Scan(&ok), check)
+		require.True(t, ok, check)
+	}
+	_, err = tx.ExecContext(ctx, `INSERT INTO schema_migrations(filename) VALUES ('404_retire_vip_credit_and_account_multi_proxy.sql')`)
+	require.NoError(t, err)
+	restore, err := FS.ReadFile("405_restore_account_multi_proxy.sql")
+	require.NoError(t, err)
+	_, err = tx.ExecContext(ctx, string(restore))
+	require.NoError(t, err)
+	for _, check := range []string{
+		"SELECT count(*)=2 FROM account_proxies WHERE account_id=1",
+		"SELECT proxy_id=11 AND schedulable AND extra->'openai_proxy_ids'='[13,11]' AND extra ? 'retired_request_proxy' FROM accounts WHERE id=2",
+		"SELECT proxy_id IS NULL AND NOT schedulable AND extra->'retired_multi_proxy_needs_review'='true' FROM accounts WHERE id=3",
+		"SELECT count(*)=2 FROM scheduler_outbox WHERE event_type='account_changed' AND account_id=1",
 	} {
 		var ok bool
 		require.NoError(t, tx.QueryRowContext(ctx, check).Scan(&ok), check)

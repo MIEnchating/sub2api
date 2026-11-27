@@ -669,6 +669,11 @@ type ClaudeUsage struct {
 	CacheCreation1hTokens    int  // 1小时缓存创建token（来自嵌套 cache_creation 对象）
 	ImageOutputTokens        int  `json:"image_output_tokens,omitempty"`
 
+	// thinkingTokens 是 usage.output_tokens_details.thinking_tokens（output_tokens 的子集，不另计费），
+	// 只用于转 OpenAI 格式时输出 reasoning_tokens；上游给了才算数（0 也算）。
+	thinkingTokens        int
+	thinkingTokensPresent bool
+
 	cacheCreationInputTokensPresent     bool
 	cacheCreationInputTokensFromDetails bool
 	promptTotalTokens                   int
@@ -755,8 +760,9 @@ func (r *ForwardResult) upstreamPriceFactor() float64 {
 type GatewayFailureStage string
 
 const (
-	GatewayFailureStageInference   GatewayFailureStage = "inference"
-	GatewayFailureStageAccountAuth GatewayFailureStage = "account_auth"
+	GatewayFailureStageInference            GatewayFailureStage = "inference"
+	GatewayFailureStageAccountAuth          GatewayFailureStage = "account_auth"
+	GatewayFailureStageRequestCompatibility GatewayFailureStage = "request_compatibility"
 )
 
 // GatewayFailureScope identifies whether selecting another account can help.
@@ -819,6 +825,9 @@ func (e *UpstreamFailoverError) Error() string {
 	if e != nil && e.Stage == GatewayFailureStageAccountAuth {
 		return fmt.Sprintf("credential failure: %s (failover)", e.Reason)
 	}
+	if e != nil && e.Stage == GatewayFailureStageRequestCompatibility {
+		return fmt.Sprintf("request compatibility failure: %s (failover)", e.Reason)
+	}
 	return fmt.Sprintf("upstream error: %d (failover)", e.StatusCode)
 }
 
@@ -843,12 +852,13 @@ var ErrOpenAIWSModelUnavailable = errors.New("upstream websocket model unavailab
 const OpenAIWSModelUnavailableReason GatewayFailureReason = "openai_ws_model_unavailable"
 
 // ShouldReportAccountScheduleFailure prevents provider- and request-scoped
-// credential failures from being misattributed to the selected account. Legacy
+// credential failures and local request incompatibility from being misattributed
+// to the selected account. Legacy
 // and inference failures retain their existing scheduler-health behavior,
 // except an Excel BPS 429, which only cools the account's BPS route, and a
 // local BPS image admission rejection, which never reached the upstream.
 func (e *UpstreamFailoverError) ShouldReportAccountScheduleFailure() bool {
-	if e == nil || e.Reason == OpenAIWSModelUnavailableReason || e.Reason == ExcelBPSRateLimitedReason || e.Reason == GrokUnknownForbiddenReason || e.IsExcelBPSImageAdmissionRejection() {
+	if e == nil || e.Stage == GatewayFailureStageRequestCompatibility || e.Reason == OpenAIWSModelUnavailableReason || e.Reason == ExcelBPSRateLimitedReason || e.Reason == GrokUnknownForbiddenReason || e.IsExcelBPSImageAdmissionRejection() {
 		return false
 	}
 	if e.RequestScopedTransient && e.Scope == GatewayFailureScopeRequest {

@@ -43,6 +43,7 @@ func TestOpsDeepSeekContentRejectionHistoryAndSLA(t *testing.T) {
 		}
 		row.Model, row.Severity, row.ErrorType = model, "P3", "invalid_request_error"
 		row.ErrorOwner, row.ErrorSource = "provider", "upstream_http"
+		row.RequestType = new(int16(service.RequestTypeStream))
 		row.CreatedAt = start.Add(time.Duration(i+1) * time.Minute)
 		// Repository insertion deliberately skips the service normalizer so
 		// historical provider-attributed rows exercise read-time compatibility.

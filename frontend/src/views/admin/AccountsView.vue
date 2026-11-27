@@ -618,8 +618,8 @@
       <template #pagination><Pagination v-if="pagination.total > 0" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="handlePageChange" @update:pageSize="handlePageSizeChange" /></template>
     </TablePageLayout>
     <NewAPIUpstreamConfigDialog v-if="authStore.isAdmin" :show="newAPIConfigAccount !== null" :account="newAPIConfigAccount" @close="newAPIConfigAccount = null" @saved="reload" />
-    <CreateAccountModal :show="showCreate" :proxies="proxies" :proxies-loading="proxiesLoading" :proxies-load-error="proxiesLoadError" :groups="groups" @retry-proxies="loadProxyCatalog" @close="showCreate = false" @created="reload" />
-    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :proxies-loading="proxiesLoading" :proxies-load-error="proxiesLoadError" :groups="groups" @retry-proxies="loadProxyCatalog" @close="showEdit = false" @updated="handleAccountUpdated" />
+    <CreateAccountModal :show="showCreate" :proxies="proxies" :proxies-loading="proxiesLoading" :proxies-load-error="proxiesLoadError" :groups="groups" @retry-proxies="retryProxies" @close="showCreate = false" @created="handleAccountsCreated" />
+    <EditAccountModal :show="showEdit" :account="edAcc" :proxies="proxies" :proxies-loading="proxiesLoading" :proxies-load-error="proxiesLoadError" :groups="groups" @retry-proxies="retryProxies" @close="showEdit = false" @updated="handleAccountUpdated" />
     <ReAuthAccountModal :show="showReAuth" :account="reAuthAcc" @close="closeReAuthModal" @reauthorized="handleAccountUpdated" />
     <AccountTestModal :show="showTest" :account="testingAcc" @close="closeTestModal" @tested="reload" />
     <AccountStatsModal :show="showStats" :account="statsAcc" @close="closeStatsModal" />
@@ -756,24 +756,8 @@ const loadConcurrencyUpgradeState = async () => {
 const proxies = ref<AccountProxy[]>([])
 const proxiesLoading = ref(true)
 const proxiesLoadError = ref(false)
-let proxyCatalogPending = false
-const loadProxyCatalog = async () => {
-  if (proxyCatalogPending || accountViewDisposed) return
-  proxyCatalogPending = true
-  proxiesLoading.value = true
-  proxiesLoadError.value = false
-  try {
-    const result = await adminAPI.proxies.getAllWithCount()
-    if (!accountViewDisposed) proxies.value = result
-  } catch (error) {
-    if (!accountViewDisposed) proxiesLoadError.value = true
-    console.error('Failed to load proxies:', error)
-  } finally {
-    proxyCatalogPending = false
-    if (!accountViewDisposed) proxiesLoading.value = false
-  }
-}
-const groups = ref<AdminGroup[]>([])
+const groupCatalog = ref<AdminGroup[] | null>(null)
+const groups = computed(() => groupCatalog.value ?? [])
 const groupsByID = computed(() => new Map(groups.value.map(group => [group.id, group])))
 const accountGroupsForRow = (account: Pick<AccountListItem, 'group_ids'>): AdminGroup[] => {
   const groupIDs = account.group_ids ?? []
@@ -849,6 +833,56 @@ const openaiIPv6Acc = ref<Account | null>(null)
 const showIQTest = ref(false)
 const showErrorPassthrough = ref(false)
 const showTLSFingerprintProfiles = ref(false)
+
+// Proxy account counts change whenever accounts are created, deleted, imported
+// or rebound, so reload them each time a proxy-picking dialog opens. Only a
+// response newer than the last applied one is used, so a slow older response
+// never overwrites fresher counts, while a failed newer request does not
+// discard an older success; a failed refresh keeps the previous list.
+let proxiesLoadSeq = 0
+let proxiesAppliedSeq = 0
+let proxiesFailedSeq = 0
+let proxiesPending = 0
+const loadProxies = async (): Promise<void> => {
+  if (accountViewDisposed) return
+  const seq = ++proxiesLoadSeq
+  proxiesPending++
+  proxiesLoading.value = true
+  proxiesLoadError.value = false
+  try {
+    const list = await adminAPI.proxies.getAllWithCount()
+    if (!accountViewDisposed && seq > proxiesAppliedSeq) {
+      proxiesAppliedSeq = seq
+      proxies.value = list
+    }
+  } catch (error: unknown) {
+    if (!accountViewDisposed) {
+      proxiesFailedSeq = Math.max(proxiesFailedSeq, seq)
+      console.error('Failed to load proxies:', error)
+    }
+  } finally {
+    proxiesPending--
+    if (!accountViewDisposed && proxiesPending === 0) {
+      proxiesLoading.value = false
+      proxiesLoadError.value = proxiesFailedSeq > proxiesAppliedSeq
+    }
+  }
+}
+let retryProxiesPromise: Promise<void> | null = null
+const retryProxies = (): Promise<void> => {
+  retryProxiesPromise ??= loadProxies().finally(() => { retryProxiesPromise = null })
+  return retryProxiesPromise
+}
+watch([showCreate, showEdit, showBulkEdit], (open: boolean[], wasOpen: boolean[] | undefined) => {
+  if (open.some((isOpen: boolean, i: number) => isOpen && !wasOpen?.[i])) void loadProxies()
+})
+// Batch creation can partially succeed and keep the dialog open for the
+// remaining items, so refresh counts on every successful creation too.
+const handleAccountsCreated = (): void => {
+  void reload()
+  void loadProxies()
+}
+
 const edAcc = ref<Account | null>(null)
 const tempUnschedAcc = ref<Account | null>(null)
 const deletingAcc = ref<Account | null>(null)
@@ -923,12 +957,14 @@ const HIDDEN_COLUMNS_CURRENT_VERSION = 'scheduler-score-hidden-by-default'
 
 // Account filter settings
 const ACCOUNT_FILTER_STORAGE_KEY = 'account-filter-values'
+const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 type AccountFilterValues = {
   platform: string
   status: string
+  group: string
 }
 const loadInitialAccountFilterValues = (): AccountFilterValues => {
-  const fallback: AccountFilterValues = { platform: '', status: '' }
+  const fallback: AccountFilterValues = { platform: '', status: '', group: '' }
   try {
     const raw = localStorage.getItem(ACCOUNT_FILTER_STORAGE_KEY)
     if (!raw) return fallback
@@ -939,7 +975,9 @@ const loadInitialAccountFilterValues = (): AccountFilterValues => {
       platform: typeof values.platform === 'string' && CONCRETE_PLATFORM_OPTIONS.some(option => option.value === values.platform)
         ? values.platform : '',
       status: typeof values.status === 'string' && ['active', 'inactive', 'error', 'quality_paused', 'rate_limited', 'temp_unschedulable', 'unschedulable'].includes(values.status)
-        ? values.status : ''
+        ? values.status : '',
+      group: typeof values.group === 'string' && (values.group === ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE || /^[1-9]\d*$/.test(values.group))
+        ? values.group : ''
     }
   } catch {
     return fallback
@@ -1451,7 +1489,6 @@ const {
     ...loadInitialAccountFilterValues(),
     type: '',
     privacy_mode: '',
-    group: '',
     search: '',
     lite: '1',
     include_scheduler_score: shouldIncludeSchedulerScore() ? '1' : '0',
@@ -1837,7 +1874,8 @@ const saveAccountFilterValues = () => {
   try {
     localStorage.setItem(ACCOUNT_FILTER_STORAGE_KEY, JSON.stringify({
       platform: params.platform,
-      status: params.status
+      status: params.status,
+      group: params.group
     }))
   } catch {
     // Filtering must remain available when browser storage is unavailable.
@@ -1862,14 +1900,17 @@ const filterGroups = computed(() => groups.value
   .slice()
   .sort((a, b) => (a.sort_order ?? 0) - (b.sort_order ?? 0) || a.id - b.id))
 
+const selectedGroupUnavailable = () =>
+  groupCatalog.value !== null &&
+  params.group !== '' &&
+  params.group !== ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE &&
+  !filterGroups.value.some(group => String(group.id) === params.group)
+
 const handlePlatformChange = async (platform: string) => {
   if (params.platform === platform) return
   params.platform = platform
+  if (selectedGroupUnavailable()) params.group = ''
   saveAccountFilterValues()
-  if (params.group && params.group !== 'ungrouped' &&
-      !filterGroups.value.some(group => String(group.id) === params.group)) {
-    params.group = ''
-  }
   pagination.page = 1
   clearSelection()
   menu.show = false
@@ -1879,11 +1920,16 @@ const handlePlatformChange = async (platform: string) => {
 const handleGroupChange = async (group: string) => {
   if (params.group === group) return
   params.group = group
+  saveAccountFilterValues()
   pagination.page = 1
   clearSelection()
   menu.show = false
   await load()
 }
+
+watch(groupCatalog, async () => {
+  if (selectedGroupUnavailable()) await handleGroupChange('')
+})
 
 const handlePageChange = (page: number) => {
   syncAccountListDerivedParams()
@@ -2018,6 +2064,7 @@ const shouldReplaceAutoRefreshRow = (current: Account, next: Account) => {
     current.extra?.upstream_billing_provider !== next.extra?.upstream_billing_provider ||
     current.current_concurrency !== next.current_concurrency ||
     JSON.stringify(current.proxy_ids ?? []) !== JSON.stringify(next.proxy_ids ?? []) ||
+    JSON.stringify(current.proxy_pool ?? []) !== JSON.stringify(next.proxy_pool ?? []) ||
     JSON.stringify(current.extra?.auto_config_concurrency) !== JSON.stringify(next.extra?.auto_config_concurrency) ||
     current.current_window_cost !== next.current_window_cost ||
     current.active_sessions !== next.active_sessions ||
@@ -2938,7 +2985,6 @@ const handleBulkUpdated = () => {
   reload()
 }
 const handleDataImported = () => { showImportData.value = false; reload() }
-const ACCOUNT_UNGROUPED_GROUP_QUERY_VALUE = 'ungrouped'
 const ACCOUNT_PRIVACY_MODE_UNSET_QUERY_VALUE = '__unset__'
 const buildAccountQueryFilters = () => ({
   platform: params.platform || '',
@@ -2995,7 +3041,7 @@ const accountMatchesCurrentFilters = (account: Account) => {
 }
 const mergeRuntimeFields = (oldAccount: Account, updatedAccount: Account): Account => ({
   ...updatedAccount,
-  current_concurrency: updatedAccount.current_concurrency ?? oldAccount.current_concurrency,
+  current_concurrency: updatedAccount.current_concurrency !== undefined ? updatedAccount.current_concurrency : oldAccount.current_concurrency,
   current_window_cost: updatedAccount.current_window_cost ?? oldAccount.current_window_cost,
   active_sessions: updatedAccount.active_sessions ?? oldAccount.active_sessions
 })
@@ -3483,14 +3529,14 @@ onMounted(async () => {
   void loadPerformanceErrorThreshold()
   loadUpstreamBillingProbeGlobalState()
   const [, groupsResult] = await Promise.allSettled([
-    loadProxyCatalog(),
+    loadProxies(),
     adminAPI.groups.getAll()
   ])
   // Catalog requests can finish after scope disposal; never reattach listeners
   // or resume the refresh interval for a page that has already been left.
   if (accountViewDisposed) return
   if (groupsResult.status === 'fulfilled') {
-    groups.value = groupsResult.value
+    groupCatalog.value = groupsResult.value
   } else {
     console.error('Failed to load groups:', groupsResult.reason)
   }

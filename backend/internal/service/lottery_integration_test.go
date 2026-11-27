@@ -491,7 +491,7 @@ func TestLotteryPostgres(t *testing.T) {
 		_, e := redeem.Redeem(ctx, f.uid, code.Code)
 		require.NoError(t, e)
 		quotaRepo := repository.NewUserPlatformQuotaServiceAdapter(repository.NewUserPlatformQuotaRepository(c))
-		admin := service.ProvideAdminService(nil, f.users, nil, nil, nil, nil, codes, nil, nil, nil, nil, nil, nil, c, nil, f.subs, repository.NewUserSubscriptionRepository(c), nil, nil, nil, nil, nil, nil, f.s, quotaRepo)
+		admin := service.ProvideAdminService(nil, f.users, nil, nil, nil, nil, codes, nil, nil, nil, nil, nil, nil, c, nil, f.subs, repository.NewUserSubscriptionRepository(c), nil, nil, nil, nil, nil, nil, f.s, quotaRepo, nil)
 		opctx := service.WithAdminBalanceOperation(ctx, "admin:test", fmt.Sprint(f.uid))
 		_, e = admin.UpdateUserBalance(opctx, f.uid, 100, "set", "")
 		require.NoError(t, e)

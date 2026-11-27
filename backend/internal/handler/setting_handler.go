@@ -123,6 +123,7 @@ func (h *SettingHandler) GetPublicSettings(c *gin.Context) {
 		AdminSubscriptionsPageEnabled: settings.AdminSubscriptionsPageEnabled,
 		SubscriptionEnabled:           settings.SubscriptionEnabled,
 		PelicanShowcaseEnabled:        settings.PelicanShowcaseEnabled,
+		APIKeyMultiGroupEnabled:       settings.APIKeyMultiGroupEnabled,
 
 		ModelPlazaEnabled:       settings.ModelPlazaEnabled,
 		ModelPlazaRequireAuth:   settings.ModelPlazaRequireAuth,

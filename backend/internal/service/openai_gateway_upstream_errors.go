@@ -581,15 +581,9 @@ func (s *OpenAIGatewayService) newOpenAIAccountFailoverErrorWithClassificationHe
 		failoverErr.SameAccountRetryDeadline = s.openAIOAuth429RetryDeadline(account)
 		// Keep request-scoped hints (including body and millisecond headers)
 		// when adding the fork's OAuth retry window, without extending its deadline.
-		delay := openAIOAuth429SameAccountRetryDelay(responseHeaders, failoverErr.SameAccountRetryDeadline)
+		delay := openAIOAuth429SameAccountRetryDelay(responseHeaders)
 		if failoverErr.SameAccountRetryDelay > delay {
 			delay = failoverErr.SameAccountRetryDelay
-		}
-		if remaining := time.Until(failoverErr.SameAccountRetryDeadline); !failoverErr.SameAccountRetryDeadline.IsZero() && delay > remaining {
-			delay = remaining
-		}
-		if delay < 0 {
-			delay = 0
 		}
 		failoverErr.SameAccountRetryDelay = delay
 	}

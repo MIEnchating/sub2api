@@ -130,13 +130,21 @@ func TestOpenAIResponsesOrphanPrecheckLargeEscapedContent(t *testing.T) {
 		return
 	}
 	body := []byte(`{"vendor":"` + strings.Repeat(`\n\"`, 1<<16) + `","input":[{"content":"` + strings.Repeat(`\n\"`, 1<<16) + `","type":"message"}]}`)
-	require.False(t, openAIResponsesInputMayNeedOrphanCleanup(body))
-	allocations := testing.AllocsPerRun(5, func() {
-		if openAIResponsesInputMayNeedOrphanCleanup(body) {
-			panic("unexpected cleanup candidate")
+	var needsCleanup bool
+	measurement := testing.Benchmark(func(b *testing.B) {
+		b.ReportAllocs()
+		for b.Loop() {
+			if openAIResponsesInputMayNeedOrphanCleanup(body) {
+				needsCleanup = true
+			}
 		}
 	})
-	require.Zero(t, allocations, "large borrowed strings must not be unescaped or copied")
+	require.False(t, needsCleanup, "unexpected cleanup candidate")
+	require.Greater(t, measurement.N, 0)
+	// json.Valid can allocate a small scanner when its sync.Pool misses. Bound
+	// bytes per operation to detect request-sized unescaping or copying without
+	// depending on the pool hit rate.
+	require.LessOrEqual(t, measurement.AllocedBytesPerOp(), int64(1024), "large borrowed strings must not be unescaped or copied")
 }
 
 func FuzzOpenAIResponsesOrphanPrecheck(f *testing.F) {

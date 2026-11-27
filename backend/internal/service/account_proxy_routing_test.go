@@ -2,27 +2,67 @@ package service
 
 import (
 	"context"
+	"errors"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/require"
 )
 
+type routingTestCache struct {
+	*proxyLegacyCache
+	ids                        []int64
+	selected, pinned, released int64
+	err                        error
+}
+
+func (c *routingTestCache) AcquireAccountProxyPoolSlot(_ context.Context, _ int64, ids []int64, _ int, _ string, pinned ...int64) (int64, error) {
+	c.ids = append([]int64(nil), ids...)
+	if len(pinned) > 0 {
+		c.pinned = pinned[0]
+	}
+	return c.selected, c.err
+}
+func (c *routingTestCache) ReleaseAccountProxyPoolSlot(_ context.Context, _ int64, id int64, _ string) error {
+	c.released = id
+	return nil
+}
 func proxyRoutingAccount() *Account {
 	first := int64(11)
 	return &Account{ID: 7, ProxyID: &first, Concurrency: 2, ProxyIDs: []int64{11, 22}, Proxies: []*Proxy{{ID: 11, Status: StatusActive}, {ID: 22, Status: StatusActive}}}
 }
+func TestProxyPoolRoutingAndReleaseMatch(t *testing.T) {
+	cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{}, selected: 22}
+	svc := NewConcurrencyService(cache)
+	original := proxyRoutingAccount()
+	account := original
+	result, err := svc.AcquireAccountRoute(context.Background(), &account, 2)
+	require.NoError(t, err)
+	require.True(t, result.Acquired)
+	require.Equal(t, int64(22), *account.ProxyID)
+	require.Equal(t, int64(22), account.Proxy.ID)
+	require.Equal(t, int64(11), *original.ProxyID)
+	require.Zero(t, original.SelectedProxyID)
+	result.ReleaseFunc()
+	require.Equal(t, int64(22), cache.released)
+	// A second WebSocket turn reserves the same outbound proxy.
+	_, err = svc.AcquireAccountRoute(context.Background(), &account, 2)
+	require.NoError(t, err)
+	require.Equal(t, int64(22), cache.pinned)
+	require.Equal(t, 4, account.TotalConcurrency())
+}
 func TestProxyPoolUnavailableNeverFallsBackToDirect(t *testing.T) {
-	cache := &proxyLegacyCache{acquireResult: true}
+	cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{acquireResult: true}, err: errors.New("redis down")}
 	account := proxyRoutingAccount()
 	original := account
 	_, err := NewConcurrencyService(cache).AcquireAccountRoute(context.Background(), &account, 2)
-	require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
+	require.ErrorContains(t, err, "redis down")
 	require.Same(t, original, account)
 	account.Proxies = nil
 	_, err = NewConcurrencyService(cache).AcquireAccountRoute(context.Background(), &account, 2)
-	require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
+	require.ErrorContains(t, err, "no available proxy")
 }
-func TestFixedProxyKeepsAccountSlotAcquisition(t *testing.T) {
+func TestProxyPoolSingleProxyKeepsLegacyAcquisition(t *testing.T) {
 	cache := &proxyLegacyCache{acquireResult: true}
 	account := proxyRoutingAccount()
 	account.ProxyIDs = []int64{11}
@@ -34,28 +74,22 @@ func TestFixedProxyKeepsAccountSlotAcquisition(t *testing.T) {
 	result.ReleaseFunc()
 	require.Equal(t, []int64{7}, cache.releasedAccountIDs)
 }
-func TestRetiredProxyConfigurationCannotScheduleWithoutReview(t *testing.T) {
-	account := &Account{ID: 7, Status: StatusActive, Schedulable: true, Extra: map[string]any{RetiredMultiProxyNeedsReviewKey: true}}
-	require.False(t, account.IsSchedulable())
-	_, err := NewConcurrencyService(&proxyLegacyCache{acquireResult: true}).AcquireAccountRoute(context.Background(), &account, 1)
-	require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
+func TestProxyPoolSkipsInactiveAndExpiredProxies(t *testing.T) {
+	cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{}, selected: 22}
+	account := proxyRoutingAccount()
+	expired := time.Now().Add(-time.Minute)
+	account.Proxies[0].ExpiresAt = &expired
+	result, err := NewConcurrencyService(cache).AcquireAccountRoute(context.Background(), &account, 2)
+	require.NoError(t, err)
+	require.True(t, result.Acquired)
+	require.Equal(t, []int64{22}, cache.ids)
 }
-
-func TestRetiredRequestProxyConfigurationCannotBeSaved(t *testing.T) {
-	ctx := context.Background()
-	svc := &adminServiceImpl{}
-	for _, extra := range []map[string]any{
-		{OpenAIProxyModeKey: OpenAIProxyModeRequest, OpenAIProxyIDsKey: []int64{11, 12}},
-		{ExcelBPSProxyModeKey: ExcelBPSProxyModeRequest, ExcelBPSProxyIDsKey: []int64{11}},
-	} {
-		_, err := svc.CreateAccount(ctx, &CreateAccountInput{Extra: extra})
-		require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
-		_, err = svc.UpdateAccount(ctx, 7, &UpdateAccountInput{Extra: extra})
-		require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
-		_, err = svc.BulkUpdateAccounts(ctx, &BulkUpdateAccountsInput{Extra: extra})
-		require.ErrorIs(t, err, ErrAccountMultiProxyRetired)
-		require.ErrorIs(t, svc.UpdateAccountExtra(ctx, 7, extra), ErrAccountMultiProxyRetired)
-	}
+func TestProxyPoolRejectsUnavailableSelectedRouteAndReleases(t *testing.T) {
+	cache := &routingTestCache{proxyLegacyCache: &proxyLegacyCache{}, selected: 99}
+	account := proxyRoutingAccount()
+	_, err := NewConcurrencyService(cache).AcquireAccountRoute(context.Background(), &account, 2)
+	require.Error(t, err)
+	require.Equal(t, int64(99), cache.released)
 }
 
 type proxyLegacyCache struct {
@@ -70,4 +104,17 @@ func (c *proxyLegacyCache) AcquireAccountSlot(context.Context, int64, int, strin
 func (c *proxyLegacyCache) ReleaseAccountSlot(_ context.Context, id int64, _ string) error {
 	c.releasedAccountIDs = append(c.releasedAccountIDs, id)
 	return nil
+}
+
+func TestProxyPoolRejectsStaleLegacyReservation(t *testing.T) {
+	current := proxyRoutingAccount()
+	stale := *current
+	stale.ProxyIDs = nil
+	require.Error(t, validateProxyReservation(&stale, current))
+	current.SelectedProxyID = 22
+	hydrated, err := current.WithProxyRoute(22)
+	require.NoError(t, err)
+	require.NoError(t, validateProxyReservation(current, hydrated))
+	hydrated.Concurrency++
+	require.Error(t, validateProxyReservation(current, hydrated))
 }

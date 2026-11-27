@@ -749,4 +749,6 @@ func TestPR610AuthenticatedSameAccountRetryKeepsFollowupStart(t *testing.T) {
 	require.EqualValues(t, 39000, *got.logs[1].QueueTiming.ServerFirstTokenMs)
 	require.EqualValues(t, 9000, *got.logs[1].QueueTiming.ForwardFirstTokenMs, "the transport retry stays in the forwarding duration")
 	require.EqualValues(t, 9000, *got.logs[1].FirstTokenMs)
+	require.EqualValues(t, 9000, *got.logs[1].DurationMs)
+	require.EqualValues(t, 9000, got.logs[1].QueueTiming.ForwardDurationMs)
 }

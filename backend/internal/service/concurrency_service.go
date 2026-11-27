@@ -56,6 +56,11 @@ type ConcurrencyCache interface {
 	CleanupStaleProcessSlots(ctx context.Context, activeRequestPrefix string) error
 }
 
+type accountProxyConcurrencyCache interface {
+	AcquireAccountProxyPoolSlot(context.Context, int64, []int64, int, string, ...int64) (int64, error)
+	ReleaseAccountProxyPoolSlot(context.Context, int64, int64, string) error
+}
+
 // AccountAdmissionGate checks live account status and active intelligence
 // protection after a slot reservation, independently of scheduler snapshots.
 type AccountAdmissionGate interface {
@@ -421,7 +426,7 @@ func (s *ConcurrencyService) AcquireAccountSlot(ctx context.Context, accountID i
 		}
 	}
 	if len(proxyIDs) > 1 {
-		return nil, ErrAccountMultiProxyRetired
+		return s.acquireAccountProxyPoolSlot(ctx, accountID, maxConcurrency, proxyIDs)
 	}
 	if maxConcurrency <= 0 {
 		return s.admitAccountRequest(ctx, accountID, &AcquireResult{

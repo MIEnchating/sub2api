@@ -1,5 +1,4 @@
 <template>
-  <AppLayout>
     <div class="space-y-6 pb-12">
       <!-- Ops-style elevated shell: title toolbar + filters (mirrors OpsDashboardHeader) -->
       <section
@@ -290,8 +289,11 @@
           :coverage="matrix.coverage"
           :group-by="matrixGroupBy"
           :health-mode="healthMode"
-          :test-results="testResults"
-          :test-results-state="testResultsState"
+          :show-intelligence-rounds="intelligence.roundsVisible"
+          :intelligence-groups="intelligence.groups"
+          :intelligence-directory-message="intelligenceDirectoryMessage"
+          :scope-model="filter.models.length === 1 ? filter.models[0] : undefined"
+          :refresh-key="intelligence.refreshed"
         />
         <div
           v-else-if="loading"
@@ -481,7 +483,6 @@
       </section>
       </template>
     </div>
-  </AppLayout>
 </template>
 
 <script setup lang="ts">
@@ -494,7 +495,6 @@ import { formatMonitorCacheRate } from '@/features/channel-monitor-v2/monitorFor
 import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import AppLayout from '@/components/layout/AppLayout.vue'
 import Icon from '@/components/icons/Icon.vue'
 import LoadingSpinner from '@/components/common/LoadingSpinner.vue'
 import Select from '@/components/common/Select.vue'
@@ -513,9 +513,7 @@ import { useChannelMonitorFormat } from '@/composables/useChannelMonitorFormat'
 import { extractApiErrorMessage } from '@/utils/apiError'
 import { isChannelMonitorThroughputHidden, isChannelMonitorUserRankingHidden } from '@/utils/featureFlags'
 import * as api from '@/api/channelMonitorV2'
-import { listForMonitor } from '@/api/testResults'
-import type { TestResult } from '@/types'
-import type { TestResultsState } from '@/features/channel-monitor-v2/monitorTestResults'
+import { useIntelligenceGroupsStore } from '@/stores/intelligenceGroups'
 import type {
   HealthState,
   MonitorDimensions,
@@ -607,8 +605,12 @@ const matrixGroupBy = ref<MonitorMatrixGroupBy>(parseMatrixGroupBy(route.query.g
 const healthMode = ref<HealthMode>(parseHealthMode(route.query.health_mode))
 const trendView = ref<TrendView>(parseTrendView(route.query.trend_view))
 const dimensions = ref<MonitorDimensions>({ platforms: [], groups: [], models: [] })
-const testResults = ref<TestResult[]>([])
-const testResultsState = ref<TestResultsState>('loading')
+const intelligence = useIntelligenceGroupsStore()
+const intelligenceDirectoryMessage = computed(() => {
+  if (intelligence.loading) return t('common.loading')
+  if (intelligence.failed) return t('channelMonitorV2.intelligence.loadError')
+  return undefined
+})
 const snapshot = ref<MonitorSnapshot | null>(null)
 // Dimensions load only in analytics mode. Cards are the default view, so their
 // order comes from the snapshot config fetched with the matrix.
@@ -758,20 +760,6 @@ async function loadDimensions(signal?: AbortSignal, id = sequence) {
   dimensions.value = next
 }
 
-async function loadTestResults(signal: AbortSignal, id: number) {
-  testResultsState.value = 'loading'
-  try {
-    const results = await listForMonitor(signal)
-    if (id !== sequence || signal.aborted) return
-    testResults.value = results
-    testResultsState.value = 'ready'
-  } catch {
-    if (id !== sequence || signal.aborted) return
-    testResults.value = []
-    testResultsState.value = 'error'
-  }
-}
-
 async function loadMetrics(signal?: AbortSignal, id = sequence) {
   const [nextSnapshot, nextCards] = await Promise.all([
     api.getSnapshot(filter.value, isAdmin.value, signal),
@@ -800,7 +788,7 @@ async function reload(silent = true) {
     await Promise.all([
       loadDimensions(request.signal, id),
       loadMetrics(request.signal, id),
-      loadTestResults(request.signal, id),
+      intelligence.load(true),
     ])
   } catch (error) {
     if ((error as { name?: string }).name !== 'CanceledError') {
@@ -824,7 +812,7 @@ async function reloadMetricsOnly(silent = true) {
   refreshing.value = true
   if (!silent) loading.value = true
   try {
-    await Promise.all([loadMetrics(request.signal, id), loadTestResults(request.signal, id)])
+    await Promise.all([loadMetrics(request.signal, id), intelligence.load(true)])
   } catch (error) {
     if ((error as { name?: string }).name !== 'CanceledError') {
       appStore.showError(extractApiErrorMessage(error, t('channelMonitorV2.loadFailed')))

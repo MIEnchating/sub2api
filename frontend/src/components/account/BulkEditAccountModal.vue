@@ -872,7 +872,8 @@
           <p v-if="proxyMode === 'ovh_ipv6'" class="input-hint">{{ t('ovhIPv6.batchHint') }} {{ t('ovhIPv6.drainHint') }}</p>
           <ProxySelector
             v-if="!proxyMode"
-            v-model="proxyId"
+            v-model="proxyIds"
+            multiple
             :proxies="proxies.filter(proxy => !isManagedIPv6Proxy(proxy))"
             aria-labelledby="bulk-edit-proxy-label"
           />
@@ -1895,7 +1896,7 @@ const interceptWarmupRequests = ref(false)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
 const proxyMode = ref<AccountProxyMode>('')
-const proxyId = ref<number | null>(null)
+const proxyIds = ref<number[]>([])
 const concurrency = ref(1)
 const DEFAULT_RATE_LIMIT_429_RETRY_COUNT = 5
 const MAX_RATE_LIMIT_429_RETRY_COUNT = 10
@@ -2208,7 +2209,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
-    Object.assign(updates, accountProxyPayload(proxyMode.value, proxyId.value === null ? [] : [proxyId.value], true))
+    Object.assign(updates, accountProxyPayload(proxyMode.value, proxyIds.value, true))
   }
 
   if (enableConcurrency.value) {
@@ -2778,7 +2779,7 @@ watch(
       interceptWarmupRequests.value = false
       headerOverrideEnabled.value = false
       headerOverrideRows.value = []
-      proxyId.value = null
+      proxyIds.value = []
       proxyMode.value = ''
       concurrency.value = 1
       loadFactor.value = null

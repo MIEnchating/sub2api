@@ -447,7 +447,7 @@ func createTestPayload(modelID string, customPrompt ...string) (map[string]any, 
 }
 
 func (s *AccountTestService) setAccountTestError(ctx context.Context, accountID int64, message string) error {
-	if s.accountRepo == nil {
+	if s.accountRepo == nil || isIntelligenceAccountTest(ctx) {
 		return nil
 	}
 	// A scheduled check must be able to retry authentication failures before
@@ -499,6 +499,9 @@ func (s *AccountTestService) TestAccountConnection(c *gin.Context, accountID int
 		if account.ID != expected.AccountID || !OAuth429RequestModelSupported(account, modelID, expected.Endpoint, expected.CompactModel) || ResolveOAuth429TargetModel(account, modelID, expected.Endpoint, expected.CompactModel) != expected.Model || account.IsCredentialShadow() || account.IsSIWCEnabled() || account.IsExcelBPSEnabled() || account.IsPrismBrowserEnabledForModel(modelID) || isOpenAIImageModel(expected.Model) {
 			return s.sendErrorAndEnd(c, "Independent test target route is unavailable")
 		}
+	}
+	if isIntelligenceAccountTest(ctx) && (!account.IntelligenceMonitoringEligible(time.Now()) || !account.SupportsIntelligenceModel(modelID)) {
+		return s.sendErrorAndEnd(c, "Account is unavailable for intelligence monitoring on this text model")
 	}
 	bindAccountTestPlatform(c, account)
 	if usage, ok := ctx.Value(accountTestUsageKey{}).(*accountTestUsageCollector); ok {
@@ -1096,7 +1099,12 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// account model mapping. Native remote compaction v2 rides the ordinary
 	// /responses wire and does NOT apply the legacy compact-only mapping
 	// (post-#5641 semantics: compact_model_mapping is /responses/compact-only).
-	testModelID = account.GetMappedModel(testModelID)
+	intelligence := isIntelligenceAccountTest(ctx)
+	if intelligence {
+		testModelID = resolveOpenAIAccountUpstreamModelForRequest(account, testModelID, false)
+	} else {
+		testModelID = account.GetMappedModel(testModelID)
+	}
 	if mode == AccountTestModeCompact {
 		return s.testOpenAICompactConnection(c, account, testModelID)
 	}
@@ -1175,7 +1183,7 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 	// Create OpenAI Responses API payload. OAuth accounts use ChatGPT Codex
 	// upstream and must apply the same model normalization as real forwarding.
 	upstreamTestModelID := testModelID
-	if isOAuth {
+	if isOAuth && !intelligence {
 		upstreamTestModelID = normalizeOpenAIModelForUpstream(credentialAccount, testModelID)
 	}
 	if expected, ok := ctx.Value(oauth429ExecutionKey{}).(*oauth429Execution); ok {
@@ -1300,7 +1308,8 @@ func (s *AccountTestService) testOpenAIAccountConnection(c *gin.Context, account
 						return s.sendErrorAndEnd(c, protectionErr.Error())
 					}
 					beginAccountTestModelAttempt(c, upstreamTestModelID)
-					resp, err = s.doOpenAIAccountTestUpstream(retryReq, proxyURL, account, true)
+					req = retryReq
+					resp, err = s.doOpenAIAccountTestUpstream(req, proxyURL, account, true)
 					if err != nil {
 						return s.sendErrorAndEnd(c, fmt.Sprintf("Request failed: %s", err.Error()))
 					}
@@ -2844,7 +2853,7 @@ func (s *AccountTestService) reconcileOpenAI429State(ctx context.Context, accoun
 	if IsAstraSourceAcquisition(ctx) || isOAuth429Execution(ctx) {
 		return
 	}
-	if s == nil || s.accountRepo == nil || account == nil {
+	if s == nil || s.accountRepo == nil || account == nil || isIntelligenceAccountTest(ctx) {
 		return
 	}
 

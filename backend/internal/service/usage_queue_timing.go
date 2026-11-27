@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"time"
 
 	"github.com/Wei-Shaw/sub2api/internal/pkg/ctxkey"
@@ -68,4 +69,30 @@ type openAIWSQueueArrivalKey struct{}
 func openAIWSQueueArrival(ctx context.Context) time.Time {
 	t, _ := ctx.Value(openAIWSQueueArrivalKey{}).(time.Time)
 	return t
+}
+
+type openAIWSHTTPBridgeRetryTimingKey struct{}
+
+type openAIWSHTTPBridgeTiming struct {
+	arrival      time.Time
+	legacyStart  time.Time
+	firstForward time.Time
+}
+
+type openAIWSHTTPBridgeTimedError struct {
+	cause  error
+	timing openAIWSHTTPBridgeTiming
+}
+
+func (e *openAIWSHTTPBridgeTimedError) Error() string { return e.cause.Error() }
+func (e *openAIWSHTTPBridgeTimedError) Unwrap() error { return e.cause }
+
+// WithOpenAIWSHTTPBridgeRetryTiming carries the original send boundary into
+// the next dispatch of the same turn on the same account.
+func WithOpenAIWSHTTPBridgeRetryTiming(ctx context.Context, err error) context.Context {
+	var timedErr *openAIWSHTTPBridgeTimedError
+	if errors.As(err, &timedErr) {
+		return context.WithValue(ctx, openAIWSHTTPBridgeRetryTimingKey{}, timedErr.timing)
+	}
+	return ctx
 }
