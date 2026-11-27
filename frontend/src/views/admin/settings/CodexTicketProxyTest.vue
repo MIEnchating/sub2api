@@ -1,10 +1,10 @@
 <template>
   <div class="mt-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="codex-ticket-proxy-test">
     <div class="flex flex-wrap items-center gap-2">
-      <button type="button" class="btn btn-secondary inline-flex items-center gap-2 text-sm" :disabled="!canTest || loading" data-testid="codex-ticket-test-exit" @click="testProxy">
+      <BaseButton type="button" class="btn-secondary inline-flex items-center gap-2 text-sm" :disabled="!canTest || loading" data-testid="codex-ticket-test-exit" @click="testProxy">
         <Icon v-if="loading" name="refresh" size="sm" class="animate-spin" />
         {{ t(loading ? `${key}.testing` : `${key}.test`) }}
-      </button>
+      </BaseButton>
     </div>
     <p v-if="dirty" class="mt-2 text-xs text-amber-600 dark:text-amber-400">{{ t(`${key}.saveFirst`) }}</p>
     <p v-else-if="!proxyConfigured" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t(`${key}.noProxy`) }}</p>
@@ -17,6 +17,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { testCodexTicketProxy } from '@/api/admin/settings'

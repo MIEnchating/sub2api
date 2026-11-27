@@ -11,7 +11,7 @@
         </div>
         <h3 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('payment.airwallexLoadFailed') }}</h3>
         <p class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ errorMessage }}</p>
-        <button class="btn btn-primary mt-6" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
+        <BaseButton class="btn-primary mt-6" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</BaseButton>
       </div>
 
       <div v-else class="card p-6">
@@ -25,6 +25,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'

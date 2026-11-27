@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -341,6 +342,15 @@ func (s *OpenAIQuotaService) QueryUsage(ctx context.Context, accountID int64) (*
 // partial success — the upstream read itself is still valid.
 func (s *OpenAIQuotaService) CacheResetCreditsSnapshot(ctx context.Context, accountID int64, credits *OpenAIRateLimitResetCredits) error {
 	return s.cacheResetCreditsSnapshot(ctx, accountID, credits, nil)
+}
+
+func (s *OpenAIQuotaService) RefreshQuotaSnapshots(ctx context.Context, accountID int64) error {
+	usage, err := s.QueryUsage(ctx, accountID)
+	if err != nil {
+		return err
+	}
+	return errors.Join(s.CacheCreditsSnapshot(ctx, accountID, usage),
+		s.CacheResetCreditsSnapshot(ctx, accountID, usage.RateLimitResetCredits))
 }
 
 // CacheCreditsSnapshot stores the queried row's display snapshot independently

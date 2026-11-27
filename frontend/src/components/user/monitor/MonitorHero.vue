@@ -5,11 +5,10 @@
         role="tablist"
         class="inline-flex p-0.5 rounded-xl bg-gray-100 dark:bg-dark-800 border border-gray-200/60 dark:border-dark-700/60 text-xs"
       >
-        <button
+        <TabButton
           v-for="opt in windowOptions"
           :key="opt.value"
           type="button"
-          role="tab"
           :aria-selected="window === opt.value"
           class="px-3 py-1 rounded-lg transition-colors"
           :class="window === opt.value
@@ -18,7 +17,7 @@
           @click="emit('update:window', opt.value)"
         >
           {{ opt.label }}
-        </button>
+        </TabButton>
       </div>
 
       <span
@@ -56,6 +55,7 @@
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

@@ -7,8 +7,8 @@
     <form v-if="form" data-testid="ranking-settings-form" class="card space-y-6 p-6" @submit.prevent="save">
       <fieldset class="space-y-4" :disabled="busy">
         <legend class="mb-2 font-medium">{{ t('qqbot.rankings.title') }}</legend>
-        <label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" data-testid="rankings-enabled" />{{ t('qqbot.rankings.enabled') }}</label>
-        <label class="flex items-center gap-2"><input v-model="form.rewards_enabled" type="checkbox" data-testid="rankings-rewards-enabled" />{{ t('qqbot.rankings.rewardsEnabled') }}</label>
+        <label class="flex items-center gap-2"><FormInput v-model="form.enabled" type="checkbox" data-testid="rankings-enabled" />{{ t('qqbot.rankings.enabled') }}</label>
+        <label class="flex items-center gap-2"><FormInput v-model="form.rewards_enabled" type="checkbox" data-testid="rankings-rewards-enabled" />{{ t('qqbot.rankings.rewardsEnabled') }}</label>
         <p class="rounded-lg bg-gray-50 p-3 text-sm text-gray-600 dark:bg-dark-800 dark:text-gray-300">{{ t('qqbot.rankings.settlement') }}</p>
         <p v-if="form.effective_day" class="text-sm text-gray-500">{{ t('qqbot.rankings.effective', { day: form.effective_day }) }}</p>
         <p class="text-sm text-gray-500">{{ t('qqbot.rankings.tieHelp') }}</p>
@@ -18,25 +18,28 @@
           <article v-for="(prize, index) in form[board.key]" :key="index" class="space-y-4 rounded-lg border p-4 dark:border-dark-700">
             <div class="flex flex-wrap items-end justify-between gap-3">
               <label class="space-y-1">{{ t('qqbot.rankings.rank') }}
-                <select v-model.number="prize.rank" class="input" :data-testid="board.key + '-rank-' + index">
+                <FormSelect v-model.number="prize.rank" :data-testid="board.key + '-rank-' + index">
                   <option v-for="rank in 10" :key="rank" :value="rank">{{ t('qqbot.rankings.place', { rank }) }}</option>
-                </select>
+                </FormSelect>
               </label>
               <button type="button" class="text-sm text-red-600 dark:text-red-400" :data-testid="board.key + '-remove-' + index" @click="form[board.key].splice(index, 1)">{{ t('common.delete') }}</button>
             </div>
             <QQBotGrowthRewardFields v-model="prize.reward" :prefix="board.key" :index="index" />
           </article>
           <p v-if="!form[board.key].length" class="text-sm text-gray-500">{{ t('qqbot.rankings.empty') }}</p>
-          <button type="button" class="btn btn-secondary" :data-testid="board.key + '-add'" :disabled="form[board.key].length >= 10" @click="addPrize(board.key)">{{ t('qqbot.rankings.add') }}</button>
+          <BaseButton type="button" class="btn-secondary" :data-testid="board.key + '-add'" :disabled="form[board.key].length >= 10" @click="addPrize(board.key)">{{ t('qqbot.rankings.add') }}</BaseButton>
         </section>
       </fieldset>
-      <button type="submit" class="btn btn-primary" :disabled="busy" data-testid="rankings-save">{{ t('common.save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="busy" data-testid="rankings-save">{{ t('common.save') }}</BaseButton>
     </form>
     <p v-else-if="!error">{{ t('common.loading') }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { useQQDraft } from './useQQDraft'
 import { onMounted, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'

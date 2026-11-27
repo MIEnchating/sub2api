@@ -3,7 +3,7 @@
     <h3 class="font-semibold">{{ t('admin.riskControl.evidence.title') }}</h3>
     <p class="text-sm text-gray-500">{{ t('admin.riskControl.evidence.scope') }}</p>
     <p class="text-sm text-amber-700 dark:text-amber-300">{{ t('admin.riskControl.evidence.score') }}</p>
-    <button type="button" class="btn btn-secondary" :disabled="busy" @click="load">{{ t('admin.riskControl.evidence.load') }}</button>
+    <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="load">{{ t('admin.riskControl.evidence.load') }}</BaseButton>
     <p v-if="error" role="alert">{{ error }}</p>
     <template v-if="record">
       <p class="break-all text-sm">UID {{ record.user_id ?? '-' }} · {{ record.request_id || '-' }} · {{ record.occurred_at }}</p>
@@ -19,14 +19,15 @@
         <p class="text-xs text-gray-500">{{ t('admin.riskControl.evidence.redaction') }}</p>
       </template>
       <div class="flex gap-2">
-        <button v-if="record.payload" type="button" class="btn btn-secondary" :disabled="busy" @click="download">{{ t('admin.riskControl.evidence.export') }}</button>
-        <button type="button" class="btn btn-secondary" :disabled="busy || record.status === 'deleted'" @click="remove">{{ t('admin.riskControl.evidence.delete') }}</button>
+        <BaseButton v-if="record.payload" type="button" class="btn-secondary" :disabled="busy" @click="download">{{ t('admin.riskControl.evidence.export') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy || record.status === 'deleted'" @click="remove">{{ t('admin.riskControl.evidence.delete') }}</BaseButton>
       </div>
     </template>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { deleteEvidence, exportEvidence, getEvidence, type CyberEvidence } from '@/api/admin/cyberEvidence'

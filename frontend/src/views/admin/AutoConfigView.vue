@@ -6,7 +6,7 @@
       <p v-if="error" role="alert" class="rounded-xl bg-red-50 p-4 text-red-700 dark:bg-red-950/30 dark:text-red-300">{{ error }}</p>
       <p v-if="notice" role="status" class="text-emerald-600">{{ notice }}</p>
       <p v-if="loading">{{ t('common.loading') }}</p>
-      <button v-if="!draft && !loading" class="btn btn-secondary" @click="load">{{ t('autoConfig.retry') }}</button>
+      <BaseButton v-if="!draft && !loading" class="btn-secondary" @click="load">{{ t('autoConfig.retry') }}</BaseButton>
       <form v-if="draft" class="space-y-5" @submit.prevent="save">
         <p v-if="draft.runtime_blocked" role="alert" class="rounded-xl bg-amber-50 p-4 text-amber-800">{{ t('autoConfig.blocked') }}</p>
         <div class="grid min-w-0 gap-5 lg:grid-cols-2" data-testid="oauth-handling-panels">
@@ -18,27 +18,27 @@
           <section class="card space-y-5" data-testid="model-billing">
             <header class="flex flex-wrap items-center justify-between gap-3">
               <h2 class="text-lg font-semibold">{{ t('autoConfig.modelBilling.title') }}</h2>
-              <label class="flex items-center gap-2 text-sm"><input v-model="draft.model_billing.enabled" data-testid="model-billing-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label>
+              <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.model_billing.enabled" data-testid="model-billing-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label>
             </header>
             <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.modelBilling.hint') }}</p>
             <p v-if="modelBillingGroupsLoading" class="text-sm text-gray-500">{{ t('autoConfig.modelBilling.loadingGroups') }}</p>
             <p v-if="modelBillingGroupsFailed" role="alert" data-testid="model-billing-groups-error" class="text-sm text-red-600">{{ t('autoConfig.modelBilling.groupsFailed') }} <button type="button" class="underline" data-testid="model-billing-groups-retry" @click="loadModelBillingGroups">{{ t('autoConfig.retry') }}</button></p>
             <div v-for="(rule, index) in draft.model_billing.rules" :key="index" class="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_10rem_auto]">
-              <label class="min-w-0"><span class="field-label">{{ t('autoConfig.modelBilling.model') }}</span><input v-model="rule.model" :data-testid="'model-billing-model-' + index" type="text" maxlength="200" placeholder="gpt-6-luna*" required class="input w-full" /></label>
-              <label><span class="field-label">{{ t('autoConfig.modelBilling.multiplier') }}</span><div class="flex items-center gap-2"><input v-model.number="rule.multiplier" :data-testid="'model-billing-multiplier-' + index" type="number" min="1" max="1000" step="any" required class="input min-w-0 w-full" /><span class="text-sm text-gray-500">×</span></div></label>
-              <button type="button" :data-testid="'model-billing-remove-' + index" class="btn btn-secondary" @click="draft.model_billing.rules.splice(index, 1)">{{ t('autoConfig.modelBilling.remove') }}</button>
+              <label class="min-w-0"><span class="field-label">{{ t('autoConfig.modelBilling.model') }}</span><FormInput v-model="rule.model" :data-testid="'model-billing-model-' + index" type="text" maxlength="200" placeholder="gpt-6-luna*" required class="w-full" /></label>
+              <label><span class="field-label">{{ t('autoConfig.modelBilling.multiplier') }}</span><div class="flex items-center gap-2"><FormInput v-model.number="rule.multiplier" :data-testid="'model-billing-multiplier-' + index" type="number" min="1" max="1000" step="any" required class="min-w-0 w-full" /><span class="text-sm text-gray-500">×</span></div></label>
+              <BaseButton type="button" :data-testid="'model-billing-remove-' + index" class="btn-secondary" @click="draft.model_billing.rules.splice(index, 1)">{{ t('autoConfig.modelBilling.remove') }}</BaseButton>
               <fieldset class="min-w-0 space-y-2 sm:col-span-3" :disabled="modelBillingGroupsLoading || modelBillingGroupsFailed">
                 <legend class="field-label">{{ t('autoConfig.modelBilling.groups') }}</legend>
                 <p :data-testid="'model-billing-scope-' + index" class="text-xs text-gray-500">{{ rule.group_ids?.length ? t('autoConfig.modelBilling.selectedGroups', { count: rule.group_ids.length }) : t('autoConfig.modelBilling.allGroups') }}</p>
                 <div class="group-list">
-                  <label v-for="g in modelBillingGroups" :key="g.id" class="group-option"><input v-model="rule.group_ids" :value="g.id" type="checkbox" :data-testid="'model-billing-group-' + index + '-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">{{ g.platform }} · #{{ g.id }}</small></span></label>
-                  <label v-for="id in unavailableModelBillingGroups(rule)" :key="id" :data-testid="'model-billing-unavailable-' + index + '-' + id" class="group-option text-amber-700 dark:text-amber-300"><input v-model="rule.group_ids" :value="id" type="checkbox" /><span>#{{ id }} · {{ t('autoConfig.modelBilling.unavailableGroup') }}</span></label>
+                  <label v-for="g in modelBillingGroups" :key="g.id" class="group-option"><FormInput v-model="rule.group_ids" :value="g.id" type="checkbox" :data-testid="'model-billing-group-' + index + '-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">{{ g.platform }} · #{{ g.id }}</small></span></label>
+                  <label v-for="id in unavailableModelBillingGroups(rule)" :key="id" :data-testid="'model-billing-unavailable-' + index + '-' + id" class="group-option text-amber-700 dark:text-amber-300"><FormInput v-model="rule.group_ids" :value="id" type="checkbox" /><span>#{{ id }} · {{ t('autoConfig.modelBilling.unavailableGroup') }}</span></label>
                   <p v-if="!modelBillingGroups.length && !modelBillingGroupsLoading && !modelBillingGroupsFailed" class="text-sm text-gray-500">{{ t('autoConfig.noGroups') }}</p>
                 </div>
                 <button v-if="rule.group_ids?.length" type="button" :data-testid="'model-billing-clear-groups-' + index" class="text-sm text-primary-600 underline" @click="rule.group_ids = []">{{ t('autoConfig.modelBilling.clearGroups') }}</button>
               </fieldset>
             </div>
-            <button type="button" data-testid="model-billing-add" class="btn btn-secondary" :disabled="draft.model_billing.rules.length >= 100" @click="draft.model_billing.rules.push({ model: '', multiplier: 10, group_ids: [] })">{{ t('autoConfig.modelBilling.add') }}</button>
+            <BaseButton type="button" data-testid="model-billing-add" class="btn-secondary" :disabled="draft.model_billing.rules.length >= 100" @click="draft.model_billing.rules.push({ model: '', multiplier: 10, group_ids: [] })">{{ t('autoConfig.modelBilling.add') }}</BaseButton>
             <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.modelBilling.matchHint') }}</p>
             <p class="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ t('autoConfig.modelBilling.example') }}</p>
           </section>
@@ -46,38 +46,38 @@
         <fieldset :disabled="saving" class="min-w-0"><OpenAITwoFAAdmissionCard v-model="draft.openai_two_fa_admission" :groups="groups" /></fieldset>
         <fieldset :disabled="saving" class="grid min-w-0 gap-5 xl:grid-cols-2">
           <section class="card space-y-5">
-            <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.initial') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.enabled" data-testid="initial-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
+            <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.initial') }}</h2><label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.enabled" data-testid="initial-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
             <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.initialHint') }}</p>
-            <label class="block"><span class="field-label">{{ t('autoConfig.platform') }}</span><select v-model="draft.platform" data-testid="platform" class="input w-full" @change="draft.group_ids = []; draft.model_mappings = defaultOAuthModelMappings(draft.platform); draft.selected_models = null; draft.quality_rule = null; draft.openai_totp_rotate_on_429 = false; draft.openai_disable_scheduling_on_429 = false; draft.openai_disable_scheduling_on_429_7d_threshold_percent = DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT; draft.openai_ws_mode = OPENAI_WS_MODE_CTX_POOL; draft.openai_ws_sse_acceleration = false; selectedQualityRule = ''"><option v-for="p in platforms" :key="p.value" :value="p.value">{{ p.label }}</option></select></label>
-            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><label v-for="field in initialFields" :key="field.key"><span class="field-label">{{ t('autoConfig.' + field.key) }}</span><input v-model.number="draft[field.key]" :data-testid="field.key" type="number" :min="field.min" max="10000" step="1" required class="input w-full" /></label><label><span class="field-label">{{ t('autoConfig.cost_multiplier') }}</span><input v-model.number="draft.cost_multiplier" data-testid="cost_multiplier" type="number" min="0" max="1000000" step="0.001" required class="input w-full" /></label></div>
+            <label class="block"><span class="field-label">{{ t('autoConfig.platform') }}</span><FormSelect v-model="draft.platform" data-testid="platform" class="w-full" @change="draft.group_ids = []; draft.model_mappings = defaultOAuthModelMappings(draft.platform); draft.selected_models = null; draft.quality_rule = null; draft.openai_totp_rotate_on_429 = false; draft.openai_disable_scheduling_on_429 = false; draft.openai_disable_scheduling_on_429_7d_threshold_percent = DEFAULT_DISABLE_SCHEDULING_429_7D_THRESHOLD_PERCENT; draft.openai_ws_mode = OPENAI_WS_MODE_CTX_POOL; draft.openai_ws_sse_acceleration = false; selectedQualityRule = ''"><option v-for="p in platforms" :key="p.value" :value="p.value">{{ p.label }}</option></FormSelect></label>
+            <div class="grid gap-4 sm:grid-cols-2 lg:grid-cols-4"><label v-for="field in initialFields" :key="field.key"><span class="field-label">{{ t('autoConfig.' + field.key) }}</span><FormInput v-model.number="draft[field.key]" :data-testid="field.key" type="number" :min="field.min" max="10000" step="1" required class="w-full" /></label><label><span class="field-label">{{ t('autoConfig.cost_multiplier') }}</span><FormInput v-model.number="draft.cost_multiplier" data-testid="cost_multiplier" type="number" min="0" max="1000000" step="0.001" required class="w-full" /></label></div>
             <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.loadHint') }}</p>
             <div class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-2 text-sm"><input v-model="jsonImportScheduling" data-testid="json-import-scheduling" type="checkbox" />{{ t('autoConfig.jsonImportScheduling') }}</label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="jsonImportScheduling" data-testid="json-import-scheduling" type="checkbox" />{{ t('autoConfig.jsonImportScheduling') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthImportScheduling" :user-id="auth.user?.id" />
               </div>
               <div v-if="draft.platform === 'openai'" class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-2 text-sm"><input v-model="twoFALoginScheduling" data-testid="two-fa-login-scheduling" type="checkbox" />{{ t('autoConfig.twoFALoginScheduling') }}</label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="twoFALoginScheduling" data-testid="two-fa-login-scheduling" type="checkbox" />{{ t('autoConfig.twoFALoginScheduling') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthImportScheduling" :user-id="auth.user?.id" />
               </div>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.importSchedulingHint') }}</p>
             </div>
             <fieldset v-if="draft.platform === 'openai'" class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-2 text-sm"><input v-model="draft.openai_totp_rotate_on_429" data-testid="totp-rotate-on-429" type="checkbox" />{{ t('autoConfig.totp429.label') }}</label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.openai_totp_rotate_on_429" data-testid="totp-rotate-on-429" type="checkbox" />{{ t('autoConfig.totp429.label') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialTOTPRotation429" :user-id="auth.user?.id" />
               </div>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.totp429.hint') }}</p>
             </fieldset>
             <fieldset v-if="draft.platform === 'openai'" class="space-y-2">
               <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-2 text-sm"><input v-model="draft.openai_disable_scheduling_on_429" data-testid="disable-scheduling-on-429" type="checkbox" />{{ t('autoConfig.disableScheduling429.label') }}</label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.openai_disable_scheduling_on_429" data-testid="disable-scheduling-on-429" type="checkbox" />{{ t('autoConfig.disableScheduling429.label') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialDisableScheduling429" :user-id="auth.user?.id" />
               </div>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.disableScheduling429.hint') }}</p>
               <label class="block max-w-xs">
                 <span class="field-label">{{ t('autoConfig.disableScheduling429.threshold') }}</span>
-                <div class="flex items-center gap-2"><input v-model.number="draft.openai_disable_scheduling_on_429_7d_threshold_percent" data-testid="disable-scheduling-on-429-7d-threshold" type="number" min="0" max="100" step="any" required :disabled="!draft.openai_disable_scheduling_on_429" class="input min-w-0 w-full" /><span class="text-sm text-gray-500">%</span></div>
+                <div class="flex items-center gap-2"><FormInput v-model.number="draft.openai_disable_scheduling_on_429_7d_threshold_percent" data-testid="disable-scheduling-on-429-7d-threshold" type="number" min="0" max="100" step="any" required :disabled="!draft.openai_disable_scheduling_on_429" class="min-w-0 w-full" /><span class="text-sm text-gray-500">%</span></div>
               </label>
             </fieldset>
             <fieldset v-if="draft.platform === 'openai'" class="space-y-2" data-testid="initial-ws-mode">
@@ -85,29 +85,29 @@
                 <label for="initial-openai-ws-mode" class="text-sm font-medium text-gray-600 dark:text-gray-300">{{ t('admin.accounts.openai.wsMode') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialWSSettings" :user-id="auth.user?.id" />
               </div>
-              <select id="initial-openai-ws-mode" v-model="draft.openai_ws_mode" data-testid="initial-ws-mode-select" class="input w-full">
+              <FormSelect id="initial-openai-ws-mode" v-model="draft.openai_ws_mode" data-testid="initial-ws-mode-select" class="w-full">
                 <option v-for="mode in openAIWSModeOptions" :key="mode.value" :value="mode.value">{{ mode.label }}</option>
-              </select>
+              </FormSelect>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.ws.modeHint') }}</p>
               <p v-if="openAIWSModeHintKey" class="text-xs leading-5 text-gray-500">{{ t(openAIWSModeHintKey) }}</p>
             </fieldset>
             <fieldset v-if="draft.platform === 'openai'" class="space-y-2" data-testid="initial-ws-sse-acceleration">
               <div class="flex flex-wrap items-center gap-2">
-                <label class="flex items-center gap-2 text-sm"><input v-model="draft.openai_ws_sse_acceleration" data-testid="initial-ws-sse-acceleration-enabled" type="checkbox" />{{ t('admin.accounts.openai.wsSseAcceleration') }}</label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.openai_ws_sse_acceleration" data-testid="initial-ws-sse-acceleration-enabled" type="checkbox" />{{ t('admin.accounts.openai.wsSseAcceleration') }}</label>
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialWSSettings" :user-id="auth.user?.id" />
               </div>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.ws.accelerationHint') }}</p>
               <p class="text-xs leading-5 text-gray-500">{{ t('admin.accounts.openai.wsSseAccelerationDesc') }}</p>
             </fieldset>
-            <fieldset><legend class="field-label">{{ t('autoConfig.groups') }}</legend><div class="group-list"><label v-for="g in initialGroups" :key="g.id" class="group-option"><input v-model="draft.group_ids" :value="g.id" type="checkbox" :data-testid="'initial-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">#{{ g.id }}</small></span></label><p v-if="!initialGroups.length" class="text-sm text-gray-500">{{ t('autoConfig.noGroups') }}</p></div></fieldset>
+            <fieldset><legend class="field-label">{{ t('autoConfig.groups') }}</legend><div class="group-list"><label v-for="g in initialGroups" :key="g.id" class="group-option"><FormInput v-model="draft.group_ids" :value="g.id" type="checkbox" :data-testid="'initial-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">#{{ g.id }}</small></span></label><p v-if="!initialGroups.length" class="text-sm text-gray-500">{{ t('autoConfig.noGroups') }}</p></div></fieldset>
             <fieldset class="space-y-3" data-testid="initial-quality-rule">
               <legend class="field-label">{{ t('autoConfig.quality.title') }}</legend>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.quality.hint') }}</p>
-              <select v-model="selectedQualityRule" data-testid="quality-rule-select" class="input w-full" :aria-label="t('autoConfig.quality.title')" @change="selectQualityRule">
+              <FormSelect v-model="selectedQualityRule" data-testid="quality-rule-select" class="w-full" :aria-label="t('autoConfig.quality.title')" @change="selectQualityRule">
                 <option value="">{{ t('autoConfig.quality.none') }}</option>
                 <option v-if="draft.quality_rule" value="saved">{{ t('autoConfig.quality.saved') }}</option>
                 <option v-for="plan in availableQualityPlans" :key="plan.id" :value="String(plan.id)">{{ plan.account_name || '#' + plan.account_id }} · #{{ plan.id }} · {{ plan.model_id }} · {{ qualityActionLabel(plan) }}</option>
-              </select>
+              </FormSelect>
               <p v-if="qualityLoadFailed" role="alert" class="text-sm text-red-600">{{ t('autoConfig.quality.loadFailed') }} <button type="button" class="underline" @click="loadQualityPlans">{{ t('autoConfig.retry') }}</button></p>
               <p v-if="draft.quality_rule" data-testid="quality-rule-summary" class="text-sm text-gray-500">{{ draft.quality_rule.model_id }} · {{ draft.quality_rule.cron_expression }} · {{ t(draft.quality_rule.enabled ? 'qualityOps.activeShort' : 'qualityOps.paused') }}</p>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.quality.copyHint') }}</p>
@@ -117,32 +117,35 @@
               <legend class="field-label">{{ t('autoConfig.mapping.title') }}</legend>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.mapping.hint') }}</p>
               <div v-for="(rule, index) in draft.model_mappings" :key="index" class="grid min-w-0 gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
-                <label class="min-w-0"><span class="field-label">{{ t('autoConfig.mapping.from') }}</span><input v-model="rule.from" :data-testid="'mapping-from-' + index" class="input w-full" type="text" placeholder="gpt-5.4" maxlength="256" required /></label>
-                <label class="min-w-0"><span class="field-label">{{ t('autoConfig.mapping.to') }}</span><input v-model="rule.to" :data-testid="'mapping-to-' + index" class="input w-full" type="text" placeholder="gpt-5.5" maxlength="256" required /></label>
-                <button type="button" :data-testid="'mapping-remove-' + index" class="btn btn-secondary" :aria-label="t('autoConfig.mapping.remove') + ' ' + (index + 1)" @click="draft.model_mappings.splice(index, 1)">{{ t('autoConfig.mapping.remove') }}</button>
+                <label class="min-w-0"><span class="field-label">{{ t('autoConfig.mapping.from') }}</span><FormInput v-model="rule.from" :data-testid="'mapping-from-' + index" class="w-full" type="text" placeholder="gpt-5.4" maxlength="256" required /></label>
+                <label class="min-w-0"><span class="field-label">{{ t('autoConfig.mapping.to') }}</span><FormInput v-model="rule.to" :data-testid="'mapping-to-' + index" class="w-full" type="text" placeholder="gpt-5.5" maxlength="256" required /></label>
+                <BaseButton type="button" :data-testid="'mapping-remove-' + index" class="btn-secondary" :aria-label="t('autoConfig.mapping.remove') + ' ' + (index + 1)" @click="draft.model_mappings.splice(index, 1)">{{ t('autoConfig.mapping.remove') }}</BaseButton>
               </div>
-              <button type="button" data-testid="mapping-add" class="btn btn-secondary" :disabled="draft.model_mappings.length >= 100" @click="draft.model_mappings.push({ from: '', to: '' })">{{ t('autoConfig.mapping.add') }}</button>
+              <BaseButton type="button" data-testid="mapping-add" class="btn-secondary" :disabled="draft.model_mappings.length >= 100" @click="draft.model_mappings.push({ from: '', to: '' })">{{ t('autoConfig.mapping.add') }}</BaseButton>
               <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.mapping.allowlistHint') }}</p>
             </fieldset>
           </section>
           <div class="min-w-0 space-y-5 self-start" data-testid="oauth-initial-right-panels">
           <section class="card space-y-5">
-            <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.upgrade') }}</h2><label class="flex items-center gap-2 text-sm"><input v-model="draft.upgrade_enabled" data-testid="upgrade-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
+            <header class="flex items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('autoConfig.upgrade') }}</h2><label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.upgrade_enabled" data-testid="upgrade-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label></header>
             <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.upgradeHint') }}</p>
-            <div class="grid gap-4 sm:grid-cols-2"><label v-for="field in upgradeFields" :key="field.key"><span class="field-label">{{ t('autoConfig.' + field.key) }}</span><input v-model.number="draft[field.key]" :data-testid="field.key" type="number" min="1" :max="field.max" step="1" required class="input w-full" /></label></div>
+            <div class="grid gap-4 sm:grid-cols-2"><label v-for="field in upgradeFields" :key="field.key"><span class="field-label">{{ t('autoConfig.' + field.key) }}</span><FormInput v-model.number="draft[field.key]" :data-testid="field.key" type="number" min="1" :max="field.max" step="1" required class="w-full" /></label></div>
             <p class="rounded-xl bg-emerald-50 p-3 text-sm leading-6 text-emerald-800 dark:bg-emerald-950/30 dark:text-emerald-200">{{ t('autoConfig.rule', { count: draft.successes_per_step, step: draft.upgrade_step, max: draft.max_concurrency }) }}</p>
-            <fieldset><legend class="field-label">{{ t('autoConfig.upgradeGroups') }}</legend><div class="group-list"><label v-for="g in groups" :key="g.id" class="group-option"><input v-model="draft.upgrade_group_ids" :value="g.id" type="checkbox" :data-testid="'upgrade-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">{{ g.platform }} · #{{ g.id }}</small></span></label></div></fieldset>
+            <fieldset><legend class="field-label">{{ t('autoConfig.upgradeGroups') }}</legend><div class="group-list"><label v-for="g in groups" :key="g.id" class="group-option"><FormInput v-model="draft.upgrade_group_ids" :value="g.id" type="checkbox" :data-testid="'upgrade-group-' + g.id" /><span>{{ g.name }} <small class="text-gray-400">{{ g.platform }} · #{{ g.id }}</small></span></label></div></fieldset>
           </section>
           <OAuthAPIKeyDispositionCard ref="dispositionCard" v-model="draft.apikey_disposition" :groups="groups" :platform="draft.platform" :initial-enabled="draft.enabled" :user-id="auth.user?.id" />
           </div>
         </fieldset>
-        <div class="flex flex-wrap items-center gap-4"><button type="submit" class="btn btn-primary" :disabled="saving">{{ t(saving ? 'autoConfig.saving' : 'common.save') }}</button><span class="text-xs text-gray-500">{{ t('autoConfig.saveHint') }}</span></div>
+        <div class="flex flex-wrap items-center gap-4"><BaseButton type="submit" class="btn-primary" :disabled="saving">{{ t(saving ? 'autoConfig.saving' : 'common.save') }}</BaseButton><span class="text-xs text-gray-500">{{ t('autoConfig.saveHint') }}</span></div>
       </form>
       <AutoConfigHistory v-if="auth.user?.role === 'admin'" :refresh-key="historyRefreshKey" />
     </div>
   </AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

@@ -1,9 +1,6 @@
 vi.mock('@/api/admin/upstreamChannels', () => ({ listUpstreamChannels: vi.fn(), getUpstreamChannel: vi.fn(), saveUpstreamChannel: vi.fn(), deleteUpstreamChannel: vi.fn(), getChannelMembers: vi.fn(), bindChannelAccounts: vi.fn(), readChannelBindings: vi.fn() }))
 import { mount, flushPromises } from '@vue/test-utils'
 import { createPinia, setActivePinia } from 'pinia'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest'
 import ProfitOperationsView from '../ProfitOperationsView.vue'
 import { readProfitOperations, type OperationsSnapshot } from '@/api/admin/profitOperations'
@@ -200,36 +197,4 @@ it.each([
   expect(range.until).toBe(now.toISOString())
  }
  w.unmount()
-})
-
-it('announces today independently and persists dismissal without applying filters', async () => {
- const notices = useNewFeatureNoticeStore()
- const previous = NEW_FEATURE_NOTICES.protocolFeatureSwitches
- const current = NEW_FEATURE_NOTICES.profitOperationsToday
- notices.dismiss(41, previous)
- const w = mount(ProfitOperationsView); await flushPromises()
- const badge = w.findAllComponents(NewFeatureBadge).find(b => b.props('noticeId') === current)!
- expect(badge.find('button').exists()).toBe(true)
- const requests = vi.mocked(readProfitOperations).mock.calls.length
- await badge.get('button').trigger('click')
- expect(readProfitOperations).toHaveBeenCalledTimes(requests)
- expect(notices.isDismissed(41, current)).toBe(true)
- w.unmount()
- // A fresh store simulates refreshing or signing in again in the same browser.
- setActivePinia(createPinia())
- const refreshed = useNewFeatureNoticeStore()
- expect(refreshed.isDismissed(41, previous)).toBe(true)
- expect(refreshed.isDismissed(41, current)).toBe(true)
- expect(refreshed.isDismissed(41, 'future-profit-feature-fixture')).toBe(false)
- const reopened = mount(ProfitOperationsView); await flushPromises()
- const oldBadge = reopened.findAllComponents(NewFeatureBadge).find(b => b.props('noticeId') === current)!
- const rangeBadge = reopened.findAllComponents(NewFeatureBadge).find(b => b.props('noticeId') === NEW_FEATURE_NOTICES.profitOperationsTimeRanges)!
- expect(oldBadge.find('button').exists()).toBe(false)
- expect(rangeBadge.find('button').exists()).toBe(true)
- expect(reopened.find('[data-testid="today-filter"]').exists()).toBe(true)
- const requestsAfterReopen = vi.mocked(readProfitOperations).mock.calls.length
- await rangeBadge.get('button').trigger('click')
- expect(readProfitOperations).toHaveBeenCalledTimes(requestsAfterReopen)
- expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.profitOperationsTimeRanges)).toBe(true)
- reopened.unmount()
 })

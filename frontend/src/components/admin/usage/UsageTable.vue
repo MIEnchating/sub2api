@@ -27,7 +27,7 @@
         @sort="(key, order) => $emit('sort', key, order)"
       >
         <template #cell-user="{ row }">
-          <span v-if="row.inbound_endpoint === '/internal/channel-quality' && !row.user_id" class="badge badge-primary">{{ t('admin.tests.experience.scheduled') }}</span>
+          <StatusBadge v-if="row.inbound_endpoint === '/internal/channel-quality' && !row.user_id" class="badge-primary">{{ t('admin.tests.experience.scheduled') }}</StatusBadge>
           <div v-else class="text-sm">
             <span v-if="observerMode" class="font-medium text-gray-900 dark:text-white">{{ row.user?.email || "-" }}</span>
             <button
@@ -591,6 +591,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { computed, ref, inject, onBeforeUnmount, onMounted, shallowRef } from 'vue'
 import { useWindowSize } from '@vueuse/core'
 import UsageDetailPopover from './UsageDetailPopover.vue'

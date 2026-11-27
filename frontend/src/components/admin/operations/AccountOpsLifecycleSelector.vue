@@ -1,14 +1,15 @@
 <template>
   <label class="mt-2 block text-xs text-gray-500">
     <span>{{ account.account_name }} · {{ t('accountOps.oauthLifecycle') }} <NewFeatureBadge v-if="userId != null" :notice-id="NEW_FEATURE_NOTICES.accountOpsOAuthLifecycle" :user-id="userId" /></span>
-    <select :value="account.oauth_lifecycle || 'temporary'" :disabled="busy || disabled" class="input mt-1 w-full text-xs" :aria-label="`${account.account_name} ${t('accountOps.oauthLifecycle')}`" data-testid="oauth-lifecycle" @change="save(($event.target as HTMLSelectElement).value)">
+    <FormSelect :value="account.oauth_lifecycle || 'temporary'" :disabled="busy || disabled" class="mt-1 w-full text-xs" :aria-label="`${account.account_name} ${t('accountOps.oauthLifecycle')}`" data-testid="oauth-lifecycle" @change="save(($event.target as HTMLSelectElement).value)">
       <option value="temporary">{{ t('accountOps.oauthTemporary') }}</option>
       <option value="long_term">{{ t('accountOps.oauthLongTerm') }}</option>
-    </select>
+    </FormSelect>
     <span v-if="error" role="alert" class="block text-red-600">{{ error }}</span>
   </label>
 </template>
 <script setup lang="ts">
+import FormSelect from '@/components/common/FormSelect.vue'
 import { ref, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'

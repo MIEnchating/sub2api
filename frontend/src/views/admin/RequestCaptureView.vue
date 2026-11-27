@@ -4,7 +4,7 @@
       <SmartOpsNav />
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('admin.requestCapture.title') }}</h1><p class="mt-1 text-sm text-gray-500">{{ t('admin.requestCapture.description') }}</p></div>
-        <button class="btn btn-secondary" :disabled="loading" @click="refresh">{{ t('admin.requestCapture.refresh') }}</button>
+        <BaseButton class="btn-secondary" :disabled="loading" @click="refresh">{{ t('admin.requestCapture.refresh') }}</BaseButton>
       </div>
       <p class="rounded-lg bg-amber-50 p-4 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200">{{ t('admin.requestCapture.privacy') }}</p>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-200">{{ error }}</p>
@@ -19,54 +19,58 @@
       <form class="card space-y-4 p-5" @submit.prevent="create">
         <h2 class="text-lg font-semibold">{{ t('admin.requestCapture.create') }}</h2>
         <div class="grid gap-4 md:grid-cols-4">
-          <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.targetType') }}</span><select v-model="targetType" class="input"><option v-for="kind in kinds" :key="kind" :value="kind">{{ t('admin.requestCapture.' + kind) }}</option></select></label>
-          <label class="space-y-1 md:col-span-2"><span class="input-label">{{ t('admin.requestCapture.search') }}</span><input v-model="search" class="input" type="search" :placeholder="t('admin.requestCapture.searchHint')" /></label>
-          <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.duration') }}</span><input v-model.number="duration" class="input" type="number" min="1" max="1440" step="1" required /></label>
+          <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.targetType') }}</span><FormSelect v-model="targetType"><option v-for="kind in kinds" :key="kind" :value="kind">{{ t('admin.requestCapture.' + kind) }}</option></FormSelect></label>
+          <label class="space-y-1 md:col-span-2"><span class="input-label">{{ t('admin.requestCapture.search') }}</span><FormInput v-model="search" type="search" :placeholder="t('admin.requestCapture.searchHint')" /></label>
+          <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.duration') }}</span><FormInput v-model.number="duration" type="number" min="1" max="1440" step="1" required /></label>
         </div>
         <div class="flex flex-wrap items-center gap-3">
-          <select v-model.number="targetID" class="input min-w-0 flex-1" required :aria-label="t('admin.requestCapture.target')"><option :value="0" disabled>{{ t('admin.requestCapture.selectTarget') }}</option><option v-for="option in targets" :key="option.id" :value="option.id">#{{ option.id }} {{ option.label }}</option></select>
-          <button type="button" class="btn btn-secondary" :disabled="targetPage <= 1 || searching" @click="loadTargets(targetPage - 1)">{{ t('admin.requestCapture.previous') }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="!targetMore || searching" @click="loadTargets(targetPage + 1)">{{ t('admin.requestCapture.next') }}</button>
+          <FormSelect v-model.number="targetID" class="min-w-0 flex-1" required :aria-label="t('admin.requestCapture.target')"><option :value="0" disabled>{{ t('admin.requestCapture.selectTarget') }}</option><option v-for="option in targets" :key="option.id" :value="option.id">#{{ option.id }} {{ option.label }}</option></FormSelect>
+          <BaseButton type="button" class="btn-secondary" :disabled="targetPage <= 1 || searching" @click="loadTargets(targetPage - 1)">{{ t('admin.requestCapture.previous') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" :disabled="!targetMore || searching" @click="loadTargets(targetPage + 1)">{{ t('admin.requestCapture.next') }}</BaseButton>
         </div>
-        <label class="flex items-center gap-2 text-sm"><input v-model="saveMedia" type="checkbox" class="checkbox" />{{ t('admin.requestCapture.saveMedia') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="saveMedia" type="checkbox" class="checkbox" />{{ t('admin.requestCapture.saveMedia') }}</label>
         <p class="text-xs text-gray-500">{{ t('admin.requestCapture.targetHint') }}</p>
-        <button class="btn btn-primary" :disabled="busy || !targetID || !validDuration">{{ t('admin.requestCapture.start') }}</button>
+        <BaseButton class="btn-primary" :disabled="busy || !targetID || !validDuration">{{ t('admin.requestCapture.start') }}</BaseButton>
       </form>
       <div class="card overflow-hidden">
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm">
+        <div class="overflow-x-auto"><BaseTable class="w-full text-left text-sm">
           <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800"><tr><th class="p-3">{{ t('admin.requestCapture.target') }}</th><th class="p-3">{{ t('admin.requestCapture.status') }}</th><th class="p-3">{{ t('admin.requestCapture.remaining') }}</th><th class="p-3">{{ t('admin.requestCapture.records') }}</th><th class="p-3">{{ t('admin.requestCapture.incomplete') }}</th><th class="p-3">{{ t('admin.requestCapture.size') }}</th><th class="p-3">{{ t('admin.requestCapture.actions') }}</th></tr></thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-700"><tr v-for="task in tasks" :key="task.id" :class="{ 'bg-blue-50 dark:bg-blue-950': selectedTask?.id === task.id }">
             <td class="p-3"><button class="text-primary-600 underline" @click="selectTask(task)">{{ t('admin.requestCapture.' + task.target_type) }} #{{ task.target_id }} {{ task.target_name }}</button><div class="text-xs text-gray-500">{{ task.save_media ? t('admin.requestCapture.mediaIncluded') : t('admin.requestCapture.metadataOnly') }}</div></td>
             <td class="p-3">{{ task.status }}<div v-if="task.reason" class="text-xs text-amber-700">{{ task.reason }}</div></td><td class="p-3">{{ remaining(task) }}</td><td class="p-3">{{ task.requests }}</td><td class="p-3">{{ task.partial }} / {{ task.skipped }}</td><td class="p-3">{{ bytes(task.bytes) }}</td>
-            <td class="p-3"><div class="flex gap-2"><button v-if="task.status === 'running'" class="btn btn-secondary" :disabled="busy" @click="stop(task)">{{ t('admin.requestCapture.stop') }}</button><button v-else class="btn btn-secondary" :disabled="busy || !streamExport" @click="download(task.id)">{{ t('admin.requestCapture.export') }}</button><button class="btn btn-secondary text-red-600" :disabled="busy" @click="remove(task)">{{ t('admin.requestCapture.delete') }}</button></div></td>
+            <td class="p-3"><div class="flex gap-2"><BaseButton v-if="task.status === 'running'" class="btn-secondary" :disabled="busy" @click="stop(task)">{{ t('admin.requestCapture.stop') }}</BaseButton><BaseButton v-else class="btn-secondary" :disabled="busy || !streamExport" @click="download(task.id)">{{ t('admin.requestCapture.export') }}</BaseButton><BaseButton class="btn-secondary text-red-600" :disabled="busy" @click="remove(task)">{{ t('admin.requestCapture.delete') }}</BaseButton></div></td>
           </tr><tr v-if="!tasks.length"><td colspan="7" class="p-6 text-center text-gray-500">{{ t('admin.requestCapture.empty') }}</td></tr></tbody>
-        </table></div>
-        <div class="flex justify-end gap-3 p-3"><button class="btn btn-secondary" :disabled="taskPage <= 1" @click="changeTaskPage(-1)">{{ t('admin.requestCapture.previous') }}</button><span class="self-center">{{ taskPage }}</span><button class="btn btn-secondary" :disabled="!taskMore" @click="changeTaskPage(1)">{{ t('admin.requestCapture.next') }}</button></div>
+        </BaseTable></div>
+        <div class="flex justify-end gap-3 p-3"><BaseButton class="btn-secondary" :disabled="taskPage <= 1" @click="changeTaskPage(-1)">{{ t('admin.requestCapture.previous') }}</BaseButton><span class="self-center">{{ taskPage }}</span><BaseButton class="btn-secondary" :disabled="!taskMore" @click="changeTaskPage(1)">{{ t('admin.requestCapture.next') }}</BaseButton></div>
       </div>
       <p v-if="!streamExport" class="text-sm text-gray-500">{{ t('admin.requestCapture.exportBrowser') }}</p>
       <section v-if="selectedTask" class="card space-y-4 p-5">
         <h2 class="font-semibold">{{ t('admin.requestCapture.records') }} - {{ selectedTask.target_name }}</h2>
-        <form class="flex flex-wrap items-center gap-3" @submit.prevent="recordPage = 1; loadRecords()"><input v-model.trim="requestID" class="input max-w-md" placeholder="Request ID" /><span class="text-sm text-gray-500">{{ t('admin.requestCapture.errorsOnly') }}</span><button class="btn btn-secondary">{{ t('admin.requestCapture.filter') }}</button></form>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm"><thead><tr><th class="p-2">Request ID</th><th class="p-2">{{ t('admin.requestCapture.model') }}</th><th class="p-2">{{ t('admin.requestCapture.status') }}</th><th class="p-2">{{ t('admin.requestCapture.size') }}</th></tr></thead><tbody><tr v-for="record in records" :key="record.id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2"><button class="break-all text-primary-600 underline" @click="viewRecord(record)">{{ record.request_id || record.id }}</button><div class="text-xs text-gray-500">{{ record.created_at }} / {{ record.protocol }}<span v-if="record.turn"> / {{ t('admin.requestCapture.turn') }} {{ record.turn }}</span></div></td><td class="p-2">{{ record.model }}</td><td class="p-2"><span>HTTP {{ record.status }}</span><span v-if="record.is_error" class="ml-2 text-red-600" data-testid="capture-outcome">{{ captureOutcome(record) }}</span><div v-if="record.error_code" class="break-all text-xs text-red-600">{{ record.error_code }}</div><span v-if="record.partial" class="ml-2 text-amber-700">{{ record.reason || t('admin.requestCapture.partial') }}</span></td><td class="p-2">{{ bytes(record.bytes) }}</td></tr></tbody></table></div>
-        <div class="flex justify-end gap-3"><button class="btn btn-secondary" :disabled="recordPage <= 1" @click="recordPage--; loadRecords()">{{ t('admin.requestCapture.previous') }}</button><span class="self-center">{{ recordPage }}</span><button class="btn btn-secondary" :disabled="!recordMore" @click="recordPage++; loadRecords()">{{ t('admin.requestCapture.next') }}</button></div>
+        <form class="flex flex-wrap items-center gap-3" @submit.prevent="recordPage = 1; loadRecords()"><FormInput v-model.trim="requestID" class="max-w-md" placeholder="Request ID" /><span class="text-sm text-gray-500">{{ t('admin.requestCapture.errorsOnly') }}</span><BaseButton class="btn-secondary">{{ t('admin.requestCapture.filter') }}</BaseButton></form>
+        <div class="overflow-x-auto"><BaseTable class="w-full text-left text-sm"><thead><tr><th class="p-2">Request ID</th><th class="p-2">{{ t('admin.requestCapture.model') }}</th><th class="p-2">{{ t('admin.requestCapture.status') }}</th><th class="p-2">{{ t('admin.requestCapture.size') }}</th></tr></thead><tbody><tr v-for="record in records" :key="record.id" class="border-t border-gray-100 dark:border-dark-700"><td class="p-2"><button class="break-all text-primary-600 underline" @click="viewRecord(record)">{{ record.request_id || record.id }}</button><div class="text-xs text-gray-500">{{ record.created_at }} / {{ record.protocol }}<span v-if="record.turn"> / {{ t('admin.requestCapture.turn') }} {{ record.turn }}</span></div></td><td class="p-2">{{ record.model }}</td><td class="p-2"><span>HTTP {{ record.status }}</span><span v-if="record.is_error" class="ml-2 text-red-600" data-testid="capture-outcome">{{ captureOutcome(record) }}</span><div v-if="record.error_code" class="break-all text-xs text-red-600">{{ record.error_code }}</div><span v-if="record.partial" class="ml-2 text-amber-700">{{ record.reason || t('admin.requestCapture.partial') }}</span></td><td class="p-2">{{ bytes(record.bytes) }}</td></tr></tbody></BaseTable></div>
+        <div class="flex justify-end gap-3"><BaseButton class="btn-secondary" :disabled="recordPage <= 1" @click="recordPage--; loadRecords()">{{ t('admin.requestCapture.previous') }}</BaseButton><span class="self-center">{{ recordPage }}</span><BaseButton class="btn-secondary" :disabled="!recordMore" @click="recordPage++; loadRecords()">{{ t('admin.requestCapture.next') }}</BaseButton></div>
       </section>
       <section v-if="detail" class="card space-y-4 p-5">
-        <div class="flex justify-between gap-3"><h2 class="font-semibold">{{ t('admin.requestCapture.detail') }} - {{ detail.request_id }}</h2><button class="btn btn-secondary" :disabled="busy || !streamExport || selectedTask?.status === 'running'" @click="download(detail.task_id, detail.id)">{{ t('admin.requestCapture.export') }}</button></div>
+        <div class="flex justify-between gap-3"><h2 class="font-semibold">{{ t('admin.requestCapture.detail') }} - {{ detail.request_id }}</h2><BaseButton class="btn-secondary" :disabled="busy || !streamExport || selectedTask?.status === 'running'" @click="download(detail.task_id, detail.id)">{{ t('admin.requestCapture.export') }}</BaseButton></div>
         <p v-if="detail.is_error" class="text-sm text-red-600">HTTP {{ detail.status }} · {{ captureOutcome(detail) }}<span v-if="detail.error_code"> · {{ detail.error_code }}</span></p>
         <p v-if="detail.partial" class="text-sm text-amber-700">{{ t('admin.requestCapture.partial') }}: {{ detail.reason }}</p>
         <details><summary class="cursor-pointer text-sm">{{ t('admin.requestCapture.metadata') }}</summary><pre class="mt-2 max-h-64 overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-3 text-xs dark:bg-dark-900">{{ metadata }}</pre></details>
-        <div class="flex flex-wrap gap-2"><button v-for="item in stages" :key="item" class="btn" :class="stage === item ? 'btn-primary' : 'btn-secondary'" @click="selectStage(item)">{{ t('admin.requestCapture.' + item) }}</button></div>
-        <select v-if="stageParts.length" :value="part?.name" class="input" :aria-label="t('admin.requestCapture.segment')" @change="selectPart(($event.target as HTMLSelectElement).value)"><option v-for="item in stageParts" :key="item.name" :value="item.name">{{ item.name }} / {{ t('admin.requestCapture.attempt') }} {{ item.attempt }} / {{ t('admin.requestCapture.turn') }} {{ item.turn }} / {{ bytes(item.bytes) }}</option></select>
+        <div class="flex flex-wrap gap-2"><BaseButton v-for="item in stages" :key="item" :class="stage === item ? 'btn-primary' : 'btn-secondary'" @click="selectStage(item)">{{ t('admin.requestCapture.' + item) }}</BaseButton></div>
+        <FormSelect v-if="stageParts.length" :value="part?.name" :aria-label="t('admin.requestCapture.segment')" @change="selectPart(($event.target as HTMLSelectElement).value)"><option v-for="item in stageParts" :key="item.name" :value="item.name">{{ item.name }} / {{ t('admin.requestCapture.attempt') }} {{ item.attempt }} / {{ t('admin.requestCapture.turn') }} {{ item.turn }} / {{ bytes(item.bytes) }}</option></FormSelect>
         <p v-else class="text-sm text-gray-500">{{ t('admin.requestCapture.noPart') }}</p>
         <p v-if="part?.omitted" class="text-sm text-amber-700">{{ t('admin.requestCapture.omitted') }}: {{ part.omitted }}</p>
         <pre v-if="part" class="max-h-[36rem] overflow-auto whitespace-pre-wrap break-all rounded-lg bg-gray-950 p-4 text-xs leading-5 text-gray-100">{{ content }}</pre>
-        <div v-if="part" class="flex gap-3"><button class="btn btn-secondary" :disabled="contentOffset === 0 || contentLoading" @click="readContent(0)">{{ t('admin.requestCapture.firstSegment') }}</button><button class="btn btn-secondary" :disabled="!contentMore || contentLoading" @click="readContent(nextOffset)">{{ t('admin.requestCapture.nextSegment') }}</button></div>
+        <div v-if="part" class="flex gap-3"><BaseButton class="btn-secondary" :disabled="contentOffset === 0 || contentLoading" @click="readContent(0)">{{ t('admin.requestCapture.firstSegment') }}</BaseButton><BaseButton class="btn-secondary" :disabled="!contentMore || contentLoading" @click="readContent(nextOffset)">{{ t('admin.requestCapture.nextSegment') }}</BaseButton></div>
       </section>
     </div>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

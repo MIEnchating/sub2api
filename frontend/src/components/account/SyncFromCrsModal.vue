@@ -30,11 +30,10 @@
       <div class="grid grid-cols-1 gap-4">
         <div>
           <label for="crs-base-url" class="input-label">{{ t('admin.accounts.crsBaseUrl') }}</label>
-          <input
+          <FormInput
             id="crs-base-url"
             v-model="form.base_url"
             type="text"
-            class="input"
             required
             :placeholder="t('admin.accounts.crsBaseUrlPlaceholder')"
           />
@@ -43,15 +42,14 @@
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div>
             <label for="crs-username" class="input-label">{{ t('admin.accounts.crsUsername') }}</label>
-            <input id="crs-username" v-model="form.username" type="text" class="input" required autocomplete="username" />
+            <FormInput id="crs-username" v-model="form.username" type="text" required autocomplete="username" />
           </div>
           <div>
             <label for="crs-password" class="input-label">{{ t('admin.accounts.crsPassword') }}</label>
-            <input
+            <FormInput
               id="crs-password"
               v-model="form.password"
               type="password"
-              class="input"
               required
               autocomplete="current-password"
             />
@@ -59,7 +57,7 @@
         </div>
 
         <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-dark-300">
-          <input
+          <FormInput
             v-model="form.sync_proxies"
             type="checkbox"
             class="rounded border-gray-300 dark:border-dark-600"
@@ -122,7 +120,7 @@
             :key="acc.crs_account_id"
             class="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-gray-50 dark:hover:bg-dark-700/40"
           >
-            <input
+            <FormInput
               type="checkbox"
               :checked="selectedIds.has(acc.crs_account_id)"
               class="rounded border-gray-300 dark:border-dark-600"
@@ -191,49 +189,49 @@
       <div class="flex justify-end gap-3">
         <!-- Step 1: Input -->
         <template v-if="currentStep === 'input'">
-          <button
-            class="btn btn-secondary"
+          <BaseButton
+            class="btn-secondary"
             type="button"
             :disabled="previewing"
             @click="handleClose"
           >
             {{ t('common.cancel') }}
-          </button>
-          <button
-            class="btn btn-primary"
+          </BaseButton>
+          <BaseButton
+            class="btn-primary"
             type="submit"
             form="sync-from-crs-form"
             :disabled="previewing"
           >
             {{ previewing ? t('admin.accounts.crsPreviewing') : t('admin.accounts.crsPreview') }}
-          </button>
+          </BaseButton>
         </template>
 
         <!-- Step 2: Preview -->
         <template v-else-if="currentStep === 'preview'">
-          <button
-            class="btn btn-secondary"
+          <BaseButton
+            class="btn-secondary"
             type="button"
             :disabled="syncing"
             @click="handleBack"
           >
             {{ t('admin.accounts.crsBack') }}
-          </button>
-          <button
-            class="btn btn-primary"
+          </BaseButton>
+          <BaseButton
+            class="btn-primary"
             type="button"
             :disabled="syncing || hasNewButNoneSelected"
             @click="handleSync"
           >
             {{ syncing ? t('admin.accounts.syncing') : t('admin.accounts.syncNow') }}
-          </button>
+          </BaseButton>
         </template>
 
         <!-- Step 3: Result -->
         <template v-else-if="currentStep === 'result'">
-          <button class="btn btn-secondary" type="button" @click="handleClose">
+          <BaseButton class="btn-secondary" type="button" @click="handleClose">
             {{ t('common.close') }}
-          </button>
+          </BaseButton>
         </template>
       </div>
     </template>
@@ -241,6 +239,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

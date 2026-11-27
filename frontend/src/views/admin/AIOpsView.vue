@@ -11,7 +11,7 @@
           </div>
           <p class="mt-2 text-sm leading-6 text-gray-500">{{ t('aiOps.description') }}</p>
         </div>
-        <button type="button" class="btn btn-secondary" :disabled="loading || submitting" data-testid="ai-ops-refresh" @click="refresh">{{ t('aiOps.refresh') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="loading || submitting" data-testid="ai-ops-refresh" @click="refresh">{{ t('aiOps.refresh') }}</BaseButton>
       </header>
 
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ error }}</p>
@@ -31,8 +31,8 @@
           <p v-if="cooldownSeconds > 0" role="status" class="text-sm text-amber-700 dark:text-amber-300" data-testid="ai-ops-cooldown">{{ t('aiOps.cooldown', { duration: cooldownDuration, time: formatTime(new Date(cooldownUntil).toISOString()) }) }}</p>
           <p v-if="needsRefreshAfterSubmission" role="status" class="text-sm text-amber-700 dark:text-amber-300">{{ t('aiOps.refreshBeforeRetry') }}</p>
           <div class="flex flex-wrap items-center justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
-            <label class="flex min-w-0 items-start gap-2 text-sm"><input v-model="costConsent" type="checkbox" class="mt-0.5" :disabled="submitting || diagnosisRunning" data-testid="ai-ops-cost-consent" /><span>{{ t('aiOps.costConsent') }}</span></label>
-            <button type="button" class="btn btn-primary w-full sm:w-auto" :disabled="!canStart" data-testid="ai-ops-start" @click="createRun">{{ submitting ? t('aiOps.starting') : t('aiOps.start') }}</button>
+            <label class="flex min-w-0 items-start gap-2 text-sm"><FormInput v-model="costConsent" type="checkbox" class="mt-0.5" :disabled="submitting || diagnosisRunning" data-testid="ai-ops-cost-consent" /><span>{{ t('aiOps.costConsent') }}</span></label>
+            <BaseButton type="button" class="btn-primary w-full sm:w-auto" :disabled="!canStart" data-testid="ai-ops-start" @click="createRun">{{ submitting ? t('aiOps.starting') : t('aiOps.start') }}</BaseButton>
           </div>
           <details class="text-xs text-gray-500" data-testid="ai-ops-run-settings">
             <summary class="cursor-pointer">{{ t('aiOps.runSettings') }}</summary>
@@ -56,8 +56,8 @@
         <template v-if="selected">
           <div class="flex flex-wrap items-center justify-between gap-3" data-testid="ai-ops-run">
             <div class="flex flex-wrap items-center gap-3"><h2 id="ai-ops-report-title" class="font-semibold">{{ t('aiOps.report') }}</h2><span class="rounded-full bg-gray-100 px-3 py-1 text-xs text-gray-700 dark:bg-dark-800 dark:text-gray-200">{{ t(`aiOps.status.${selected.status}`) }}</span></div>
-            <button v-if="isPending(selected) && polling" type="button" class="btn btn-secondary btn-sm" data-testid="ai-ops-stop-polling" @click="stopPolling(true)">{{ t('aiOps.stopPolling') }}</button>
-            <button v-else-if="isPending(selected)" type="button" class="btn btn-secondary btn-sm" data-testid="ai-ops-resume-polling" @click="startPolling">{{ t('aiOps.resumePolling') }}</button>
+            <BaseButton v-if="isPending(selected) && polling" type="button" class="btn-secondary btn-sm" data-testid="ai-ops-stop-polling" @click="stopPolling(true)">{{ t('aiOps.stopPolling') }}</BaseButton>
+            <BaseButton v-else-if="isPending(selected)" type="button" class="btn-secondary btn-sm" data-testid="ai-ops-resume-polling" @click="startPolling">{{ t('aiOps.resumePolling') }}</BaseButton>
           </div>
           <p v-if="isPending(selected)" class="rounded-lg bg-sky-50 p-4 text-sm text-sky-800 dark:bg-sky-900/15 dark:text-sky-200">{{ t('aiOps.pending') }}</p>
           <p v-if="pollMessage" class="text-sm text-amber-700 dark:text-amber-300" data-testid="ai-ops-poll-message">{{ pollMessage }}</p>
@@ -84,6 +84,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { aiOpsAPI, type AIOpsRun, type AIOpsStatus } from '@/api/admin/aiOps'

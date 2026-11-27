@@ -40,6 +40,7 @@ type Account struct {
 	ProxyID                 *int64
 	ProxyIDs                []int64 // ordered proxy pool; empty means legacy single proxy
 	Proxies                 []*Proxy
+	ProxyRetirementReviewed bool  `json:"-"`
 	ProxyPoolChanged        bool  `json:"-"` // explicit admin edit; persist atomically with the account
 	SelectedProxyID         int64 `json:"-"` // request-local route, never persisted in a scheduler snapshot
 	ProxyFallbackOriginID   *int64
@@ -326,13 +327,19 @@ func accountLoadPreferenceRate(account *Account, loadRate int) int {
 	return int(math.Round(float64(max(0, loadRate)) / weight))
 }
 
+const RetiredMultiProxyNeedsReviewKey = "retired_multi_proxy_needs_review"
+
+func (a *Account) RequiresProxyRetirementReview() bool {
+	return a != nil && a.Extra[RetiredMultiProxyNeedsReviewKey] == true
+}
+
 func (a *Account) IsSchedulable() bool {
 	// Fail closed until the four gateway protocols and their final admission
 	// checks are implemented together. Manual switches cannot bypass this gate.
 	if a.IsGateway() || a.Platform == PlatformGateway {
 		return false
 	}
-	if !a.IsActive() || !a.Schedulable || a.PerformancePaused || a.IsRetiredVMRoute() {
+	if !a.IsActive() || !a.Schedulable || a.PerformancePaused || a.IsRetiredVMRoute() || a.RequiresProxyRetirementReview() {
 		return false
 	}
 	now := time.Now()

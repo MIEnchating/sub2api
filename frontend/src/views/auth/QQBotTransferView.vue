@@ -16,7 +16,7 @@
           <div><dt class="text-sm text-gray-500">{{ t('qqbot.transferExpires') }}</dt><dd>{{ formatDate(preview.expires_at) }}</dd></div>
         </dl>
         <p class="text-sm text-amber-700 dark:text-amber-300">{{ t('qqbot.transferConfirmWarning') }}</p>
-        <button class="btn btn-primary w-full" :disabled="busy" @click="confirm">{{ busy ? t('common.loading') : t('qqbot.confirmTransfer') }}</button>
+        <BaseButton class="btn-primary w-full" :disabled="busy" @click="confirm">{{ busy ? t('common.loading') : t('qqbot.confirmTransfer') }}</BaseButton>
       </template>
       <p v-if="!loading && !success && !preview" class="text-sm text-gray-500">{{ t('qqbot.transferRetry') }}</p>
     </div>
@@ -24,6 +24,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

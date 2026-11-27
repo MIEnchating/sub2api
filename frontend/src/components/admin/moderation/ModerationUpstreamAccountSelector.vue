@@ -3,15 +3,15 @@
     <h3 class="flex items-center gap-2 text-base font-semibold">{{ t('admin.riskControl.upstreamAccounts') }}<slot name="badge" /></h3>
     <p class="text-sm text-gray-500">{{ t('admin.riskControl.upstreamAccountsHint') }}</p>
     <div class="flex flex-wrap gap-4 text-sm">
-      <label class="flex items-center gap-2"><input v-model="scope" type="radio" value="all" data-testid="moderation-upstream-all" />{{ t('admin.riskControl.allUpstreamAccounts') }}</label>
-      <label class="flex items-center gap-2"><input v-model="scope" type="radio" value="selected" data-testid="moderation-upstream-selected" />{{ t('admin.riskControl.selectedUpstreamAccounts') }}</label>
+      <label class="flex items-center gap-2"><FormInput v-model="scope" type="radio" value="all" data-testid="moderation-upstream-all" />{{ t('admin.riskControl.allUpstreamAccounts') }}</label>
+      <label class="flex items-center gap-2"><FormInput v-model="scope" type="radio" value="selected" data-testid="moderation-upstream-selected" />{{ t('admin.riskControl.selectedUpstreamAccounts') }}</label>
     </div>
     <template v-if="scope === 'selected'">
       <details v-if="selected.length" class="rounded border border-gray-200 p-2 dark:border-dark-600" data-testid="moderation-selected-ids">
         <summary class="cursor-pointer text-sm">{{ t('admin.riskControl.manageSelectedUpstream', { count: selected.length }) }}</summary>
-        <label class="mt-2 block text-sm">{{ t('admin.riskControl.findSelectedUpstream') }}<input v-model="selectedSearch" type="search" class="input mt-1" data-testid="moderation-selected-search" /></label>
+        <label class="mt-2 block text-sm">{{ t('admin.riskControl.findSelectedUpstream') }}<FormInput v-model="selectedSearch" type="search" class="mt-1" data-testid="moderation-selected-search" /></label>
         <div class="mt-2 flex max-h-32 flex-wrap gap-2 overflow-auto">
-          <button v-for="id in visibleSelected" :key="id" type="button" class="btn btn-secondary" :data-testid="`moderation-remove-${id}`" @click="remove(id)">#{{ id }} · {{ t('common.remove') }}</button>
+          <BaseButton v-for="id in visibleSelected" :key="id" type="button" class="btn-secondary" :data-testid="`moderation-remove-${id}`" @click="remove(id)">#{{ id }} · {{ t('common.remove') }}</BaseButton>
         </div>
         <p class="mt-1 text-xs text-gray-500">{{ t('admin.riskControl.selectedUpstreamRecoveryHint') }}</p>
       </details>
@@ -33,6 +33,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

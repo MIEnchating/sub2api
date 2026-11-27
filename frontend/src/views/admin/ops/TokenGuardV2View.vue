@@ -9,10 +9,10 @@
           <p class="subtitle">{{ t('tokenGuardV2.description') }}</p>
         </div>
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-secondary inline-flex items-center gap-2" :disabled="loading || mutationBusy" @click="load()">
+          <BaseButton class="btn-secondary inline-flex items-center gap-2" :disabled="loading || mutationBusy" @click="load()">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />{{ t('tokenGuardV2.refresh') }}
-          </button>
-          <button class="btn btn-primary" :disabled="!encryptionReady || mutationBusy" @click="openCreate">{{ t('tokenGuardV2.addAccount') }}</button>
+          </BaseButton>
+          <BaseButton class="btn-primary" :disabled="!encryptionReady || mutationBusy" @click="openCreate">{{ t('tokenGuardV2.addAccount') }}</BaseButton>
         </div>
       </header>
 
@@ -23,16 +23,16 @@
         <div class="mt-4 border-t border-gray-200 pt-4 dark:border-dark-600" data-testid="credential-runtime-controls" :aria-busy="runtimeSaving">
           <div class="grid gap-4 sm:grid-cols-2">
             <label class="field-label">{{ t('tokenGuardV2.reloginEngine') }}
-              <select id="token-guard-v2-engine" :value="runtimeDraft.engine" class="input w-full" :disabled="mutationBusy || loading || !runtimeLoaded" @change="changeRuntime('engine', $event)">
+              <FormSelect id="token-guard-v2-engine" :value="runtimeDraft.engine" class="w-full" :disabled="mutationBusy || loading || !runtimeLoaded" @change="changeRuntime('engine', $event)">
                 <option v-if="!runtimeDraft.engine" value="" disabled>{{ t('tokenGuardV2.legacyEngine') }}</option>
                 <option value="local_worker">{{ t('tokenGuardV2.localWorkerEngine') }}</option>
                 <option value="session_studio">{{ t('tokenGuardV2.sessionStudioEngine') }}</option>
-              </select>
+              </FormSelect>
             </label>
             <label class="field-label">{{ t('tokenGuardV2.workerConcurrency') }}
-              <select id="token-guard-v2-concurrency" :value="runtimeDraft.worker_concurrency" class="input w-full" :disabled="mutationBusy || loading || !runtimeLoaded" @change="changeRuntime('worker_concurrency', $event)">
+              <FormSelect id="token-guard-v2-concurrency" :value="runtimeDraft.worker_concurrency" class="w-full" :disabled="mutationBusy || loading || !runtimeLoaded" @change="changeRuntime('worker_concurrency', $event)">
                 <option v-for="count in 16" :key="count" :value="count">{{ count }}</option>
-              </select>
+              </FormSelect>
             </label>
           </div>
           <p class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t(runtimeDraft.engine === 'session_studio' ? 'tokenGuardV2.sessionStudioGlobalHint' : runtimeDraft.engine === 'local_worker' ? 'tokenGuardV2.localWorkerEngineHint' : 'tokenGuardV2.legacyEngineHint') }}</p>
@@ -57,16 +57,16 @@
       </section>
 
       <nav class="section-tabs" :aria-label="t('tokenGuardV2.pageTabs')">
-        <button type="button" role="tab" data-testid="guard-tab-accounts" :aria-selected="activeSection === 'accounts'" :class="{ active: activeSection === 'accounts' }" @click="activeSection = 'accounts'">{{ t('tokenGuardV2.accountsTab') }}</button>
-        <button type="button" role="tab" data-testid="guard-tab-rules" :aria-selected="activeSection === 'rules'" :class="{ active: activeSection === 'rules' }" @click="activeSection = 'rules'">{{ t('tokenGuardV2.rulesTab') }}</button>
+        <TabButton type="button" data-testid="guard-tab-accounts" :aria-selected="activeSection === 'accounts'" :class="{ active: activeSection === 'accounts' }" @click="activeSection = 'accounts'">{{ t('tokenGuardV2.accountsTab') }}</TabButton>
+        <TabButton type="button" data-testid="guard-tab-rules" :aria-selected="activeSection === 'rules'" :class="{ active: activeSection === 'rules' }" @click="activeSection = 'rules'">{{ t('tokenGuardV2.rulesTab') }}</TabButton>
       </nav>
 
       <section v-if="activeSection === 'accounts'" class="table-card">
         <div class="list-toolbar">
           <div class="filter-tabs" role="tablist" :aria-label="t('tokenGuardV2.statusFilter')">
-            <button v-for="filter in accountFilters" :key="filter.value" type="button" role="tab" :aria-selected="accountFilter === filter.value" :data-filter="filter.value" :class="{ active: accountFilter === filter.value }" @click="accountFilter = filter.value">
+            <TabButton v-for="filter in accountFilters" :key="filter.value" type="button" :aria-selected="accountFilter === filter.value" :data-filter="filter.value" :class="{ active: accountFilter === filter.value }" @click="accountFilter = filter.value">
               {{ t(filter.label) }} <span>{{ filter.count }}</span>
-            </button>
+            </TabButton>
           </div>
           <label class="search-box">
             <Icon name="search" size="sm" />
@@ -74,7 +74,7 @@
           </label>
         </div>
         <div class="table-wrap">
-          <table>
+          <BaseTable>
             <thead>
               <tr>
                 <th>{{ t('tokenGuardV2.account') }}</th>
@@ -92,16 +92,16 @@
               <tr v-for="item in pagedAccounts" :key="item.account_id">
                 <td><strong>{{ item.account_name || `#${item.account_id}` }}</strong><small>#{{ item.account_id }} · {{ item.account_status }}</small></td>
                 <td>{{ modeLabel(item.login_config?.credential_mode) }}<small>{{ item.login_config?.login_email || '-' }}</small></td>
-                <td><span class="badge" :class="item.login_config?.configured ? 'ok' : 'danger'">{{ item.login_config?.configured ? t('tokenGuardV2.configured') : t('tokenGuardV2.incomplete') }}</span><small>{{ configurationDetail(item) }}</small></td>
+                <td><StatusBadge :class="item.login_config?.configured ? 'ok' : 'danger'">{{ item.login_config?.configured ? t('tokenGuardV2.configured') : t('tokenGuardV2.incomplete') }}</StatusBadge><small>{{ configurationDetail(item) }}</small></td>
                 <td>
                   <div class="flex flex-col gap-2">
-                    <label class="inline-flex items-center gap-2" :title="t('tokenGuardV2.autoInspectHint')"><input type="checkbox" role="switch" class="automation-switch" :checked="item.enabled" :aria-label="t('tokenGuardV2.autoInspect')" :data-testid="'auto-inspect-' + item.account_id" :disabled="mutationBusy || loading" @change="toggleSwitch(item, 'enabled', $event)" />{{ t('tokenGuardV2.autoInspect') }}</label>
-                    <label class="inline-flex items-center gap-2" :title="t('tokenGuardV2.autoReloginHint')"><input type="checkbox" role="switch" class="automation-switch" :checked="item.auto_relogin_enabled" :aria-label="t('tokenGuardV2.autoRelogin')" :data-testid="'auto-relogin-' + item.account_id" :disabled="mutationBusy || loading" @change="toggleSwitch(item, 'auto_relogin_enabled', $event)" />{{ t('tokenGuardV2.autoRelogin') }}</label>
+                    <label class="inline-flex items-center gap-2" :title="t('tokenGuardV2.autoInspectHint')"><FormInput type="checkbox" role="switch" class="form-switch-compact" :checked="item.enabled" :aria-label="t('tokenGuardV2.autoInspect')" :data-testid="'auto-inspect-' + item.account_id" :disabled="mutationBusy || loading" @change="toggleSwitch(item, 'enabled', $event)" />{{ t('tokenGuardV2.autoInspect') }}</label>
+                    <label class="inline-flex items-center gap-2" :title="t('tokenGuardV2.autoReloginHint')"><FormInput type="checkbox" role="switch" class="form-switch-compact" :checked="item.auto_relogin_enabled" :aria-label="t('tokenGuardV2.autoRelogin')" :data-testid="'auto-relogin-' + item.account_id" :disabled="mutationBusy || loading" @change="toggleSwitch(item, 'auto_relogin_enabled', $event)" />{{ t('tokenGuardV2.autoRelogin') }}</label>
                     <small>{{ t('tokenGuardV2.reloginBudgetCount', { count: item.relogin_fail_streak || 0, limit: status.relogin_max_failures || 3 }) }}</small>
                     <small :data-testid="'automation-state-' + item.account_id" :class="{ 'text-red-700 dark:text-red-300': item.auto_relogin_exhausted }">{{ automationLabel(item) }}</small>
                   </div>
                 </td>
-                <td><span class="badge" :class="probeClass(item.probe_state)">{{ t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`) }}</span><details v-if="item.refresh_failure"><summary>{{ t('tokenGuardV2.operationFailure.refreshAttempt') }}</summary><CredentialOperationFailureView :failure="item.refresh_failure" /></details></td>
+                <td><StatusBadge :class="probeClass(item.probe_state)">{{ t(`tokenGuardV2.probeStates.${item.probe_state || 'pending'}`) }}</StatusBadge><details v-if="item.refresh_failure"><summary>{{ t('tokenGuardV2.operationFailure.refreshAttempt') }}</summary><CredentialOperationFailureView :failure="item.refresh_failure" /></details></td>
                 <td class="tabular-nums">{{ item.fail_streak }}</td>
                 <td>{{ date(item.last_probe_at) }}<details v-if="probeOperationFailure(item)" :data-testid="'probe-history-' + item.account_id"><summary>{{ t('tokenGuardV2.lastInspectionFailure') }}</summary><CredentialOperationFailureView :failure="probeOperationFailure(item)!" /></details><small v-if="item.enabled">{{ t('tokenGuardV2.next') }} {{ date(item.next_probe_at) }}</small><small v-else>{{ t('tokenGuardV2.paused') }}</small></td>
                 <td>{{ date(item.latest_task?.finished_at || item.latest_task?.created_at || item.last_reauth_at) }}<small v-if="item.latest_task">{{ taskLabel(item.latest_task) }}</small><CredentialOperationFailureView v-if="taskOperationFailure(item.latest_task)" :failure="taskOperationFailure(item.latest_task)!" /></td>
@@ -117,7 +117,7 @@
                 </td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
           <div v-if="!loading && !filteredAccounts.length" class="empty-state">
             <Icon name="shield" size="xl" />
             <h3>{{ t(accounts.length ? 'tokenGuardV2.noResultsTitle' : 'tokenGuardV2.emptyTitle') }}</h3>
@@ -138,18 +138,18 @@
       <section v-else class="rules-card">
         <div class="rules-heading">
           <div><h3>{{ t('tokenGuardV2.rulesTitle') }}</h3><p>{{ t('tokenGuardV2.rulesDescription') }}</p></div>
-          <span class="badge" :class="{ ok: !rulesDirty }">{{ t(rulesDirty ? 'tokenGuardV2.rulesUnsaved' : 'tokenGuardV2.rulesConfigurable') }}</span>
+          <StatusBadge :class="{ ok: !rulesDirty }">{{ t(rulesDirty ? 'tokenGuardV2.rulesUnsaved' : 'tokenGuardV2.rulesConfigurable') }}</StatusBadge>
         </div>
         <form id="token-guard-v2-rules" class="rules-form" @submit.prevent="saveRulesConfig">
           <div class="rule-metrics">
-            <label><span>{{ t('tokenGuardV2.ruleProbeInterval') }}</span><input id="token-guard-v2-rule-probe" v-model.number="rulesDraft.probe_interval_minutes" class="input" type="number" min="1" max="1440" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
-            <label><span>{{ t('tokenGuardV2.ruleRetryInterval') }}</span><input id="token-guard-v2-rule-retry" v-model.number="rulesDraft.retry_interval_minutes" class="input" type="number" min="1" max="1440" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
-            <label><span>{{ t('tokenGuardV2.ruleFailureThreshold') }}</span><input id="token-guard-v2-rule-threshold" v-model.number="rulesDraft.fail_streak_threshold" class="input" type="number" min="1" max="10" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.times') }}</small></label>
-            <label><span>{{ t('tokenGuardV2.ruleCooldown') }}</span><input id="token-guard-v2-rule-cooldown" v-model.number="rulesDraft.relogin_cooldown_minutes" class="input" type="number" min="1" max="10080" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
-            <label><span>{{ t('tokenGuardV2.ruleReloginBackoffMax') }}</span><input id="token-guard-v2-rule-backoff-max" v-model.number="rulesDraft.relogin_backoff_max_minutes" class="input" type="number" :min="rulesDraft.relogin_cooldown_minutes" max="10080" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
-            <label><span>{{ t('tokenGuardV2.ruleReloginMaxFailures') }}</span><input id="token-guard-v2-rule-max-failures" v-model.number="rulesDraft.relogin_max_failures" class="input" type="number" min="1" max="20" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.reloginBudgetHint') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleProbeInterval') }}</span><FormInput id="token-guard-v2-rule-probe" v-model.number="rulesDraft.probe_interval_minutes" type="number" min="1" max="1440" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleRetryInterval') }}</span><FormInput id="token-guard-v2-rule-retry" v-model.number="rulesDraft.retry_interval_minutes" type="number" min="1" max="1440" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleFailureThreshold') }}</span><FormInput id="token-guard-v2-rule-threshold" v-model.number="rulesDraft.fail_streak_threshold" type="number" min="1" max="10" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.times') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleCooldown') }}</span><FormInput id="token-guard-v2-rule-cooldown" v-model.number="rulesDraft.relogin_cooldown_minutes" type="number" min="1" max="10080" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleReloginBackoffMax') }}</span><FormInput id="token-guard-v2-rule-backoff-max" v-model.number="rulesDraft.relogin_backoff_max_minutes" type="number" :min="rulesDraft.relogin_cooldown_minutes" max="10080" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.minutes') }}</small></label>
+            <label><span>{{ t('tokenGuardV2.ruleReloginMaxFailures') }}</span><FormInput id="token-guard-v2-rule-max-failures" v-model.number="rulesDraft.relogin_max_failures" type="number" min="1" max="20" required :disabled="mutationBusy" @input="rulesDirty = true" /><small>{{ t('tokenGuardV2.reloginBudgetHint') }}</small></label>
           </div>
-          <div class="rules-actions"><button type="submit" class="btn btn-primary" :disabled="mutationBusy || !rulesDirty">{{ rulesSaving ? t('tokenGuardV2.saving') : t('tokenGuardV2.saveRules') }}</button></div>
+          <div class="rules-actions"><BaseButton type="submit" class="btn-primary" :disabled="mutationBusy || !rulesDirty">{{ rulesSaving ? t('tokenGuardV2.saving') : t('tokenGuardV2.saveRules') }}</BaseButton></div>
         </form>
         <div class="rule-list">
           <article><span>1</span><div><strong>{{ t('tokenGuardV2.ruleScopeTitle') }}</strong><p>{{ t('tokenGuardV2.ruleScopeHint') }}</p></div></article>
@@ -170,9 +170,9 @@
               <input id="token-guard-v2-account-search" v-model.trim="accountSearch" type="search" :placeholder="t('tokenGuardV2.accountSearchPlaceholder')" />
             </label>
             <div class="group-tabs" role="tablist" :aria-label="t('tokenGuardV2.accountGroup')">
-              <button type="button" role="tab" data-group-id="all" :aria-selected="!accountGroup" :class="{ active: !accountGroup }" @click="accountGroup = ''">{{ t('tokenGuardV2.allGroups') }}</button>
-              <button type="button" role="tab" data-group-id="ungrouped" :aria-selected="accountGroup === 'ungrouped'" :class="{ active: accountGroup === 'ungrouped' }" @click="accountGroup = 'ungrouped'">{{ t('tokenGuardV2.ungrouped') }}</button>
-              <button v-for="group in groups" :key="group.id" type="button" role="tab" :data-group-id="group.id" :aria-selected="accountGroup === String(group.id)" :class="{ active: accountGroup === String(group.id) }" @click="accountGroup = String(group.id)">{{ group.name }}</button>
+              <TabButton type="button" data-group-id="all" :aria-selected="!accountGroup" :class="{ active: !accountGroup }" @click="accountGroup = ''">{{ t('tokenGuardV2.allGroups') }}</TabButton>
+              <TabButton type="button" data-group-id="ungrouped" :aria-selected="accountGroup === 'ungrouped'" :class="{ active: accountGroup === 'ungrouped' }" @click="accountGroup = 'ungrouped'">{{ t('tokenGuardV2.ungrouped') }}</TabButton>
+              <TabButton v-for="group in groups" :key="group.id" type="button" :data-group-id="group.id" :aria-selected="accountGroup === String(group.id)" :class="{ active: accountGroup === String(group.id) }" @click="accountGroup = String(group.id)">{{ group.name }}</TabButton>
             </div>
             <div class="account-picker-list" role="listbox" :aria-label="t('tokenGuardV2.selectAccount')">
               <button v-for="account in selectableAccounts" :key="account.id" type="button" role="option" :data-account-id="account.id" :aria-selected="draft.account_id === account.id" :class="{ selected: draft.account_id === account.id }" @click="selectAccount(account)">
@@ -183,32 +183,32 @@
             </div>
           </div>
           <div v-else class="selected-account"><span>{{ t('tokenGuardV2.account') }}</span><strong>{{ editing.account_name }} (#{{ editing.account_id }})</strong></div>
-          <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<input v-model.trim="draft.login_email" class="input w-full" type="email" required /></label>
+          <label class="field-label">{{ t('tokenGuardV2.loginEmail') }}<FormInput v-model.trim="draft.login_email" class="w-full" type="email" required /></label>
           <label class="field-label">{{ t('tokenGuardV2.loginProxy') }}
-            <select id="token-guard-v2-proxy" v-model="proxyChoice" :disabled="editorEngine === 'session_studio'" class="input w-full">
+            <FormSelect id="token-guard-v2-proxy" v-model="proxyChoice" :disabled="editorEngine === 'session_studio'" class="w-full">
               <option value="account">{{ t('tokenGuardV2.accountProxyDefault') }}</option>
               <option value="mihomo">{{ t('tokenGuardV2.mihomoManagedPool') }}</option>
               <option v-for="proxy in proxies" :key="proxy.id" :value="`proxy:${proxy.id}`">{{ proxyOptionLabel(proxy) }}</option>
-            </select>
+            </FormSelect>
             <small class="field-hint">{{ t('tokenGuardV2.loginProxyHint') }}</small>
           </label>
           <fieldset class="mode-grid">
             <legend>{{ t('tokenGuardV2.loginMode') }}</legend>
-            <label class="mode-option"><input v-model="draft.credential_mode" type="radio" value="password_totp" /><span><strong>{{ t('tokenGuardV2.passwordMode') }}</strong><small>{{ t('tokenGuardV2.passwordModeHint') }}</small></span></label>
-            <label class="mode-option"><input v-model="draft.credential_mode" type="radio" value="email_otp_url" /><span><strong>{{ t('tokenGuardV2.mailboxMode') }}</strong><small>{{ t('tokenGuardV2.mailboxModeHint') }}</small></span></label>
+            <label class="mode-option"><FormInput v-model="draft.credential_mode" type="radio" value="password_totp" /><span><strong>{{ t('tokenGuardV2.passwordMode') }}</strong><small>{{ t('tokenGuardV2.passwordModeHint') }}</small></span></label>
+            <label class="mode-option"><FormInput v-model="draft.credential_mode" type="radio" value="email_otp_url" /><span><strong>{{ t('tokenGuardV2.mailboxMode') }}</strong><small>{{ t('tokenGuardV2.mailboxModeHint') }}</small></span></label>
           </fieldset>
           <template v-if="draft.credential_mode === 'password_totp'">
-            <label class="field-label">{{ t('tokenGuardV2.password') }}<input v-model="draft.password" class="input w-full" type="password" :placeholder="editing?.login_config?.password_configured ? t('tokenGuardV2.keepSecret') : ''" :required="!editing?.login_config?.password_configured" autocomplete="new-password" /></label>
-            <label class="field-label">{{ t('tokenGuardV2.totpSecret') }}<input v-model.trim="draft.totp_secret" class="input w-full" type="password" :placeholder="editing?.login_config?.totp_configured ? t('tokenGuardV2.keepSecret') : t('tokenGuardV2.totpOptionalHint')" autocomplete="off" /></label>
-            <label v-if="editing?.login_config?.totp_configured" class="check-row"><input v-model="draft.clear_totp" type="checkbox" />{{ t('tokenGuardV2.clearTotp') }}</label>
+            <label class="field-label">{{ t('tokenGuardV2.password') }}<FormInput v-model="draft.password" class="w-full" type="password" :placeholder="editing?.login_config?.password_configured ? t('tokenGuardV2.keepSecret') : ''" :required="!editing?.login_config?.password_configured" autocomplete="new-password" /></label>
+            <label class="field-label">{{ t('tokenGuardV2.totpSecret') }}<FormInput v-model.trim="draft.totp_secret" class="w-full" type="password" :placeholder="editing?.login_config?.totp_configured ? t('tokenGuardV2.keepSecret') : t('tokenGuardV2.totpOptionalHint')" autocomplete="off" /></label>
+            <label v-if="editing?.login_config?.totp_configured" class="check-row"><FormInput v-model="draft.clear_totp" type="checkbox" />{{ t('tokenGuardV2.clearTotp') }}</label>
           </template>
-          <label v-else class="field-label">{{ t('tokenGuardV2.otpUrl') }}<input v-model.trim="draft.otp_url" class="input w-full" type="url" :placeholder="editing?.login_config?.otp_url_masked ? `${editing.login_config.otp_url_masked} · ${t('tokenGuardV2.keepSecret')}` : 'https://mail.example.com/latest'" :required="editing?.login_config?.credential_mode !== 'email_otp_url' || !editing?.login_config?.otp_url_masked" /></label>
+          <label v-else class="field-label">{{ t('tokenGuardV2.otpUrl') }}<FormInput v-model.trim="draft.otp_url" class="w-full" type="url" :placeholder="editing?.login_config?.otp_url_masked ? `${editing.login_config.otp_url_masked} · ${t('tokenGuardV2.keepSecret')}` : 'https://mail.example.com/latest'" :required="editing?.login_config?.credential_mode !== 'email_otp_url' || !editing?.login_config?.otp_url_masked" /></label>
 
 
         </form>
         <template #footer>
-          <button type="button" class="btn btn-secondary" :disabled="mutationBusy" @click="closeEditor">{{ t('tokenGuardV2.cancel') }}</button>
-          <button type="submit" form="token-guard-v2-editor" class="btn btn-primary" :disabled="mutationBusy || !draft.account_id || !encryptionReady">{{ saving ? t('tokenGuardV2.saving') : t('tokenGuardV2.save') }}</button>
+          <BaseButton type="button" class="btn-secondary" :disabled="mutationBusy" @click="closeEditor">{{ t('tokenGuardV2.cancel') }}</BaseButton>
+          <BaseButton type="submit" form="token-guard-v2-editor" class="btn-primary" :disabled="mutationBusy || !draft.account_id || !encryptionReady">{{ saving ? t('tokenGuardV2.saving') : t('tokenGuardV2.save') }}</BaseButton>
         </template>
       </BaseDialog>
     </div>
@@ -216,6 +216,12 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import CredentialOperationFailureView from '@/components/account/CredentialOperationFailure.vue'
 import { probeOperationFailure, taskOperationFailure, safeDiagnosticToken } from '@/utils/credentialOperationFailure'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
@@ -732,9 +738,6 @@ tbody tr:hover { @apply bg-gray-50/70 dark:bg-dark-800/50; }
 .mode-option input,.toggle-row input,.check-row input { @apply mt-1 rounded text-primary-600; }
 .mode-option strong,.toggle-row strong { @apply block text-sm font-medium; }
 .mode-option small,.toggle-row small { @apply mt-1 block text-xs leading-5 text-gray-400; }
-.automation-switch { @apply relative h-5 w-9 shrink-0 cursor-pointer appearance-none rounded-full border-0 bg-gray-300 transition-colors checked:bg-primary-600 disabled:cursor-wait dark:bg-dark-600 dark:checked:bg-primary-500; }
-.automation-switch::after { content:''; @apply absolute left-0.5 top-0.5 h-4 w-4 rounded-full bg-white shadow transition-transform; }
-.automation-switch:checked::after { @apply translate-x-4; }
 .check-row { @apply flex items-center gap-2 text-xs text-gray-500; }
 .error-banner { @apply mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-300; }
 .success-banner { @apply mb-4 rounded-xl bg-emerald-50 p-3 text-sm text-emerald-700 dark:bg-emerald-950/30 dark:text-emerald-300; }

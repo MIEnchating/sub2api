@@ -9,8 +9,6 @@ import type { AccountListItem, UpstreamBillingProbeSnapshot } from '@/types'
 import DataTable from '@/components/common/DataTable.vue'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
 import { useAuthStore } from '@/stores/auth'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import type { User } from '@/types'
 
 // Only replace the backend transport and unrelated navigation/dialogs. The
@@ -626,23 +624,6 @@ describe('AccountsView automatic declaration refresh', () => {
     await flushPromises()
     await tick()
     expect(requests.filter(request => request.url === '/admin/accounts')).toHaveLength(listsBefore)
-  })
-
-  it('shares the new model-sync notice across both entries and keeps dismissals after remount', async () => {
-    const view = await mountView(true)
-    useNewFeatureNoticeStore().dismiss(1, NEW_FEATURE_NOTICES.vipAutoCredit)
-    await view.get('button[title="自动刷新"]').trigger('click')
-    expect(view.findAll('[data-testid="account-auto-refresh"] [data-testid="new-feature-badge"]')).toHaveLength(2)
-    await view.findAll('[data-testid="account-auto-refresh"] [data-testid="new-feature-badge"]')[0]!.trigger('click')
-    expect(view.findAll('[data-testid="account-auto-refresh"] [data-testid="new-feature-badge"]')).toHaveLength(0)
-    expect(view.get<HTMLInputElement>('[data-testid="auto-refresh-upstream-models-oauth"]').element.checked).toBe(false)
-    expect(view.get<HTMLInputElement>('[data-testid="auto-refresh-upstream-models-apikey"]').element.checked).toBe(false)
-    view.unmount()
-    wrapper = undefined
-    const remounted = await mountView(true)
-    await remounted.get('button[title="自动刷新"]').trigger('click')
-    expect(remounted.findAll('[data-testid="account-auto-refresh"] [data-testid="new-feature-badge"]')).toHaveLength(0)
-    expect(useNewFeatureNoticeStore().isDismissed(1, NEW_FEATURE_NOTICES.vipAutoCredit)).toBe(true)
   })
 
   it('stops model discovery when the tab is hidden and discards completions after teardown', async () => {

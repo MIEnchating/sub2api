@@ -262,6 +262,9 @@ func NewAccountService(accountRepo AccountRepository, groupRepo GroupRepository)
 
 // Create 创建账号
 func (s *AccountService) Create(ctx context.Context, req CreateAccountRequest) (*Account, error) {
+	if err := rejectRetiredAccountProxyConfig(req.ProxyIDs, req.Extra); err != nil {
+		return nil, err
+	}
 	if req.RateLimit429RetryCount != nil {
 		if err := ValidateRateLimit429RetryCount(*req.RateLimit429RetryCount); err != nil {
 			return nil, err
@@ -394,6 +397,13 @@ func (s *AccountService) Update(ctx context.Context, id int64, req UpdateAccount
 	var requestedExtra map[string]any
 	if req.Extra != nil {
 		requestedExtra = *req.Extra
+	}
+	var requestedProxyIDs []int64
+	if req.ProxyIDs != nil {
+		requestedProxyIDs = *req.ProxyIDs
+	}
+	if err := rejectRetiredAccountProxyConfig(requestedProxyIDs, requestedExtra); err != nil {
+		return nil, err
 	}
 	ctx = withAccountExtraUpdateFields(ctx, requestedExtra)
 	account, err := s.accountRepo.GetByID(ctx, id)

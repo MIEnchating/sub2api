@@ -15,7 +15,7 @@
         </p>
       </div>
       <div class="flex w-full min-w-0 flex-wrap items-center justify-end gap-2 text-xs text-gray-500 dark:text-gray-400 sm:w-auto">
-        <span class="badge badge-gray shrink-0">{{ bucketLabel }}</span>
+        <StatusBadge class="badge-gray shrink-0">{{ bucketLabel }}</StatusBadge>
         <span class="hidden text-[11px] text-gray-400 dark:text-dark-400 sm:inline">{{ t('channelMonitorV2.matrix.wheelZoomX') }}</span>
         <button
           type="button"
@@ -172,6 +172,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { formatMonitorCacheRate } from '@/features/channel-monitor-v2/monitorFormat'
 import { useI18n } from 'vue-i18n'
 import { computed, reactive, ref, watch } from 'vue'

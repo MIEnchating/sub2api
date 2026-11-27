@@ -12,10 +12,11 @@
     </div>
     <p v-if="webhookCount >= 5" class="mt-4 text-xs text-gray-500">{{ t('accountOps.robotLimitReached') }}</p>
     <p v-else-if="!encryptionConfigured" class="mt-4 text-xs text-amber-700">{{ t('accountOps.encryptionMissing') }}</p>
-    <template #footer><button type="button" class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button></template>
+    <template #footer><BaseButton type="button" class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</BaseButton></template>
   </BaseDialog>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'
 

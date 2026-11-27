@@ -20,11 +20,10 @@
           :aria-label="t('pelicanShowcase.title')"
           class="flex flex-wrap gap-1 self-start rounded-xl border border-gray-200/60 bg-gray-100 p-0.5 text-xs dark:border-dark-700/60 dark:bg-dark-800"
         >
-          <button
+          <TabButton
             v-for="tab in tabs"
             :key="tab.key"
             type="button"
-            role="tab"
             :aria-selected="activeGroup === tab.key"
             class="rounded-lg px-3 py-1 transition-colors"
             :class="activeGroup === tab.key
@@ -34,7 +33,7 @@
             @click="activeGroup = tab.key"
           >
             {{ tab.label }}<span v-if="tab.count !== undefined" class="ml-1 tabular-nums opacity-60">{{ tab.count }}</span>
-          </button>
+          </TabButton>
         </div>
         <div v-else class="hidden md:block" />
 
@@ -211,18 +210,18 @@
       </div>
       <template #footer>
         <div class="flex w-full items-center justify-between gap-3">
-          <button
+          <BaseButton
             v-if="isAdmin"
             type="button"
-            class="btn btn-danger"
+            class="btn-danger"
             :disabled="removing"
             data-testid="showcase-remove"
             @click="confirmingRemove = true"
           >
             {{ t('pelicanShowcase.remove') }}
-          </button>
+          </BaseButton>
           <span v-else />
-          <button type="button" class="btn btn-secondary" @click="closePreview">{{ t('common.close') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="closePreview">{{ t('common.close') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -240,6 +239,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

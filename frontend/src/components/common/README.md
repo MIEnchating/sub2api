@@ -2,6 +2,12 @@
 
 This directory contains reusable Vue 3 components built with Composition API, TypeScript, and TailwindCSS.
 
+## Form and layout primitives
+
+Use `FormInput`, `FormTextarea`, and `FormSelect` for native form controls. They keep attributes, browser validation, native events, and Vue model bindings on the underlying elements. Use `Input` and `TextArea` where the field also needs a label, hint, or validation message. Use `Toggle` for button-based switches, and `FormInput type="checkbox" role="switch"` when the switch needs native checkbox behavior.
+
+Use `BaseButton` with an existing `btn-*` variant for standard actions and `TabButton` for tab triggers. Use `BaseTable` for custom table markup and `DataTable` for data-driven sorting or responsive rows. The shared styles live in `src/style.css`.
+
 ## Components
 
 ### DataTable.vue
@@ -73,7 +79,7 @@ Pagination component with page numbers, navigation, and page size selector.
 
 ---
 
-### Modal.vue
+### BaseDialog.vue
 
 Modal dialog with customizable size and close behavior.
 
@@ -81,9 +87,9 @@ Modal dialog with customizable size and close behavior.
 
 - `show: boolean` - Control modal visibility
 - `title: string` - Modal title
-- `size?: 'sm' | 'md' | 'lg' | 'xl' | 'full'` - Modal size (default: 'md')
+- `width?: 'narrow' | 'normal' | 'wide' | 'extra-wide' | 'full'` - Dialog width (default: 'normal')
 - `closeOnEscape?: boolean` - Close on Escape key (default: true)
-- `closeOnClickOutside?: boolean` - Close on backdrop click (default: true)
+- `closeOnClickOutside?: boolean` - Close on backdrop click (default: false)
 
 **Events:**
 
@@ -97,7 +103,7 @@ Modal dialog with customizable size and close behavior.
 **Usage:**
 
 ```vue
-<Modal :show="showModal" title="Edit User" size="lg" @close="showModal = false">
+<BaseDialog :show="showModal" title="Edit User" width="wide" @close="showModal = false">
   <form @submit.prevent="saveUser">
     <!-- Form content -->
   </form>
@@ -106,14 +112,14 @@ Modal dialog with customizable size and close behavior.
     <button @click="showModal = false">Cancel</button>
     <button @click="saveUser">Save</button>
   </template>
-</Modal>
+</BaseDialog>
 ```
 
 ---
 
 ### ConfirmDialog.vue
 
-Confirmation dialog built on top of Modal component.
+Confirmation dialog built on top of BaseDialog.
 
 **Props:**
 

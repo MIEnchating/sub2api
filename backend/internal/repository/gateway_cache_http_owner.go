@@ -48,6 +48,37 @@ if legacy[1] == false or legacy[2] == false then return {} end
 return {'legacy', legacy[1], legacy[2]}
 `)
 
+var bindHTTPResponseRouteScript = redis.NewScript(`
+local record = redis.call('GET', KEYS[1])
+local user = redis.call('GET', KEYS[2])
+local key = redis.call('GET', KEYS[3])
+local account = redis.call('GET', KEYS[4])
+if account and account ~= ARGV[4] then return 0 end
+if user or key or record then
+    if user ~= ARGV[2] or not key then return 0 end
+    if record and record ~= 'v1:' .. user .. ':' .. key then return 0 end
+end
+redis.call('SET', KEYS[1], ARGV[1], 'PX', ARGV[5])
+redis.call('SET', KEYS[2], ARGV[2], 'PX', ARGV[5])
+redis.call('SET', KEYS[3], ARGV[3], 'PX', ARGV[5])
+redis.call('SET', KEYS[4], ARGV[4], 'PX', ARGV[5])
+return 1
+`)
+
+func (c *gatewayCache) BindHTTPResponseRoute(ctx context.Context, groupID int64, responseID, accountKey string, userID, apiKeyID, accountID int64, ttl time.Duration) error {
+	if c == nil || c.rdb == nil || groupID < 0 || responseID == "" || accountKey == "" || userID <= 0 || apiKeyID <= 0 || accountID <= 0 || ttl < time.Millisecond {
+		return errHTTPResponseOwnerUnavailable
+	}
+	user, key := strconv.FormatInt(userID, 10), strconv.FormatInt(apiKeyID, 10)
+	keys := append(httpResponseOwnerKeys(groupID, responseID), buildSessionKey(groupID, accountKey))
+	bound, err := bindHTTPResponseRouteScript.Run(ctx, c.rdb, keys, "v1:"+user+":"+key,
+		user, key, accountID, ttl.Milliseconds()).Bool()
+	if err != nil || !bound {
+		return errHTTPResponseOwnerUnavailable
+	}
+	return nil
+}
+
 func (c *gatewayCache) SetHTTPResponseOwner(ctx context.Context, groupID int64, responseID string, userID, apiKeyID int64, ttl time.Duration) error {
 	if c == nil || c.rdb == nil || groupID < 0 || strings.TrimSpace(responseID) == "" || userID <= 0 || apiKeyID <= 0 || ttl < time.Millisecond {
 		return errHTTPResponseOwnerUnavailable

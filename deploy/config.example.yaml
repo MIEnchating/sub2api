@@ -502,6 +502,8 @@ gateway:
   # ChatGPT Frameless Live 单会话硬上限（秒）。
   live:
     max_session_duration_seconds: 3600
+  # 新建 OpenAI OAuth 账号后运行 Tibo，后续随额度扫描复测。结果仅用于诊断。
+  openai_tibo_probe_enabled: true
   # OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
   openai_ws:
     # 新版 WS mode 路由（默认关闭）。关闭时忽略账号级 WS mode（包括 http_bridge），保持 legacy ctx_pool 行为。

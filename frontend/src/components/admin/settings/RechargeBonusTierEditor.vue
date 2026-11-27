@@ -11,16 +11,16 @@
             {{ t('admin.settings.payment.rechargeBonus.hint') }}
           </p>
         </div>
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-primary btn-sm shrink-0"
+          class="btn-primary btn-sm shrink-0"
           :disabled="tiers.length >= MAX_RECHARGE_BONUS_TIERS"
           data-testid="recharge-bonus-tier-add"
           @click="addTier"
         >
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('admin.settings.payment.rechargeBonus.addTier') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
 
@@ -84,12 +84,12 @@
             class="grid grid-cols-[minmax(0,1fr)_minmax(0,1fr)_2rem] items-center gap-3 px-3 py-2"
             data-testid="recharge-bonus-tier-row"
           >
-            <input
+            <FormInput
               :value="tier.min_amount ?? ''"
               type="number"
               step="0.01"
               min="0"
-              class="input py-2"
+              class="py-2"
               placeholder="100"
               data-testid="recharge-bonus-tier-min-input"
               @input="onMinAmountInput(index, $event)"
@@ -159,14 +159,13 @@
         <label class="input-label">
           {{ t('admin.settings.payment.rechargeBonus.noticeLabel') }}
         </label>
-        <textarea
+        <FormTextarea
           :value="notice ?? ''"
           rows="3"
-          class="input"
           :placeholder="t('admin.settings.payment.rechargeBonus.noticePlaceholder')"
           data-testid="recharge-bonus-notice-input"
           @input="emit('update:notice', ($event.target as HTMLTextAreaElement).value)"
-        ></textarea>
+        ></FormTextarea>
         <p class="mt-1 text-xs text-gray-400">
           {{ t('admin.settings.payment.rechargeBonus.noticeHint') }}
         </p>
@@ -176,6 +175,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 

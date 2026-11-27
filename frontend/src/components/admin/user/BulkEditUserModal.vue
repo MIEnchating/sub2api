@@ -22,14 +22,13 @@
               data-test="enable-concurrency"
             />
           </div>
-          <input
+          <FormInput
             v-if="enableConcurrency"
             id="bulk-concurrency"
             v-model="concurrencyValue"
             type="number"
             min="0"
             step="1"
-            class="input"
             data-test="concurrency-input"
           />
         </div>
@@ -46,13 +45,12 @@
             />
           </div>
           <div v-if="enableRPMLimit">
-            <input
+            <FormInput
               id="bulk-rpm-limit"
               v-model="rpmLimitValue"
               type="number"
               min="0"
               step="1"
-              class="input"
               data-test="rpm-limit-input"
             />
             <p v-if="parsedRPMLimit === 0" class="input-hint">
@@ -72,24 +70,26 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" @click="emit('close')">
+        <BaseButton type="button" class="btn-secondary" @click="emit('close')">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="submit"
           form="bulk-edit-user-limits-form"
-          class="btn btn-primary"
+          class="btn-primary"
           :disabled="!canSubmit"
           data-test="submit"
         >
           {{ submitting ? t('admin.users.bulkLimits.applying') : t('admin.users.bulkLimits.apply') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

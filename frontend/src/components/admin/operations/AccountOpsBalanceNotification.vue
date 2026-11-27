@@ -2,7 +2,7 @@
   <div class="mt-2 text-xs text-gray-500">
     <div class="flex items-start gap-2">
       <label class="flex items-start gap-2" :title="t('accountOps.accountBalanceNotificationHint')">
-        <input :checked="enabled" type="checkbox" :disabled="busy || disabled" :data-testid="`balance-notification-${account.account_id}`" @change="save($event)" />
+        <FormInput :checked="enabled" type="checkbox" :disabled="busy || disabled" :data-testid="`balance-notification-${account.account_id}`" @change="save($event)" />
         <span>{{ account.account_name }} · {{ t('accountOps.accountBalanceNotification') }}</span>
       </label>
       <NewFeatureBadge v-if="userId != null" :notice-id="NEW_FEATURE_NOTICES.accountOpsBalanceNotification" :user-id="userId" />
@@ -11,6 +11,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'

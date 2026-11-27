@@ -3,12 +3,13 @@
     <p class="text-sm text-gray-600 dark:text-gray-400">{{ text('订阅、动态代理、地区规则与节点统一在 IP 管理中维护。', 'Manage subscriptions, dynamic proxies, region rules and nodes in IP Management.') }}</p>
     <div class="flex flex-wrap gap-2">
       <router-link to="/admin/proxies#subscriptions" class="btn btn-secondary">{{ text('前往 IP 管理', 'Open IP Management') }}</router-link>
-      <button type="button" class="btn btn-secondary" :disabled="pending" @click="select">{{ text('设为打票代理', 'Use for ticket harvesting') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="pending" @click="select">{{ text('设为打票代理', 'Use for ticket harvesting') }}</BaseButton>
     </div>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref } from 'vue'
 import { useAppStore } from '@/stores/app'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'

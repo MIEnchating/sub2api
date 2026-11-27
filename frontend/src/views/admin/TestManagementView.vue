@@ -3,10 +3,10 @@
     <div class="space-y-5">
       <header class="flex flex-wrap items-center justify-between gap-3">
         <div><h2 class="text-xl font-semibold text-gray-900 dark:text-white">{{ t('admin.tests.title') }}</h2><p class="mt-1 text-sm text-gray-500">{{ t('admin.tests.experience.activeHint') }}</p></div>
-        <button class="btn btn-secondary" @click="refresh"><Icon name="refresh" size="sm" />{{ t('common.refresh') }}</button>
+        <BaseButton class="btn-secondary" @click="refresh"><Icon name="refresh" size="sm" />{{ t('common.refresh') }}</BaseButton>
       </header>
       <nav class="flex gap-1 overflow-x-auto border-b border-gray-200 pb-2 dark:border-dark-700" role="tablist" :aria-label="t('admin.tests.title')">
-        <button v-for="tab in tabs" :key="tab.key" type="button" role="tab" :data-quality-section="tab.key" :aria-selected="activeTab === tab.key" class="shrink-0 rounded-lg px-4 py-2 text-sm font-medium" :class="activeTab === tab.key ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-dark-800'" @click="navigate(tab.key)">{{ t(tab.label) }}</button>
+        <TabButton v-for="tab in tabs" :key="tab.key" type="button" :data-quality-section="tab.key" :aria-selected="activeTab === tab.key" class="shrink-0 rounded-lg px-4 py-2 text-sm font-medium" :class="activeTab === tab.key ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300' : 'text-gray-500 hover:bg-gray-50 dark:hover:bg-dark-800'" @click="navigate(tab.key)">{{ t(tab.label) }}</TabButton>
       </nav>
       <ActiveQualityPanel v-show="activeTab === 'plans' || activeTab === 'types'" ref="active" :tab="activeTab" @catalog="setCatalog" />
       <QualityOperationsPanel v-if="activeTab === 'operations'" ref="operations" :visible="true" :accounts="accounts" />
@@ -14,6 +14,8 @@
   </AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

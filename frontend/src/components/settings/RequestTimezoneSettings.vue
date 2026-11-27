@@ -9,15 +9,16 @@
     </div>
     <div v-if="modelValue" class="space-y-2">
       <label for="request-timezone-mode" class="block text-sm font-medium">{{ t('admin.settings.gatewayForwarding.requestTimezoneMode') }}</label>
-      <select id="request-timezone-mode" class="input" :value="auto ? 'auto' : 'manual'" @change="$emit('update:auto', ($event.target as HTMLSelectElement).value === 'auto')">
+      <FormSelect id="request-timezone-mode" :value="auto ? 'auto' : 'manual'" @change="$emit('update:auto', ($event.target as HTMLSelectElement).value === 'auto')">
         <option value="manual">{{ t('admin.settings.gatewayForwarding.requestTimezoneManual') }}</option>
         <option value="auto">{{ t('admin.settings.gatewayForwarding.requestTimezoneAuto') }}</option>
-      </select>
+      </FormSelect>
       <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.settings.gatewayForwarding.requestTimezoneModeDesc') }}</p>
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import FormSelect from '@/components/common/FormSelect.vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
 defineProps<{ modelValue: boolean; auto?: boolean }>()

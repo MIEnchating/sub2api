@@ -12,12 +12,12 @@
           <RouterLink to="/pelican-showcase" class="btn btn-secondary inline-flex items-center gap-2">
             <Icon name="eye" size="sm" />{{ t('pelicanTests.viewShowcase') }}
           </RouterLink>
-          <button class="btn btn-secondary inline-flex items-center gap-2" :disabled="loading" @click="load">
+          <BaseButton class="btn-secondary inline-flex items-center gap-2" :disabled="loading" @click="load">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />{{ t('pelicanTests.refresh') }}
-          </button>
-          <button class="btn btn-primary inline-flex items-center gap-2" data-testid="pelican-tests-create" @click="openEditor()">
+          </BaseButton>
+          <BaseButton class="btn-primary inline-flex items-center gap-2" data-testid="pelican-tests-create" @click="openEditor()">
             <Icon name="plus" size="sm" />{{ t('pelicanTests.create') }}
-          </button>
+          </BaseButton>
         </div>
       </header>
 
@@ -51,7 +51,7 @@
               </button>
               <label class="field-label" for="pelican-showcase-max-items">{{ t('pelicanTests.showcase.maxItems') }}</label>
               <div class="relative">
-                <input id="pelican-showcase-max-items" v-model.number="draft.max_items" type="number" min="1" max="100" required class="input w-full pr-12" data-testid="pelican-showcase-max-items" />
+                <FormInput id="pelican-showcase-max-items" v-model.number="draft.max_items" type="number" min="1" max="100" required class="w-full pr-12" data-testid="pelican-showcase-max-items" />
                 <span class="unit">{{ t('pelicanTests.showcase.maxItemsUnit') }}</span>
               </div>
               <p class="field-hint">{{ t('pelicanTests.showcase.maxItemsHint') }}</p>
@@ -62,16 +62,16 @@
               <template v-if="draft.auto_cleanup">
                 <label class="field-label" for="pelican-showcase-retention">{{ t('pelicanTests.showcase.retentionDays') }}</label>
                 <div class="relative">
-                  <input id="pelican-showcase-retention" v-model.number="draft.retention_days" type="number" min="1" max="90" required class="input w-full pr-12" data-testid="pelican-showcase-retention-days" />
+                  <FormInput id="pelican-showcase-retention" v-model.number="draft.retention_days" type="number" min="1" max="90" required class="w-full pr-12" data-testid="pelican-showcase-retention-days" />
                   <span class="unit">{{ t('pelicanTests.showcase.retentionDaysUnit') }}</span>
                 </div>
                 <p class="field-hint">{{ t('pelicanTests.showcase.retentionDaysHint') }}</p>
               </template>
               <div class="settings-actions">
                 <span>{{ settingsDirty ? t('pelicanTests.showcase.unsaved') : t('pelicanTests.showcase.savedState') }}</span>
-                <button class="btn btn-primary" :disabled="savingSettings || !settingsDirty" data-testid="pelican-showcase-save">
+                <BaseButton class="btn-primary" :disabled="savingSettings || !settingsDirty" data-testid="pelican-showcase-save">
                   {{ t(savingSettings ? 'pelicanTests.showcase.saving' : 'pelicanTests.showcase.save') }}
-                </button>
+                </BaseButton>
               </div>
             </fieldset>
           </form>
@@ -87,7 +87,7 @@
           <div v-else-if="!plans.length" class="empty-state">
             <Icon name="beaker" size="xl" />
             <p>{{ t('pelicanTests.plans.empty') }}</p>
-            <button class="btn btn-secondary" @click="openEditor()">{{ t('pelicanTests.create') }}</button>
+            <BaseButton class="btn-secondary" @click="openEditor()">{{ t('pelicanTests.create') }}</BaseButton>
           </div>
           <ul v-else class="plan-list">
             <li v-for="plan in plans" :key="plan.id" class="plan-row" :data-testid="`pelican-plan-${plan.id}`">
@@ -157,7 +157,7 @@
           <div><h3>{{ t('pelicanTests.history.title') }}</h3><p>{{ t('pelicanTests.history.hint') }}</p></div>
         </header>
         <div class="history-scroll">
-          <table>
+          <BaseTable>
             <thead>
               <tr>
                 <th>{{ t('pelicanTests.history.time') }}</th>
@@ -200,7 +200,7 @@
                 </td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
           <div v-if="resultsLoaded && !resultsLoading && !results.length" class="empty-state"><Icon name="document" size="xl" /><p>{{ t('pelicanTests.history.empty') }}</p></div>
         </div>
         <Pagination
@@ -240,7 +240,7 @@
         </div>
         <div>
           <label class="field-label mt-0" for="pelican-test-model">{{ t('pelicanTests.editor.model') }}</label>
-          <input id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="input w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
+          <FormInput id="pelican-test-model" v-model.trim="editor.form.model_id" maxlength="100" class="w-full" :placeholder="t('pelicanTests.editor.modelPlaceholder')" data-testid="pelican-test-model" />
           <p class="field-hint">{{ t('pelicanTests.editor.modelHint') }}</p>
         </div>
         <div>
@@ -249,7 +249,7 @@
             <button type="button" class="link-button text-xs" @click="editor.form.prompt = PELICAN_PROMPT">{{ t('pelicanTests.editor.resetPrompt') }}</button>
           </div>
           <PelicanPromptMode v-model="editor.form.prompt_mode" />
-          <textarea v-if="editor.form.prompt_mode !== 'random'" id="pelican-test-prompt" v-model="editor.form.prompt" rows="3" maxlength="32000" class="input w-full" data-testid="pelican-test-prompt" />
+          <FormTextarea v-if="editor.form.prompt_mode !== 'random'" id="pelican-test-prompt" v-model="editor.form.prompt" rows="3" maxlength="32000" class="w-full" data-testid="pelican-test-prompt" />
           <p class="field-hint">{{ t('pelicanTests.editor.promptHint') }}</p>
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
@@ -259,7 +259,7 @@
           </div>
           <div>
             <label class="field-label mt-0" for="pelican-test-parallel">{{ t('pelicanTests.editor.parallel') }}</label>
-            <input id="pelican-test-parallel" v-model.number="editor.form.parallel_count" type="number" min="1" max="8" class="input w-full" />
+            <FormInput id="pelican-test-parallel" v-model.number="editor.form.parallel_count" type="number" min="1" max="8" class="w-full" />
             <p class="field-hint">{{ t('pelicanTests.editor.parallelHint') }}</p>
           </div>
         </div>
@@ -268,7 +268,7 @@
           <Select v-model="editor.schedule" :options="scheduleOptions" :aria-label="t('pelicanTests.editor.schedule')" data-testid="pelican-test-schedule" />
           <template v-if="editor.schedule === 'custom'">
             <label class="field-label" for="pelican-test-cron">{{ t('pelicanTests.editor.cron') }}</label>
-            <input id="pelican-test-cron" v-model.trim="editor.form.cron_expression" class="input w-full font-mono" placeholder="*/30 * * * *" data-testid="pelican-test-cron" />
+            <FormInput id="pelican-test-cron" v-model.trim="editor.form.cron_expression" class="w-full font-mono" placeholder="*/30 * * * *" data-testid="pelican-test-cron" />
             <p class="field-hint">{{ t('pelicanTests.editor.cronHint') }}</p>
           </template>
         </div>
@@ -279,10 +279,10 @@
       </form>
       <template #footer>
         <div class="flex w-full justify-end gap-3">
-          <button type="button" class="btn btn-secondary" @click="editor = null">{{ t('pelicanTests.editor.cancel') }}</button>
-          <button type="submit" form="pelican-test-editor" class="btn btn-primary" :disabled="savingPlan" data-testid="pelican-test-save">
+          <BaseButton type="button" class="btn-secondary" @click="editor = null">{{ t('pelicanTests.editor.cancel') }}</BaseButton>
+          <BaseButton type="submit" form="pelican-test-editor" class="btn-primary" :disabled="savingPlan" data-testid="pelican-test-save">
             {{ t('pelicanTests.editor.save') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -310,7 +310,7 @@
       </div>
       <template #footer>
         <div class="flex w-full justify-end">
-          <button type="button" class="btn btn-secondary" @click="preview = null">{{ t('pelicanTests.history.close') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="preview = null">{{ t('pelicanTests.history.close') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -334,6 +334,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import PelicanPromptMode from '@/components/admin/account/PelicanPromptMode.vue'
 import PelicanQuestionSnapshot from '@/components/admin/account/PelicanQuestionSnapshot.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'

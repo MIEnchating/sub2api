@@ -2,12 +2,6 @@
   <details class="card" @toggle="onToggle">
     <summary class="cursor-pointer px-6 py-4 font-medium text-gray-900 dark:text-white">
       {{ t(`${prefix}.collectionTitle`) }}
-      <NewFeatureBadge
-        v-if="userId != null"
-        :notice-id="NEW_FEATURE_NOTICES.bepusdtPayment"
-        :user-id="userId"
-        class="ml-2 align-middle"
-      />
     </summary>
     <div class="space-y-6 border-t border-gray-100 p-6 dark:border-dark-700">
       <p class="text-sm text-gray-500 dark:text-gray-400">{{ t(`${prefix}.collectionHint`) }}</p>
@@ -17,31 +11,31 @@
         <section class="space-y-3">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="font-medium">{{ t(`${prefix}.wallets`) }}</h3>
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="resetWallet">{{ t(`${prefix}.addWallet`) }}</button>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="resetWallet">{{ t(`${prefix}.addWallet`) }}</BaseButton>
           </div>
           <div v-for="wallet in wallets" :key="wallet.id" class="flex flex-wrap items-center gap-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <div class="min-w-0 flex-1">
               <p class="font-medium">{{ wallet.name || networkName(wallet.trade_type) }} · {{ networkName(wallet.trade_type) }} · {{ t(wallet.status === 1 ? 'common.enabled' : 'common.disabled') }}</p>
               <p class="break-all font-mono text-xs text-gray-500">{{ wallet.address }}</p>
             </div>
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="editWallet(wallet)">{{ t('common.edit') }}</button>
-            <button type="button" class="btn btn-secondary text-red-600" :disabled="busy" @click="deleteTarget = wallet.id">{{ t('common.delete') }}</button>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="editWallet(wallet)">{{ t('common.edit') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary text-red-600" :disabled="busy" @click="deleteTarget = wallet.id">{{ t('common.delete') }}</BaseButton>
             <div v-if="deleteTarget === wallet.id" class="flex basis-full flex-wrap items-center gap-2">
               <span class="text-sm">{{ t(`${prefix}.deleteWalletConfirm`) }}</span>
-              <button type="button" class="btn btn-secondary" :disabled="busy" @click="run(() => bepusdtAPI.deleteWallet(wallet.id))">{{ t('common.confirm') }}</button>
-              <button type="button" class="btn btn-secondary" @click="deleteTarget = null">{{ t('common.cancel') }}</button>
+              <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="run(() => bepusdtAPI.deleteWallet(wallet.id))">{{ t('common.confirm') }}</BaseButton>
+              <BaseButton type="button" class="btn-secondary" @click="deleteTarget = null">{{ t('common.cancel') }}</BaseButton>
             </div>
           </div>
           <p v-if="wallets.length === 0" class="text-sm text-gray-500">{{ t(`${prefix}.noWallets`) }}</p>
           <div class="grid gap-3 rounded-lg bg-gray-50 p-4 dark:bg-dark-800 md:grid-cols-2">
-            <div><label for="bepusdt-wallet-name" class="input-label">{{ t(`${prefix}.walletName`) }}</label><input id="bepusdt-wallet-name" v-model="walletForm.name" class="input" :disabled="busy" /></div>
-            <div><label for="bepusdt-wallet-network" class="input-label">{{ t(`${prefix}.walletNetwork`) }}</label><select id="bepusdt-wallet-network" v-model="walletForm.trade_type" class="input" :disabled="busy"><option v-for="network in BEPUSDT_TRADE_TYPES" :key="network.value" :value="network.value">{{ network.label }}</option></select></div>
-            <div class="md:col-span-2"><label for="bepusdt-wallet-address" class="input-label">{{ t(`${prefix}.walletAddress`) }}</label><input id="bepusdt-wallet-address" v-model="walletForm.address" class="input font-mono" :disabled="busy" autocomplete="off" /></div>
-            <div><label for="bepusdt-wallet-remark" class="input-label">{{ t(`${prefix}.walletRemark`) }}</label><input id="bepusdt-wallet-remark" v-model="walletForm.remark" class="input" :disabled="busy" /></div>
-            <label class="flex items-center gap-2"><input v-model="walletEnabled" type="checkbox" :disabled="busy" />{{ t('common.enabled') }}</label>
+            <div><label for="bepusdt-wallet-name" class="input-label">{{ t(`${prefix}.walletName`) }}</label><FormInput id="bepusdt-wallet-name" v-model="walletForm.name" :disabled="busy" /></div>
+            <div><label for="bepusdt-wallet-network" class="input-label">{{ t(`${prefix}.walletNetwork`) }}</label><FormSelect id="bepusdt-wallet-network" v-model="walletForm.trade_type" :disabled="busy"><option v-for="network in BEPUSDT_TRADE_TYPES" :key="network.value" :value="network.value">{{ network.label }}</option></FormSelect></div>
+            <div class="md:col-span-2"><label for="bepusdt-wallet-address" class="input-label">{{ t(`${prefix}.walletAddress`) }}</label><FormInput id="bepusdt-wallet-address" v-model="walletForm.address" class="font-mono" :disabled="busy" autocomplete="off" /></div>
+            <div><label for="bepusdt-wallet-remark" class="input-label">{{ t(`${prefix}.walletRemark`) }}</label><FormInput id="bepusdt-wallet-remark" v-model="walletForm.remark" :disabled="busy" /></div>
+            <label class="flex items-center gap-2"><FormInput v-model="walletEnabled" type="checkbox" :disabled="busy" />{{ t('common.enabled') }}</label>
             <div class="flex gap-2 md:col-span-2">
-              <button type="button" class="btn btn-primary" :disabled="busy || !walletForm.address.trim()" @click="saveWallet">{{ t('common.save') }}</button>
-              <button v-if="walletForm.id" type="button" class="btn btn-secondary" @click="resetWallet">{{ t('common.cancel') }}</button>
+              <BaseButton type="button" class="btn-primary" :disabled="busy || !walletForm.address.trim()" @click="saveWallet">{{ t('common.save') }}</BaseButton>
+              <BaseButton v-if="walletForm.id" type="button" class="btn-secondary" @click="resetWallet">{{ t('common.cancel') }}</BaseButton>
             </div>
           </div>
         </section>
@@ -50,21 +44,21 @@
           <p class="text-xs text-gray-500">{{ t(`${prefix}.nodesHint`) }}</p>
           <div class="grid gap-3 md:grid-cols-2">
             <div v-for="node in nodes" :key="node.key">
-              <label class="input-label">{{ node.label }}</label><input v-model="settings[node.key]" class="input font-mono text-xs" :disabled="busy" />
+              <label class="input-label">{{ node.label }}</label><FormInput v-model="settings[node.key]" class="font-mono text-xs" :disabled="busy" />
             </div>
             <div v-for="secret in secrets" :key="secret.key">
-              <label class="input-label">{{ secret.label }}</label><input v-model="settings[secret.key]" type="password" class="input" :disabled="busy" autocomplete="new-password" :placeholder="secretConfigured[secret.key] ? t('admin.accounts.leaveEmptyToKeep') : ''" />
+              <label class="input-label">{{ secret.label }}</label><FormInput v-model="settings[secret.key]" type="password" :disabled="busy" autocomplete="new-password" :placeholder="secretConfigured[secret.key] ? t('admin.accounts.leaveEmptyToKeep') : ''" />
             </div>
-            <div><label class="input-label">{{ t(`${prefix}.rateSource`) }}</label><input v-model="settings.rate_sync_coingecko_api_url" class="input" :disabled="busy" /></div>
-            <div><label class="input-label">{{ t(`${prefix}.rateInterval`) }}</label><input v-model="settings.rate_sync_interval" type="number" min="60" max="86400" class="input" :disabled="busy" /></div>
+            <div><label class="input-label">{{ t(`${prefix}.rateSource`) }}</label><FormInput v-model="settings.rate_sync_coingecko_api_url" :disabled="busy" /></div>
+            <div><label class="input-label">{{ t(`${prefix}.rateInterval`) }}</label><FormInput v-model="settings.rate_sync_interval" type="number" min="60" max="86400" :disabled="busy" /></div>
           </div>
-          <button type="button" class="btn btn-primary" :disabled="busy" @click="run(() => bepusdtAPI.saveSettings(settings))">{{ t('common.save') }}</button>
+          <BaseButton type="button" class="btn-primary" :disabled="busy" @click="run(() => bepusdtAPI.saveSettings(settings))">{{ t('common.save') }}</BaseButton>
         </section>
         <section class="space-y-3 border-t border-gray-200 pt-5 dark:border-dark-600">
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="font-medium">{{ t(`${prefix}.scanStatus`) }}</h3>
-            <button type="button" class="btn btn-secondary" :disabled="busy" data-testid="check-payment-nodes" @click="checkNodes">{{ t(`${prefix}.checkNodes`) }}</button>
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="run()">{{ t('common.refresh') }}</button>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" data-testid="check-payment-nodes" @click="checkNodes">{{ t(`${prefix}.checkNodes`) }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="run()">{{ t('common.refresh') }}</BaseButton>
           </div>
           <p class="text-xs text-gray-500">{{ t(`${prefix}.scanHint`) }}</p>
           <p v-if="Object.keys(stats).length === 0" class="text-sm text-gray-500">{{ t(`${prefix}.scanIdle`) }}</p>
@@ -84,15 +78,15 @@
         </section>
         <section class="space-y-3 border-t border-gray-200 pt-5 dark:border-dark-600">
           <div class="flex flex-wrap items-center justify-between gap-3">
-            <h3 class="font-medium">{{ t(`${prefix}.rates`) }}</h3><button type="button" class="btn btn-secondary" :disabled="busy" @click="run(bepusdtAPI.syncRates)">{{ t(`${prefix}.syncRates`) }}</button>
+            <h3 class="font-medium">{{ t(`${prefix}.rates`) }}</h3><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="run(bepusdtAPI.syncRates)">{{ t(`${prefix}.syncRates`) }}</BaseButton>
           </div>
           <p class="text-xs text-gray-500">{{ t(`${prefix}.ratesHint`) }}</p>
           <div class="grid gap-2 sm:grid-cols-3"><p v-for="rate in latestRates" :key="`${rate.crypto}:${rate.fiat}`" class="text-sm">1 {{ rate.crypto }} = {{ rate.rate }} {{ rate.fiat }}</p></div>
           <div class="flex flex-wrap items-end gap-3">
-            <div><label class="input-label">{{ t(`${prefix}.coin`) }}</label><select v-model="rateForm.crypto" class="input"><option v-for="coin in ['USDT', 'USDC', 'TRX', 'ETH', 'BNB', 'GRAM']" :key="coin">{{ coin }}</option></select></div>
-            <div><label class="input-label">{{ t(`${prefix}.fiat`) }}</label><select v-model="rateForm.fiat" class="input"><option v-for="fiat in ['CNY', 'USD', 'EUR', 'GBP', 'JPY']" :key="fiat">{{ fiat }}</option></select></div>
-            <div><label class="input-label">{{ t(`${prefix}.manualRate`) }}</label><input v-model="rateForm.rate" type="number" min="0" step="any" class="input" /></div>
-            <button type="button" class="btn btn-secondary" :disabled="busy || Number(rateForm.rate) <= 0" @click="run(() => bepusdtAPI.saveRate(rateForm.fiat, rateForm.crypto, rateForm.rate))">{{ t('common.save') }}</button>
+            <div><label class="input-label">{{ t(`${prefix}.coin`) }}</label><FormSelect v-model="rateForm.crypto"><option v-for="coin in ['USDT', 'USDC', 'TRX', 'ETH', 'BNB', 'GRAM']" :key="coin">{{ coin }}</option></FormSelect></div>
+            <div><label class="input-label">{{ t(`${prefix}.fiat`) }}</label><FormSelect v-model="rateForm.fiat"><option v-for="fiat in ['CNY', 'USD', 'EUR', 'GBP', 'JPY']" :key="fiat">{{ fiat }}</option></FormSelect></div>
+            <div><label class="input-label">{{ t(`${prefix}.manualRate`) }}</label><FormInput v-model="rateForm.rate" type="number" min="0" step="any" /></div>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy || Number(rateForm.rate) <= 0" @click="run(() => bepusdtAPI.saveRate(rateForm.fiat, rateForm.crypto, rateForm.rate))">{{ t('common.save') }}</BaseButton>
           </div>
         </section>
       </template>
@@ -101,13 +95,13 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { bepusdtAPI, type CollectionConfig, type CryptoWallet, type CryptoRate } from '@/api/admin/bepusdt'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { BEPUSDT_TRADE_TYPES } from './providerConfig'
-defineProps<{ userId?: number | null }>()
 const { t } = useI18n()
 const prefix = 'admin.settings.payment'
 const loaded = ref(false)

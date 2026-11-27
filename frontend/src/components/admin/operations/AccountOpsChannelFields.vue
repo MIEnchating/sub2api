@@ -6,33 +6,33 @@
     <div v-for="hook in modelValue" :key="hook.id" class="space-y-4">
       <label class="block space-y-2 text-sm">
         <span>{{ t('accountOps.channelName') }}</span>
-        <input :value="hook.name ?? ''" type="text" maxlength="80" autocomplete="off" class="input w-full" :placeholder="t('accountOps.channelNamePlaceholder')" :data-testid="`account-ops-webhook-name-${hook.id}`" @input="patch(hook.id, { name: ($event.target as HTMLInputElement).value })" />
+        <FormInput :value="hook.name ?? ''" type="text" maxlength="80" autocomplete="off" class="w-full" :placeholder="t('accountOps.channelNamePlaceholder')" :data-testid="`account-ops-webhook-name-${hook.id}`" @input="patch(hook.id, { name: ($event.target as HTMLInputElement).value })" />
         <span class="block text-xs text-gray-500">{{ t('accountOps.channelNameHint') }}</span>
       </label>
       <div class="flex items-center justify-between gap-2">
         <label class="flex items-center gap-2 text-sm">
-          <input type="checkbox" :checked="hook.enabled" :data-testid="`account-ops-webhook-enabled-${hook.id}`" @change="patch(hook.id, { enabled: ($event.target as HTMLInputElement).checked })" />
+          <FormInput type="checkbox" :checked="hook.enabled" :data-testid="`account-ops-webhook-enabled-${hook.id}`" @change="patch(hook.id, { enabled: ($event.target as HTMLInputElement).checked })" />
           {{ t('accountOps.channelEnabled') }}
         </label>
         <button v-if="!single" type="button" class="text-xs text-red-600" :aria-label="t('accountOps.removeRobot')" @click="remove(hook.id)">{{ t('common.delete') }}</button>
       </div>
       <label class="block space-y-2 text-sm">
         <span>{{ t('accountOps.webhookUrl') }}</span>
-        <input v-model.trim="inputs[hook.id]!.url" type="password" autocomplete="new-password" spellcheck="false" class="input w-full" :disabled="!encryptionConfigured" :placeholder="hook.url_configured ? t('accountOps.retainCredential') : t('accountOps.webhookPlaceholder')" :data-testid="`account-ops-webhook-url-${hook.id}`" />
+        <FormInput v-model.trim="inputs[hook.id]!.url" type="password" autocomplete="new-password" spellcheck="false" class="w-full" :disabled="!encryptionConfigured" :placeholder="hook.url_configured ? t('accountOps.retainCredential') : t('accountOps.webhookPlaceholder')" :data-testid="`account-ops-webhook-url-${hook.id}`" />
       </label>
       <p v-if="inputs[hook.id]!.url || hook.url_configured" class="text-xs text-gray-500">{{ t('accountOps.detectedWebhook', { provider: t(`accountOps.providers.${detectedProvider(hook)}`) }) }}</p>
       <label v-if="supportsSigning(hook)" class="block space-y-2 text-sm">
         <span>{{ t('accountOps.signingSecret') }}</span>
-        <input v-model="inputs[hook.id]!.secret" type="password" autocomplete="new-password" spellcheck="false" class="input w-full" :disabled="!encryptionConfigured || inputs[hook.id]!.clearSecret" :placeholder="hook.secret_configured && !inputs[hook.id]!.url ? t('accountOps.retainCredential') : t('accountOps.optionalSecret')" :data-testid="`account-ops-webhook-secret-${hook.id}`" />
+        <FormInput v-model="inputs[hook.id]!.secret" type="password" autocomplete="new-password" spellcheck="false" class="w-full" :disabled="!encryptionConfigured || inputs[hook.id]!.clearSecret" :placeholder="hook.secret_configured && !inputs[hook.id]!.url ? t('accountOps.retainCredential') : t('accountOps.optionalSecret')" :data-testid="`account-ops-webhook-secret-${hook.id}`" />
       </label>
       <label v-if="hook.secret_configured && supportsSigning(hook) && !inputs[hook.id]!.url" class="flex items-center gap-2 text-xs text-gray-500">
-        <input v-model="inputs[hook.id]!.clearSecret" type="checkbox" :data-testid="`account-ops-webhook-clear-secret-${hook.id}`" />{{ t('accountOps.clearSecret') }}
+        <FormInput v-model="inputs[hook.id]!.clearSecret" type="checkbox" :data-testid="`account-ops-webhook-clear-secret-${hook.id}`" />{{ t('accountOps.clearSecret') }}
       </label>
       <details v-if="detectedProvider(hook) === 'custom'" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600" :open="!!hook.message_template">
         <summary class="cursor-pointer text-sm font-medium">{{ t('accountOps.webhookTemplate') }}</summary>
         <div class="mt-3 space-y-3">
           <p class="text-xs leading-5 text-gray-500">{{ t('accountOps.webhookTemplateHint') }}</p>
-          <textarea v-model="inputs[hook.id]!.template" rows="5" maxlength="16384" spellcheck="false" class="input w-full font-mono text-xs" :aria-label="t('accountOps.webhookTemplate')" :placeholder="defaultTemplate" :data-testid="`account-ops-webhook-template-${hook.id}`" />
+          <FormTextarea v-model="inputs[hook.id]!.template" rows="5" maxlength="16384" spellcheck="false" class="w-full font-mono text-xs" :aria-label="t('accountOps.webhookTemplate')" :placeholder="defaultTemplate" :data-testid="`account-ops-webhook-template-${hook.id}`" />
           <p class="break-words font-mono text-xs text-gray-500">{{ templateVariables }}</p>
         </div>
       </details>
@@ -44,6 +44,8 @@
   </section>
 </template>
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onBeforeUnmount, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountOpsWebhook, AccountOpsWebhookInput, AccountOpsWebhookProvider } from '@/api/admin/accountOps'

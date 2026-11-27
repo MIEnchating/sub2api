@@ -90,11 +90,11 @@
           size="sm"
           class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-dark-500"
         />
-        <input
+        <FormInput
           :value="search"
           type="text"
           :placeholder="t('modelPlaza.filters.searchPlaceholder')"
-          class="input rounded-lg py-1.5 pl-9 pr-9"
+          class="rounded-lg py-1.5 pl-9 pr-9"
           @input="$emit('update:search', ($event.target as HTMLInputElement).value)"
         />
         <button
@@ -111,6 +111,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'

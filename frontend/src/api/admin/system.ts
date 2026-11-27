@@ -12,7 +12,7 @@ export interface ReleaseInfo {
 }
 
 export interface UpstreamVersionInfo {
-  id: 'official' | 'custom'
+  id: 'official' | 'custom' | 'ranxi'
   repository: string
   version?: string
   html_url: string

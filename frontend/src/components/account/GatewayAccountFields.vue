@@ -6,28 +6,30 @@
     </legend>
     <label class="block">
       <span class="input-label">{{ t('admin.accounts.gatewayProvider') }}</span>
-      <select v-model="kind" required class="input">
+      <FormSelect v-model="kind" required>
         <option value="sub2api">Sub2API</option>
         <option value="new_api">New API</option>
-      </select>
+      </FormSelect>
     </label>
     <label class="block">
       <span class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</span>
-      <input v-model.trim="baseUrl" required type="url" class="input" placeholder="https://relay.example.com" />
+      <FormInput v-model.trim="baseUrl" required type="url" placeholder="https://relay.example.com" />
     </label>
     <label class="block">
       <span class="input-label">API Key</span>
-      <input v-model.trim="apiKey" :required="!editing" type="password" autocomplete="new-password" class="input"
+      <FormInput v-model.trim="apiKey" :required="!editing" type="password" autocomplete="new-password"
         :placeholder="editing ? t('admin.accounts.leaveEmptyToKeep') : ''" />
     </label>
     <label v-if="kind === 'sub2api'" class="flex items-center gap-2">
-      <input v-model="probe" type="checkbox" />
+      <FormInput v-model="probe" type="checkbox" />
       {{ t('admin.accounts.upstreamBilling.autoProbe') }}
     </label>
   </fieldset>
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'

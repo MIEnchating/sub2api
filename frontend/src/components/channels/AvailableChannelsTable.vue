@@ -2,7 +2,7 @@
   <!-- .table-wrapper 是 TablePageLayout 滚动链的挂载点：外层 .table-scroll-container
        负责卡片外观并 overflow-hidden，本层接收 overflow-y-auto 才能在内容超高时滚动。 -->
   <div class="table-wrapper">
-    <table
+    <BaseTable
       data-testid="desktop-channels"
       class="!hidden w-full table-fixed border-collapse text-sm lg:!table"
     >
@@ -170,7 +170,7 @@
           </td>
         </tr>
       </tbody>
-    </table>
+    </BaseTable>
 
     <div data-testid="mobile-channels" class="w-full min-w-0 overflow-x-hidden lg:hidden">
       <div v-if="loading" data-testid="mobile-loading" class="py-10 text-center">
@@ -320,6 +320,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseTable from '@/components/common/BaseTable.vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'

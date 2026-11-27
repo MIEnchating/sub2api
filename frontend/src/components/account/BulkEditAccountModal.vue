@@ -43,7 +43,7 @@
               {{ t('admin.accounts.openai.excelBPSDesc') }}
             </p>
           </div>
-          <input v-model="enableExcelBPS" id="bulk-edit-excel-bps-enabled" type="checkbox"
+          <FormInput v-model="enableExcelBPS" id="bulk-edit-excel-bps-enabled" type="checkbox"
             aria-controls="bulk-edit-excel-bps-body"
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
         </div>
@@ -55,21 +55,21 @@
             :available="!authStore.isObserver" prefix="bulk-excel-bps" @toggle="bpsDefaults.toggle" />
           <div v-if="excelBPSEnabled" class="mt-3 space-y-3">
             <label class="flex items-center gap-2 text-sm">
-              <input v-model="excelBPSAllModels" type="checkbox" data-testid="bulk-excel-bps-all-models" />
+              <FormInput v-model="excelBPSAllModels" type="checkbox" data-testid="bulk-excel-bps-all-models" />
               <span>{{ t('admin.accounts.openai.excelBPSAllModels') }}</span>
             </label>
             <div v-if="!excelBPSAllModels" data-testid="bulk-excel-bps-model-selection">
               <label class="input-label">{{ t('admin.accounts.openai.excelBPSModels') }}</label>
               <ModelWhitelistSelector v-model="excelBPSModels" platform="openai" />
-              <button type="button" class="btn btn-secondary" data-testid="bulk-excel-bps-astra-only"
-                @click="excelBPSModels = ['gpt-6-astra']">{{ t('admin.accounts.openai.excelBPSAstraOnly') }}</button>
+              <BaseButton type="button" class="btn-secondary" data-testid="bulk-excel-bps-astra-only"
+                @click="excelBPSModels = ['gpt-6-astra']">{{ t('admin.accounts.openai.excelBPSAstraOnly') }}</BaseButton>
               <p class="input-hint">{{ t('admin.accounts.openai.excelBPSModelsHint') }}</p>
             </div>
             <p class="text-xs text-amber-600 dark:text-amber-400">{{ t('admin.accounts.openai.excelBPSNotice') }}</p>
             <ExcelBPSSearchOptions v-model:enabled="excelBPSWebSearch" v-model:automatic="excelBPSWebSearchAuto" />
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSOmitUnsupportedTools" type="checkbox"
+                <FormInput v-model="excelBPSOmitUnsupportedTools" type="checkbox"
                   data-testid="bulk-excel-bps-omit-unsupported-tools"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSOmitUnsupportedTools') }}</span>
@@ -78,7 +78,7 @@
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSIgnoreImages" type="checkbox"
+                <FormInput v-model="excelBPSIgnoreImages" type="checkbox"
                   data-testid="bulk-excel-bps-ignore-images"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreImages') }}</span>
@@ -87,7 +87,7 @@
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
+                <FormInput v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
                   data-testid="bulk-excel-bps-ignore-encrypted-content"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContent') }}</span>
@@ -96,7 +96,7 @@
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSAutoDisableOn403" type="checkbox"
+                <FormInput v-model="excelBPSAutoDisableOn403" type="checkbox"
                   data-testid="bulk-excel-bps-auto-disable-on-403"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoDisableOn403') }}</span>
@@ -105,7 +105,7 @@
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSAutoRecoverOn403" type="checkbox" :disabled="!excelBPSAutoDisableOn403"
+                <FormInput v-model="excelBPSAutoRecoverOn403" type="checkbox" :disabled="!excelBPSAutoDisableOn403"
                   data-testid="bulk-excel-bps-auto-recover-on-403"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 disabled:opacity-50" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoRecoverOn403') }}</span>
@@ -114,15 +114,15 @@
               <div v-if="excelBPSAutoRecoverOn403 && excelBPSAutoDisableOn403" class="mt-2">
                 <label class="block space-y-1">
                   <span class="text-sm">{{ t('admin.accounts.openai.excelBPS403RecoveryInterval') }}</span>
-                  <input v-model.number="excelBPSRecoveryIntervalMinutes" type="number" min="1" :max="MAX_BPS_RECOVERY_INTERVAL_MINUTES" step="1" required
-                    data-testid="bulk-excel-bps-recovery-interval" class="input w-40" />
+                  <FormInput v-model.number="excelBPSRecoveryIntervalMinutes" type="number" min="1" :max="MAX_BPS_RECOVERY_INTERVAL_MINUTES" step="1" required
+                    data-testid="bulk-excel-bps-recovery-interval" class="w-40" />
                 </label>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPS403RecoveryIntervalHint') }}</p>
               </div>
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSAutoMoveOn403" type="checkbox"
+                <FormInput v-model="excelBPSAutoMoveOn403" type="checkbox"
                   data-testid="bulk-excel-bps-auto-move-on-403"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoMoveOn403') }}</span>
@@ -137,7 +137,7 @@
             </div>
             <div class="mt-3">
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
+                <FormInput v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSMihomo') }}</span>
               </label>
@@ -146,13 +146,13 @@
                 :aria-label="t('admin.accounts.openai.excelBPSProxySource')">
                 <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSProxySource') }}</span>
                 <label class="flex items-center gap-1.5 text-sm">
-                  <input v-model="excelBPSProxySource" type="radio" value="mihomo"
+                  <FormInput v-model="excelBPSProxySource" type="radio" value="mihomo"
                     data-testid="bulk-excel-bps-proxy-source-mihomo"
                     class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                   {{ t('admin.accounts.openai.excelBPSProxySourceMihomo') }}
                 </label>
                 <label class="flex items-center gap-1.5 text-sm">
-                  <input v-model="excelBPSProxySource" type="radio" value="ip_pool"
+                  <FormInput v-model="excelBPSProxySource" type="radio" value="ip_pool"
                     data-testid="bulk-excel-bps-proxy-source-ip-pool"
                     class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                   {{ t('admin.accounts.openai.excelBPSProxySourceIPPool') }}
@@ -165,7 +165,7 @@
             </div>
             <div>
               <label class="flex items-center gap-2">
-                <input v-model="excelBPSCacheCreationAsInput" type="checkbox"
+                <FormInput v-model="excelBPSCacheCreationAsInput" type="checkbox"
                   data-testid="bulk-excel-bps-cache-creation-as-input"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
                 <span class="text-sm">{{ t('admin.accounts.openai.excelBPSCacheCreationAsInput') }}</span>
@@ -194,7 +194,7 @@
               {{ t('admin.accounts.openai.oauthPassthroughDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAIPassthrough"
             id="bulk-edit-openai-passthrough-enabled"
             type="checkbox"
@@ -208,22 +208,10 @@
           role="group"
           aria-labelledby="bulk-edit-openai-passthrough-label"
         >
-          <button
+          <Toggle
             id="bulk-edit-openai-passthrough-toggle"
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="openaiPassthroughEnabled = !openaiPassthroughEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openaiPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="openaiPassthroughEnabled"
+          />
         </div>
       </div>
 
@@ -245,7 +233,7 @@
               {{ t('admin.accounts.openai.passthroughModelFilterDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAIPassthroughModelFilter"
             id="bulk-edit-openai-passthrough-model-filter-enabled"
             type="checkbox"
@@ -260,7 +248,7 @@
           aria-labelledby="bulk-edit-openai-passthrough-model-filter-label"
         >
           <label class="flex items-center gap-2 text-sm">
-            <input
+            <FormInput
               v-model="openaiPassthroughModelFilterEnabled"
               type="checkbox"
               data-testid="bulk-openai-passthrough-model-filter"
@@ -291,7 +279,7 @@
               {{ t('admin.accounts.openai.flattenNamespacesDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAIFlattenNamespaces"
             id="bulk-edit-openai-flatten-namespaces-enabled"
             type="checkbox"
@@ -305,22 +293,10 @@
           role="group"
           aria-labelledby="bulk-edit-openai-flatten-namespaces-label"
         >
-          <button
+          <Toggle
             id="bulk-edit-openai-flatten-namespaces-toggle"
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openaiFlattenNamespacesEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="openaiFlattenNamespacesEnabled"
+          />
         </div>
       </div>
 
@@ -342,7 +318,7 @@
               {{ t('admin.accounts.openai.longContextBillingDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAILongContextBilling"
             id="bulk-edit-openai-long-context-billing-enabled"
             type="checkbox"
@@ -356,25 +332,12 @@
           role="group"
           aria-labelledby="bulk-edit-openai-long-context-billing-label"
         >
-          <button
-            type="button"
+          <Toggle
+            v-model="openAILongContextBillingEnabled"
             data-testid="bulk-edit-openai-long-context-billing-toggle"
-            role="switch"
+            :aria-label="t('admin.accounts.openai.longContextBilling')"
             :disabled="!enableOpenAILongContextBilling"
-            :aria-checked="openAILongContextBillingEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="openAILongContextBillingEnabled = !openAILongContextBillingEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openAILongContextBillingEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          />
         </div>
         <p
           class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-700 dark:bg-amber-900/20 dark:text-amber-300"
@@ -397,7 +360,7 @@
           >
             {{ t('admin.accounts.openai.imageSizeTiers') }}
           </label>
-          <input
+          <FormInput
             v-model="enableOpenAIImageSizeTiers"
             id="bulk-edit-openai-image-size-tiers-enabled"
             data-testid="bulk-edit-openai-image-size-tiers-enabled"
@@ -431,7 +394,7 @@
           >
             {{ t('admin.accounts.baseUrl') }}
           </label>
-          <input
+          <FormInput
             v-model="enableBaseUrl"
             id="bulk-edit-base-url-enabled"
             type="checkbox"
@@ -439,12 +402,11 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <input
+        <FormInput
           v-model="baseUrl"
           id="bulk-edit-base-url"
           type="text"
           :disabled="!enableBaseUrl"
-          class="input"
           :class="!enableBaseUrl && 'cursor-not-allowed opacity-50'"
           :placeholder="t('admin.accounts.bulkEdit.baseUrlPlaceholder')"
           aria-labelledby="bulk-edit-base-url-label"
@@ -460,8 +422,8 @@
       </div>
 
       <div v-if="allOpenAIOAuthOnly" class="border-t border-gray-200 pt-4 dark:border-dark-600">
-        <label class="flex items-center gap-2 text-sm"><input v-model="enableOpenAIModelAliases" type="checkbox" data-testid="enable-model-aliases" />{{ t('priorityScheduling.changeModelScope') }}</label>
-        <label class="mt-3 flex items-center gap-2 text-sm"><input v-model="openaiModelAliases" :disabled="!enableOpenAIModelAliases" type="checkbox" data-testid="bulk-model-aliases" />{{ t('priorityScheduling.modelAliases') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="enableOpenAIModelAliases" type="checkbox" data-testid="enable-model-aliases" />{{ t('priorityScheduling.changeModelScope') }}</label>
+        <label class="mt-3 flex items-center gap-2 text-sm"><FormInput v-model="openaiModelAliases" :disabled="!enableOpenAIModelAliases" type="checkbox" data-testid="bulk-model-aliases" />{{ t('priorityScheduling.modelAliases') }}</label>
         <p class="input-hint">{{ t('priorityScheduling.bulkModelAliasesHint') }}</p>
       </div>
 
@@ -475,7 +437,7 @@
           >
             {{ t('admin.accounts.modelRestriction') }}
           </label>
-          <input
+          <FormInput
             v-model="enableModelRestriction"
             id="bulk-edit-model-restriction-enabled"
             :disabled="syncBusy"
@@ -625,10 +587,10 @@
                   :key="index"
                   class="flex items-center gap-2"
                 >
-                  <input
+                  <FormInput
                     v-model="mapping.from"
                     type="text"
-                    class="input flex-1"
+                    class="flex-1"
                     :placeholder="t('admin.accounts.requestModel')"
                   />
                   <svg
@@ -644,10 +606,10 @@
                       d="M14 5l7 7m0 0l-7 7m7-7H3"
                     />
                   </svg>
-                  <input
+                  <FormInput
                     v-model="mapping.to"
                     type="text"
-                    class="input flex-1"
+                    class="flex-1"
                     :placeholder="t('admin.accounts.actualModel')"
                   />
                   <button
@@ -720,7 +682,7 @@
               {{ t('admin.accounts.customErrorCodesHint') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableCustomErrorCodes"
             id="bulk-edit-custom-error-codes-enabled"
             type="checkbox"
@@ -757,18 +719,18 @@
 
           <!-- Manual input -->
           <div class="flex items-center gap-2">
-            <input
+            <FormInput
               v-model="customErrorCodeInput"
               id="bulk-edit-custom-error-code-input"
               type="number"
               min="100"
               max="599"
-              class="input flex-1"
+              class="flex-1"
               :placeholder="t('admin.accounts.enterErrorCode')"
               aria-labelledby="bulk-edit-custom-error-codes-label"
               @keyup.enter="addCustomErrorCode"
             />
-            <button type="button" class="btn btn-secondary px-3" @click="addCustomErrorCode">
+            <BaseButton type="button" class="btn-secondary px-3" @click="addCustomErrorCode">
               <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path
                   stroke-linecap="round"
@@ -777,7 +739,7 @@
                   d="M12 4v16m8-8H4"
                 />
               </svg>
-            </button>
+            </BaseButton>
           </div>
 
           <!-- Selected codes summary -->
@@ -818,7 +780,7 @@
               {{ t('admin.accounts.interceptWarmupRequestsDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableInterceptWarmup"
             id="bulk-edit-intercept-warmup-enabled"
             type="checkbox"
@@ -827,21 +789,9 @@
           />
         </div>
         <div v-if="enableInterceptWarmup" id="bulk-edit-intercept-warmup-body" class="mt-3">
-          <button
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              interceptWarmupRequests ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="interceptWarmupRequests = !interceptWarmupRequests"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                interceptWarmupRequests ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="interceptWarmupRequests"
+          />
         </div>
       </div>
 
@@ -860,7 +810,7 @@
               {{ t('admin.accounts.headerOverride.hint') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableHeaderOverride"
             id="bulk-edit-header-override-enabled"
             type="checkbox"
@@ -869,21 +819,9 @@
           />
         </div>
         <div v-if="enableHeaderOverride" id="bulk-edit-header-override-body" class="mt-3 space-y-3">
-          <button
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="headerOverrideEnabled = !headerOverrideEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="headerOverrideEnabled"
+          />
 
           <div v-if="headerOverrideEnabled" class="space-y-3">
             <div class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
@@ -921,7 +859,7 @@
           >
             {{ t('admin.accounts.proxy') }}
           </label>
-          <input
+          <FormInput
             v-model="enableProxy"
             id="bulk-edit-proxy-enabled"
             type="checkbox"
@@ -934,8 +872,7 @@
           <p v-if="proxyMode === 'ovh_ipv6'" class="input-hint">{{ t('ovhIPv6.batchHint') }} {{ t('ovhIPv6.drainHint') }}</p>
           <ProxySelector
             v-if="!proxyMode"
-            v-model="proxyIds"
-            multiple
+            v-model="proxyId"
             :proxies="proxies.filter(proxy => !isManagedIPv6Proxy(proxy))"
             aria-labelledby="bulk-edit-proxy-label"
           />
@@ -953,7 +890,7 @@
             >
               {{ t('admin.accounts.concurrency') }}
             </label>
-            <input
+            <FormInput
               v-model="enableConcurrency"
               id="bulk-edit-concurrency-enabled"
               type="checkbox"
@@ -961,13 +898,12 @@
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
-          <input
+          <FormInput
             v-model.number="concurrency"
             id="bulk-edit-concurrency"
             type="number"
             min="1"
             :disabled="!enableConcurrency"
-            class="input"
             :class="!enableConcurrency && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-concurrency-label"
             @input="concurrency = Math.max(1, concurrency || 1)"
@@ -978,9 +914,9 @@
             <label class="input-label mb-0" for="bulk-edit-group-rate-multiplier-enabled">
               {{ t('admin.accounts.groupBillingRateMultiplier') }}
             </label>
-            <input v-model="enableGroupRateMultiplier" id="bulk-edit-group-rate-multiplier-enabled" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <FormInput v-model="enableGroupRateMultiplier" id="bulk-edit-group-rate-multiplier-enabled" type="checkbox" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
-          <input v-model.number="groupRateMultiplier" id="bulk-edit-group-rate-multiplier" type="number" min="0" step="0.01" :disabled="!enableGroupRateMultiplier" class="input" :class="!enableGroupRateMultiplier && 'cursor-not-allowed opacity-50'" />
+          <FormInput v-model.number="groupRateMultiplier" id="bulk-edit-group-rate-multiplier" type="number" min="0" step="0.01" :disabled="!enableGroupRateMultiplier" :class="!enableGroupRateMultiplier && 'cursor-not-allowed opacity-50'" />
           <p class="input-hint">{{ t('admin.accounts.groupBillingRateMultiplierHint') }}</p>
         </div>
         <div>
@@ -992,7 +928,7 @@
             >
               {{ t('admin.accounts.loadFactor') }}
             </label>
-            <input
+            <FormInput
               v-model="enableLoadFactor"
               id="bulk-edit-load-factor-enabled"
               type="checkbox"
@@ -1000,13 +936,12 @@
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
-          <input
+          <FormInput
             v-model.number="loadFactor"
             id="bulk-edit-load-factor"
             type="number"
             min="1"
             :disabled="!enableLoadFactor"
-            class="input"
             :class="!enableLoadFactor && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-load-factor-label"
             @input="loadFactor = (loadFactor &amp;&amp; loadFactor >= 1) ? loadFactor : null"
@@ -1022,7 +957,7 @@
             >
               {{ t('admin.accounts.priority') }}
             </label>
-            <input
+            <FormInput
               v-model="enablePriority"
               id="bulk-edit-priority-enabled"
               type="checkbox"
@@ -1030,13 +965,12 @@
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
-          <input
+          <FormInput
             v-model.number="priority"
             id="bulk-edit-priority"
             type="number"
             min="1"
             :disabled="!enablePriority"
-            class="input"
             :class="!enablePriority && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-priority-label"
           />
@@ -1050,7 +984,7 @@
             >
               {{ t('admin.accounts.billingRateMultiplier') }}
             </label>
-            <input
+            <FormInput
               v-model="enableRateMultiplier"
               id="bulk-edit-rate-multiplier-enabled"
               type="checkbox"
@@ -1058,14 +992,13 @@
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
             />
           </div>
-          <input
+          <FormInput
             v-model.number="rateMultiplier"
             id="bulk-edit-rate-multiplier"
             type="number"
             min="0"
             step="0.01"
             :disabled="!enableRateMultiplier"
-            class="input"
             :class="!enableRateMultiplier && 'cursor-not-allowed opacity-50'"
             aria-labelledby="bulk-edit-rate-multiplier-label"
           />
@@ -1082,9 +1015,9 @@
         <div>
           <div class="mb-3 flex items-center justify-between">
             <label class="input-label mb-0" for="bulk-edit-cost-multiplier-enabled">{{ t('admin.accounts.costMultiplier') }}</label>
-            <input id="bulk-edit-cost-multiplier-enabled" v-model="enableCostMultiplier" type="checkbox" aria-controls="bulk-edit-cost-multiplier" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
+            <FormInput id="bulk-edit-cost-multiplier-enabled" v-model="enableCostMultiplier" type="checkbox" aria-controls="bulk-edit-cost-multiplier" class="rounded border-gray-300 text-primary-600 focus:ring-primary-500" />
           </div>
-          <input id="bulk-edit-cost-multiplier" v-model.number="costMultiplier" type="number" min="0" max="1000000" step="0.001" required :disabled="!enableCostMultiplier" :aria-label="t('admin.accounts.costMultiplier')" class="input" :class="!enableCostMultiplier && 'cursor-not-allowed opacity-50'" />
+          <FormInput id="bulk-edit-cost-multiplier" v-model.number="costMultiplier" type="number" min="0" max="1000000" step="0.001" required :disabled="!enableCostMultiplier" :aria-label="t('admin.accounts.costMultiplier')" :class="!enableCostMultiplier && 'cursor-not-allowed opacity-50'" />
           <p class="input-hint">{{ t('admin.accounts.costMultiplierHint') }}</p>
         </div>
       </div>
@@ -1094,7 +1027,7 @@
           <label id="bulk-edit-rate-limit-429-retry-count-label" class="input-label mb-0" for="bulk-edit-rate-limit-429-retry-count-enabled">
             {{ t('admin.accounts.bulkEdit.rateLimit429RetryCount') }}
           </label>
-          <input
+          <FormInput
             v-model="enableRateLimit429RetryCount"
             id="bulk-edit-rate-limit-429-retry-count-enabled"
             type="checkbox"
@@ -1102,7 +1035,7 @@
             class="rounded border-gray-300 text-primary-600 focus:ring-primary-500"
           />
         </div>
-        <input
+        <FormInput
           v-model.number="rateLimit429RetryCount"
           id="bulk-edit-rate-limit-429-retry-count"
           type="number"
@@ -1110,7 +1043,7 @@
           :max="MAX_RATE_LIMIT_429_RETRY_COUNT"
           step="1"
           :disabled="!enableRateLimit429RetryCount"
-          class="input max-w-xs"
+          class="max-w-xs"
           :class="!enableRateLimit429RetryCount && 'cursor-not-allowed opacity-50'"
           aria-labelledby="bulk-edit-rate-limit-429-retry-count-label"
           @change="rateLimit429RetryCount = normalizeRateLimit429RetryCount(rateLimit429RetryCount)"
@@ -1130,7 +1063,7 @@
           >
             {{ t('common.status') }}
           </label>
-          <input
+          <FormInput
             v-model="enableStatus"
             id="bulk-edit-status-enabled"
             type="checkbox"
@@ -1157,7 +1090,7 @@
           >
             {{ t('admin.accounts.openai.wsMode') }}
           </label>
-          <input
+          <FormInput
             v-model="enableOpenAIWSMode"
             id="bulk-edit-openai-ws-mode-enabled"
             type="checkbox"
@@ -1194,7 +1127,7 @@
           >
             {{ t('admin.accounts.openai.codexCLIOnly') }}
           </label>
-          <input
+          <FormInput
             v-model="enableCodexCLIOnly"
             id="bulk-edit-openai-codex-cli-only-enabled"
             type="checkbox"
@@ -1209,22 +1142,10 @@
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.codexCLIOnlyDesc') }}
           </p>
-          <button
+          <Toggle
             id="bulk-edit-openai-codex-cli-only-toggle"
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="codexCLIOnlyEnabled"
+          />
         </div>
       </div>
 
@@ -1238,7 +1159,7 @@
           >
             {{ t('admin.accounts.openai.codexCLIOnlyAppServer') }}
           </label>
-          <input
+          <FormInput
             v-model="enableCodexCLIOnlyAppServer"
             id="bulk-edit-openai-codex-app-server-enabled"
             type="checkbox"
@@ -1253,22 +1174,10 @@
           <p class="mb-3 text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.openai.codexCLIOnlyAppServerDesc') }}
           </p>
-          <button
+          <Toggle
             id="bulk-edit-openai-codex-app-server-toggle"
-            type="button"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-            @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyAppServerEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="codexCLIOnlyAppServerEnabled"
+          />
         </div>
       </div>
 
@@ -1276,7 +1185,7 @@
       <div v-if="allOpenAIOAuth" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <div class="mb-3 flex items-center justify-between">
           <label class="input-label mb-0">{{ t('admin.accounts.openai.codexFingerprintMode') }}</label>
-          <input
+          <FormInput
             id="bulk-edit-openai-codex-fingerprint-mode-enabled"
             v-model="enableCodexFingerprintMode"
             type="checkbox"
@@ -1306,7 +1215,7 @@
               {{ t('admin.accounts.upstreamBilling.autoProbeHint') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableUpstreamBillingAutoProbe"
             id="bulk-edit-upstream-billing-auto-probe-enabled"
             type="checkbox"
@@ -1345,7 +1254,7 @@
               {{ t('admin.accounts.openai.endpointCapabilitiesDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAIEndpointCapabilities"
             id="bulk-edit-openai-endpoint-capabilities-enabled"
             type="checkbox"
@@ -1366,7 +1275,7 @@
               class="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
             >
               <label class="flex flex-1 cursor-pointer items-center gap-2">
-                <input
+                <FormInput
                   type="checkbox"
                   :disabled="!enableOpenAIEndpointCapabilities"
                   class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
@@ -1397,7 +1306,7 @@
               {{ t('admin.accounts.openai.responsesModeDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAIResponsesMode"
             id="bulk-edit-openai-responses-mode-enabled"
             type="checkbox"
@@ -1438,7 +1347,7 @@
           >
             {{ t('admin.accounts.openai.wsMode') }}
           </label>
-          <input
+          <FormInput
             v-model="enableOpenAIAPIKeyWSMode"
             id="bulk-edit-openai-apikey-ws-mode-enabled"
             type="checkbox"
@@ -1480,7 +1389,7 @@
               {{ t('admin.accounts.openai.compactModeDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAICompactMode"
             id="bulk-edit-openai-compact-mode-enabled"
             type="checkbox"
@@ -1516,7 +1425,7 @@
               {{ t('admin.accounts.openai.compactModelMappingDesc') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="enableOpenAICompactModelMapping"
             id="bulk-edit-openai-compact-model-mapping-enabled"
             type="checkbox"
@@ -1534,18 +1443,18 @@
               :key="index"
               class="flex items-center gap-2"
             >
-              <input
+              <FormInput
                 v-model="mapping.from"
                 type="text"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('admin.accounts.fromModel')"
                 data-testid="bulk-edit-openai-compact-model-mapping-input"
               />
               <span class="text-gray-400">→</span>
-              <input
+              <FormInput
                 v-model="mapping.to"
                 type="text"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('admin.accounts.toModel')"
                 data-testid="bulk-edit-openai-compact-model-mapping-input"
               />
@@ -1579,7 +1488,7 @@
           >
             {{ t('admin.accounts.quotaControl.rpmLimit.label') }}
           </label>
-          <input
+          <FormInput
             v-model="enableRpmLimit"
             id="bulk-edit-rpm-limit-enabled"
             type="checkbox"
@@ -1635,7 +1544,7 @@
           >
             {{ t('nav.groups') }}
           </label>
-          <input
+          <FormInput
             v-model="enableGroups"
             id="bulk-edit-groups-enabled"
             type="checkbox"
@@ -1655,14 +1564,14 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" @click="handleClose">
+        <BaseButton type="button" class="btn-secondary" @click="handleClose">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="submit"
           form="bulk-edit-account-form"
           :disabled="submitting || checkingSubmit || syncBusy"
-          class="btn btn-primary"
+          class="btn-primary"
         >
           <svg
             v-if="submitting"
@@ -1687,7 +1596,7 @@
           {{
             submitting ? t('admin.accounts.bulkEdit.updating') : t('admin.accounts.bulkEdit.submit')
           }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -1705,6 +1614,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import { useBatchUpstreamWhitelist } from '@/composables/useBatchUpstreamWhitelist'
 import BatchUpstreamWhitelist from './BatchUpstreamWhitelist.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
@@ -1983,7 +1895,7 @@ const interceptWarmupRequests = ref(false)
 const headerOverrideEnabled = ref(false)
 const headerOverrideRows = ref<HeaderOverrideRow[]>([])
 const proxyMode = ref<AccountProxyMode>('')
-const proxyIds = ref<number[]>([])
+const proxyId = ref<number | null>(null)
 const concurrency = ref(1)
 const DEFAULT_RATE_LIMIT_429_RETRY_COUNT = 5
 const MAX_RATE_LIMIT_429_RETRY_COUNT = 10
@@ -2296,7 +2208,7 @@ const buildUpdatePayload = (): Record<string, unknown> | null => {
 
   if (enableProxy.value) {
     // 后端期望 proxy_id: 0 表示清除代理，而不是 null
-    Object.assign(updates, accountProxyPayload(proxyMode.value, proxyIds.value, true))
+    Object.assign(updates, accountProxyPayload(proxyMode.value, proxyId.value === null ? [] : [proxyId.value], true))
   }
 
   if (enableConcurrency.value) {
@@ -2866,7 +2778,7 @@ watch(
       interceptWarmupRequests.value = false
       headerOverrideEnabled.value = false
       headerOverrideRows.value = []
-      proxyIds.value = []
+      proxyId.value = null
       proxyMode.value = ''
       concurrency.value = 1
       loadFactor.value = null

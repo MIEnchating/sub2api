@@ -39,7 +39,7 @@
       <div v-if="supportsDomesticRouteProbe" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
         <div class="flex items-center gap-2">
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="domesticRouteAutoSchedule" type="checkbox" data-testid="domestic-route-auto-schedule" />
+            <FormInput v-model="domesticRouteAutoSchedule" type="checkbox" data-testid="domestic-route-auto-schedule" />
             {{ t('admin.accounts.domesticRouteAutoSchedule') }}
           </label>
           <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.domesticRouteAutoSchedule" :user-id="authStore.user?.id" />
@@ -49,7 +49,7 @@
       <QwenCacheSettings v-if="editingAccount.platform === 'qwen' && editingAccount.type === 'apikey'" v-model:session-cache="qwenSessionCache" v-model:strict-affinity="qwenStrictAffinity" :user-id="authStore.user?.id" @base-url="setQwenBaseUrl" />
       <div v-if="editingAccount.credentials?.oauth_initial_selected_models != null" data-testid="initial-model-scope-snapshot" class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">
         <div class="flex items-start gap-2"><p>{{ t('autoConfig.selection.accountHint') }}</p><NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialModelSelection" :user-id="authStore.user?.id" /></div>
-        <label class="mt-2 flex items-center gap-2"><input v-model="releaseInitialModelSelection" data-testid="release-initial-model-selection" type="checkbox" />{{ t('autoConfig.selection.takeOver') }}</label>
+        <label class="mt-2 flex items-center gap-2"><FormInput v-model="releaseInitialModelSelection" data-testid="release-initial-model-selection" type="checkbox" />{{ t('autoConfig.selection.takeOver') }}</label>
       </div>
       <AccountUpstreamChannelBinding v-if="show" :account-ids="[editingAccount.id]" />
 
@@ -69,19 +69,18 @@
             @update:auto="setUpstreamGroupSync"
           />
         </div>
-        <input v-model="form.name" type="text" required class="input" data-tour="edit-account-form-name" />
+        <FormInput v-model="form.name" type="text" required data-tour="edit-account-form-name" />
         <p v-if="editingAccount.type === 'apikey' && upstreamGroupSyncEnabled" class="input-hint">
           {{ t('admin.accounts.upstreamBilling.autoSyncGroupHint') }}
         </p>
       </div>
       <div>
         <label class="input-label">{{ t('admin.accounts.notes') }}</label>
-        <textarea
+        <FormTextarea
           v-model="form.notes"
           rows="3"
-          class="input"
           :placeholder="t('admin.accounts.notesPlaceholder')"
-        ></textarea>
+        ></FormTextarea>
         <p class="input-hint">{{ t('admin.accounts.notesHint') }}</p>
       </div>
 
@@ -92,7 +91,7 @@
         v-model:enabled="siwcEnabled" :account-id="editingAccount.id" :active="show" />
 
       <div v-if="editingAccount.platform === 'openai' && editingAccount.type === 'oauth' && !isSparkShadow" class="rounded-lg bg-gray-50 p-3 dark:bg-dark-800">
-        <label class="flex items-center gap-2 text-sm"><input v-model="openaiModelAliases" type="checkbox" data-testid="openai-model-aliases" />{{ t('priorityScheduling.modelAliases') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="openaiModelAliases" type="checkbox" data-testid="openai-model-aliases" />{{ t('priorityScheduling.modelAliases') }}</label>
         <p class="input-hint">{{ t('priorityScheduling.modelAliasesHint') }}</p>
       </div>
 
@@ -102,7 +101,7 @@
         data-testid="openai-prism-browser-oauth-settings"
       >
         <label class="flex items-center gap-2 text-sm">
-          <input v-model="prismBrowserEnabled" type="checkbox" data-testid="openai-prism-browser-oauth-toggle" />
+          <FormInput v-model="prismBrowserEnabled" type="checkbox" data-testid="openai-prism-browser-oauth-toggle" />
           <span>{{ t('admin.accounts.openai.prismBrowser') }}</span>
         </label>
         <p class="input-hint">{{ t('admin.accounts.openai.prismBrowserDesc') }}</p>
@@ -110,7 +109,7 @@
           <legend class="input-label">{{ t('admin.accounts.openai.prismBrowserModels') }}</legend>
           <div class="grid grid-cols-2 gap-2">
             <label v-for="model in prismSupportedModels" :key="model" class="flex items-center gap-2 text-sm">
-              <input v-model="prismBrowserModels" type="checkbox" :value="model" :data-testid="`prism-model-${model}`" />
+              <FormInput v-model="prismBrowserModels" type="checkbox" :value="model" :data-testid="`prism-model-${model}`" />
               <span>{{ model }}</span>
             </label>
           </div>
@@ -123,10 +122,9 @@
       <div v-if="editingAccount.type === 'apikey'" class="space-y-4">
         <div v-if="!isCNApiKeyAccount || editApiProtocol !== 'adaptive'">
           <label class="input-label">{{ t('admin.accounts.baseUrl') }}</label>
-          <input
+          <FormInput
             v-model="editBaseUrl"
             type="text"
-            class="input"
             :placeholder="
               editingAccount.platform === 'openai'
                 ? 'https://api.openai.com'
@@ -162,7 +160,7 @@
               <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                 {{ t(`admin.accounts.cnProviders.apiProtocol.${item.labelKey}`) }}
               </label>
-              <input v-model="editAdaptiveBaseUrls[item.value]" type="text" class="input" />
+              <FormInput v-model="editAdaptiveBaseUrls[item.value]" type="text" />
             </div>
           </div>
           <p v-if="!cnSupportsNativeResponses(editingAccount.platform, currentOpenCodeOrCNMode())" class="input-hint">
@@ -309,21 +307,21 @@
           <div class="mt-2 grid gap-4 sm:grid-cols-2">
             <div>
               <label class="input-label">{{ t('admin.accounts.cnProviders.zhipuTeam.organization') }}</label>
-              <input v-model="editZhipuOrganization" type="text" class="input" :placeholder="t('admin.accounts.cnProviders.zhipuTeam.organizationPlaceholder')" />
+              <FormInput v-model="editZhipuOrganization" type="text" :placeholder="t('admin.accounts.cnProviders.zhipuTeam.organizationPlaceholder')" />
             </div>
             <div>
               <label class="input-label">{{ t('admin.accounts.cnProviders.zhipuTeam.project') }}</label>
-              <input v-model="editZhipuProject" type="text" class="input" :placeholder="t('admin.accounts.cnProviders.zhipuTeam.projectPlaceholder')" />
+              <FormInput v-model="editZhipuProject" type="text" :placeholder="t('admin.accounts.cnProviders.zhipuTeam.projectPlaceholder')" />
             </div>
           </div>
           <p class="input-hint mt-2">{{ t('admin.accounts.cnProviders.zhipuTeam.hint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.apiKey') }}</label>
-          <input
+          <FormInput
             v-model="editApiKey"
             type="password"
-            class="input font-mono"
+            class="font-mono"
             autocomplete="new-password"
             data-1p-ignore
             data-lpignore="true"
@@ -619,21 +617,9 @@
                 {{ t('admin.accounts.poolModeHint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="poolModeEnabled = !poolModeEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  poolModeEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="poolModeEnabled"
+            />
           </div>
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
@@ -643,13 +629,12 @@
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
             <label class="input-label">{{ t('admin.accounts.poolModeRetryCount') }}</label>
-            <input
+            <FormInput
               v-model.number="poolModeRetryCount"
               type="number"
               min="0"
               :max="MAX_POOL_MODE_RETRY_COUNT"
               step="1"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -662,10 +647,9 @@
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
             <label class="input-label">{{ t('admin.accounts.poolModeRetryStatusCodes') }}</label>
-            <input
+            <FormInput
               v-model="poolModeRetryStatusCodesInput"
               type="text"
-              class="input"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -701,13 +685,12 @@
           </div>
           <div v-if="explicitCacheUpstreamEnabled" class="mt-3">
             <label class="input-label">{{ t('admin.accounts.explicitCacheUpstreamMaxTTL') }}</label>
-            <input
+            <FormInput
               v-model="explicitCacheUpstreamMaxTTL"
               data-testid="explicit-cache-upstream-max-ttl"
               type="number"
               min="1"
               step="1"
-              class="input"
               placeholder="86400"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -725,21 +708,9 @@
                 {{ t('admin.accounts.customErrorCodesHint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="customErrorCodesEnabled = !customErrorCodesEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customErrorCodesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  customErrorCodesEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="customErrorCodesEnabled"
+            />
           </div>
 
           <div v-if="customErrorCodesEnabled" class="space-y-3">
@@ -770,16 +741,16 @@
 
             <!-- Manual input -->
             <div class="flex items-center gap-2">
-              <input
+              <FormInput
                 v-model.number="customErrorCodeInput"
                 type="number"
                 min="100"
                 max="599"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('admin.accounts.enterErrorCode')"
                 @keyup.enter="addCustomErrorCode"
               />
-              <button type="button" @click="addCustomErrorCode" class="btn btn-secondary px-3">
+              <BaseButton type="button" @click="addCustomErrorCode" class="btn-secondary px-3">
                 <svg class="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
                     stroke-linecap="round"
@@ -788,7 +759,7 @@
                     d="M12 4v16m8-8H4"
                   />
                 </svg>
-              </button>
+              </BaseButton>
             </div>
 
             <!-- Selected codes summary -->
@@ -869,16 +840,15 @@
               {{ t('admin.accounts.grokMediaEligibility.hint') }}
             </p>
           </div>
-          <select
+          <FormSelect
             v-model="grokMediaEligibilityMode"
-            class="input"
             data-testid="grok-media-eligibility-mode"
             :disabled="grokMediaEligibilityLoading"
           >
             <option value="auto">{{ t('admin.accounts.grokMediaEligibility.auto') }}</option>
             <option value="enabled">{{ t('admin.accounts.grokMediaEligibility.enabled') }}</option>
             <option value="disabled">{{ t('admin.accounts.grokMediaEligibility.disabled') }}</option>
-          </select>
+          </FormSelect>
           <p v-if="grokMediaEligibilityLoading" class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.accounts.grokMediaEligibility.loading') }}
           </p>
@@ -919,28 +889,15 @@
               {{ t('admin.accounts.grokCustomBaseUrl.hint') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="grok-custom-base-url-toggle"
-            @click="grokOAuthCustomBaseUrlEnabled = !grokOAuthCustomBaseUrlEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              grokOAuthCustomBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                grokOAuthCustomBaseUrlEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="grokOAuthCustomBaseUrlEnabled"
+          />
         </div>
         <div v-if="grokOAuthCustomBaseUrlEnabled" class="space-y-2">
-          <input
+          <FormInput
             v-model="grokOAuthBaseUrl"
             type="text"
-            class="input"
             data-testid="grok-custom-base-url-input"
             :placeholder="t('admin.accounts.grokCustomBaseUrl.placeholder')"
           />
@@ -957,21 +914,9 @@
               {{ t('admin.accounts.headerOverride.hint') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="headerOverrideEnabled = !headerOverrideEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              headerOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                headerOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="headerOverrideEnabled"
+          />
         </div>
 
         <div v-if="headerOverrideEnabled" class="space-y-3">
@@ -1205,20 +1150,19 @@
       <div v-if="editingAccount.type === 'upstream'" class="space-y-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.baseUrl') }}</label>
-          <input
+          <FormInput
             v-model="editBaseUrl"
             type="text"
-            class="input"
             placeholder="https://cloudcode-pa.googleapis.com"
           />
           <p class="input-hint">{{ t('admin.accounts.upstream.baseUrlHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.upstream.apiKey') }}</label>
-          <input
+          <FormInput
             v-model="editApiKey"
             type="password"
-            class="input font-mono"
+            class="font-mono"
             placeholder="sk-..."
           />
           <p class="input-hint">{{ t('admin.accounts.leaveEmptyToKeep') }}</p>
@@ -1229,10 +1173,10 @@
       <div v-if="(editingAccount.platform === 'gemini' || editingAccount.platform === 'anthropic') && editingAccount.type === 'service_account'" class="space-y-4">
         <div v-if="isVertexAPIKeyMode">
           <label class="input-label">API Key</label>
-          <input
+          <FormInput
             v-model="editVertexApiKey"
             type="password"
-            class="input font-mono"
+            class="font-mono"
             data-testid="edit-vertex-api-key-input"
             :placeholder="t('admin.accounts.leaveEmptyToKeep')"
           />
@@ -1241,10 +1185,10 @@
         <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
           <div v-if="isVertexAPIKeyMode">
             <label class="input-label">Project ID</label>
-            <input
+            <FormInput
               v-model="editVertexProjectId"
               type="text"
-              class="input font-mono"
+              class="font-mono"
               data-testid="edit-vertex-api-key-project-id-input"
               :placeholder="t('admin.accounts.vertexApiKeyProjectIdPlaceholder')"
             />
@@ -1252,10 +1196,10 @@
           </div>
           <div v-else>
             <label class="input-label">Project ID</label>
-            <input
+            <FormInput
               v-model="editVertexProjectId"
               type="text"
-              class="input font-mono"
+              class="font-mono"
               readonly
               :placeholder="t('admin.accounts.vertexProjectIdPlaceholder')"
             />
@@ -1263,10 +1207,10 @@
           </div>
           <div v-if="!isVertexAPIKeyMode || editVertexProjectId.trim()">
             <label class="input-label">Location <NewFeatureBadge v-if="authStore.user?.id != null" :notice-id="NEW_FEATURE_NOTICES.vertexMultiRegion" :user-id="authStore.user?.id" /></label>
-            <select
+            <FormSelect
               v-model="editVertexLocation"
               required
-              class="input font-mono"
+              class="font-mono"
             >
               <optgroup
                 v-for="group in VERTEX_LOCATION_OPTIONS"
@@ -1281,7 +1225,7 @@
                   {{ option.label }}
                 </option>
               </optgroup>
-            </select>
+            </FormSelect>
             <p class="input-hint">{{ t('admin.accounts.vertexLocationHint') }}</p>
           </div>
         </div>
@@ -1383,10 +1327,10 @@
                 :key="getModelMappingKey(mapping)"
                 class="flex items-center gap-2"
               >
-                <input
+                <FormInput
                   v-model="mapping.from"
                   type="text"
-                  class="input flex-1"
+                  class="flex-1"
                   :placeholder="t('admin.accounts.requestModel')"
                 />
                 <svg
@@ -1402,10 +1346,10 @@
                     d="M14 5l7 7m0 0l-7 7m7-7H3"
                   />
                 </svg>
-                <input
+                <FormInput
                   v-model="mapping.to"
                   type="text"
-                  class="input flex-1"
+                  class="flex-1"
                   :placeholder="t('admin.accounts.actualModel')"
                 />
                 <button
@@ -1468,29 +1412,29 @@
         <template v-if="!isBedrockAPIKeyMode">
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockAccessKeyId') }}</label>
-            <input
+            <FormInput
               v-model="editBedrockAccessKeyId"
               type="text"
-              class="input font-mono"
+              class="font-mono"
               placeholder="AKIA..."
             />
           </div>
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockSecretAccessKey') }}</label>
-            <input
+            <FormInput
               v-model="editBedrockSecretAccessKey"
               type="password"
-              class="input font-mono"
+              class="font-mono"
               :placeholder="t('admin.accounts.bedrockSecretKeyLeaveEmpty')"
             />
             <p class="input-hint">{{ t('admin.accounts.bedrockSecretKeyLeaveEmpty') }}</p>
           </div>
           <div>
             <label class="input-label">{{ t('admin.accounts.bedrockSessionToken') }}</label>
-            <input
+            <FormInput
               v-model="editBedrockSessionToken"
               type="password"
-              class="input font-mono"
+              class="font-mono"
               :placeholder="t('admin.accounts.bedrockSecretKeyLeaveEmpty')"
             />
             <p class="input-hint">{{ t('admin.accounts.bedrockSessionTokenHint') }}</p>
@@ -1500,10 +1444,10 @@
         <!-- API Key field -->
         <div v-if="isBedrockAPIKeyMode">
           <label class="input-label">{{ t('admin.accounts.bedrockApiKeyInput') }}</label>
-          <input
+          <FormInput
             v-model="editBedrockApiKeyValue"
             type="password"
-            class="input font-mono"
+            class="font-mono"
             :placeholder="t('admin.accounts.bedrockApiKeyLeaveEmpty')"
           />
           <p class="input-hint">{{ t('admin.accounts.bedrockApiKeyLeaveEmpty') }}</p>
@@ -1512,10 +1456,9 @@
         <!-- Shared: Region -->
         <div>
           <label class="input-label">{{ t('admin.accounts.bedrockRegion') }}</label>
-          <input
+          <FormInput
             v-model="editBedrockRegion"
             type="text"
-            class="input"
             placeholder="us-east-1"
           />
           <p class="input-hint">{{ t('admin.accounts.bedrockRegionHint') }}</p>
@@ -1524,7 +1467,7 @@
         <!-- Shared: Force Global -->
         <div>
           <label class="flex items-center gap-2 cursor-pointer">
-            <input
+            <FormInput
               v-model="editBedrockForceGlobal"
               type="checkbox"
               class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
@@ -1578,16 +1521,16 @@
           <!-- Mapping Mode -->
           <div v-else class="space-y-3">
             <div v-for="(mapping, index) in modelMappings" :key="getModelMappingKey(mapping)" class="flex items-center gap-2">
-              <input v-model="mapping.from" type="text" class="input flex-1" :placeholder="t('admin.accounts.fromModel')" />
+              <FormInput v-model="mapping.from" type="text" class="flex-1" :placeholder="t('admin.accounts.fromModel')" />
               <span class="text-gray-400">→</span>
-              <input v-model="mapping.to" type="text" class="input flex-1" :placeholder="t('admin.accounts.toModel')" />
+              <FormInput v-model="mapping.to" type="text" class="flex-1" :placeholder="t('admin.accounts.toModel')" />
               <button type="button" @click="modelMappings.splice(index, 1)" class="text-red-500 hover:text-red-700">
                 <Icon name="trash" size="sm" />
               </button>
             </div>
-            <button type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn btn-secondary text-sm">
+            <BaseButton type="button" @click="modelMappings.push({ from: '', to: '' })" class="btn-secondary text-sm">
               + {{ t('admin.accounts.addMapping') }}
-            </button>
+            </BaseButton>
             <!-- Bedrock Preset Mappings -->
             <div class="flex flex-wrap gap-2">
               <button
@@ -1612,21 +1555,9 @@
                 {{ t('admin.accounts.poolModeHint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="poolModeEnabled = !poolModeEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                poolModeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  poolModeEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="poolModeEnabled"
+            />
           </div>
           <div v-if="poolModeEnabled" class="rounded-lg bg-blue-50 p-3 dark:bg-blue-900/20">
             <p class="text-xs text-blue-700 dark:text-blue-400">
@@ -1636,13 +1567,12 @@
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
             <label class="input-label">{{ t('admin.accounts.poolModeRetryCount') }}</label>
-            <input
+            <FormInput
               v-model.number="poolModeRetryCount"
               type="number"
               min="0"
               :max="MAX_POOL_MODE_RETRY_COUNT"
               step="1"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{
@@ -1655,10 +1585,9 @@
           </div>
           <div v-if="poolModeEnabled" class="mt-3">
             <label class="input-label">{{ t('admin.accounts.poolModeRetryStatusCodes') }}</label>
-            <input
+            <FormInput
               v-model="poolModeRetryStatusCodesInput"
               type="text"
-              class="input"
               :placeholder="DEFAULT_POOL_MODE_RETRY_STATUS_CODES.join(', ')"
             />
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -1673,11 +1602,11 @@
         class="border-t border-gray-200 pt-4 dark:border-dark-600"
       >
         <label class="input-label">{{ t('admin.accounts.antigravityProjectIdLabel') }}</label>
-        <input
+        <FormInput
           v-model="antigravityProjectId"
           data-testid="antigravity-project-id-input"
           type="text"
-          class="input font-mono"
+          class="font-mono"
           :placeholder="t('admin.accounts.antigravityProjectIdPlaceholder')"
         />
         <p class="input-hint">{{ t('admin.accounts.antigravityProjectIdHint') }}</p>
@@ -1793,21 +1722,9 @@
               {{ t('admin.accounts.tempUnschedulable.hint') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="tempUnschedEnabled = !tempUnschedEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              tempUnschedEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                tempUnschedEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="tempUnschedEnabled"
+          />
         </div>
 
         <div v-if="tempUnschedEnabled" class="space-y-3">
@@ -1872,22 +1789,20 @@
               <div class="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <div>
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.errorCode') }}</label>
-                  <input
+                  <FormInput
                     v-model.number="rule.error_code"
                     type="number"
                     min="100"
                     max="599"
-                    class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.errorCodePlaceholder')"
                   />
                 </div>
                 <div>
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.durationMinutes') }}</label>
-                  <input
+                  <FormInput
                     v-model.number="rule.duration_minutes"
                     type="number"
                     min="1"
-                    class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.durationPlaceholder')"
                   />
                   <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.durationHint') }}</p>
@@ -1935,12 +1850,11 @@
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.triggerCount') }}</label>
-                  <input
+                  <FormInput
                     v-model.number="rule.trigger_count"
                     type="number"
                     min="1"
                     max="1000"
-                    class="input"
                     data-testid="temp-unsched-trigger-count"
                     :placeholder="t('admin.accounts.tempUnschedulable.triggerCountPlaceholder')"
                   />
@@ -1948,11 +1862,10 @@
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.triggerWindowMinutes') }}</label>
-                  <input
+                  <FormInput
                     v-model.number="rule.trigger_window_minutes"
                     type="number"
                     min="1"
-                    class="input"
                     data-testid="temp-unsched-trigger-window"
                     :placeholder="t('admin.accounts.tempUnschedulable.triggerWindowPlaceholder')"
                   />
@@ -1998,20 +1911,18 @@
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.keywords') }}</label>
-                  <input
+                  <FormInput
                     v-model="rule.keywords"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.keywordsPlaceholder')"
                   />
                   <p class="input-hint">{{ t('admin.accounts.tempUnschedulable.keywordsHint') }}</p>
                 </div>
                 <div class="sm:col-span-2">
                   <label class="input-label">{{ t('admin.accounts.tempUnschedulable.description') }}</label>
-                  <input
+                  <FormInput
                     v-model="rule.description"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.accounts.tempUnschedulable.descriptionPlaceholder')"
                   />
                 </div>
@@ -2050,7 +1961,7 @@
               {{ t('admin.accounts.accountSchedulingThresholdOverrideHint') }}
             </p>
           </div>
-          <input
+          <FormInput
             v-model="accountSchedulingThresholdOverrideEnabled"
             data-testid="account-scheduling-threshold-override-enabled"
             type="checkbox"
@@ -2059,13 +1970,12 @@
         </div>
         <div v-if="accountSchedulingThresholdOverrideEnabled">
           <label class="input-label">{{ t('admin.accounts.accountSchedulingThresholdOverrideValue') }}</label>
-          <input
+          <FormInput
             v-model.number="accountSchedulingThresholdOverrideValue"
             data-testid="account-scheduling-threshold-override-value"
             type="number"
             min="1"
             max="100"
-            class="input"
           />
           <p class="input-hint">{{ t('admin.accounts.accountSchedulingThresholdOverrideDisabledHint') }}</p>
         </div>
@@ -2085,21 +1995,9 @@
               {{ t('admin.accounts.interceptWarmupRequestsDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="interceptWarmupRequests = !interceptWarmupRequests"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              interceptWarmupRequests ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                interceptWarmupRequests ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="interceptWarmupRequests"
+          />
         </div>
       </div>
 
@@ -2110,17 +2008,13 @@
         </div>
         <p v-if="legacyIPv6Bound" class="input-hint text-amber-600">{{ t('ovhIPv6.legacyBinding') }}</p>
         <template v-else>
-          <OpenAIProxySettings v-if="openaiProxySupported"
-          v-model:mode="openaiProxyMode" :single-proxy-id="selectedProxyID" :hide-single-selector="true" v-model:proxy-ids="openaiProxyIds"
-          :proxies="proxies" :loading="proxiesLoading" :load-error="proxiesLoadError" :current-account-id="editingAccount.id"
-          :user-id="authStore.user?.id" @retry="emit('retry-proxies')" />
-          <template v-if="!usesOpenAIRequestProxy">
+          <p v-if="editingAccount.extra?.retired_multi_proxy_needs_review === true" class="input-hint text-amber-700 dark:text-amber-300">
+            {{ t('ovhIPv6.retiredMultiProxyNeedsReview') }}
+          </p>
           <AccountProxyModeSelect v-model="proxyMode" :allow-managed="allowManagedIPv6" />
-          <ProxySelector v-if="!proxyMode" v-model="form.proxy_ids" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" multiple />
-          </template>
+          <ProxySelector v-if="!proxyMode" v-model="form.proxy_id" :proxies="allowManagedIPv6 ? proxies : proxies.filter(proxy => !isManagedIPv6Proxy(proxy))" />
           <p v-if="currentManagedIPv6" class="input-hint">{{ t('ovhIPv6.currentBinding', { address: currentManagedIPv6 }) }} {{ t('ovhIPv6.drainHint') }}</p>
         </template>
-        <p class="input-hint">{{ t('admin.accounts.proxyPoolHint') }}</p>
       </div>
 
       <UpstreamRequestIdHeaderField
@@ -2133,36 +2027,35 @@
       <div class="grid grid-cols-2 gap-4 lg:grid-cols-4">
         <div>
           <label class="input-label">{{ t('admin.accounts.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" min="1" class="input"
+          <FormInput v-model.number="form.concurrency" type="number" min="1"
             @input="form.concurrency = Math.max(1, form.concurrency || 1)" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.loadFactor') }}</label>
-          <input v-model.number="form.load_factor" type="number" min="1"
-            class="input" :placeholder="String(form.concurrency || 1)"
+          <FormInput v-model.number="form.load_factor" type="number" min="1"
+            :placeholder="String(form.concurrency || 1)"
             @input="form.load_factor = (form.load_factor &amp;&amp; form.load_factor >= 1) ? form.load_factor : null" />
           <p class="input-hint">{{ t('admin.accounts.loadFactorHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.priority') }}</label>
-          <input
+          <FormInput
             v-model.number="form.priority"
             type="number"
             min="1"
-            class="input"
             data-tour="account-form-priority"
           />
           <p class="input-hint">{{ t('admin.accounts.priorityHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.billingRateMultiplier') }}</label>
-          <input
+          <FormInput
             v-model.number="form.rate_multiplier"
             type="number"
             min="0"
 
             step="0.001"
-            class="input disabled:cursor-not-allowed disabled:opacity-60"
+            class="disabled:cursor-not-allowed disabled:opacity-60"
             data-testid="account-rate-multiplier"
             :disabled="upstreamBillingRateSyncEnabled"
           />
@@ -2208,7 +2101,7 @@
               />
             </div>
           </div>
-          <input
+          <FormInput
             id="account-cost-multiplier"
             v-model.number="costMultiplier"
             type="number"
@@ -2216,7 +2109,6 @@
             max="1000000"
             step="0.001"
             required
-            class="input"
             data-testid="account-cost-multiplier"
             :disabled="isNewAPIUpstream && costMultiplierAutoSync"
           />
@@ -2225,12 +2117,11 @@
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.groupBillingRateMultiplier') }}</label>
-          <input
+          <FormInput
             v-model.number="form.group_rate_multiplier"
             type="number"
             min="0"
             step="0.01"
-            class="input"
             data-testid="account-group-rate-multiplier"
           />
           <p class="input-hint">{{ t('admin.accounts.groupBillingRateMultiplierHint') }}</p>
@@ -2241,14 +2132,14 @@
         <label class="input-label" for="edit-rate-limit-429-retry-count">
           {{ t('admin.accounts.rateLimit429RetryCount') }}
         </label>
-        <input
+        <FormInput
           v-model.number="form.rate_limit_429_retry_count"
           id="edit-rate-limit-429-retry-count"
           type="number"
           min="0"
           :max="MAX_RATE_LIMIT_429_RETRY_COUNT"
           step="1"
-          class="input max-w-xs"
+          class="max-w-xs"
           @change="form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(form.rate_limit_429_retry_count)"
         />
         <p class="input-hint">
@@ -2262,15 +2153,15 @@
       >
         <p class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.accounts.openai.legacyProtectionTitle') }}</p>
         <p class="input-hint">{{ t('admin.accounts.openai.legacyProtectionDescription') }}</p>
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn-secondary btn-sm"
           data-testid="legacy-protection-restore"
           :disabled="legacyProtectionBusy || submitting"
           @click="legacyProtectionRestoreConfirm = true"
         >
           {{ t('admin.accounts.openai.legacyProtectionRestore') }}
-        </button>
+        </BaseButton>
       </div>
       <div
         v-if="account?.platform === 'openai' && (account?.type === 'oauth' || account?.type === 'setup-token')"
@@ -2286,16 +2177,16 @@
         </div>
         <div v-if="protectionEnabled" class="mt-3 grid gap-3 sm:grid-cols-2">
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="protectionAdaptiveEnabled" type="checkbox" class="checkbox" />
+            <FormInput v-model="protectionAdaptiveEnabled" type="checkbox" class="checkbox" />
             <span>{{ t('admin.accounts.openai.protectionAdaptive') }}</span>
           </label>
           <template v-if="protectionAdaptiveEnabled">
             <label class="input-label">
               {{ t('admin.accounts.openai.protectionMinConcurrency') }}
-              <input v-model.number="protectionAdaptiveMin" type="number" min="1" :max="form.concurrency || 1" class="input mt-1" />
+              <FormInput v-model.number="protectionAdaptiveMin" type="number" min="1" :max="form.concurrency || 1" class="mt-1" />
             </label>
             <label class="flex items-center gap-2 text-sm sm:items-end sm:pb-2">
-              <input v-model="protectionAdaptiveAutomatic" type="checkbox" class="checkbox" />
+              <FormInput v-model="protectionAdaptiveAutomatic" type="checkbox" class="checkbox" />
               <span>{{ t('admin.accounts.openai.protectionAutomatic') }}</span>
             </label>
           </template>
@@ -2319,14 +2210,14 @@
 
       <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="input-label">{{ t('admin.accounts.expiresAt') }}</label>
-        <input v-model="expiresAtInput" type="datetime-local" class="input" />
+        <FormInput v-model="expiresAtInput" type="datetime-local" />
         <div class="mt-2 flex gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(1)">
+          <BaseButton type="button" class="btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(1)">
             {{ t('payment.oneMonth') }}
-          </button>
-          <button type="button" class="btn btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(12)">
+          </BaseButton>
+          <BaseButton type="button" class="btn-secondary btn-sm" @click="form.expires_at = getAccountExpiryTimestamp(12)">
             {{ t('payment.oneYear') }}
-          </button>
+          </BaseButton>
         </div>
         <p class="input-hint">
           {{ t('admin.accounts.expiresAtHint') }}
@@ -2336,7 +2227,7 @@
 
       <div v-if="editingAccount?.platform === 'openai' && editingAccount?.type === 'apikey'" class="border-t border-gray-200 pt-4 dark:border-dark-600">
         <label class="flex items-center gap-2">
-          <input v-model="copilotSDKEnabled" type="checkbox" data-testid="copilot-sdk-toggle" />
+          <FormInput v-model="copilotSDKEnabled" type="checkbox" data-testid="copilot-sdk-toggle" />
           <span>Copilot SDK</span>
         </label>
         <p class="input-hint">{{ t('admin.accounts.openai.copilotSDKDesc') }}</p>
@@ -2355,14 +2246,14 @@
           :available="!authStore.isObserver" :can-enable="!isExcelBPSFreePlan" prefix="excel-bps" @toggle="bpsDefaults.toggle" />
         <div v-if="excelBPSEnabled" class="mt-3 space-y-3">
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="excelBPSAllModels" type="checkbox" data-testid="excel-bps-all-models" />
+            <FormInput v-model="excelBPSAllModels" type="checkbox" data-testid="excel-bps-all-models" />
             <span>{{ t('admin.accounts.openai.excelBPSAllModels') }}</span>
           </label>
           <div v-if="!excelBPSAllModels" data-testid="excel-bps-model-selection">
             <label class="input-label">{{ t('admin.accounts.openai.excelBPSModels') }}</label>
             <ModelWhitelistSelector v-model="excelBPSModels" platform="openai" />
-            <button type="button" class="btn btn-secondary" data-testid="excel-bps-astra-only"
-              @click="excelBPSModels = ['gpt-6-astra']">{{ t('admin.accounts.openai.excelBPSAstraOnly') }}</button>
+            <BaseButton type="button" class="btn-secondary" data-testid="excel-bps-astra-only"
+              @click="excelBPSModels = ['gpt-6-astra']">{{ t('admin.accounts.openai.excelBPSAstraOnly') }}</BaseButton>
             <p class="input-hint">{{ t('admin.accounts.openai.excelBPSModelsHint') }}</p>
           </div>
         </div>
@@ -2370,7 +2261,7 @@
         <ExcelBPSSearchOptions v-if="excelBPSEnabled" v-model:enabled="excelBPSWebSearch" v-model:automatic="excelBPSWebSearchAuto" class="mt-3" />
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSOmitUnsupportedTools" type="checkbox"
+            <FormInput v-model="excelBPSOmitUnsupportedTools" type="checkbox"
               data-testid="excel-bps-omit-unsupported-tools"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSOmitUnsupportedTools') }}</span>
@@ -2379,7 +2270,7 @@
         </div>
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
+            <FormInput v-model="excelBPSIgnoreEncryptedContent" type="checkbox"
               data-testid="excel-bps-ignore-encrypted-content"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSIgnoreEncryptedContent') }}</span>
@@ -2388,14 +2279,14 @@
         </div>
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2 text-sm">
-            <input v-model="excelBPSIgnoreImages" type="checkbox" data-testid="excel-bps-ignore-images" />
+            <FormInput v-model="excelBPSIgnoreImages" type="checkbox" data-testid="excel-bps-ignore-images" />
             {{ t('admin.accounts.openai.excelBPSIgnoreImages') }}
           </label>
           <p class="input-hint">{{ t('admin.accounts.openai.excelBPSIgnoreImagesDesc') }}</p>
         </div>
         <div v-if="excelBPSEnabled || excelBPS403RecoveryPending" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSAutoDisableOn403" type="checkbox"
+            <FormInput v-model="excelBPSAutoDisableOn403" type="checkbox"
               data-testid="excel-bps-auto-disable-on-403"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoDisableOn403') }}</span>
@@ -2404,7 +2295,7 @@
         </div>
         <div v-if="excelBPSEnabled || excelBPS403RecoveryPending" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSAutoRecoverOn403" type="checkbox" :disabled="!excelBPSAutoDisableOn403"
+            <FormInput v-model="excelBPSAutoRecoverOn403" type="checkbox" :disabled="!excelBPSAutoDisableOn403"
               data-testid="excel-bps-auto-recover-on-403"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500 disabled:opacity-50" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoRecoverOn403') }}</span>
@@ -2413,15 +2304,15 @@
           <div v-if="excelBPSAutoRecoverOn403 && excelBPSAutoDisableOn403" class="mt-2">
             <label class="block space-y-1">
               <span class="text-sm">{{ t('admin.accounts.openai.excelBPS403RecoveryInterval') }}</span>
-              <input v-model.number="excelBPSRecoveryIntervalMinutes" type="number" min="1" :max="MAX_BPS_RECOVERY_INTERVAL_MINUTES" step="1" required
-                data-testid="excel-bps-recovery-interval" class="input w-40" />
+              <FormInput v-model.number="excelBPSRecoveryIntervalMinutes" type="number" min="1" :max="MAX_BPS_RECOVERY_INTERVAL_MINUTES" step="1" required
+                data-testid="excel-bps-recovery-interval" class="w-40" />
             </label>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPS403RecoveryIntervalHint') }}</p>
           </div>
         </div>
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSAutoMoveOn403" type="checkbox"
+            <FormInput v-model="excelBPSAutoMoveOn403" type="checkbox"
               data-testid="excel-bps-auto-move-on-403"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSAutoMoveOn403') }}</span>
@@ -2434,9 +2325,9 @@
               data-testid="excel-bps-403-target-group" />
           </div>
         </div>
-        <div v-if="excelBPSEnabled && openaiProxyMode === 'single'" class="mt-3">
+        <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
+            <FormInput v-model="excelBPSMihomo" type="checkbox" data-testid="excel-bps-mihomo"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSMihomo') }}</span>
           </label>
@@ -2445,12 +2336,12 @@
             :aria-label="t('admin.accounts.openai.excelBPSProxySource')">
             <span class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.accounts.openai.excelBPSProxySource') }}</span>
             <label class="flex items-center gap-1.5 text-sm">
-              <input v-model="excelBPSProxySource" type="radio" value="mihomo" data-testid="excel-bps-proxy-source-mihomo"
+              <FormInput v-model="excelBPSProxySource" type="radio" value="mihomo" data-testid="excel-bps-proxy-source-mihomo"
                 class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
               {{ t('admin.accounts.openai.excelBPSProxySourceMihomo') }}
             </label>
             <label class="flex items-center gap-1.5 text-sm">
-              <input v-model="excelBPSProxySource" type="radio" value="ip_pool" data-testid="excel-bps-proxy-source-ip-pool"
+              <FormInput v-model="excelBPSProxySource" type="radio" value="ip_pool" data-testid="excel-bps-proxy-source-ip-pool"
                 class="h-4 w-4 border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
               {{ t('admin.accounts.openai.excelBPSProxySourceIPPool') }}
             </label>
@@ -2461,7 +2352,7 @@
         </div>
         <div v-if="excelBPSEnabled" class="mt-3">
           <label class="flex items-center gap-2">
-            <input v-model="excelBPSCacheCreationAsInput" type="checkbox"
+            <FormInput v-model="excelBPSCacheCreationAsInput" type="checkbox"
               data-testid="excel-bps-cache-creation-as-input"
               class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500" />
             <span class="text-sm">{{ t('admin.accounts.openai.excelBPSCacheCreationAsInput') }}</span>
@@ -2486,25 +2377,13 @@
               {{ t('admin.accounts.openai.oauthPassthroughDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="edit-openai-passthrough-toggle"
-            @click="openaiPassthroughEnabled = !openaiPassthroughEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openaiPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="openaiPassthroughEnabled"
+          />
         </div>
         <label v-if="openaiPassthroughEnabled" class="mt-3 flex items-start gap-2">
-          <input
+          <FormInput
             v-model="openaiPassthroughModelFilterEnabled"
             type="checkbox"
             data-testid="edit-openai-passthrough-model-filter"
@@ -2555,22 +2434,10 @@
               {{ t('admin.accounts.openai.flattenNamespacesDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="edit-openai-flatten-namespaces-toggle"
-            @click="openaiFlattenNamespacesEnabled = !openaiFlattenNamespacesEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openaiFlattenNamespacesEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openaiFlattenNamespacesEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="openaiFlattenNamespacesEnabled"
+          />
         </div>
       </div>
 
@@ -2715,7 +2582,7 @@
               class="flex items-center gap-2 rounded-lg border border-gray-200 px-3 py-2 text-sm dark:border-dark-600"
             >
               <label class="flex flex-1 cursor-pointer items-center gap-2">
-                <input
+                <FormInput
                   type="checkbox"
                   class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
                   :data-testid="`openai-endpoint-capability-${option.value}`"
@@ -2742,24 +2609,11 @@
             {{ t('admin.accounts.openai.imagesUrlToB64JsonDesc') }}
           </p>
         </div>
-        <button
-          type="button"
+        <Toggle
+          v-model="openAIImagesUrlToB64JsonEnabled"
           data-testid="openai-images-url-to-b64-json-toggle"
-          role="switch"
-          :aria-checked="openAIImagesUrlToB64JsonEnabled"
-          @click="openAIImagesUrlToB64JsonEnabled = !openAIImagesUrlToB64JsonEnabled"
-          :class="[
-            'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-            openAIImagesUrlToB64JsonEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-          ]"
-        >
-          <span
-            :class="[
-              'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-              openAIImagesUrlToB64JsonEnabled ? 'translate-x-5' : 'translate-x-0'
-            ]"
-          />
-        </button>
+          :aria-label="t('admin.accounts.openai.imagesUrlToB64Json')"
+        />
       </div>
 
       <!-- OpenAI images: size tier routing -->
@@ -2837,16 +2691,16 @@
           </div>
 
           <div class="flex flex-wrap items-center gap-2">
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="opencodeGoRefreshing"
               data-testid="opencode-go-refresh"
               @click="refreshOpenCodeGoUsage"
             >
               <Icon name="refresh" size="xs" class="mr-1.5" :class="{ 'animate-spin': opencodeGoRefreshing }" />
               {{ t('admin.accounts.opencodeGo.refreshNow') }}
-            </button>
+            </BaseButton>
           </div>
 
           <div class="flex items-center justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
@@ -2880,21 +2734,9 @@
               {{ t('admin.accounts.anthropic.apiKeyPassthroughDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="anthropicPassthroughEnabled = !anthropicPassthroughEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicPassthroughEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                anthropicPassthroughEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="anthropicPassthroughEnabled"
+          />
         </div>
       </div>
 
@@ -2913,22 +2755,10 @@
               {{ t('admin.accounts.anthropic.cacheTtlBillingFromRequestDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="cache-ttl-billing-from-request-toggle"
-            @click="cacheTtlBillingFromRequestEnabled = !cacheTtlBillingFromRequestEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              cacheTtlBillingFromRequestEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                cacheTtlBillingFromRequestEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="cacheTtlBillingFromRequestEnabled"
+          />
         </div>
       </div>
 
@@ -2944,21 +2774,9 @@
               {{ t('admin.accounts.anthropic.stripClaudeCodeIdentityDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="anthropicStripClaudeCodeIdentityEnabled = !anthropicStripClaudeCodeIdentityEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicStripClaudeCodeIdentityEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                anthropicStripClaudeCodeIdentityEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="anthropicStripClaudeCodeIdentityEnabled"
+          />
         </div>
       </div>
 
@@ -2974,22 +2792,10 @@
               {{ t('admin.accounts.anthropic.mimicClaudeCodeDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="anthropic-mimic-claude-code-toggle"
-            @click="anthropicMimicClaudeCodeEnabled = !anthropicMimicClaudeCodeEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              anthropicMimicClaudeCodeEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                anthropicMimicClaudeCodeEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="anthropicMimicClaudeCodeEnabled"
+          />
         </div>
         <div v-if="anthropicMimicClaudeCodeEnabled" class="mt-4 flex items-center justify-between gap-4">
           <div>
@@ -3017,10 +2823,10 @@
               {{ t('admin.accounts.anthropic.apiKeyAuthSchemeDesc') }}
             </p>
           </div>
-          <select v-model="anthropicAPIKeyAuthScheme" class="input w-52 text-sm">
+          <FormSelect v-model="anthropicAPIKeyAuthScheme" class="w-52 text-sm">
             <option value="x_api_key">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeXApiKey') }}</option>
             <option value="authorization_bearer">{{ t('admin.accounts.anthropic.apiKeyAuthSchemeBearer') }}</option>
-          </select>
+          </FormSelect>
         </div>
       </div>
 
@@ -3036,11 +2842,11 @@
               {{ t('admin.accounts.anthropic.webSearchEmulationDesc') }}
             </p>
           </div>
-          <select v-model="webSearchEmulationMode" class="input w-24 text-sm">
+          <FormSelect v-model="webSearchEmulationMode" class="w-24 text-sm">
             <option value="default">{{ t('admin.accounts.anthropic.webSearchDefault') }}</option>
             <option value="enabled">{{ t('admin.accounts.anthropic.webSearchEnabled') }}</option>
             <option value="disabled">{{ t('admin.accounts.anthropic.webSearchDisabled') }}</option>
-          </select>
+          </FormSelect>
         </div>
       </div>
 
@@ -3159,24 +2965,11 @@
               {{ t('admin.accounts.openai.longContextBillingDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
+            v-model="openAILongContextBillingEnabled"
             data-testid="openai-long-context-billing-toggle"
-            role="switch"
-            :aria-checked="openAILongContextBillingEnabled"
-            @click="openAILongContextBillingEnabled = !openAILongContextBillingEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAILongContextBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openAILongContextBillingEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            :aria-label="t('admin.accounts.openai.longContextBilling')"
+          />
         </div>
       </div>
 
@@ -3191,24 +2984,11 @@
               {{ t('admin.accounts.openai.ultrafastBillingDesc') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
+            v-model="openAIResponseTierBillingEnabled"
             data-testid="edit-openai-ultrafast-billing-toggle"
-            role="switch"
-            :aria-checked="openAIResponseTierBillingEnabled"
-            @click="openAIResponseTierBillingEnabled = !openAIResponseTierBillingEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              openAIResponseTierBillingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                openAIResponseTierBillingEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            :aria-label="t('admin.accounts.openai.ultrafastBilling')"
+          />
         </div>
       </div>
 
@@ -3223,21 +3003,9 @@
               {{ t('admin.accounts.openai.codexCLIOnlyDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="codexCLIOnlyEnabled = !codexCLIOnlyEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="codexCLIOnlyEnabled"
+          />
         </div>
         <div
           v-if="codexCLIOnlyEnabled"
@@ -3249,21 +3017,9 @@
               {{ t('admin.accounts.openai.codexCLIOnlyAppServerDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="codexCLIOnlyAppServerEnabled = !codexCLIOnlyAppServerEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              codexCLIOnlyAppServerEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                codexCLIOnlyAppServerEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="codexCLIOnlyAppServerEnabled"
+          />
         </div>
       </div>
 
@@ -3399,17 +3155,17 @@
               :key="getOpenAICompactModelMappingKey(mapping)"
               class="flex items-center gap-2"
             >
-              <input
+              <FormInput
                 v-model="mapping.from"
                 type="text"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('admin.accounts.fromModel')"
               />
               <span class="text-gray-400">→</span>
-              <input
+              <FormInput
                 v-model="mapping.to"
                 type="text"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('admin.accounts.toModel')"
               />
               <button type="button" @click="removeOpenAICompactModelMapping(index)" class="text-red-500 hover:text-red-700">
@@ -3417,9 +3173,9 @@
               </button>
             </div>
           </div>
-          <button type="button" @click="addOpenAICompactModelMapping" class="btn btn-secondary text-sm">
+          <BaseButton type="button" @click="addOpenAICompactModelMapping" class="btn-secondary text-sm">
             + {{ t('admin.accounts.addMapping') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
 
@@ -3433,21 +3189,9 @@
               {{ t('admin.accounts.autoPauseOnExpiredDesc') }}
             </p>
           </div>
-          <button
-            type="button"
-            @click="autoPauseOnExpired = !autoPauseOnExpired"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoPauseOnExpired ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                autoPauseOnExpired ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            v-model="autoPauseOnExpired"
+          />
         </div>
       </div>
 
@@ -3458,34 +3202,21 @@
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('admin.accounts.autoPause5hDisabled') }}</label>
-            <button
-              type="button"
-              @click="autoPause5hDisabled = !autoPause5hDisabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                autoPause5hDisabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
+            <Toggle
               data-testid="auto-pause-5h-disabled"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  autoPause5hDisabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+              v-model="autoPause5hDisabled"
+            />
           </div>
           <p class="input-hint">{{ t('admin.accounts.autoPauseDisabledHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.autoPause5hThreshold') }}</label>
-          <input
+          <FormInput
             v-model.number="autoPause5hThreshold"
             type="number"
             min="0"
             max="100"
             step="0.1"
-            class="input"
             :disabled="autoPause5hDisabled"
             data-testid="auto-pause-5h-threshold"
           />
@@ -3494,34 +3225,21 @@
         <div class="space-y-2">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t('admin.accounts.autoPause7dDisabled') }}</label>
-            <button
-              type="button"
-              @click="autoPause7dDisabled = !autoPause7dDisabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                autoPause7dDisabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
+            <Toggle
               data-testid="auto-pause-7d-disabled"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  autoPause7dDisabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+              v-model="autoPause7dDisabled"
+            />
           </div>
           <p class="input-hint">{{ t('admin.accounts.autoPauseDisabledHint') }}</p>
         </div>
         <div>
           <label class="input-label">{{ t('admin.accounts.autoPause7dThreshold') }}</label>
-          <input
+          <FormInput
             v-model.number="autoPause7dThreshold"
             type="number"
             min="0"
             max="100"
             step="0.1"
-            class="input"
             :disabled="autoPause7dDisabled"
             data-testid="auto-pause-7d-threshold"
           />
@@ -3541,46 +3259,32 @@
               {{ t('admin.accounts.autoResetCredit.hint') }}
             </p>
           </div>
-          <button
-            type="button"
+          <Toggle
             data-testid="auto-reset-credit-enabled"
-            @click="autoResetCreditEnabled = !autoResetCreditEnabled"
-            :class="[
-              'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              autoResetCreditEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                autoResetCreditEnabled ? 'translate-x-5' : 'translate-x-0'
-              ]"
-            />
-          </button>
+            v-model="autoResetCreditEnabled"
+          />
         </div>
         <div class="grid gap-4 sm:grid-cols-2">
           <div>
             <label class="input-label">{{ t('admin.accounts.autoResetCredit.threshold5h') }}</label>
-            <input
+            <FormInput
               v-model.number="autoResetCredit5hThreshold"
               type="number"
               min="0"
               max="100"
               step="0.1"
-              class="input"
               :disabled="!autoResetCreditEnabled"
               data-testid="auto-reset-credit-5h-threshold"
             />
           </div>
           <div>
             <label class="input-label">{{ t('admin.accounts.autoResetCredit.threshold7d') }}</label>
-            <input
+            <FormInput
               v-model.number="autoResetCredit7dThreshold"
               type="number"
               min="0"
               max="100"
               step="0.1"
-              class="input"
               :disabled="!autoResetCreditEnabled"
               data-testid="auto-reset-credit-7d-threshold"
             />
@@ -3610,21 +3314,9 @@
                 {{ t('admin.accounts.quotaControl.windowCost.hint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="windowCostEnabled = !windowCostEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                windowCostEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  windowCostEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="windowCostEnabled"
+            />
           </div>
 
           <div v-if="windowCostEnabled" class="grid grid-cols-2 gap-4">
@@ -3632,12 +3324,12 @@
               <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.limit') }}</label>
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
+                <FormInput
                   v-model.number="windowCostLimit"
                   type="number"
                   min="0"
                   step="1"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="t('admin.accounts.quotaControl.windowCost.limitPlaceholder')"
                 />
               </div>
@@ -3647,12 +3339,12 @@
               <label class="input-label">{{ t('admin.accounts.quotaControl.windowCost.stickyReserve') }}</label>
               <div class="relative">
                 <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">$</span>
-                <input
+                <FormInput
                   v-model.number="windowCostStickyReserve"
                   type="number"
                   min="0"
                   step="1"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="t('admin.accounts.quotaControl.windowCost.stickyReservePlaceholder')"
                 />
               </div>
@@ -3670,32 +3362,19 @@
                 {{ t('admin.accounts.quotaControl.sessionLimit.hint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="sessionLimitEnabled = !sessionLimitEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionLimitEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  sessionLimitEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="sessionLimitEnabled"
+            />
           </div>
 
           <div v-if="sessionLimitEnabled" class="grid grid-cols-2 gap-4">
             <div>
               <label class="input-label">{{ t('admin.accounts.quotaControl.sessionLimit.maxSessions') }}</label>
-              <input
+              <FormInput
                 v-model.number="maxSessions"
                 type="number"
                 min="1"
                 step="1"
-                class="input"
                 :placeholder="t('admin.accounts.quotaControl.sessionLimit.maxSessionsPlaceholder')"
               />
               <p class="input-hint">{{ t('admin.accounts.quotaControl.sessionLimit.maxSessionsHint') }}</p>
@@ -3703,12 +3382,12 @@
             <div>
               <label class="input-label">{{ t('admin.accounts.quotaControl.sessionLimit.idleTimeout') }}</label>
               <div class="relative">
-                <input
+                <FormInput
                   v-model.number="sessionIdleTimeout"
                   type="number"
                   min="1"
                   step="1"
-                  class="input pr-12"
+                  class="pr-12"
                   :placeholder="t('admin.accounts.quotaControl.sessionLimit.idleTimeoutPlaceholder')"
                 />
                 <span class="absolute right-3 top-1/2 -translate-y-1/2 text-gray-500 dark:text-gray-400">{{ t('common.minutes') }}</span>
@@ -3757,30 +3436,18 @@
                 {{ t('admin.accounts.quotaControl.tlsFingerprint.hint') }}
               </p>
             </div>
-            <button
-              type="button"
+            <Toggle
               :disabled="legacyIdentityLocked || legacyProtectionBusy"
-              @click="tlsFingerprintEnabled = !tlsFingerprintEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                tlsFingerprintEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  tlsFingerprintEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+              v-model="tlsFingerprintEnabled"
+            />
           </div>
           <!-- Profile selector -->
           <div v-if="tlsFingerprintEnabled" class="mt-3">
-            <select v-model="tlsFingerprintProfileId" class="input" :disabled="legacyIdentityLocked || legacyProtectionBusy">
+            <FormSelect v-model="tlsFingerprintProfileId" :disabled="legacyIdentityLocked || legacyProtectionBusy">
               <option :value="null">{{ t('admin.accounts.quotaControl.tlsFingerprint.defaultProfile') }}</option>
               <option v-if="tlsFingerprintProfiles.length > 0" :value="-1">{{ t('admin.accounts.quotaControl.tlsFingerprint.randomProfile') }}</option>
               <option v-for="p in tlsFingerprintProfiles" :key="p.id" :value="p.id">{{ p.name }}</option>
-            </select>
+            </FormSelect>
           </div>
         </div>
 
@@ -3793,21 +3460,9 @@
                 {{ t('admin.accounts.quotaControl.sessionIdMasking.hint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="sessionIdMaskingEnabled = !sessionIdMaskingEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                sessionIdMaskingEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  sessionIdMaskingEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="sessionIdMaskingEnabled"
+            />
           </div>
         </div>
 
@@ -3820,31 +3475,19 @@
                 {{ t('admin.accounts.quotaControl.cacheTTLOverride.hint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="cacheTTLOverrideEnabled = !cacheTTLOverrideEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                cacheTTLOverrideEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  cacheTTLOverrideEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="cacheTTLOverrideEnabled"
+            />
           </div>
           <div v-if="cacheTTLOverrideEnabled" class="mt-3">
             <label class="input-label text-xs">{{ t('admin.accounts.quotaControl.cacheTTLOverride.target') }}</label>
-            <select
+            <FormSelect
               v-model="cacheTTLOverrideTarget"
               class="mt-1 block w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm shadow-sm focus:border-primary-500 focus:outline-none focus:ring-1 focus:ring-primary-500 dark:border-dark-500 dark:bg-dark-700 dark:text-white"
             >
               <option value="5m">5m</option>
               <option value="1h">1h</option>
-            </select>
+            </FormSelect>
             <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.accounts.quotaControl.cacheTTLOverride.targetHint') }}
             </p>
@@ -3860,27 +3503,14 @@
                 {{ t('admin.accounts.quotaControl.customBaseUrl.hint') }}
               </p>
             </div>
-            <button
-              type="button"
-              @click="customBaseUrlEnabled = !customBaseUrlEnabled"
-              :class="[
-                'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                customBaseUrlEnabled ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  customBaseUrlEnabled ? 'translate-x-5' : 'translate-x-0'
-                ]"
-              />
-            </button>
+            <Toggle
+              v-model="customBaseUrlEnabled"
+            />
           </div>
           <div v-if="customBaseUrlEnabled" class="mt-3">
-            <input
+            <FormInput
               v-model="customBaseUrl"
               type="text"
-              class="input"
               :placeholder="t('admin.accounts.quotaControl.customBaseUrl.urlHint')"
             />
           </div>
@@ -3897,7 +3527,7 @@
         <!-- Mixed Scheduling (only for antigravity accounts, read-only in edit mode) -->
         <div v-if="editingAccount?.platform === 'antigravity'" class="flex items-center gap-2">
           <label class="flex cursor-not-allowed items-center gap-2 opacity-60">
-            <input
+            <FormInput
               type="checkbox"
               v-model="mixedScheduling"
               disabled
@@ -3926,7 +3556,7 @@
         </div>
         <div v-if="editingAccount?.platform === 'antigravity'" class="mt-3 flex items-center gap-2">
           <label class="flex cursor-pointer items-center gap-2">
-            <input
+            <FormInput
               type="checkbox"
               v-model="allowOverages"
               class="h-4 w-4 rounded border-gray-300 text-primary-500 focus:ring-primary-500 dark:border-dark-500"
@@ -3974,14 +3604,14 @@
 
     <template #footer>
       <div v-if="editingAccount" class="flex justify-end gap-3">
-        <button @click="handleClose" type="button" class="btn btn-secondary">
+        <BaseButton @click="handleClose" type="button" class="btn-secondary">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="submit"
           form="edit-account-form"
           :disabled="submitting || legacyProtectionBusy"
-          class="btn btn-primary"
+          class="btn-primary"
           data-tour="account-form-submit"
         >
           <svg
@@ -4005,7 +3635,7 @@
             ></path>
           </svg>
           {{ submitting ? t('admin.accounts.updating') : t('common.update') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -4035,6 +3665,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import ExcelAuthorizationPanel from './ExcelAuthorizationPanel.vue'
 import { listPlatforms, platformDisplayName } from '@/constants/platformCatalog'
 import { platformAccountDraft } from './accountPlatformChange'
@@ -4059,7 +3693,6 @@ import { useAuthStore } from '@/stores/auth'
 import GatewayAccountFields from './GatewayAccountFields.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import ProbePenaltySettings from './ProbePenaltySettings.vue'
-import OpenAIProxySettings from '@/components/account/OpenAIProxySettings.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 
 import { adminAPI } from '@/api/admin'
@@ -4963,8 +4596,6 @@ const excelBPSAllModels = ref(false)
 const excelBPSModels = ref<string[]>([...DEFAULT_EXCEL_BPS_MODELS])
 const excelBPSMihomo = ref(false)
 const excelBPSProxySource = ref<'mihomo' | 'ip_pool'>('mihomo')
-const openaiProxyMode = ref<'single' | 'request'>('single')
-const openaiProxyIds = ref<number[]>([])
 const excelBPSCacheCreationAsInput = ref(false)
 const excelBPSAutoDisableOn403 = ref(false)
 const excelBPSAutoRecoverOn403 = ref(false)
@@ -5020,7 +4651,7 @@ const openAIResponsesMode = ref<OpenAIResponsesMode>('auto')
 const openAIImagesUrlToB64JsonEnabled = ref(false)
 const openAIImageSizeTiers = ref<OpenAIImageSizeTier[]>([...OPENAI_IMAGE_SIZE_TIERS])
 const openAIEndpointCapabilities = ref<OpenAIEndpointCapability[]>(['chat_completions', 'embeddings'])
-const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
+const openaiOAuthResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_CTX_POOL)
 const openaiOAuthWSSSEAcceleration = ref(false)
 const openaiAPIKeyResponsesWebSocketV2Mode = ref<OpenAIWSMode>(OPENAI_WS_MODE_OFF)
 const codexCLIOnlyEnabled = ref(false)
@@ -5462,9 +5093,8 @@ const probePenaltyMinimum = ref(0.001)
 const costMultiplier = ref(DEFAULT_ACCOUNT_COST_MULTIPLIER)
 const costMultiplierAutoSync = ref(true)
 
-const usesOpenAIRequestProxy = computed(() => openaiProxySupported.value && openaiProxyMode.value === 'request' && !legacyIPv6Bound.value)
 const proxyMode = ref<AccountProxyMode>('')
-const allowManagedIPv6 = computed(() => props.account?.platform === 'openai' && props.account.type === 'oauth' && !props.account.parent_account_id && props.account.credentials?.client_id !== OPENAI_EXCEL_OAUTH_CLIENT_ID && String(props.account.credentials?.auth_mode || '').trim().toLowerCase() !== 'agentidentity' && !usesOpenAIRequestProxy.value && !excelBPSEnabled.value && !excelBPS403RecoveryPending.value && !props.account.extra?.openai_vm_bound && !props.account.extra?.openai_vm_retired)
+const allowManagedIPv6 = computed(() => props.account?.platform === 'openai' && props.account.type === 'oauth' && !props.account.parent_account_id && props.account.credentials?.client_id !== OPENAI_EXCEL_OAUTH_CLIENT_ID && String(props.account.credentials?.auth_mode || '').trim().toLowerCase() !== 'agentidentity' && !excelBPSEnabled.value && !excelBPS403RecoveryPending.value && !props.account.extra?.openai_vm_bound && !props.account.extra?.openai_vm_retired)
 watch(allowManagedIPv6, allowed => { if (!allowed && proxyMode.value === 'ovh_ipv6') proxyMode.value = '' })
 const legacyIPv6Bound = computed(() => props.account?.extra?.openai_ipv6_bound === true)
 const currentManagedIPv6 = computed(() => props.proxies.find(proxy => proxy.id === props.account?.proxy_id)?.managed_ipv6)
@@ -5472,7 +5102,6 @@ const form = reactive({
   name: '',
   notes: '',
   proxy_id: null as number | null,
-  proxy_ids: [] as number[],
   concurrency: 1,
   rate_limit_429_retry_count: DEFAULT_RATE_LIMIT_429_RETRY_COUNT,
   load_factor: null as number | null,
@@ -5484,7 +5113,7 @@ const form = reactive({
   expires_at: null as number | null
 })
 
-const selectedProxyID = computed(() => !proxyMode.value ? form.proxy_ids[0] ?? null : null)
+const selectedProxyID = computed(() => !proxyMode.value ? form.proxy_id : null)
 
 const normalizeRateLimit429RetryCount = (value: unknown): number => {
   const parsed = Number(value)
@@ -5626,7 +5255,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   form.notes = newAccount.notes || ''
   proxyMode.value = ''
   form.proxy_id = newAccount.proxy_id
-  form.proxy_ids = newAccount.proxy_ids?.length ? [...newAccount.proxy_ids] : (newAccount.proxy_id ? [newAccount.proxy_id] : [])
   form.concurrency = newAccount.concurrency
   form.rate_limit_429_retry_count = normalizeRateLimit429RetryCount(
     newAccount.rate_limit_429_retry_count ?? DEFAULT_RATE_LIMIT_429_RETRY_COUNT
@@ -5704,8 +5332,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   excelBPSModels.value = [...DEFAULT_EXCEL_BPS_MODELS]
   excelBPSMihomo.value = false
   excelBPSProxySource.value = 'mihomo'
-  openaiProxyMode.value = 'single'
-  openaiProxyIds.value = []
   excelBPSCacheCreationAsInput.value = false
   excelBPSAutoDisableOn403.value = false
   excelBPSAutoRecoverOn403.value = false
@@ -5732,7 +5358,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
   openAIResponsesMode.value = 'auto'
   openAIEndpointCapabilities.value = ['chat_completions', 'embeddings']
   openAICompactModelMappings.value = []
-  openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
+  openaiOAuthResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_CTX_POOL
   openaiOAuthWSSSEAcceleration.value = false
   openaiAPIKeyResponsesWebSocketV2Mode.value = OPENAI_WS_MODE_OFF
   codexCLIOnlyEnabled.value = false
@@ -5764,12 +5390,6 @@ const syncFormFromAccount = (newAccount: Account | null) => {
     }
     excelBPSMihomo.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_mihomo === true
     excelBPSProxySource.value = extra?.openai_excel_bps_proxy_source === 'ip_pool' ? 'ip_pool' : 'mihomo'
-    const hasUnifiedProxyMode = Object.prototype.hasOwnProperty.call(extra ?? {}, 'openai_proxy_mode')
-    openaiProxyMode.value = (hasUnifiedProxyMode ? extra?.openai_proxy_mode : extra?.openai_excel_bps_proxy_mode) === 'request' ? 'request' : 'single'
-    const configuredProxyIds = hasUnifiedProxyMode ? extra?.openai_proxy_ids : extra?.openai_excel_bps_proxy_ids
-    openaiProxyIds.value = Array.isArray(configuredProxyIds)
-      ? [...new Set(configuredProxyIds.filter((id): id is number => typeof id === 'number' && Number.isSafeInteger(id) && id > 0))]
-      : []
     excelBPSCacheCreationAsInput.value = excelBPSEnabled.value && extra?.openai_excel_bps_cache_creation_as_input === true
     excelBPSAutoDisableOn403.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_auto_disable_on_403 === true
     excelBPSAutoRecoverOn403.value = newAccount.type === 'oauth' && extra?.openai_excel_bps_auto_recover_on_403 === true
@@ -5822,7 +5442,7 @@ const syncFormFromAccount = (newAccount: Account | null) => {
       modeKey: 'openai_oauth_responses_websockets_v2_mode',
       enabledKey: 'openai_oauth_responses_websockets_v2_enabled',
       fallbackEnabledKeys: ['responses_websockets_v2_enabled', 'openai_ws_enabled'],
-      defaultMode: OPENAI_WS_MODE_OFF
+      defaultMode: OPENAI_WS_MODE_CTX_POOL
     })
     openaiAPIKeyResponsesWebSocketV2Mode.value = resolveOpenAIWSModeFromExtra(extra, {
       modeKey: 'openai_apikey_responses_websockets_v2_mode',
@@ -6944,10 +6564,6 @@ const submitUpdateAccount = async (accountID: number, updatePayload: Record<stri
 const handleSubmit = async () => {
   if (bpsDefaults.loading.value) return
   if (!editingAccount.value || legacyProtectionBusy.value) return
-  if (usesOpenAIRequestProxy.value && openaiProxyIds.value.length === 0) {
-    appStore.showError(t('admin.accounts.openai.proxyRequired'))
-    return
-  }
   if (editingAccount.value.type === 'apikey' && upstreamBillingRateLimit.value != null &&
     (!Number.isFinite(upstreamBillingRateLimit.value) || upstreamBillingRateLimit.value < 0)) {
     appStore.showError(t('admin.accounts.upstreamBilling.rateLimitInvalid'))
@@ -7011,11 +6627,8 @@ const handleSubmit = async () => {
       delete updatePayload.proxy_id
       delete updatePayload.proxy_ids
       delete updatePayload.proxy_mode
-    } else if (usesOpenAIRequestProxy.value) {
-      Object.assign(updatePayload, accountProxyPayload('', proxyMode.value ? [] : form.proxy_ids, true))
-      delete updatePayload.proxy_mode
     } else {
-      Object.assign(updatePayload, accountProxyPayload(proxyMode.value, form.proxy_ids, true))
+      Object.assign(updatePayload, accountProxyPayload(proxyMode.value, form.proxy_id === null ? [] : [form.proxy_id], true))
       if (proxyMode.value && !['direct', 'specified'].includes(proxyMode.value)) delete updatePayload.proxy_ids
     }
     if (form.expires_at === null) {
@@ -7636,13 +7249,6 @@ const handleSubmit = async () => {
           newExtra.openai_excel_bps_mihomo = true
         } else {
           delete newExtra.openai_excel_bps_mihomo
-        }
-        if (!authStore.isObserver && !legacyIPv6Bound.value && openaiProxySupported.value) {
-          newExtra.openai_proxy_mode = openaiProxyMode.value
-          newExtra.openai_proxy_ids = [...openaiProxyIds.value]
-        } else if (!openaiProxySupported.value) {
-          delete newExtra.openai_proxy_mode
-          delete newExtra.openai_proxy_ids
         }
         if (newExtra.openai_excel_bps === true && excelBPSCacheCreationAsInput.value) {
           newExtra.openai_excel_bps_cache_creation_as_input = true

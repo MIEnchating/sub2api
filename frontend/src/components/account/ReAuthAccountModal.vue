@@ -49,7 +49,7 @@
         <legend class="input-label">{{ t('admin.accounts.oauth.authMethod') }}</legend>
         <div class="mt-2 flex gap-4">
           <label class="flex cursor-pointer items-center">
-            <input
+            <FormInput
               v-model="addMethod"
               type="radio"
               value="oauth"
@@ -60,7 +60,7 @@
             }}</span>
           </label>
           <label class="flex cursor-pointer items-center">
-            <input
+            <FormInput
               v-model="addMethod"
               type="radio"
               value="setup-token"
@@ -139,14 +139,14 @@
 
     <template #footer>
       <div v-if="account" class="flex justify-between gap-3">
-        <button type="button" class="btn btn-secondary" @click="handleClose">
+        <BaseButton type="button" class="btn-secondary" @click="handleClose">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           v-if="isManualInputMethod"
           type="button"
           :disabled="!canExchangeCode"
-          class="btn btn-primary"
+          class="btn-primary"
           @click="handleExchangeCode"
         >
           <svg
@@ -174,13 +174,15 @@
               ? t('admin.accounts.oauth.verifying')
               : t('admin.accounts.oauth.completeAuth')
           }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

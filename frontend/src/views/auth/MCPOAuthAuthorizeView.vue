@@ -41,25 +41,25 @@
         <p v-if="authStore.user?.email" class="break-all text-sm text-gray-600 dark:text-gray-300">{{ t('mcp.signedInAs', { email: authStore.user.email }) }}</p>
         <div>
           <label for="mcp-consent-scope" class="input-label">{{ t('mcp.scope') }}</label>
-          <select id="mcp-consent-scope" v-model="scope" class="input" :disabled="submitting" aria-describedby="mcp-scope-hint">
+          <FormSelect id="mcp-consent-scope" v-model="scope" :disabled="submitting" aria-describedby="mcp-scope-hint">
             <option value="user">{{ t('mcp.userScope') }}</option>
             <option v-if="authStore.isAdmin" value="admin">{{ t('mcp.adminScope') }}</option>
-          </select>
+          </FormSelect>
           <p id="mcp-scope-hint" class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ scope === 'admin' ? t('mcp.adminScopeHint') : t('mcp.userScopeHint') }}</p>
         </div>
         <div>
           <label for="mcp-consent-permissions" class="input-label">{{ t('mcp.permissions') }}</label>
-          <select id="mcp-consent-permissions" v-model="readOnly" class="input" :disabled="submitting" aria-describedby="mcp-permissions-hint">
+          <FormSelect id="mcp-consent-permissions" v-model="readOnly" :disabled="submitting" aria-describedby="mcp-permissions-hint">
             <option :value="true">{{ t('mcp.readOnly') }}</option>
             <option :value="false">{{ t('mcp.readWrite') }}</option>
-          </select>
+          </FormSelect>
           <p id="mcp-permissions-hint" class="mt-2 text-xs" :class="readOnly ? 'text-gray-500 dark:text-gray-400' : 'text-amber-700 dark:text-amber-400'">{{ readOnly ? t('mcp.readOnlyHint') : t('mcp.readWriteHint') }}</p>
           <p v-if="scope === 'admin' && !readOnly" data-testid="admin-write-hint" class="mt-1 text-xs text-amber-700 dark:text-amber-400">{{ t('mcp.adminWriteHint') }}</p>
         </div>
         <p v-if="submitError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ submitError }}</p>
         <div class="flex justify-end gap-3 border-t border-gray-100 pt-5 dark:border-dark-700">
-          <button data-testid="deny" type="button" class="btn btn-secondary" :disabled="submitting" @click="decide(false)">{{ t('mcp.deny') }}</button>
-          <button data-testid="approve" type="submit" class="btn btn-primary" :disabled="submitting">{{ submitting ? t('common.processing') : t('mcp.approve') }}</button>
+          <BaseButton data-testid="deny" type="button" class="btn-secondary" :disabled="submitting" @click="decide(false)">{{ t('mcp.deny') }}</BaseButton>
+          <BaseButton data-testid="approve" type="submit" class="btn-primary" :disabled="submitting">{{ submitting ? t('common.processing') : t('mcp.approve') }}</BaseButton>
         </div>
       </form>
     </section>
@@ -68,6 +68,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

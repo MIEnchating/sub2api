@@ -373,7 +373,8 @@ func (s *OpenAIGatewayService) checkOpenAIAgentRecoveryAccount(ctx context.Conte
 		if owner <= 0 || account == nil || owner != account.ID {
 			return openAIAgentRecoveryError("owner_unavailable")
 		}
-		if request.httpResponsePointer && !account.IsOpenAIApiKey() {
+		if request.httpResponsePointer && !account.IsOpenAIApiKey() &&
+			s.OpenAIOAuthHTTPContinuationConn(account, request.groupID, request.previousResponseID) == "" {
 			return openAIAgentRecoveryError("http_previous_response_unsupported")
 		}
 	}

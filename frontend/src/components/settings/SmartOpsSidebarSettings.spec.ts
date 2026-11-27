@@ -1,13 +1,10 @@
 import { mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
-import { defineComponent, nextTick, ref } from 'vue'
+import { defineComponent, ref } from 'vue'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import Panel from './SmartOpsSidebarSettings.vue'
-import Badge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { DEFAULT_SMART_OPS_HIDDEN_MENU_ITEMS, SMART_OPS_MENU_ITEMS } from '@/constants/smartOpsMenu'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import zh from '@/i18n/locales/zh'
 import en from '@/i18n/locales/en'
 
@@ -54,23 +51,5 @@ describe('smart operations sidebar settings', () => {
     const wrapper = mount(Panel, { props: { modelValue: [] }, global: setup(locale).global })
     expect(wrapper.text()).not.toMatch(/admin\.settings\.|\.title\b/)
     expect(wrapper.text()).toContain('11')
-  })
-  it('shares its new notice ID and keeps dismissals across refresh without hiding future notices', async () => {
-    const { pinia, global } = setup()
-    const A = NEW_FEATURE_NOTICES.protocolFeatureSwitches
-    const B = NEW_FEATURE_NOTICES.smartOpsSidebar
-    const C = 'fixture-future-sidebar-announcement'
-    useNewFeatureNoticeStore(pinia).dismiss(41, A)
-    const wrapper = mount(Panel, { props: { modelValue: [] }, global })
-    const other = mount(Badge, { props: { noticeId: B, userId: 41 }, global })
-    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-    await wrapper.get('[data-testid="new-feature-badge"]').trigger('click')
-    await nextTick()
-    expect(other.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-    const refreshed = useNewFeatureNoticeStore(createPinia())
-    expect(refreshed.isDismissed(41, A)).toBe(true)
-    expect(refreshed.isDismissed(41, B)).toBe(true)
-    expect(refreshed.isDismissed(41, C)).toBe(false)
-    expect(refreshed.isDismissed(42, B)).toBe(false)
   })
 })

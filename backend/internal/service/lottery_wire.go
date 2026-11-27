@@ -18,6 +18,7 @@ func ProvideAdminService(
 	auth APIKeyAuthCacheInvalidator, client *dbent.Client, settings *SettingService, assigner DefaultSubscriptionAssigner,
 	subs UserSubscriptionRepository, privacy PrivacyClientFactory, blocker AccountRuntimeBlocker, affiliate *AffiliateService,
 	routes CompositeModelRouteRepository, resolver *CompositeRouteResolver, channels ChannelCacheInvalidator, lottery *LotteryService, quotas UserPlatformQuotaRepository,
+	importChecks *OpenAIAccountImportChecks,
 ) AdminService {
 	s := NewAdminService(cfg, users, groups, accounts, proxies, keys, codes, rates, rpm, billing, prober, latency, auth, client, settings, assigner, subs, privacy, blocker, affiliate, routes, resolver, channels, quotas)
 	impl, ok := s.(*adminServiceImpl)
@@ -25,5 +26,6 @@ func ProvideAdminService(
 		panic("unexpected AdminService implementation")
 	}
 	impl.lottery = lottery
+	impl.openAIImportChecks = importChecks
 	return s
 }

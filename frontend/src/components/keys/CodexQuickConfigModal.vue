@@ -18,26 +18,24 @@
       </p>
 
       <div class="grid grid-cols-2 gap-1 rounded-lg bg-gray-100 p-1 dark:bg-dark-700" role="tablist">
-        <button
+        <TabButton
           type="button"
-          role="tab"
           :aria-selected="activePlatform === 'unix'"
           data-testid="quick-config-unix-tab"
           :class="tabClass(activePlatform === 'unix')"
           @click="activePlatform = 'unix'"
         >
           {{ t('keys.quickConfigureModal.macLinux') }}
-        </button>
-        <button
+        </TabButton>
+        <TabButton
           type="button"
-          role="tab"
           :aria-selected="activePlatform === 'windows'"
           data-testid="quick-config-windows-tab"
           :class="tabClass(activePlatform === 'windows')"
           @click="activePlatform = 'windows'"
         >
           {{ t('keys.quickConfigureModal.windows') }}
-        </button>
+        </TabButton>
       </div>
 
       <div class="rounded-lg border border-gray-200 p-3 dark:border-dark-700">
@@ -45,17 +43,17 @@
           <span class="block text-sm font-medium text-gray-900 dark:text-white">
             {{ t('keys.useKeyModal.codexModelCatalog.mode') }}
           </span>
-          <select v-model="catalogMode" data-testid="quick-config-catalog-mode" class="input mt-2 text-sm">
+          <FormSelect v-model="catalogMode" data-testid="quick-config-catalog-mode" class="mt-2 text-sm">
             <option value="remote">{{ t('keys.useKeyModal.codexModelCatalog.remote') }}</option>
             <option value="file">{{ t('keys.useKeyModal.codexModelCatalog.local') }}</option>
             <option value="none">{{ t('keys.quickConfigureModal.noCatalog') }}</option>
-          </select>
+          </FormSelect>
         </label>
         <p v-if="isOpenAI && catalogMode === 'remote'" class="mt-2 break-all font-mono text-xs text-gray-700 dark:text-gray-300">
           {{ modelCatalogUrl }}
         </p>
         <label v-if="!isOpenAI" class="flex cursor-pointer items-start gap-3">
-          <input
+          <FormInput
             v-model="includeModelCatalog"
             type="checkbox"
             class="mt-0.5 h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-800"
@@ -132,15 +130,19 @@
 
     <template #footer>
       <div class="flex justify-end">
-        <button type="button" class="btn btn-secondary" @click="emit('close')">
+        <BaseButton type="button" class="btn-secondary" @click="emit('close')">
           {{ t('common.close') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'

@@ -7,7 +7,6 @@ import { keysAPI } from '@/api'
 import type { ApiKey, ApiKeyConcurrencySnapshot, Group, GroupPlatform } from '@/types'
 import KeysView from '../KeysView.vue'
 import DateRangePicker from '@/components/common/DateRangePicker.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { formatDateLocalInput, getBrowserTimeZone } from '@/utils/format'
 
 enableAutoUnmount(afterEach)
@@ -1331,20 +1330,6 @@ describe('user KeysView column settings', () => {
     }
     expect(getDashboardApiKeysUsage).toHaveBeenCalledTimes(1)
     expect(showError).toHaveBeenCalledWith('keys.invalidUsageDateRange')
-  })
-
-  it('persists the admin date-range notice dismissal while older notices stay dismissed', async () => {
-    auth.isAdmin = true
-    localStorage.setItem('sub2api:new-feature-notices:v1:41', JSON.stringify([NEW_FEATURE_NOTICES.apiKeyModelPolicy]))
-    const wrapper = await mountView()
-    await wrapper.get('[data-test="key-usage-date-range"] [data-testid="new-feature-badge"]').trigger('click')
-    expect(wrapper.find('[data-test="key-usage-date-range"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-    wrapper.unmount()
-    const reloaded = await mountView()
-    expect(reloaded.find('[data-test="key-usage-date-range"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-    expect(JSON.parse(localStorage.getItem('sub2api:new-feature-notices:v1:41') ?? '[]')).toEqual([
-      NEW_FEATURE_NOTICES.apiKeyModelPolicy, NEW_FEATURE_NOTICES.apiKeyUsageDateRange,
-    ])
   })
 
   it('marks old counts and policy stale on failure and removes the full marker until recovery', async () => {

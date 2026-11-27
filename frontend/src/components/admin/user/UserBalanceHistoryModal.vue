@@ -163,29 +163,30 @@
 
       <!-- Pagination -->
       <div v-if="totalPages > 1" class="flex items-center justify-center gap-2 pt-2">
-        <button
+        <BaseButton
           :disabled="currentPage <= 1"
-          class="btn btn-secondary px-3 py-1 text-sm"
+          class="btn-secondary px-3 py-1 text-sm"
           @click="loadHistory(currentPage - 1)"
         >
           {{ t('pagination.previous') }}
-        </button>
+        </BaseButton>
         <span class="text-sm text-gray-500 dark:text-dark-400">
           {{ currentPage }} / {{ totalPages }}
         </span>
-        <button
+        <BaseButton
           :disabled="currentPage >= totalPages"
-          class="btn btn-secondary px-3 py-1 text-sm"
+          class="btn-secondary px-3 py-1 text-sm"
           @click="loadHistory(currentPage + 1)"
         >
           {{ t('pagination.next') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type BalanceHistoryItem } from '@/api/admin'

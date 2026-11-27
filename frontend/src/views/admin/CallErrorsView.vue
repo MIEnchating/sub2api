@@ -36,25 +36,23 @@
         >
           <div class="w-full sm:w-64">
             <label for="call-error-model" class="input-label">{{ t('usage.model') }}</label>
-            <input
+            <FormInput
               id="call-error-model"
               v-model="filters.model"
               type="search"
-              class="input"
               :placeholder="t('usage.errors.modelExactPlaceholder')"
             />
           </div>
           <div class="min-w-0 flex-1 basis-64">
             <label for="call-error-query" class="input-label">{{ t('usage.errors.searchLabel') }}</label>
-            <input
+            <FormInput
               id="call-error-query"
               v-model="filters.q"
               type="search"
-              class="input"
               :placeholder="t('usage.errors.searchPlaceholder')"
             />
           </div>
-          <button type="submit" class="btn btn-primary">{{ t('common.search') }}</button>
+          <BaseButton type="submit" class="btn-primary">{{ t('common.search') }}</BaseButton>
         </form>
 
         <div
@@ -63,7 +61,7 @@
           class="m-4 flex flex-wrap items-center justify-between gap-3 rounded-lg bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300 sm:m-6"
         >
           <span class="min-w-0 break-words">{{ loadError }}</span>
-          <button type="button" class="btn btn-secondary" @click="loadErrors">{{ t('common.retry') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="loadErrors">{{ t('common.retry') }}</BaseButton>
         </div>
 
         <OpsErrorLogTable
@@ -93,6 +91,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

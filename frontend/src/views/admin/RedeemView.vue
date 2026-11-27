@@ -5,11 +5,10 @@
         <div class="flex flex-wrap items-center gap-3">
           <!-- Left: Search + Filters -->
           <div class="flex-1 sm:max-w-64">
-            <input
+            <FormInput
               v-model="searchQuery"
               type="text"
               :placeholder="t('admin.redeem.searchCodes')"
-              class="input"
               @input="handleSearch"
             />
           </div>
@@ -28,29 +27,29 @@
 
           <!-- Right: Action buttons -->
           <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
-            <button
+            <BaseButton
               @click="loadCodes"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
-            <button @click="handleExportCodes" class="btn btn-secondary">
+            </BaseButton>
+            <BaseButton @click="handleExportCodes" class="btn-secondary">
               {{ t('admin.redeem.exportCsv') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               data-test="batch-update-open"
               @click="openBatchUpdateDialog"
               :disabled="selectedCount === 0 || batchUpdating"
-              class="btn btn-secondary"
+              class="btn-secondary"
             >
               <Icon name="edit" size="md" class="mr-2" />
               {{ t('admin.redeem.batchUpdate') }}
-            </button>
-            <button @click="showGenerateDialog = true" class="btn btn-primary">
+            </BaseButton>
+            <BaseButton @click="showGenerateDialog = true" class="btn-primary">
               {{ t('admin.redeem.generateCodes') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -66,7 +65,7 @@
           @sort="handleSort"
         >
           <template #header-select>
-            <input
+            <FormInput
               data-test="select-all-codes"
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -77,7 +76,7 @@
           </template>
 
           <template #cell-select="{ row }">
-            <input
+            <FormInput
               data-test="select-code"
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -220,13 +219,13 @@
             >
               {{ t('admin.redeem.clearSelection') }}
             </button>
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn-primary btn-sm"
               @click="openBatchUpdateDialog"
             >
               {{ t('admin.redeem.batchUpdate') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -241,9 +240,9 @@
 
         <!-- Batch Actions -->
         <div v-if="filters.status === 'unused'" class="flex justify-end">
-          <button @click="showDeleteUnusedDialog = true" class="btn btn-danger">
+          <BaseButton @click="showDeleteUnusedDialog = true" class="btn-danger">
             {{ t('admin.redeem.deleteAllUnused') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </TablePageLayout>
@@ -296,13 +295,12 @@
                     : t('admin.redeem.columns.value')
                 }}
               </label>
-              <input
+              <FormInput
                 v-model.number="generateForm.value"
                 type="number"
                 :step="generateForm.type === 'balance' ? '0.01' : '1'"
                 :min="generateForm.type === 'balance' ? '0.01' : '1'"
                 required
-                class="input"
               />
             </div>
             <!-- 邀请码类型：显示提示信息 -->
@@ -346,13 +344,12 @@
               </div>
               <div>
                 <label class="input-label">{{ t('admin.redeem.validityDays') }}</label>
-                <input
+                <FormInput
                   v-model.number="generateForm.validity_days"
                   type="number"
                   min="1"
                   max="36500"
                   required
-                  class="input"
                 />
               </div>
             </template>
@@ -374,35 +371,34 @@
                   {{ option.label }}
                 </button>
               </div>
-              <input
+              <FormInput
                 v-if="generateForm.expiry_option === 'custom'"
                 v-model.number="generateForm.custom_expiry_days"
                 type="number"
                 min="1"
                 max="3650"
                 required
-                class="input mt-2"
+                class="mt-2"
                 :placeholder="t('admin.redeem.customExpiryDays')"
               />
             </div>
             <div>
               <label class="input-label">{{ t('admin.redeem.count') }}</label>
-              <input
+              <FormInput
                 v-model.number="generateForm.count"
                 type="number"
                 min="1"
                 max="100"
                 required
-                class="input"
               />
             </div>
             <div class="flex justify-end gap-3 pt-2">
-              <button type="button" @click="showGenerateDialog = false" class="btn btn-secondary">
+              <BaseButton type="button" @click="showGenerateDialog = false" class="btn-secondary">
                 {{ t('common.cancel') }}
-              </button>
-              <button type="submit" :disabled="generating" class="btn btn-primary">
+              </BaseButton>
+              <BaseButton type="submit" :disabled="generating" class="btn-primary">
                 {{ generating ? t('admin.redeem.generating') : t('admin.redeem.generate') }}
-              </button>
+              </BaseButton>
             </div>
           </form>
         </div>
@@ -429,7 +425,7 @@
           <form data-test="batch-update-form" class="space-y-4" @submit.prevent="handleBatchUpdate">
             <div class="space-y-2">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <input
+                <FormInput
                   data-test="batch-field-status"
                   v-model="batchUpdateForm.update_status"
                   type="checkbox"
@@ -447,7 +443,7 @@
 
             <div class="space-y-2">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <input
+                <FormInput
                   v-model="batchUpdateForm.update_expires_at"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -456,11 +452,10 @@
               </label>
               <template v-if="batchUpdateForm.update_expires_at">
                 <Select v-model="batchUpdateForm.expires_mode" :options="batchExpiryModeOptions" />
-                <input
+                <FormInput
                   v-if="batchUpdateForm.expires_mode === 'custom'"
                   v-model="batchUpdateForm.expires_at_local"
                   type="datetime-local"
-                  class="input"
                 />
                 <p v-if="batchUpdateForm.expires_mode === 'custom'" class="input-hint">
                   {{ t('admin.redeem.localTimeZoneHint', { timezone: browserTimeZone }) }}
@@ -470,7 +465,7 @@
 
             <div class="space-y-2">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <input
+                <FormInput
                   data-test="batch-field-notes"
                   v-model="batchUpdateForm.update_notes"
                   type="checkbox"
@@ -478,19 +473,18 @@
                 />
                 {{ t('admin.redeem.batchFields.notes') }}
               </label>
-              <textarea
+              <FormTextarea
                 v-if="batchUpdateForm.update_notes"
                 data-test="batch-notes-input"
                 v-model="batchUpdateForm.notes"
                 rows="3"
-                class="input"
                 :placeholder="t('admin.redeem.batchNotesPlaceholder')"
-              ></textarea>
+              ></FormTextarea>
             </div>
 
             <div class="space-y-2">
               <label class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300">
-                <input
+                <FormInput
                   v-model="batchUpdateForm.update_group_id"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -506,17 +500,17 @@
             </div>
 
             <div class="flex justify-end gap-3 pt-2">
-              <button type="button" @click="closeBatchUpdateDialog" class="btn btn-secondary">
+              <BaseButton type="button" @click="closeBatchUpdateDialog" class="btn-secondary">
                 {{ t('common.cancel') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 data-test="batch-update-submit"
                 type="submit"
                 :disabled="batchUpdating"
-                class="btn btn-primary"
+                class="btn-primary"
               >
                 {{ batchUpdating ? t('common.submitting') : t('admin.redeem.batchUpdate') }}
-              </button>
+              </BaseButton>
             </div>
           </form>
         </div>
@@ -569,12 +563,12 @@
           <!-- Content -->
           <div class="p-5">
             <div class="relative">
-              <textarea
+              <FormTextarea
                 readonly
                 :value="generatedCodesText"
                 :style="{ height: textareaHeight }"
                 class="w-full resize-none rounded-lg border border-gray-200 bg-gray-50 p-3 font-mono text-sm text-gray-800 focus:outline-none dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200"
-              ></textarea>
+              ></FormTextarea>
             </div>
           </div>
           <!-- Footer -->
@@ -599,10 +593,10 @@
               </svg>
               {{ copiedAll ? t('admin.redeem.copied') : t('admin.redeem.copyAll') }}
             </button>
-            <button @click="downloadGeneratedCodes" class="btn btn-primary flex items-center gap-2">
+            <BaseButton @click="downloadGeneratedCodes" class="btn-primary flex items-center gap-2">
               <Icon name="download" size="sm" :stroke-width="2" />
               {{ t('admin.redeem.download') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -611,6 +605,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

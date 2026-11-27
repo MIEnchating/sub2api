@@ -8,11 +8,11 @@
           size="md"
           class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
         />
-        <input
+        <FormInput
           v-model="search"
           type="text"
           :placeholder="t('admin.channelMonitor.searchPlaceholder')"
-          class="input pl-10"
+          class="pl-10"
           @input="$emit('search-input')"
         />
       </div>
@@ -36,31 +36,33 @@
 
     <!-- Right: Actions -->
     <div class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto">
-      <button
+      <BaseButton
         @click="$emit('reload')"
         :disabled="loading"
-        class="btn btn-secondary"
+        class="btn-secondary"
         :title="t('common.refresh')"
       >
         <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-      </button>
-      <button
+      </BaseButton>
+      <BaseButton
         @click="$emit('manage-templates')"
-        class="btn btn-secondary"
+        class="btn-secondary"
         :title="t('admin.channelMonitor.template.manageButton')"
       >
         <Icon name="cog" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.template.manageButton') }}
-      </button>
-      <button @click="$emit('create')" class="btn btn-primary">
+      </BaseButton>
+      <BaseButton @click="$emit('create')" class="btn-primary">
         <Icon name="plus" size="md" class="mr-2" />
         {{ t('admin.channelMonitor.createButton') }}
-      </button>
+      </BaseButton>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Provider } from '@/api/admin/channelMonitor'

@@ -130,13 +130,6 @@ func selectAPIKeyRequestGroup(c *gin.Context, keys *service.APIKeyService, subsc
 	if penaltyErr != nil {
 		return nil, infraerrors.ServiceUnavailable("security_penalty_unavailable", "请求权限检查暂时不可用")
 	}
-	canRecoverBalance := false
-	if checkBilling && key.User != nil && groupBalanceNeedsRecovery(key.User.Balance, cfg) {
-		canRecoverBalance, err = keys.CanRecoverAutoCreditAdmission(c.Request.Context(), key)
-		if err != nil {
-			return nil, infraerrors.ServiceUnavailable("AUTO_CREDIT_UNAVAILABLE", "Credit authorization unavailable")
-		}
-	}
 	balanceDenied := false
 	accepts := func(candidate *service.APIKey) bool {
 		group := candidate.Group
@@ -184,7 +177,7 @@ func selectAPIKeyRequestGroup(c *gin.Context, keys *service.APIKeyService, subsc
 		}
 		// Report balance only after this group passes every request policy.
 		// A forbidden model/client must not become a misleading top-up prompt.
-		if checkBilling && !group.IsSubscriptionType() && groupBalanceNeedsRecovery(candidate.User.Balance, cfg) && !canRecoverBalance {
+		if checkBilling && !group.IsSubscriptionType() && groupBalanceNeedsRecovery(candidate.User.Balance, cfg) {
 			balanceDenied = true
 			return false
 		}

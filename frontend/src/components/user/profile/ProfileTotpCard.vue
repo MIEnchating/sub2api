@@ -48,13 +48,13 @@
             </p>
           </div>
         </div>
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-outline-danger"
+          class="btn-outline-danger"
           @click="showDisableDialog = true"
         >
           {{ t('profile.totp.disable') }}
-        </button>
+        </BaseButton>
       </div>
 
       <!-- 2FA Not Enabled -->
@@ -74,13 +74,13 @@
             </p>
           </div>
         </div>
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-primary"
+          class="btn-primary"
           @click="showSetupModal = true"
         >
           {{ t('profile.totp.enable') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
 
@@ -101,6 +101,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { totpAPI } from '@/api'

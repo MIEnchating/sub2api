@@ -41,9 +41,9 @@
               <span v-if="files.length > 1"> · {{ fileListTitle }}</span>
             </div>
           </div>
-          <button type="button" class="btn btn-secondary shrink-0" @click="openFilePicker">
+          <BaseButton type="button" class="btn-secondary shrink-0" @click="openFilePicker">
             {{ t('common.chooseFile') }}
-          </button>
+          </BaseButton>
         </div>
         <input
           ref="fileInput"
@@ -56,7 +56,7 @@
       </div>
 
       <div class="space-y-2">
-        <label class="flex items-center gap-2 text-sm"><input v-model="overrideProxy" type="checkbox" :disabled="importing" data-testid="import-override-proxy" />{{ t('ovhIPv6.overrideFileProxy') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="overrideProxy" type="checkbox" :disabled="importing" data-testid="import-override-proxy" />{{ t('ovhIPv6.overrideFileProxy') }}</label>
         <p class="input-hint">{{ t(overrideProxy ? 'ovhIPv6.importHint' : 'ovhIPv6.keepFileProxy') }}</p>
         <template v-if="overrideProxy">
           <AccountProxyModeSelect v-model="proxyMode" :disabled="importing" />
@@ -91,23 +91,25 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button class="btn btn-secondary" type="button" :disabled="importing" @click="handleClose">
+        <BaseButton class="btn-secondary" type="button" :disabled="importing" @click="handleClose">
           {{ t('common.cancel') }}
-        </button>
-        <button
-          class="btn btn-primary"
+        </BaseButton>
+        <BaseButton
+          class="btn-primary"
           type="submit"
           form="import-data-form"
           :disabled="importing"
         >
           {{ importing ? t('admin.accounts.dataImporting') : t('admin.accounts.dataImportButton') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AccountProxyModeSelect from '@/components/common/AccountProxyModeSelect.vue'

@@ -5,39 +5,39 @@
     <p v-if="notice" role="status" class="rounded-lg bg-green-50 p-4 text-green-700 dark:bg-green-950">{{ notice }}</p>
     <p v-if="dirty" class="text-sm text-amber-700">{{ t('qqbot.workspace.unsaved') }}</p>
     <form v-if="form" class="card space-y-5 p-6" @submit.prevent="save">
-      <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('qqbot.lotteryRules') }}</h2><label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('common.enabled') }}</label></div>
-      <label class="block space-y-1">{{ t('qqbot.activityName') }}<input v-model.trim="form.title" class="input" maxlength="60" required /></label>
+      <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('qqbot.lotteryRules') }}</h2><label class="flex items-center gap-2"><FormInput v-model="form.enabled" type="checkbox" />{{ t('common.enabled') }}</label></div>
+      <label class="block space-y-1">{{ t('qqbot.activityName') }}<FormInput v-model.trim="form.title" maxlength="60" required /></label>
       <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="font-semibold">{{ t('qqbot.prizePool') }}</h2><span :class="probabilityTotal === 10000 ? 'text-green-600' : 'text-red-600'">{{ t('qqbot.probabilityTotal', { total: (probabilityTotal / 100).toFixed(2) }) }}</span></div>
       <QQBotLotteryPrize v-for="(prize, index) in form.prizes" :key="index" :model-value="prize" :index="index" prefix="prize" :removable="form.prizes.length > 1" @remove="form.prizes.splice(index, 1)" />
-      <button type="button" data-testid="add-lottery-prize" class="btn btn-secondary" :disabled="form.prizes.length >= 20" @click="addPrize">{{ t('qqbot.addPrize') }}</button>
+      <BaseButton type="button" data-testid="add-lottery-prize" class="btn-secondary" :disabled="form.prizes.length >= 20" @click="addPrize">{{ t('qqbot.addPrize') }}</BaseButton>
       <p class="text-sm text-gray-500">{{ t('qqbot.prizeHelp') }}</p>
       <p class="rounded-lg bg-primary-50 p-3 text-sm text-primary-700 dark:bg-primary-950 dark:text-primary-300">{{ t('qqbot.chancePrizeExample') }}</p>
       <section class="space-y-4 rounded-xl border border-gray-200 p-4 dark:border-dark-700" data-testid="guarantee-settings">
         <div class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="font-semibold">{{ t('qqbot.guaranteeTitle') }}</h2>
-          <label class="flex items-center gap-2"><input v-model="form.guarantee_enabled" data-testid="guarantee-enabled" type="checkbox" />{{ t('qqbot.enableGuarantee') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="form.guarantee_enabled" data-testid="guarantee-enabled" type="checkbox" />{{ t('qqbot.enableGuarantee') }}</label>
         </div>
         <p class="text-sm text-gray-500">{{ t('qqbot.guaranteeHelp') }}</p>
         <template v-if="form.guarantee_enabled">
-          <label class="block space-y-1">{{ t('qqbot.guaranteeEvery') }}<input v-model.number="form.guarantee_every" data-testid="guarantee-every" class="input" type="number" min="1" max="1000000" step="1" required /></label>
+          <label class="block space-y-1">{{ t('qqbot.guaranteeEvery') }}<FormInput v-model.number="form.guarantee_every" data-testid="guarantee-every" type="number" min="1" max="1000000" step="1" required /></label>
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h3 class="font-semibold">{{ t('qqbot.guaranteePrizePool') }}</h3>
             <span :class="guaranteeProbabilityTotal === 10000 ? 'text-green-600' : 'text-red-600'">{{ t('qqbot.probabilityTotal', { total: (guaranteeProbabilityTotal / 100).toFixed(2) }) }}</span>
           </div>
           <QQBotLotteryPrize v-for="(prize, index) in form.guarantee_prizes" :key="index" :model-value="prize" :index="index" prefix="guarantee" guaranteed :removable="form.guarantee_prizes.length > 1" @remove="form.guarantee_prizes.splice(index, 1)" />
-          <button type="button" data-testid="add-guarantee-prize" class="btn btn-secondary" :disabled="form.guarantee_prizes.length >= 20" @click="addGuaranteePrize">{{ t('qqbot.addPrize') }}</button>
+          <BaseButton type="button" data-testid="add-guarantee-prize" class="btn-secondary" :disabled="form.guarantee_prizes.length >= 20" @click="addGuaranteePrize">{{ t('qqbot.addPrize') }}</BaseButton>
           <p class="text-sm text-gray-500">{{ t('qqbot.guaranteePrizeHelp') }}</p>
         </template>
       </section>
       <p class="text-sm text-gray-500">{{ t('qqbot.lotteryCommand') }}</p>
       <p class="rounded-lg bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950 dark:text-blue-200">{{ t('qqbot.workspace.lotteryCost', { amount: expectedCost.toFixed(6), draws: 1000, cost: (expectedCost * 1000).toFixed(2) }) }}</p>
       <p class="text-sm text-gray-500" data-testid="lottery-chances-expected">{{ t('qqbot.expectedChanceReward', { count: expectedChances.toFixed(3) }) }}</p>
-      <button type="submit" class="btn btn-primary" :disabled="saving || probabilityTotal !== 10000 || (form.guarantee_enabled && guaranteeProbabilityTotal !== 10000)">{{ t('common.save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="saving || probabilityTotal !== 10000 || (form.guarantee_enabled && guaranteeProbabilityTotal !== 10000)">{{ t('common.save') }}</BaseButton>
     </form>
     <p v-else-if="!error">{{ t('common.loading') }}</p>
     <section class="card space-y-4 p-6">
       <h2 class="text-lg font-semibold">{{ t('qqbot.chanceLookup') }}</h2>
-      <form class="flex flex-wrap gap-3" @submit.prevent="lookup"><label class="min-w-0 flex-1"><span class="sr-only">{{ t('qqbot.userID') }}</span><input v-model="userID" class="input" :placeholder="t('qqbot.userID')" type="number" min="1" step="1" required /></label><button class="btn btn-secondary" :disabled="lookingUp">{{ t('common.search') }}</button></form>
+      <form class="flex flex-wrap gap-3" @submit.prevent="lookup"><label class="min-w-0 flex-1"><span class="sr-only">{{ t('qqbot.userID') }}</span><FormInput v-model="userID" :placeholder="t('qqbot.userID')" type="number" min="1" step="1" required /></label><BaseButton class="btn-secondary" :disabled="lookingUp">{{ t('common.search') }}</BaseButton></form>
       <p v-if="lookupError" role="alert" class="text-red-600">{{ lookupError }}</p>
       <dl v-if="state" class="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
         <div><dt class="text-gray-500">{{ t('qqbot.eligibleRecharge') }}</dt><dd class="mt-1 font-semibold">${{ state.recharge_total.toFixed(2) }}</dd></div>
@@ -53,6 +53,8 @@
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import QQBotLotteryPrize from './QQBotLotteryPrize.vue'
 import { useQQDraft } from './useQQDraft'
 import { computed, onMounted, ref } from 'vue'

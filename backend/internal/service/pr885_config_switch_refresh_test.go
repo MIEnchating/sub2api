@@ -296,27 +296,3 @@ func pr885RunConfigSwitchRefresh(t *testing.T, images bool, singleProxy int64, c
 		require.JSONEq(t, `{"error":{"type":"server_error","code":"basispoints_auth_unavailable","message":"Excel OAuth credential is unavailable; see Credential Operations"}}`, completed.body)
 	}
 }
-
-func TestExcelBPSRequestProxyConfigSwitchForward(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		proxy int64
-	}{{"single_B", 2}, {"single_empty", 0}} {
-		t.Run(tc.name, func(t *testing.T) { pr885RunConfigSwitchRefresh(t, false, tc.proxy, "") })
-	}
-}
-func TestExcelBPSRequestProxyConfigSwitchImages(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		proxy int64
-	}{{"single_B", 2}, {"single_empty", 0}} {
-		t.Run(tc.name, func(t *testing.T) { pr885RunConfigSwitchRefresh(t, true, tc.proxy, "") })
-	}
-}
-func TestExcelBPSRequestProxyConfigSwitchControls(t *testing.T) {
-	for _, images := range []bool{false, true} {
-		for _, control := range []string{"refresh_error", "cancel"} {
-			t.Run(fmt.Sprintf("images_%t/%s", images, control), func(t *testing.T) { pr885RunConfigSwitchRefresh(t, images, 2, control) })
-		}
-	}
-}

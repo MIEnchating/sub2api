@@ -34,6 +34,9 @@ func hasOpenAIResponsesClientToolMapping(mapping apicompat.ResponsesClientToolMa
 }
 
 func adaptOpenAIResponsesClientTools(body []byte) ([]byte, apicompat.ResponsesClientToolMapping, error) {
+	if hasCodexExecNotifications(body) {
+		return body, apicompat.ResponsesClientToolMapping{}, errors.New(codexExecNotificationConversionMessage)
+	}
 	if !needsOpenAIResponsesClientToolAdaptation(body) {
 		return body, apicompat.ResponsesClientToolMapping{}, nil
 	}

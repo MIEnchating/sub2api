@@ -33,9 +33,9 @@
 
           <div v-if="closed" class="card flex flex-wrap items-center justify-between gap-3 p-5 text-sm text-gray-600 dark:text-gray-300" data-testid="ticket-closed">
             <span>{{ detail.ticket.closed_by_role === 'user' ? t('supportTickets.admin.closedByUser') : t('supportTickets.admin.closedByAdmin') }}</span>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" data-testid="ticket-reopen" @click="setStatus('pending')">
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" data-testid="ticket-reopen" @click="setStatus('pending')">
               {{ t('supportTickets.admin.reopen') }}
-            </button>
+            </BaseButton>
           </div>
           <div v-else class="card p-5">
             <TicketReplyBox v-model="reply" :placeholder="t('supportTickets.detail.adminReplyPlaceholder')" :sending="busy" @submit="send">
@@ -97,29 +97,29 @@
           </div>
 
           <div class="card space-y-2 p-5">
-            <button
+            <BaseButton
               v-if="!closed && detail.ticket.status !== 'processing'"
               type="button"
-              class="btn btn-secondary w-full"
+              class="btn-secondary w-full"
               :disabled="busy"
               data-testid="ticket-mark-processing"
               @click="setStatus('processing')"
             >
               {{ t('supportTickets.admin.markProcessing') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-if="!closed"
               type="button"
-              class="btn btn-secondary w-full"
+              class="btn-secondary w-full"
               :disabled="busy"
               data-testid="ticket-close"
               @click="setStatus('closed')"
             >
               {{ t('supportTickets.admin.close') }}
-            </button>
-            <button type="button" class="btn btn-danger w-full" :disabled="busy" data-testid="ticket-delete" @click="confirmDelete = true">
+            </BaseButton>
+            <BaseButton type="button" class="btn-danger w-full" :disabled="busy" data-testid="ticket-delete" @click="confirmDelete = true">
               {{ t('supportTickets.admin.delete') }}
-            </button>
+            </BaseButton>
           </div>
         </aside>
       </div>
@@ -138,6 +138,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

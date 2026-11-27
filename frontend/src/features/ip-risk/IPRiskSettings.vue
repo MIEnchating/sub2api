@@ -6,7 +6,7 @@
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
       <p v-if="notice" role="status" class="text-sm text-green-600">{{ notice }}</p>
       <div class="flex flex-wrap items-center gap-3">
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="load">{{ tr('load') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="load">{{ tr('load') }}</BaseButton>
         <span v-if="snapshot" class="text-xs text-gray-500">{{ tr('currentIP') }}: {{ snapshot.current_ip }} · Redis: {{ snapshot.health.redis_available ? tr('available') : tr('unavailable') }}</span>
       </div>
       <template v-if="draft && snapshot">
@@ -16,19 +16,19 @@
         <form class="space-y-5" @submit.prevent="save" @invalid.capture="revealInvalidField">
           <fieldset :disabled="busy" class="space-y-5">
             <div class="flex flex-wrap gap-5">
-              <label class="flex items-center gap-2 text-sm"><input v-model="draft.enabled" type="checkbox" data-testid="risk-enabled" />{{ tr('enabled') }}</label>
-              <label class="flex items-center gap-2 text-sm"><input v-model="draft.observe_only" type="checkbox" data-testid="risk-observe" />{{ tr('observeOnly') }}</label>
+              <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.enabled" type="checkbox" data-testid="risk-enabled" />{{ tr('enabled') }}</label>
+              <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.observe_only" type="checkbox" data-testid="risk-observe" />{{ tr('observeOnly') }}</label>
             </div>
             <p class="text-xs text-gray-500">{{ tr('scopeHint') }}</p>
             <section class="grid gap-4 md:grid-cols-2">
               <label class="block text-sm">{{ tr('whitelist') }}
-                <textarea v-model="whitelist" rows="4" class="input mt-2 w-full font-mono" placeholder="203.0.113.10&#10;2001:db8::/64" data-testid="risk-whitelist" />
+                <FormTextarea v-model="whitelist" rows="4" class="mt-2 w-full font-mono" placeholder="203.0.113.10&#10;2001:db8::/64" data-testid="risk-whitelist" />
                 <span class="mt-1 block text-xs text-gray-500">{{ tr('whitelistHint') }}</span>
               </label>
               <div class="space-y-2 text-sm">
                 <p>{{ tr('trustedIP') }}</p>
                 <p class="text-xs text-gray-500">{{ tr('trustedIPHint') }}</p>
-                <button type="button" class="btn btn-secondary btn-sm" data-testid="risk-whitelist-current" @click="addCurrentIP">{{ tr('whitelistCurrent') }}</button>
+                <BaseButton type="button" class="btn-secondary btn-sm" data-testid="risk-whitelist-current" @click="addCurrentIP">{{ tr('whitelistCurrent') }}</BaseButton>
               </div>
             </section>
             <section class="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-gray-200 p-4 dark:border-dark-700" data-testid="risk-blacklist-summary">
@@ -36,21 +36,21 @@
                 <h3 class="font-medium">{{ tr('blacklist') }}</h3>
                 <p class="text-xs text-gray-500">{{ draft.blacklist.length ? tr('ruleCount', { count: draft.blacklist.length }) : tr('noRules') }}</p>
               </div>
-              <button type="button" class="btn btn-secondary btn-sm" data-testid="risk-manage-blacklist" @click="showBlacklist = true">{{ tr('manageBlacklist') }}</button>
+              <BaseButton type="button" class="btn-secondary btn-sm" data-testid="risk-manage-blacklist" @click="showBlacklist = true">{{ tr('manageBlacklist') }}</BaseButton>
             </section>
             <div class="space-y-3">
               <RiskSettingsSection :title="tr('countryRules')" data-testid="risk-country-settings">
-                <label class="block text-sm">{{ tr('allowedCountries') }}<input v-model="allowedCountries" class="input mt-2 w-full" placeholder="CN" data-testid="risk-allowed-countries" /></label>
-                <button type="button" class="btn btn-secondary btn-sm" data-testid="risk-china-only" @click="allowChinaOnly">{{ tr('chinaOnly') }}</button>
+                <label class="block text-sm">{{ tr('allowedCountries') }}<FormInput v-model="allowedCountries" class="mt-2 w-full" placeholder="CN" data-testid="risk-allowed-countries" /></label>
+                <BaseButton type="button" class="btn-secondary btn-sm" data-testid="risk-china-only" @click="allowChinaOnly">{{ tr('chinaOnly') }}</BaseButton>
                 <p class="text-xs text-gray-500">{{ tr('allowedCountriesHint') }}</p>
-                <label class="block text-sm">{{ tr('countries') }}<input v-model="countries" class="input mt-2 w-full" placeholder="US, JP" data-testid="risk-countries" /></label>
-                <div class="flex gap-2"><button type="button" class="btn btn-secondary btn-sm" @click="addCountry('US')">{{ tr('unitedStates') }}</button><button type="button" class="btn btn-secondary btn-sm" @click="addCountry('JP')">{{ tr('japan') }}</button></div>
-                <label class="flex items-center gap-2 text-sm"><input v-model="draft.block_unknown_country" type="checkbox" />{{ tr('unknownCountry') }}</label>
+                <label class="block text-sm">{{ tr('countries') }}<FormInput v-model="countries" class="mt-2 w-full" placeholder="US, JP" data-testid="risk-countries" /></label>
+                <div class="flex gap-2"><BaseButton type="button" class="btn-secondary btn-sm" @click="addCountry('US')">{{ tr('unitedStates') }}</BaseButton><BaseButton type="button" class="btn-secondary btn-sm" @click="addCountry('JP')">{{ tr('japan') }}</BaseButton></div>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.block_unknown_country" type="checkbox" />{{ tr('unknownCountry') }}</label>
                 <p class="text-xs text-gray-500">{{ tr('geoHint') }}</p>
               </RiskSettingsSection>
               <RiskSettingsSection :title="tr('uaRules')" data-testid="risk-ua-settings">
-                <label class="block text-sm">{{ tr('userAgents') }}<textarea v-model="userAgents" rows="4" class="input mt-2 w-full font-mono" data-testid="risk-user-agents" /></label>
-                <label class="flex items-center gap-2 text-sm"><input v-model="draft.block_empty_ua" type="checkbox" />{{ tr('emptyUA') }}</label>
+                <label class="block text-sm">{{ tr('userAgents') }}<FormTextarea v-model="userAgents" rows="4" class="mt-2 w-full font-mono" data-testid="risk-user-agents" /></label>
+                <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.block_empty_ua" type="checkbox" />{{ tr('emptyUA') }}</label>
                 <p class="text-xs text-gray-500">{{ tr('uaHint') }}</p>
               </RiskSettingsSection>
             </div>
@@ -58,60 +58,60 @@
               <p class="text-xs text-gray-500">{{ tr('counterHint') }}</p>
               <div v-for="key in counterKeys" :key="key" class="grid items-end gap-3 sm:grid-cols-3">
                 <span class="text-sm">{{ tr(key) }}</span>
-                <label class="text-xs text-gray-500">{{ tr('limit') }}<input v-model.number="draft[key].limit" type="number" min="0" max="100000" step="1" required class="input mt-1 w-full" :data-testid="`risk-${key}-limit`" /></label>
-                <label class="text-xs text-gray-500">{{ tr('window') }}<input v-model.number="draft[key].window_seconds" type="number" min="1" max="86400" step="1" required class="input mt-1 w-full" /></label>
+                <label class="text-xs text-gray-500">{{ tr('limit') }}<FormInput v-model.number="draft[key].limit" type="number" min="0" max="100000" step="1" required class="mt-1 w-full" :data-testid="`risk-${key}-limit`" /></label>
+                <label class="text-xs text-gray-500">{{ tr('window') }}<FormInput v-model.number="draft[key].window_seconds" type="number" min="1" max="86400" step="1" required class="mt-1 w-full" /></label>
               </div>
               <div class="grid gap-3 sm:grid-cols-3">
-                <label class="text-sm">{{ tr('banDuration') }}<input v-model.number="draft.ban_seconds" type="number" min="60" max="604800" step="1" required class="input mt-1 w-full" /></label>
-                <label class="text-sm">{{ tr('ipv6Prefix') }}<input v-model.number="draft.ipv6_prefix" type="number" min="64" max="128" step="1" required class="input mt-1 w-full" /></label>
-                <label class="text-sm">{{ tr('retention') }}<input v-model.number="draft.event_retention_hours" type="number" min="1" max="720" step="1" required class="input mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('banDuration') }}<FormInput v-model.number="draft.ban_seconds" type="number" min="60" max="604800" step="1" required class="mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('ipv6Prefix') }}<FormInput v-model.number="draft.ipv6_prefix" type="number" min="64" max="128" step="1" required class="mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('retention') }}<FormInput v-model.number="draft.event_retention_hours" type="number" min="1" max="720" step="1" required class="mt-1 w-full" /></label>
               </div>
             </RiskSettingsSection>
             <RiskSettingsSection :title="tr('anonymousTitle')" :status="draft.anonymous_api.enabled ? tr('protectionEnabled') : tr('protectionDisabled')" data-testid="anonymous-settings">
               <p class="text-xs text-gray-500">{{ tr('anonymousHint') }}</p>
-              <label class="flex items-center gap-2 text-sm"><input v-model="draft.anonymous_api.enabled" type="checkbox" data-testid="anonymous-enabled" />{{ tr('anonymousEnabled') }}</label>
+              <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.anonymous_api.enabled" type="checkbox" data-testid="anonymous-enabled" />{{ tr('anonymousEnabled') }}</label>
               <div class="grid gap-3 sm:grid-cols-2">
-                <label class="text-sm">{{ tr('limit') }}<input v-model.number="draft.anonymous_api.threshold" type="number" min="2" max="1000" required class="input mt-1 w-full" data-testid="anonymous-threshold" /></label>
-                <label class="text-sm">{{ tr('window') }}<input v-model.number="draft.anonymous_api.window_seconds" type="number" min="1" max="3600" required class="input mt-1 w-full" /></label>
-                <label class="text-sm">{{ tr('banDuration') }}<input v-model.number="draft.anonymous_api.ban_seconds" type="number" min="1" max="86400" required class="input mt-1 w-full" /></label>
-                <label class="text-sm">{{ tr('anonymousCapacity') }}<input v-model.number="draft.anonymous_api.max_tracked_ips" type="number" min="100" max="50000" required class="input mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('limit') }}<FormInput v-model.number="draft.anonymous_api.threshold" type="number" min="2" max="1000" required class="mt-1 w-full" data-testid="anonymous-threshold" /></label>
+                <label class="text-sm">{{ tr('window') }}<FormInput v-model.number="draft.anonymous_api.window_seconds" type="number" min="1" max="3600" required class="mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('banDuration') }}<FormInput v-model.number="draft.anonymous_api.ban_seconds" type="number" min="1" max="86400" required class="mt-1 w-full" /></label>
+                <label class="text-sm">{{ tr('anonymousCapacity') }}<FormInput v-model.number="draft.anonymous_api.max_tracked_ips" type="number" min="100" max="50000" required class="mt-1 w-full" /></label>
               </div>
-              <label class="flex items-center gap-2 text-sm"><input v-model="draft.anonymous_api.reset_on_success" type="checkbox" />{{ tr('anonymousReset') }}</label>
+              <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.anonymous_api.reset_on_success" type="checkbox" />{{ tr('anonymousReset') }}</label>
               <p class="text-xs text-gray-500">{{ tr('anonymousFailurePolicy') }}</p>
             </RiskSettingsSection>
-            <button type="submit" class="btn btn-primary btn-sm" data-testid="risk-save">{{ tr('save') }}</button>
+            <BaseButton type="submit" class="btn-primary btn-sm" data-testid="risk-save">{{ tr('save') }}</BaseButton>
           </fieldset>
         </form>
         <BlacklistDialog :show="showBlacklist" :blacklist="draft.blacklist" @close="showBlacklist = false" @apply="applyBlacklist" />
         <RiskSettingsSection :title="tr('anonymousBans')" :status="tr('banCount', { count: anonymousBans.length })" data-testid="anonymous-bans">
-          <div class="flex justify-end"><button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('refreshRecords') }}</button></div>
+          <div class="flex justify-end"><BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('refreshRecords') }}</BaseButton></div>
           <p class="text-xs text-gray-500">{{ tr('anonymousUnbanHint') }}</p>
           <div class="flex flex-wrap items-center gap-2">
-            <input v-model="anonymousReleaseIP" class="input" :placeholder="tr('anonymousExactIP')" :aria-label="tr('anonymousExactIP')" data-testid="anonymous-release-ip" />
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !anonymousReleaseIP.trim()" data-testid="anonymous-release-manual" @click="unbanAnonymous(anonymousReleaseIP.trim())">{{ tr('anonymousUnban') }}</button>
+            <FormInput v-model="anonymousReleaseIP" :placeholder="tr('anonymousExactIP')" :aria-label="tr('anonymousExactIP')" data-testid="anonymous-release-ip" />
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !anonymousReleaseIP.trim()" data-testid="anonymous-release-manual" @click="unbanAnonymous(anonymousReleaseIP.trim())">{{ tr('anonymousUnban') }}</BaseButton>
           </div>
           <div v-for="ban in anonymousBans" :key="ban.network" class="flex flex-wrap items-center justify-between gap-2 rounded border p-3 text-sm">
             <span><code>{{ ban.network }}</code> · {{ label(ban.reason) }} · {{ tr('expiresAt') }} {{ date(ban.expires_at) }}</span>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" data-testid="anonymous-unban" @click="unbanAnonymous(ban.network)">{{ tr('anonymousUnban') }}</button>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" data-testid="anonymous-unban" @click="unbanAnonymous(ban.network)">{{ tr('anonymousUnban') }}</BaseButton>
           </div>
           <p v-if="!anonymousBans.length" class="text-xs text-gray-500">{{ tr('noBans') }}</p>
         </RiskSettingsSection>
         <RiskSettingsSection :title="tr('checkTitle')" data-testid="risk-check-settings">
           <p class="text-xs text-gray-500">{{ tr('checkHint') }}</p>
           <div class="flex flex-wrap items-center gap-2">
-            <input v-model="checkIP" class="input" :placeholder="tr('network')" :aria-label="tr('checkIP')" data-testid="risk-check-ip" />
-            <input v-model="checkUA" class="input" placeholder="User-Agent" aria-label="User-Agent" />
-            <label class="flex items-center gap-2 text-sm"><input v-model="checkAuth" type="checkbox" />{{ tr('authRequest') }}</label>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !checkIP.trim()" data-testid="risk-check" @click="check">{{ tr('check') }}</button>
+            <FormInput v-model="checkIP" :placeholder="tr('network')" :aria-label="tr('checkIP')" data-testid="risk-check-ip" />
+            <FormInput v-model="checkUA" placeholder="User-Agent" aria-label="User-Agent" />
+            <label class="flex items-center gap-2 text-sm"><FormInput v-model="checkAuth" type="checkbox" />{{ tr('authRequest') }}</label>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !checkIP.trim()" data-testid="risk-check" @click="check">{{ tr('check') }}</BaseButton>
           </div>
           <p v-if="checkResult" role="status" class="text-sm">{{ label(checkResult.decision) }} · {{ label(checkResult.reason) }} · {{ checkResult.country || '—' }} · {{ checkResult.network }}</p>
         </RiskSettingsSection>
         <RiskSettingsSection :title="tr('bans')" :status="tr('banCount', { count: bans.length })" data-testid="risk-bans">
-          <div class="flex justify-end"><button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('refreshRecords') }}</button></div>
+          <div class="flex justify-end"><BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('refreshRecords') }}</BaseButton></div>
           <p class="text-xs text-gray-500">{{ tr('bansHint') }}</p>
           <div v-for="ban in bans" :key="`${ban.observe_only}-${ban.network}`" class="flex flex-wrap items-center justify-between gap-2 rounded border border-gray-200 p-3 text-sm dark:border-dark-700">
             <span><code>{{ ban.network }}</code> · {{ label(ban.reason) }} · {{ ban.observe_only ? tr('observeOnly') : tr('enforced') }} · {{ tr('expiresAt') }} {{ date(ban.expires_at) }}</span>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="unban(ban.network)">{{ tr('unban') }}</button>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="unban(ban.network)">{{ tr('unban') }}</BaseButton>
           </div>
           <p v-if="!bans.length" class="text-xs text-gray-500">{{ tr('noBans') }}</p>
         </RiskSettingsSection>
@@ -119,14 +119,14 @@
           <h3 class="font-medium">{{ tr('events') }}</h3>
           <p class="text-xs text-gray-500">{{ tr('eventsHint') }}</p>
           <div class="flex flex-wrap items-center gap-2">
-            <input v-model="filterIP" class="input" :placeholder="tr('filterIP')" :aria-label="tr('filterIP')" />
-            <select v-model="filterCategory" class="input" :aria-label="tr('category')" data-testid="risk-category"><option value="">{{ tr('allCategories') }}</option><option v-for="category in ['login', 'register', 'verification']" :key="category" :value="category">{{ label(category) }}</option></select>
-            <select v-model="filterReason" class="input" :aria-label="tr('filterReason')"><option value="">{{ tr('allReasons') }}</option><option v-for="reason in reasons" :key="reason" :value="reason">{{ label(reason) }}</option></select>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('filter') }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !events.length" @click="confirmClear = !confirmClear">{{ tr('clearEvents') }}</button>
+            <FormInput v-model="filterIP" :placeholder="tr('filterIP')" :aria-label="tr('filterIP')" />
+            <FormSelect v-model="filterCategory" :aria-label="tr('category')" data-testid="risk-category"><option value="">{{ tr('allCategories') }}</option><option v-for="category in ['login', 'register', 'verification']" :key="category" :value="category">{{ label(category) }}</option></FormSelect>
+            <FormSelect v-model="filterReason" :aria-label="tr('filterReason')"><option value="">{{ tr('allReasons') }}</option><option v-for="reason in reasons" :key="reason" :value="reason">{{ label(reason) }}</option></FormSelect>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refreshRecords">{{ tr('filter') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !events.length" @click="confirmClear = !confirmClear">{{ tr('clearEvents') }}</BaseButton>
           </div>
-          <div v-if="confirmClear" class="flex items-center gap-2 text-sm"><span>{{ tr('clearConfirm') }}</span><button type="button" class="btn btn-danger btn-sm" :disabled="busy" @click="clearEvents">{{ tr('confirm') }}</button><button type="button" class="btn btn-secondary btn-sm" @click="confirmClear = false">{{ tr('cancel') }}</button></div>
-          <div class="overflow-x-auto"><table class="w-full text-left text-xs">
+          <div v-if="confirmClear" class="flex items-center gap-2 text-sm"><span>{{ tr('clearConfirm') }}</span><BaseButton type="button" class="btn-danger btn-sm" :disabled="busy" @click="clearEvents">{{ tr('confirm') }}</BaseButton><BaseButton type="button" class="btn-secondary btn-sm" @click="confirmClear = false">{{ tr('cancel') }}</BaseButton></div>
+          <div class="overflow-x-auto"><BaseTable class="w-full text-left text-xs">
             <thead><tr><th class="p-2">{{ tr('time') }}</th><th class="p-2">IP / {{ tr('source') }}</th><th class="p-2">{{ tr('request') }}</th><th class="p-2">{{ tr('result') }}</th><th class="p-2">User-Agent</th></tr></thead>
             <tbody><tr v-for="event in events" :key="event.id" class="border-t border-gray-100 align-top dark:border-dark-700">
               <td class="whitespace-nowrap p-2">{{ date(event.at) }}</td>
@@ -135,7 +135,7 @@
               <td class="p-2">{{ label(event.decision) }}<p>{{ label(event.reason) }}</p><p class="text-gray-500">{{ event.error_reason }}</p></td>
               <td class="max-w-xs break-all p-2">{{ event.user_agent || '—' }}</td>
             </tr></tbody>
-          </table></div>
+          </BaseTable></div>
           <p v-if="!events.length" class="text-xs text-gray-500">{{ tr('noEvents') }}</p>
           <fieldset v-if="eventsTotal > 0" :disabled="busy" :aria-busy="busy" class="min-w-0">
             <Pagination
@@ -155,6 +155,11 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onMounted, onBeforeUnmount, onDeactivated, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Pagination from '@/components/common/Pagination.vue'

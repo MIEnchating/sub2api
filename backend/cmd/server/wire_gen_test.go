@@ -56,7 +56,6 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // gptDirect
 		nil, // qqBot
 		nil, // providerChannels
-		nil, // autoCreditEmail
 		cfg,
 		nil, // requestCaptures
 		nil, // entClient
@@ -119,6 +118,8 @@ func TestProvideCleanup_WithMinimalDependencies_NoPanic(t *testing.T) {
 		nil, // opencodeGoUsage
 		nil, // auditLog
 		nil, // openAIAutoReset
+		nil, // openAIQuotaRefresh
+		nil, // openAIImportChecks
 		nil, // promptAudit
 		nil, // pluginManager
 		nil, // cyberModeration

@@ -14,29 +14,31 @@
         <p class="text-sm text-gray-500">{{ t('qqbot.inviteEnabledHelp') }}</p>
       </div>
       <QQBotRewardItems :model-value="form" prefix="invite" :allowed-types="['balance', 'coupon']" amount-field="invite_reward" amount-test-id="invite-reward" />
-      <label class="block space-y-1">{{ t('qqbot.inviteDaily') }}<input v-model.number="form.invite_daily_limit" data-testid="invite-daily-limit" class="input" type="number" min="0" max="100000" step="1" required /></label>
+      <label class="block space-y-1">{{ t('qqbot.inviteDaily') }}<FormInput v-model.number="form.invite_daily_limit" data-testid="invite-daily-limit" type="number" min="0" max="100000" step="1" required /></label>
       <div class="space-y-3 rounded-lg border p-4 dark:border-dark-700">
         <h3 class="font-medium">{{ t('qqbot.rechargeEligibility') }}</h3>
         <p class="text-sm text-gray-500">{{ t('qqbot.inviteRechargeEligibilityHelp') }}</p>
-        <label class="block space-y-1">{{ t('qqbot.rechargeWindowDays') }}<input v-model.number="form.recharge_window_days" data-testid="invite-recharge-window-days" type="number" min="1" max="3650" step="1" required class="input" /></label>
+        <label class="block space-y-1">{{ t('qqbot.rechargeWindowDays') }}<FormInput v-model.number="form.recharge_window_days" data-testid="invite-recharge-window-days" type="number" min="1" max="3650" step="1" required /></label>
         <div class="grid gap-4 sm:grid-cols-2">
           <label class="space-y-1">
             {{ t('qqbot.minimumLifetimeRecharge') }}
-            <input v-model.number="form.min_recharge_total" data-testid="invite-min-recharge-total" class="input" type="number" min="0" max="1000000000" step="0.01" required />
+            <FormInput v-model.number="form.min_recharge_total" data-testid="invite-min-recharge-total" type="number" min="0" max="1000000000" step="0.01" required />
           </label>
           <label class="space-y-1">
             {{ t('qqbot.minimumRecentRecharge', { days: form.recharge_window_days }) }}
-            <input v-model.number="form.min_recharge_30d" data-testid="invite-min-recharge-30d" class="input" type="number" min="0" max="1000000000" step="0.01" required />
+            <FormInput v-model.number="form.min_recharge_30d" data-testid="invite-min-recharge-30d" type="number" min="0" max="1000000000" step="0.01" required />
           </label>
         </div>
       </div>
-      <button type="submit" class="btn btn-primary" :disabled="busy">{{ t('common.save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="busy">{{ t('common.save') }}</BaseButton>
     </form>
     <p v-else-if="!error">{{ t('common.loading') }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import QQBotRewardItems from './QQBotRewardItems.vue'
 import { useQQDraft } from './useQQDraft'
 import { onMounted, ref } from 'vue'

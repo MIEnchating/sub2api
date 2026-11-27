@@ -40,3 +40,14 @@ func (c *leaderLockCache) TryAcquireLeaderLock(ctx context.Context, key, owner s
 func (c *leaderLockCache) ReleaseLeaderLock(ctx context.Context, key, owner string) error {
 	return leaderLockReleaseScript.Run(ctx, c.rdb, []string{leaderLockKeyPrefix + key}, owner).Err()
 }
+
+var leaderLockRenewScript = redis.NewScript(`
+if redis.call("GET", KEYS[1]) == ARGV[1] then
+  return redis.call("PEXPIRE", KEYS[1], ARGV[2])
+end
+return 0
+`)
+
+func (c *leaderLockCache) RenewLeaderLock(ctx context.Context, key, owner string, ttl time.Duration) (bool, error) {
+	return leaderLockRenewScript.Run(ctx, c.rdb, []string{leaderLockKeyPrefix + key}, owner, ttl.Milliseconds()).Bool()
+}

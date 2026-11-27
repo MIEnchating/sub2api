@@ -34,11 +34,11 @@
         size="sm"
         class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
       />
-      <input
+      <FormInput
         v-model="searchQuery"
         type="text"
         autocomplete="off"
-        class="input input-sm w-full pl-9"
+        class="input-sm w-full pl-9"
         :placeholder="t('admin.settings.openaiFastPolicy.userSearchPlaceholder')"
         @input="debounceSearch"
         @focus="showDropdown = true"
@@ -80,6 +80,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from "vue";
 import { useI18n } from "vue-i18n";
 import { adminAPI } from "@/api/admin";

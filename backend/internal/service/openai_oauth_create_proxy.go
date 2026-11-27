@@ -40,15 +40,7 @@ func openAIOAuthRequestProxySettings(mode string, ids []int64) (bool, error) {
 		}
 		return false, nil
 	case OpenAIProxyModeRequest:
-		if len(ids) == 0 {
-			return false, infraerrors.BadRequest("OPENAI_PROXY_GROUP_REQUIRED", "Select at least one OpenAI proxy")
-		}
-		for _, id := range ids {
-			if id <= 0 {
-				return false, infraerrors.BadRequest("INVALID_OPENAI_PROXY_IDS", "OpenAI proxy IDs must be positive integers")
-			}
-		}
-		return true, nil
+		return false, ErrAccountMultiProxyRetired
 	default:
 		return false, infraerrors.BadRequest("INVALID_OPENAI_PROXY_MODE", "OpenAI proxy mode must be single or request")
 	}

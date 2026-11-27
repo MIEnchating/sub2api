@@ -19,13 +19,13 @@
           </button>
         </div>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('supportTickets.refresh')" :aria-label="t('supportTickets.refresh')" @click="load">
+          <BaseButton type="button" class="btn-secondary" :disabled="loading" :title="t('supportTickets.refresh')" :aria-label="t('supportTickets.refresh')" @click="load">
             <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-          </button>
-          <button type="button" class="btn btn-primary" data-testid="ticket-new" @click="createOpen = true">
+          </BaseButton>
+          <BaseButton type="button" class="btn-primary" data-testid="ticket-new" @click="createOpen = true">
             <Icon name="plus" size="md" class="mr-1" />
             {{ t('supportTickets.newTicket') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
       <p v-if="summary" class="text-xs text-gray-500 dark:text-gray-400" data-testid="ticket-open-count">
@@ -86,6 +86,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

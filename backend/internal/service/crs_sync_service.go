@@ -20,6 +20,7 @@ import (
 )
 
 type CRSSyncService struct {
+	openAIImportChecks *OpenAIAccountImportChecks
 	autoConfigure      func(context.Context, *CreateAccountInput) error
 	accountRepo        AccountRepository
 	proxyRepo          ProxyRepository
@@ -1625,5 +1626,6 @@ func (s *CRSSyncService) createSyncedAccount(ctx context.Context, a *Account) er
 		}
 	}
 	recordAutoConfigInitial(ctx, s.accountRepo, a, groups)
+	s.openAIImportChecks.schedule(ctx, a)
 	return nil
 }

@@ -5,15 +5,14 @@
       <h1 class="mb-4 text-2xl font-semibold">{{ t('ipAudit.title') }}</h1>
       <div class="mb-4 flex flex-wrap gap-1" role="tablist" :aria-label="t('ipAudit.title')">
         <div v-for="tab in tabs" :key="tab.id" class="flex items-center gap-1">
-        <button
+        <TabButton
           type="button"
-          role="tab"
           class="tab"
           :class="{ 'tab-active': activeTab === tab.id }"
           :aria-selected="activeTab === tab.id"
           :data-test="`ip-tab-${tab.id}`"
           @click="selectTab(tab.id)"
-        >{{ tab.label }}</button>
+        >{{ tab.label }}</TabButton>
         <NewFeatureBadge v-if="tab.id === 'keys'" :notice-id="NEW_FEATURE_NOTICES.keyRisk" :user-id="auth.user?.id" />
         <NewFeatureBadge v-if="tab.id === 'keys'" :notice-id="NEW_FEATURE_NOTICES.keyRiskSources" :user-id="auth.user?.id" />
         </div>
@@ -27,6 +26,7 @@
   </AppLayout>
 </template>
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { computed } from 'vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'

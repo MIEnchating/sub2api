@@ -53,11 +53,10 @@
 
       <section class="min-w-0 space-y-3">
         <nav class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-dark-700" role="tablist" :aria-label="t('pelicanShowcase.api.examples')">
-          <button
+          <TabButton
             v-for="example in examples"
             :key="example.key"
             type="button"
-            role="tab"
             :id="`${id}-${example.key}-tab`"
             :aria-controls="`${id}-example`"
             :aria-selected="activeExample === example.key"
@@ -67,7 +66,7 @@
             @click="activeExample = example.key"
           >
             {{ example.label }}
-          </button>
+          </TabButton>
         </nav>
         <div class="overflow-hidden rounded-lg bg-gray-900 dark:bg-dark-900" role="tabpanel" :id="`${id}-example`" :aria-labelledby="`${id}-${activeExample}-tab`">
           <div class="flex items-center justify-between gap-2 border-b border-gray-700 bg-gray-800 px-3 py-2 dark:border-dark-700 dark:bg-dark-800">
@@ -94,12 +93,14 @@
       </div>
     </div>
     <template #footer>
-      <button type="button" class="btn btn-secondary" @click="emit('close')">{{ t('common.close') }}</button>
+      <BaseButton type="button" class="btn-secondary" @click="emit('close')">{{ t('common.close') }}</BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, ref, useId, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'

@@ -2,47 +2,47 @@
   <section class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-600" data-testid="excel-bps-settings">
     <label class="flex items-center justify-between gap-3 text-sm font-semibold">
       {{ t(`${prefix}.excelBPS`) }}
-      <input type="checkbox" :checked="modelValue.enabled" :disabled="!modelValue.enabled && (!globallyEnabled || freePlan)" data-testid="excel-bps-toggle" @change="patch('enabled', checked($event))" />
+      <FormInput type="checkbox" :checked="modelValue.enabled" :disabled="!modelValue.enabled && (!globallyEnabled || freePlan)" data-testid="excel-bps-toggle" @change="patch('enabled', checked($event))" />
     </label>
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ t(`${prefix}.excelBPSDesc`) }}</p>
     <p v-if="!globallyEnabled" class="text-xs text-amber-700 dark:text-amber-400">{{ text('系统已关闭 Excel / BPS 协议。', 'Excel / BPS is disabled in system settings.') }}</p>
     <p v-if="freePlan" class="text-xs text-amber-700 dark:text-amber-400">{{ text('Free 套餐不能开启 Excel / BPS。', 'Free accounts cannot enable Excel / BPS.') }}</p>
     <template v-if="modelValue.enabled">
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" :checked="modelValue.allModels" data-testid="excel-bps-all-models" @change="patch('allModels', checked($event))" />{{ t(`${prefix}.excelBPSAllModels`) }}</label>
+      <label class="flex items-center gap-2 text-sm"><FormInput type="checkbox" :checked="modelValue.allModels" data-testid="excel-bps-all-models" @change="patch('allModels', checked($event))" />{{ t(`${prefix}.excelBPSAllModels`) }}</label>
       <div v-if="!modelValue.allModels" class="space-y-2" data-testid="excel-bps-model-selection">
         <label class="input-label">{{ t(`${prefix}.excelBPSModels`) }}</label>
         <ModelWhitelistSelector :model-value="modelValue.models" platform="openai" @update:model-value="patch('models', $event)" />
-        <button type="button" class="btn btn-secondary btn-sm" @click="patch('models', ['gpt-6-astra'])">{{ t(`${prefix}.excelBPSAstraOnly`) }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" @click="patch('models', ['gpt-6-astra'])">{{ t(`${prefix}.excelBPSAstraOnly`) }}</BaseButton>
         <p class="input-hint">{{ t(`${prefix}.excelBPSModelsHint`) }}</p>
       </div>
       <p class="text-xs text-amber-700 dark:text-amber-400">{{ t(`${prefix}.excelBPSNotice`) }}</p>
       <div v-for="item in flags" :key="item.key" class="space-y-1">
-        <label class="flex items-center gap-2 text-sm"><input type="checkbox" :checked="modelValue[item.key]" :data-testid="item.testId" @change="patch(item.key, checked($event))" />{{ t(`${prefix}.${item.label}`) }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput type="checkbox" :checked="modelValue[item.key]" :data-testid="item.testId" @change="patch(item.key, checked($event))" />{{ t(`${prefix}.${item.label}`) }}</label>
         <p class="text-xs text-gray-500 dark:text-gray-400">{{ t(`${prefix}.${item.label}Desc`) }}</p>
       </div>
       <div v-if="modelValue.sessionProxy" class="space-y-2">
         <label class="input-label">{{ t(`${prefix}.excelBPSProxySource`) }}</label>
-        <select :value="modelValue.proxySource" class="input" data-testid="excel-bps-proxy-source" @change="patch('proxySource', ($event.target as HTMLSelectElement).value as 'mihomo' | 'ip_pool')">
+        <FormSelect :value="modelValue.proxySource" data-testid="excel-bps-proxy-source" @change="patch('proxySource', ($event.target as HTMLSelectElement).value as 'mihomo' | 'ip_pool')">
           <option value="mihomo">{{ t(`${prefix}.excelBPSProxySourceMihomo`) }}</option>
           <option value="ip_pool">{{ t(`${prefix}.excelBPSProxySourceIPPool`) }}</option>
-        </select>
+        </FormSelect>
         <p v-if="modelValue.proxySource === 'ip_pool'" class="input-hint">{{ t(`${prefix}.excelBPSProxySourceIPPoolDesc`) }}</p>
       </div>
       <div v-if="modelValue.autoMoveOn403" class="space-y-2">
         <label class="input-label">{{ t(`${prefix}.excelBPS403TargetGroup`) }}</label>
-        <select :value="modelValue.targetGroupId" class="input" data-testid="excel-bps-target-group" required @change="patch('targetGroupId', ($event.target as HTMLSelectElement).value === '' ? '' : Number(($event.target as HTMLSelectElement).value))">
+        <FormSelect :value="modelValue.targetGroupId" data-testid="excel-bps-target-group" required @change="patch('targetGroupId', ($event.target as HTMLSelectElement).value === '' ? '' : Number(($event.target as HTMLSelectElement).value))">
           <option value="">{{ t(`${prefix}.excelBPS403SelectTarget`) }}</option>
           <option :value="0">{{ t(`${prefix}.excelBPS403LeaveAllGroups`) }}</option>
           <option v-for="group in groupChoices" :key="group.id" :value="group.id">{{ group.name }}</option>
-        </select>
+        </FormSelect>
       </div>
     </template>
     <div v-if="modelValue.enabled || modelValue.recoveryPending" class="space-y-2">
-      <label class="flex items-center gap-2 text-sm"><input type="checkbox" :checked="modelValue.autoRecoverOn403" :disabled="!modelValue.autoDisableOn403" data-testid="excel-bps-auto-recover-on-403" @change="patch('autoRecoverOn403', checked($event))" />{{ t(`${prefix}.excelBPSAutoRecoverOn403`) }}</label>
+      <label class="flex items-center gap-2 text-sm"><FormInput type="checkbox" :checked="modelValue.autoRecoverOn403" :disabled="!modelValue.autoDisableOn403" data-testid="excel-bps-auto-recover-on-403" @change="patch('autoRecoverOn403', checked($event))" />{{ t(`${prefix}.excelBPSAutoRecoverOn403`) }}</label>
       <p class="input-hint">{{ t(`${prefix}.excelBPSAutoRecoverOn403Desc`) }}</p>
       <label v-if="modelValue.autoRecoverOn403 && modelValue.autoDisableOn403" class="block space-y-1">
         <span class="text-sm">{{ t(`${prefix}.excelBPS403RecoveryInterval`) }}</span>
-        <input type="number" :value="modelValue.recoveryIntervalMinutes" min="1" max="10080" step="1" required class="input w-40" data-testid="excel-bps-recovery-interval" @input="patch('recoveryIntervalMinutes', Number(($event.target as HTMLInputElement).value))" />
+        <FormInput type="number" :value="modelValue.recoveryIntervalMinutes" min="1" max="10080" step="1" required class="w-40" data-testid="excel-bps-recovery-interval" @input="patch('recoveryIntervalMinutes', Number(($event.target as HTMLInputElement).value))" />
         <p class="input-hint">{{ t(`${prefix}.excelBPS403RecoveryIntervalHint`) }}</p>
       </label>
     </div>
@@ -50,6 +50,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

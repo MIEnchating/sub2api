@@ -55,11 +55,11 @@
 
       <div>
         <label class="input-label" for="ollama-cloud-session">{{ t('admin.accounts.ollamaCloud.sessionLabel') }}</label>
-        <textarea
+        <FormTextarea
           id="ollama-cloud-session"
           v-model="session"
           rows="3"
-          class="input font-mono text-xs"
+          class="font-mono text-xs"
           autocomplete="new-password"
           data-1p-ignore
           data-lpignore="true"
@@ -70,38 +70,38 @@
       </div>
 
       <div class="flex flex-wrap items-center gap-2">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn-primary btn-sm"
           :disabled="saving || !session.trim() || !state.encryption_key_configured"
           data-testid="ollama-cloud-session-save"
           @click="saveSession"
         >
           <Icon name="check" size="xs" class="mr-1.5" />
           {{ t('common.save') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           v-if="state.configured"
           type="button"
-          class="btn btn-secondary btn-sm text-red-600 dark:text-red-400"
+          class="btn-secondary btn-sm text-red-600 dark:text-red-400"
           :disabled="saving"
           data-testid="ollama-cloud-session-delete"
           @click="showDeleteConfirm = true"
         >
           <Icon name="trash" size="xs" class="mr-1.5" />
           {{ t('admin.accounts.ollamaCloud.deleteSession') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           v-if="state.configured"
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn-secondary btn-sm"
           :disabled="refreshing"
           data-testid="ollama-cloud-refresh"
           @click="refreshUsage"
         >
           <Icon name="refresh" size="xs" class="mr-1.5" :class="{ 'animate-spin': refreshing }" />
           {{ t('admin.accounts.ollamaCloud.refreshNow') }}
-        </button>
+        </BaseButton>
       </div>
 
       <div v-if="state.configured" class="flex items-center justify-between gap-4 border-t border-gray-100 pt-4 dark:border-dark-700">
@@ -136,6 +136,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

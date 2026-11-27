@@ -4,8 +4,8 @@
       <header><div class="flex items-center gap-2"><h1 class="text-2xl font-semibold">{{ t('channelConfig.title') }}</h1><NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.channelConfig" :user-id="auth.user?.id" /></div><p class="mt-2 text-sm text-gray-500">{{ t('channelConfig.description') }}</p></header>
       <SmartOpsNav />
       <form class="card flex flex-wrap items-end gap-3 p-4" @submit.prevent="selectChannel(channelDraft)">
-        <label class="text-sm">{{ t('channelConfig.currentChannel') }}<input v-model.number="channelDraft" class="input mt-1 block" type="number" min="0" step="1" /></label>
-        <button class="btn btn-secondary">{{ t('profitOps.apply') }}</button><button type="button" class="btn btn-secondary" @click="selectChannel(0)">{{ t('profitOps.overview') }}</button>
+        <label class="text-sm">{{ t('channelConfig.currentChannel') }}<FormInput v-model.number="channelDraft" class="mt-1 block" type="number" min="0" step="1" /></label>
+        <BaseButton class="btn-secondary">{{ t('profitOps.apply') }}</BaseButton><BaseButton type="button" class="btn-secondary" @click="selectChannel(0)">{{ t('profitOps.overview') }}</BaseButton>
         <span v-if="scope.account_id" class="text-sm">{{ t('profitOps.account') }} #{{ scope.account_id }}</span>
       </form>
       <p v-if="stale" role="status" class="rounded-lg bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950">{{ t('channelConfig.stale') }}</p>
@@ -36,6 +36,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { defineAsyncComponent, onMounted, nextTick, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

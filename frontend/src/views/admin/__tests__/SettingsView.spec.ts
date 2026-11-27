@@ -16,7 +16,6 @@ import { apiClient } from "@/api/client";
 import NewFeatureBadge from "@/components/common/NewFeatureBadge.vue";
 import PaymentProviderDialog from "@/components/payment/PaymentProviderDialog.vue";
 import PaymentProviderList from "@/components/payment/PaymentProviderList.vue";
-import { NEW_FEATURE_NOTICES } from "@/constants/newFeatureNotices";
 
 enableAutoUnmount(afterEach);
 
@@ -882,78 +881,16 @@ describe("admin SettingsView payment visible method controls", () => {
     expect(enSettings.settings.webSearchEmulation.deepSeekHint).toContain('standalone DeepSeek Search API');
   });
 
-  it.each([0, 1, 2])("dismisses DeepSeek notice at entry %s, persists it, and preserves other announcements", async (index) => {
-    const old = NEW_FEATURE_NOTICES.protocolFeatureSwitches;
-    const future = 'fixture-next-search-provider-announcement';
-    localStorage.setItem('sub2api:new-feature-notices:v1:41', JSON.stringify([old]));
-    getWebSearchEmulationConfig.mockResolvedValue({ enabled: true, providers: [{ type: 'deepseek', api_key: '', api_key_configured: true, quota_limit: null, proxy_id: null }] });
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-    const badges = () => wrapper.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === NEW_FEATURE_NOTICES.deepSeekSearch)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'));
-    expect(badges()).toHaveLength(3);
-    await badges()[index]!.trigger('click');
-    expect(badges()).toHaveLength(0);
-    expect(updateWebSearchEmulationConfig).not.toHaveBeenCalled();
-    wrapper.unmount();
-    const refreshed = mountView();
-    await flushPromises();
-    expect(refreshed.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === old || b.props('noticeId') === NEW_FEATURE_NOTICES.deepSeekSearch)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(0);
-    expect(refreshed.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === NEW_FEATURE_NOTICES.serverlessIPRouting)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]')).length).toBeGreaterThan(0);
-    const later = mount(NewFeatureBadge, { props: { noticeId: future, userId: 41 }, global: { plugins: [createPinia()] } });
-    expect(later.find('[data-testid="new-feature-badge"]').exists()).toBe(true);
-  });
-
-  it("shows the Mistral budget notice independently and keeps its dismissal on remount", async () => {
-    localStorage.setItem("sub2api:new-feature-notices:v1:41", JSON.stringify([NEW_FEATURE_NOTICES.protocolFeatureSwitches]));
-    const wrapper = mountView();
-    await flushPromises();
-    const badge = wrapper.findAllComponents(NewFeatureBadge)
-      .find(b => b.props('noticeId') === NEW_FEATURE_NOTICES.mistralBudgetUsage);
-    expect(badge).toBeDefined();
-    await badge!.get('[data-testid="new-feature-badge"]').trigger('click');
-    await flushPromises();
-    expect(badge!.find('[data-testid="new-feature-badge"]').exists()).toBe(false);
-    wrapper.unmount();
-    const refreshed = mountView();
-    await flushPromises();
-    expect(refreshed.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === NEW_FEATURE_NOTICES.mistralBudgetUsage)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(0);
-    refreshed.unmount();
-  });
-
-  it.each([0, 1, 2])("dismisses the BEpusdt notice from real entry %s without changing payment settings", async (index) => {
-    const oldNotice = NEW_FEATURE_NOTICES.protocolFeatureSwitches;
-    localStorage.setItem("sub2api:new-feature-notices:v1:41", JSON.stringify([oldNotice]));
+  it("shows the BEpusdt payment controls without its announcement", async () => {
     getSettings.mockResolvedValue({ ...baseSettingsResponse, payment_enabled_types: ["bepusdt"] });
     const wrapper = mountView();
     await flushPromises();
     await openPaymentTab(wrapper);
-    const badges = () => wrapper.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === NEW_FEATURE_NOTICES.bepusdtPayment)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'));
-    expect(badges()).toHaveLength(3);
-    await badges()[index]!.trigger('click');
-    await flushPromises();
-    expect(badges()).toHaveLength(0);
+    expect(wrapper.findAllComponents(NewFeatureBadge)
+      .some(b => b.props('noticeId') === 'bepusdt-embedded-payment-initial-announcement')).toBe(false);
     expect(wrapper.get('[data-testid="bepusdt-payment-type"]').classes()).toContain('bg-primary-500');
     expect((wrapper.findComponent({ name: 'BEpusdtManager' }).get('details').element as HTMLDetailsElement).open).toBe(false);
     expect(updateSettings).not.toHaveBeenCalled();
-    wrapper.unmount();
-    const refreshed = mountView();
-    await flushPromises();
-    expect(refreshed.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === oldNotice || b.props('noticeId') === NEW_FEATURE_NOTICES.bepusdtPayment)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(0);
-    expect(JSON.parse(localStorage.getItem("sub2api:new-feature-notices:v1:41") ?? '[]'))
-      .toEqual([oldNotice, NEW_FEATURE_NOTICES.bepusdtPayment]);
   });
 
   it("ignores retired forecast settings while saving amount notifications", async () => {
@@ -974,71 +911,12 @@ describe("admin SettingsView payment visible method controls", () => {
     }
   });
 
-  it("shares one dismissible notice between the feature tab and its settings section", async () => {
+  it("renders settings tabs without feature badges or reserved space", async () => {
     const wrapper = mountView();
     await flushPromises();
-
-    const badges = wrapper.findAllComponents(NewFeatureBadge)
-      .filter((badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.protocolFeatureSwitches);
-    expect(badges).toHaveLength(2);
-    await badges[0]!.trigger("click");
-    await flushPromises();
-    expect(wrapper.findAllComponents(NewFeatureBadge)
-      .filter((badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.protocolFeatureSwitches)
-      .flatMap((badge) => badge.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(0);
-    expect(wrapper.findAllComponents(NewFeatureBadge)
-      .filter((badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.serverlessIPRouting)
-      .flatMap((badge) => badge.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(1);
-    expect(wrapper.get("#settings-tab-features").attributes("aria-selected")).toBe("false");
-    expect(updateSettings).not.toHaveBeenCalled();
-  });
-
-  it("keeps tab badges in the normal tab flow so dismissing one reserves no space", async () => {
-    const wrapper = mountView();
-    await flushPromises();
-    const tabBadge = (tab: string) => wrapper.find(`#settings-tab-${tab} + [data-testid="new-feature-badge"]`);
-    const tabBar = wrapper.get(".settings-tabs").element;
-
-    expect(["features", "gateway", "payment"].filter((tab) => tabBadge(tab).exists())).toHaveLength(3);
-    expect(tabBadge("email").exists()).toBe(false);
-    expect(tabBar.querySelector("[style]")).toBeNull();
-    expect(tabBar.querySelector(".absolute")).toBeNull();
-
-    await tabBadge("gateway").trigger("click");
-    await flushPromises();
-
-    // The four gateway notices each occupy their own place in tab flow.
-    for (let remaining = 3; remaining > 0; remaining--) {
-      expect(tabBadge("gateway").exists()).toBe(true);
-      await tabBadge("gateway").trigger("click");
-      await flushPromises();
-    }
-    expect(tabBadge("gateway").exists()).toBe(false);
-    expect(tabBadge("payment").exists()).toBe(true);
-    expect(tabBar.querySelector("[style]")).toBeNull();
-  });
-
-  it("dismisses the gateway notice across the tab and both routing controls without dismissing protocol settings", async () => {
-    const get = vi.spyOn(apiClient, 'get').mockResolvedValue({ data: { config: { enabled: false, pods: [], regions: [] }, pods: [], stats: {} } });
-    try {
-      const wrapper = mountView();
-      await flushPromises();
-      await openGatewayTab(wrapper);
-      const gatewayBadges = () => wrapper.findAllComponents(NewFeatureBadge)
-        .filter((badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.serverlessIPRouting)
-        .flatMap((badge) => badge.findAll('[data-testid="new-feature-badge"]'));
-      expect(gatewayBadges()).toHaveLength(3);
-      await gatewayBadges()[0]!.trigger('click');
-      await flushPromises();
-      expect(gatewayBadges()).toHaveLength(0);
-      expect(wrapper.findAllComponents(NewFeatureBadge)
-        .filter((badge) => badge.props('noticeId') === NEW_FEATURE_NOTICES.protocolFeatureSwitches)
-        .flatMap((badge) => badge.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(2);
-      expect(wrapper.get('#settings-tab-gateway').attributes('aria-selected')).toBe('true');
-      expect(updateSettings).not.toHaveBeenCalled();
-    } finally {
-      get.mockRestore();
-    }
+    const tabBar = wrapper.get(".settings-tabs");
+    expect(tabBar.find('[data-testid="new-feature-badge"]').exists()).toBe(false);
+    expect(tabBar.find("[style]").exists()).toBe(false);
   });
 
   it("keeps the IP risk form on IP Audit without loading or saving it from Settings", async () => {
@@ -2684,31 +2562,6 @@ describe("admin SettingsView payment visible method controls", () => {
 
     const payload = updateSettings.mock.calls.at(-1)?.[0] as Record<string, unknown>;
     expect(payload.grok_video_source_url_enabled).toBe(false);
-  });
-
-  it.each([0, 1])("persists the 409 Beta notice dismissal from entry %s without dismissing other features", async (index) => {
-    const old = NEW_FEATURE_NOTICES.protocolFeatureSwitches;
-    const notice = NEW_FEATURE_NOTICES.openai409OmitEncryptedHistory;
-    localStorage.setItem('sub2api:new-feature-notices:v1:41', JSON.stringify([old]));
-    const wrapper = mountView();
-    await flushPromises();
-    await openGatewayTab(wrapper);
-    const badges = () => wrapper.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === notice)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'));
-    expect(badges()).toHaveLength(2);
-    expect((wrapper.get('[data-testid="openai-409-omit-encrypted-history-toggle"]').element as HTMLInputElement).checked).toBe(false);
-    await badges()[index]!.trigger('click');
-    expect(badges()).toHaveLength(0);
-    expect(updateSettings).not.toHaveBeenCalled();
-    wrapper.unmount();
-    const refreshed = mountView();
-    await flushPromises();
-    expect(refreshed.findAllComponents(NewFeatureBadge)
-      .filter(b => b.props('noticeId') === old || b.props('noticeId') === notice)
-      .flatMap(b => b.findAll('[data-testid="new-feature-badge"]'))).toHaveLength(0);
-    const later = mount(NewFeatureBadge, { props: { noticeId: 'fixture-next-409-beta-notice', userId: 41 }, global: { plugins: [createPinia()] } });
-    expect(later.find('[data-testid="new-feature-badge"]').exists()).toBe(true);
   });
 
   it("loads and saves the 409 encrypted history omission Beta", async () => {

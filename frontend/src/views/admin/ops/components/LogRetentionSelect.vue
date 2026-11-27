@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'
@@ -28,14 +29,13 @@ function select(value: string | number | boolean | null | undefined) {
 <template>
   <div class="space-y-2">
     <Select :model-value="selection" :options="options" :aria-label="label" @update:model-value="select" />
-    <input
+    <FormInput
       v-if="selection === 'custom'"
       :value="modelValue"
       type="number"
       min="1"
       max="3650"
       step="1"
-      class="input"
       :aria-label="`${label}: ${t('admin.ops.systemLogs.retentionDaysCustom')}`"
       @input="emit('update:modelValue', ($event.target as HTMLInputElement).valueAsNumber)"
     />

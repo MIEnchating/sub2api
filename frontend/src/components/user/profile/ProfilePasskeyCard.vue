@@ -9,15 +9,15 @@
           {{ t('profile.passkey.description') }}
         </p>
       </div>
-      <button
+      <BaseButton
         v-if="enabled && supported && !showAddForm"
         type="button"
-        class="btn btn-primary"
+        class="btn-primary"
         :disabled="busy"
         @click="showAddForm = true"
       >
         {{ t('profile.passkey.add') }}
-      </button>
+      </BaseButton>
     </div>
 
     <div class="px-6 py-6">
@@ -36,10 +36,9 @@
           <div class="grid gap-3 sm:grid-cols-2">
             <div>
               <label for="passkey-name" class="input-label">{{ t('profile.passkey.name') }}</label>
-              <input
+              <FormInput
                 id="passkey-name"
                 v-model="newName"
-                class="input"
                 maxlength="100"
                 :placeholder="t('profile.passkey.namePlaceholder')"
                 autofocus
@@ -49,23 +48,22 @@
               <label for="passkey-add-password" class="input-label">{{
                 t('profile.currentPassword')
               }}</label>
-              <input
+              <FormInput
                 id="passkey-add-password"
                 v-model="newPassword"
                 type="password"
                 autocomplete="current-password"
-                class="input"
                 :placeholder="t('profile.passkey.passwordPlaceholder')"
               />
             </div>
           </div>
           <div class="flex justify-end gap-2">
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="cancelAdd">
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="cancelAdd">
               {{ t('common.cancel') }}
-            </button>
-            <button type="submit" class="btn btn-primary" :disabled="busy || newPassword.length === 0">
+            </BaseButton>
+            <BaseButton type="submit" class="btn-primary" :disabled="busy || newPassword.length === 0">
               {{ busy ? t('common.processing') : t('profile.passkey.continue') }}
-            </button>
+            </BaseButton>
           </div>
         </form>
 
@@ -107,22 +105,22 @@
               </p>
             </div>
             <div class="flex shrink-0 gap-2">
-              <button
+              <BaseButton
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn-secondary btn-sm"
                 :disabled="busy"
                 @click="renamePasskey(credential)"
               >
                 {{ t('common.edit') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 type="button"
-                class="btn btn-ghost btn-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
+                class="btn-ghost btn-sm text-red-600 hover:bg-red-50 dark:text-red-300 dark:hover:bg-red-950/30"
                 :disabled="busy"
                 @click="deletePasskey(credential)"
               >
                 {{ t('common.delete') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -147,27 +145,26 @@
               <label for="passkey-delete-password" class="input-label">{{
                 t('profile.currentPassword')
               }}</label>
-              <input
+              <FormInput
                 id="passkey-delete-password"
                 v-model="deletePassword"
                 type="password"
                 autocomplete="current-password"
-                class="input"
                 :placeholder="t('profile.passkey.passwordPlaceholder')"
                 autofocus
               />
             </div>
             <div class="flex justify-end gap-3">
-              <button type="button" class="btn btn-secondary" :disabled="busy" @click="closeDeleteDialog">
+              <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="closeDeleteDialog">
                 {{ t('common.cancel') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 type="submit"
-                class="btn btn-danger"
+                class="btn-danger"
                 :disabled="busy || deletePassword.length === 0"
               >
                 {{ busy ? t('common.processing') : t('common.delete') }}
-              </button>
+              </BaseButton>
             </div>
           </form>
         </div>
@@ -177,6 +174,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { passkeyAPI, type PasskeyCredentialSummary } from '@/api'

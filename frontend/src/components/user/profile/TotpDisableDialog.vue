@@ -29,22 +29,22 @@
           <div v-if="verificationMethod === 'email'">
             <label class="input-label">{{ t('profile.totp.emailCode') }}</label>
             <div class="flex gap-2">
-              <input
+              <FormInput
                 v-model="form.emailCode"
                 type="text"
                 maxlength="6"
                 inputmode="numeric"
-                class="input flex-1"
+                class="flex-1"
                 :placeholder="t('profile.totp.enterEmailCode')"
               />
-              <button
+              <BaseButton
                 type="button"
-                class="btn btn-secondary whitespace-nowrap"
+                class="btn-secondary whitespace-nowrap"
                 :disabled="sendingCode || codeCooldown > 0"
                 @click="handleSendCode"
               >
                 {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? t('common.sending') : t('profile.totp.sendCode')) }}
-              </button>
+              </BaseButton>
             </div>
           </div>
 
@@ -53,28 +53,27 @@
             <label for="password" class="input-label">
               {{ t('profile.currentPassword') }}
             </label>
-            <input
+            <FormInput
               id="password"
               v-model="form.password"
               type="password"
               autocomplete="current-password"
-              class="input"
               :placeholder="t('profile.totp.enterPassword')"
             />
           </div>
 
           <!-- Actions -->
           <div class="flex justify-end gap-3 pt-4">
-            <button type="button" class="btn btn-secondary" @click="$emit('close')">
+            <BaseButton type="button" class="btn-secondary" @click="$emit('close')">
               {{ t('common.cancel') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               type="submit"
-              class="btn btn-danger"
+              class="btn-danger"
               :disabled="loading || !canSubmit"
             >
               {{ loading ? t('common.processing') : t('profile.totp.confirmDisable') }}
-            </button>
+            </BaseButton>
           </div>
         </form>
       </div>
@@ -83,6 +82,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

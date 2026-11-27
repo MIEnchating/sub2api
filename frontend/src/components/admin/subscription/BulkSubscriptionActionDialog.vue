@@ -30,14 +30,13 @@
           <label for="bulk-subscription-days" class="input-label">
             {{ t('admin.subscriptions.form.adjustDays') }}
           </label>
-          <input
+          <FormInput
             id="bulk-subscription-days"
             v-model.number="days"
             type="number"
             min="-36500"
             max="36500"
             step="1"
-            class="input"
             :disabled="parametersLocked"
             :placeholder="t('admin.subscriptions.adjustDaysPlaceholder')"
             aria-describedby="bulk-subscription-days-hint"
@@ -53,7 +52,7 @@
           </legend>
           <div class="flex flex-wrap gap-5">
             <label v-for="window in quotaWindows" :key="window" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="windows[window]"
                 :name="window"
                 type="checkbox"
@@ -97,9 +96,9 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" :disabled="!canClose" @click="handleClose">
+        <BaseButton type="button" class="btn-secondary" :disabled="!canClose" @click="handleClose">
           {{ result ? t('common.close') : t('common.cancel') }}
-        </button>
+        </BaseButton>
         <button
           v-if="!result"
           type="submit"
@@ -115,6 +114,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, reactive, ref, shallowRef, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

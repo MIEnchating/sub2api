@@ -29,7 +29,7 @@
           <div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400">
             {{ t('monitorCommon.extraModelsHeader') }}
           </div>
-          <table class="w-full text-left text-[11px]">
+          <BaseTable class="w-full text-left text-[11px]">
             <thead>
               <tr class="text-gray-400">
                 <th class="py-0.5 pr-2 font-medium">{{ t('admin.channelMonitor.columns.primaryModel') }}</th>
@@ -51,7 +51,7 @@
                 <td class="py-0.5 text-gray-100">{{ formatLatency(m.latency_ms) }}</td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
         </div>
       </div>
       </HelpTooltip>
@@ -62,6 +62,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseTable from '@/components/common/BaseTable.vue'
 import { useI18n } from 'vue-i18n'
 import type { ChannelMonitor } from '@/api/admin/channelMonitor'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'

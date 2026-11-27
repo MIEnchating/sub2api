@@ -1,10 +1,11 @@
 <template>
   <BaseDialog :show="show" :title="t(hook ? 'accountOps.editRobot' : 'accountOps.addRobot')" width="normal" @close="close">
     <form id="account-ops-webhook-form" class="space-y-4" @submit.prevent="save"><fieldset :disabled="busy"><AccountOpsChannelFields ref="fields" v-model="draft" :encryption-configured="encryptionConfigured" single :testing-id="testingId" @test="emit('test', $event)" /></fieldset></form>
-    <template #footer><button type="button" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button><button type="submit" form="account-ops-webhook-form" :disabled="busy || !encryptionConfigured" class="btn btn-primary">{{ t(busy ? 'common.loading' : 'accountOps.saveChannel') }}</button></template>
+    <template #footer><BaseButton type="button" class="btn-secondary" @click="close">{{ t('common.cancel') }}</BaseButton><BaseButton type="submit" form="account-ops-webhook-form" :disabled="busy || !encryptionConfigured" class="btn-primary">{{ t(busy ? 'common.loading' : 'accountOps.saveChannel') }}</BaseButton></template>
   </BaseDialog>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

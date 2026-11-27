@@ -7,36 +7,39 @@
     <p class="text-xs text-gray-500">{{ text('机场节点按最近的出口 IP 检测结果筛选。动态代理每次连接可能更换 IP，历史检测结果不用于准入。', 'Subscription nodes use the last exit-IP country check. Dynamic proxies may change IP on every connection; previous checks do not determine eligibility.') }}</p>
     <div class="flex flex-wrap items-center gap-2">
       <label class="sr-only" for="country-filter-mode">{{ text('过滤模式', 'Filter mode') }}</label>
-      <select id="country-filter-mode" v-model="draft.mode" class="input w-auto" :disabled="busy" @change="dirty = true">
+      <FormSelect id="country-filter-mode" v-model="draft.mode" class="w-auto" :disabled="busy" @change="dirty = true">
         <option value="off">{{ text('不限制地区', 'No region filter') }}</option>
         <option value="exclude">{{ text('排除所选地区', 'Exclude selected regions') }}</option>
         <option value="include">{{ text('仅允许所选地区', 'Allow selected regions only') }}</option>
-      </select>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="excludeHongKong">{{ text('快捷：排除香港', 'Exclude Hong Kong') }}</button>
+      </FormSelect>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="excludeHongKong">{{ text('快捷：排除香港', 'Exclude Hong Kong') }}</BaseButton>
     </div>
     <template v-if="draft.mode !== 'off'">
       <div class="flex flex-wrap gap-1.5" aria-live="polite">
         <button v-for="code in draft.codes" :key="code" type="button" class="rounded-full bg-primary-100 px-2.5 py-1 text-xs text-primary-800 dark:bg-primary-900 dark:text-primary-200" :disabled="busy" :aria-label="text('移除 ', 'Remove ') + label(code)" @click="toggle(code)">{{ label(code) }} ×</button>
         <span v-if="!draft.codes.length" class="text-xs text-amber-700">{{ text('请至少选择一个国家或地区', 'Select at least one country or region') }}</span>
       </div>
-      <input v-model="search" type="search" class="input w-full" :placeholder="text('搜索地区名称或代码，例如 香港、Hong Kong、HK', 'Search a region or code, e.g. Hong Kong, HK')" :aria-label="text('搜索国家地区', 'Search countries and regions')" />
+      <FormInput v-model="search" type="search" class="w-full" :placeholder="text('搜索地区名称或代码，例如 香港、Hong Kong、HK', 'Search a region or code, e.g. Hong Kong, HK')" :aria-label="text('搜索国家地区', 'Search countries and regions')" />
       <div class="flex max-h-32 flex-wrap gap-1.5 overflow-y-auto" :aria-label="text('地区选项', 'Region options')">
         <button v-for="code in options" :key="code" type="button" class="rounded-md border px-2 py-1 text-xs" :class="draft.codes.includes(code) ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900 dark:text-primary-200' : 'border-gray-200 dark:border-dark-600'" :disabled="busy" :aria-pressed="draft.codes.includes(code)" :data-country="code" @click="toggle(code)">{{ label(code) }}</button>
       </div>
-      <label class="flex items-start gap-2 text-xs"><input v-model="draft.allow_unknown" type="checkbox" class="mt-0.5" :disabled="busy" @change="dirty = true" />{{ text('允许未知地区节点（尚未检测或检测失败）', 'Allow unknown regions (unchecked or failed checks)') }}</label>
-      <label class="flex items-start gap-2 text-xs"><input v-model="draft.dynamic_provider_managed" type="checkbox" data-testid="dynamic-provider-managed" :disabled="busy" @change="dirty = true" />{{ text('动态代理地区由供应商控制（允许动态节点，不应用上方地区筛选）', 'Provider controls dynamic proxy regions (allow dynamic nodes without the region filter above)') }}</label>
+      <label class="flex items-start gap-2 text-xs"><FormInput v-model="draft.allow_unknown" type="checkbox" class="mt-0.5" :disabled="busy" @change="dirty = true" />{{ text('允许未知地区节点（尚未检测或检测失败）', 'Allow unknown regions (unchecked or failed checks)') }}</label>
+      <label class="flex items-start gap-2 text-xs"><FormInput v-model="draft.dynamic_provider_managed" type="checkbox" data-testid="dynamic-provider-managed" :disabled="busy" @change="dirty = true" />{{ text('动态代理地区由供应商控制（允许动态节点，不应用上方地区筛选）', 'Provider controls dynamic proxy regions (allow dynamic nodes without the region filter above)') }}</label>
       <p class="text-xs text-amber-700">{{ text('开启后请在供应商侧限定地区；Random 不保证排除 CN/HK。关闭时动态节点按未知地区处理。', 'When enabled, restrict regions at your provider; Random does not guarantee exclusion of CN/HK. Otherwise dynamic nodes are treated as unknown.') }}</p>
     </template>
     <p v-if="dynamicBlocked" class="text-xs text-amber-700" role="status">{{ text('动态代理未参与轮换：请启用供应商控制地区，或明确允许未知地区。重复检测不能保证下次连接的地区。', 'Dynamic proxies are excluded. Enable provider-managed regions or allow unknown regions; repeated checks cannot guarantee the next connection’s country.') }}</p>
     <p v-if="eligible === 0 && nodes.length" class="text-xs text-amber-700 dark:text-amber-400" role="status">{{ text('应用后没有符合地区规则的节点。可先检测地区或调整筛选；不会自动回退到被排除地区。', 'No nodes match the region rules after applying. Check regions or adjust the filter; excluded regions are never a fallback.') }}</p>
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="btn btn-primary btn-sm" :disabled="busy || (draft.mode !== 'off' && !draft.codes.length)" @click="save">{{ text('保存地区规则', 'Save region rules') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !nodes.length" @click="$emit('scan')">{{ text('检测出口地区', 'Check exit regions') }}</button>
+      <BaseButton type="button" class="btn-primary btn-sm" :disabled="busy || (draft.mode !== 'off' && !draft.codes.length)" @click="save">{{ text('保存地区规则', 'Save region rules') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !nodes.length" @click="$emit('scan')">{{ text('检测出口地区', 'Check exit regions') }}</BaseButton>
     </div>
     <p class="text-xs text-gray-500">{{ text('检测通过节点访问 country.is 查询出口地区，每次至多 20 个最久未检测的节点，不调用模型。地区规则与手动停用、用后移出同时生效。', 'Checks exit regions via country.is through up to 20 least-recently checked nodes, without model calls. Region rules also apply to disabled and retired nodes.') }}</p>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { CountryFilter, CountryNode } from './mihomoCountry'

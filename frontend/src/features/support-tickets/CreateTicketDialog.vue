@@ -24,10 +24,9 @@
       </div>
       <div>
         <label class="input-label" for="support-ticket-title">{{ t('supportTickets.form.subject') }}</label>
-        <input
+        <FormInput
           id="support-ticket-title"
           v-model="title"
-          class="input"
           :maxlength="SUPPORT_TICKET_TITLE_MAX"
           :placeholder="t('supportTickets.form.subjectPlaceholder')"
           data-testid="ticket-title"
@@ -35,14 +34,14 @@
       </div>
       <div>
         <label class="input-label" for="support-ticket-body">{{ t('supportTickets.form.body') }}</label>
-        <textarea
+        <FormTextarea
           id="support-ticket-body"
           v-model="body"
           rows="7"
-          class="input resize-y"
+          class="resize-y"
           :placeholder="t('supportTickets.form.bodyPlaceholder')"
           data-testid="ticket-body"
-        ></textarea>
+        ></FormTextarea>
         <div class="mt-1 flex items-start justify-between gap-3 text-xs">
           <span class="text-amber-700 dark:text-amber-300">{{ t('supportTickets.form.secretWarning') }}</span>
           <span class="shrink-0" :class="bodyTooLong ? 'font-medium text-red-600 dark:text-red-400' : 'text-gray-400'" data-testid="ticket-body-counter">
@@ -53,16 +52,19 @@
     </form>
     <template #footer>
       <div class="flex justify-end gap-2">
-        <button type="button" class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
-        <button type="submit" form="support-ticket-create-form" class="btn btn-primary" :disabled="!canSubmit" data-testid="ticket-submit">
+        <BaseButton type="button" class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="support-ticket-create-form" class="btn-primary" :disabled="!canSubmit" data-testid="ticket-submit">
           {{ submitting ? t('supportTickets.form.submitting') : t('supportTickets.form.submit') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

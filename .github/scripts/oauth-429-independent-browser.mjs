@@ -55,7 +55,6 @@ if (process.env.OAUTH429_BASELINE_ONLY === '1') {
   await page.screenshot({path:path.join(output,`after-${device}.png`),fullPage:true})
   assert.equal(await page.evaluate(()=>document.documentElement.scrollWidth<=window.innerWidth),true)
  }
- await page.locator('[data-testid="independent-429"] [data-testid="new-feature-badge"]').click()
  assert.equal(await page.locator('[data-testid="independent-429"] [data-testid="new-feature-badge"]').count(),0)
  await page.reload()
  await page.locator('[data-testid="independent-429"]').waitFor()

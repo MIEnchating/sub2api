@@ -12,12 +12,11 @@
         :aria-label="t('qqbot.activitiesTitle')"
         class="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-dark-700 dark:bg-dark-800"
       >
-        <button
+        <TabButton
           v-for="tab in tabs"
           :id="`qqbot-tab-${tab.key}`"
           :key="tab.key"
           type="button"
-          role="tab"
           :aria-selected="activeTab.key === tab.key"
           :aria-controls="`qqbot-panel-${tab.key}`"
           :tabindex="activeTab.key === tab.key ? 0 : -1"
@@ -29,7 +28,7 @@
           @keydown="handleKeydown($event, tab.key)"
         >
           {{ t(tab.label) }}
-        </button>
+        </TabButton>
       </nav>
       <div
         :id="`qqbot-panel-${activeTab.key}`"
@@ -50,6 +49,7 @@
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

@@ -243,7 +243,11 @@ func (r *openAIIPv6Repository) Restore(ctx context.Context, id int64) error {
 	if b == nil {
 		return nil
 	}
-	originalRoutes := append(append([]int64{}, b.OriginalProxyIDs...), optionalIPv6ID(b.OriginalProxyID)...)
+	originalProxyID := b.OriginalProxyID
+	if originalProxyID == nil && len(b.OriginalProxyIDs) > 0 {
+		originalProxyID = &b.OriginalProxyIDs[0]
+	}
+	originalRoutes := optionalIPv6ID(originalProxyID)
 	originalRoutes = append(originalRoutes, optionalIPv6ID(b.OriginalFallbackID)...)
 	for _, pid := range originalRoutes {
 		var usable bool
@@ -268,15 +272,9 @@ func (r *openAIIPv6Repository) Restore(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
-	_, err = tx.ExecContext(ctx, `UPDATE accounts SET proxy_id=$2,proxy_fallback_origin_id=$3,extra=COALESCE(extra,'{}'::jsonb)-'openai_ipv6_bound',updated_at=NOW() WHERE (id=$1 OR parent_account_id=$1) AND deleted_at IS NULL`, id, b.OriginalProxyID, b.OriginalFallbackID)
+	_, err = tx.ExecContext(ctx, `UPDATE accounts SET proxy_id=$2,proxy_fallback_origin_id=$3,extra=COALESCE(extra,'{}'::jsonb)-'openai_ipv6_bound',updated_at=NOW() WHERE (id=$1 OR parent_account_id=$1) AND deleted_at IS NULL`, id, originalProxyID, b.OriginalFallbackID)
 	if err != nil {
 		return err
-	}
-	for i, pid := range b.OriginalProxyIDs {
-		_, err = tx.ExecContext(ctx, `INSERT INTO account_proxies(account_id,proxy_id,position) SELECT id,$2,$3 FROM accounts WHERE (id=$1 OR parent_account_id=$1) AND deleted_at IS NULL`, id, pid, i)
-		if err != nil {
-			return err
-		}
 	}
 	_, err = tx.ExecContext(ctx, `UPDATE proxies SET deleted_at=NOW(),status='disabled',updated_at=NOW() WHERE id=$1`, b.ManagedProxyID)
 	if err != nil {

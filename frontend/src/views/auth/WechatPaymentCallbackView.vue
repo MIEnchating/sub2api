@@ -25,13 +25,13 @@
           <p class="text-sm text-gray-700 dark:text-gray-300">
             {{ errorMessage }}
           </p>
-          <button
-            class="btn btn-primary mt-4"
+          <BaseButton
+            class="btn-primary mt-4"
             type="button"
             @click="goBackToPayment"
           >
             {{ backToPaymentText }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -39,6 +39,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'

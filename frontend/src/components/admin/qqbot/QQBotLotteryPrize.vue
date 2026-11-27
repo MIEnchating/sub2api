@@ -5,14 +5,15 @@
       <button type="button" class="text-sm text-red-600 disabled:cursor-not-allowed disabled:opacity-40" :disabled="!removable" :aria-label="t('qqbot.rewardEditor.removePrize', { number: index + 1 })" @click="$emit('remove')">{{ t('qqbot.rewardEditor.deletePrize') }}</button>
     </div>
     <div class="grid gap-4 sm:grid-cols-[minmax(0,2fr)_minmax(0,1fr)]">
-      <label class="min-w-0 space-y-1 text-sm">{{ t('qqbot.prizeName') }}<input v-model.trim="prize.name" :data-testid="prefix + '-name-' + index" class="input" required maxlength="60" /></label>
-      <label class="min-w-0 space-y-1 text-sm">{{ t('qqbot.probability') }}<input :value="prize.probability_bps / 100" :data-testid="guaranteed ? 'guarantee-probability-' + index : 'probability-' + index" class="input" type="number" min="0.01" max="100" step="0.01" required @input="setProbability" /></label>
+      <label class="min-w-0 space-y-1 text-sm">{{ t('qqbot.prizeName') }}<FormInput v-model.trim="prize.name" :data-testid="prefix + '-name-' + index" required maxlength="60" /></label>
+      <label class="min-w-0 space-y-1 text-sm">{{ t('qqbot.probability') }}<FormInput :value="prize.probability_bps / 100" :data-testid="guaranteed ? 'guarantee-probability-' + index : 'probability-' + index" type="number" min="0.01" max="100" step="0.01" required @input="setProbability" /></label>
     </div>
     <QQBotRewardItems :model-value="prize" :prefix="prefix + '-' + index" :amount-test-id="prefix + '-amount-' + index" :chances-test-id="prefix + '-chances-' + index" :empty-text="guaranteed ? 'qqbot.rewardEditor.guaranteeEmpty' : 'qqbot.rewardEditor.lotteryEmpty'" />
   </article>
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import type { QQLotteryPrize } from '@/api/qqbot'
 import QQBotRewardItems from './QQBotRewardItems.vue'

@@ -5,12 +5,11 @@
     class="mb-4 flex min-w-0 gap-2 overflow-x-auto pb-1"
     @keydown="handleKeydown"
   >
-    <button
+    <TabButton
       v-for="tab in tabs"
       :id="`account-group-tab-${tab.value || 'all'}`"
       :key="tab.value"
       type="button"
-      role="tab"
       aria-controls="account-group-panel"
       :aria-selected="modelValue === tab.value"
       :tabindex="modelValue === tab.value ? 0 : -1"
@@ -23,11 +22,12 @@
       @click="$emit('update:modelValue', tab.value)"
     >
       {{ tab.label }}
-    </button>
+    </TabButton>
   </div>
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AdminGroup } from '@/types'

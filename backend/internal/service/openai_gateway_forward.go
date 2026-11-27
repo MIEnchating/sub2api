@@ -406,6 +406,17 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 		}
 	}
 
+	httpContinuationConn := ""
+	if recovery := openAIAgentRecoveryFromContext(ctx); recovery != nil && recovery.httpResponsePointer &&
+		recovery.previousResponseID != "" && account.IsOpenAIOAuth() && !recovery.omittedHistory {
+		httpContinuationConn = s.OpenAIOAuthHTTPContinuationConn(account, recovery.groupID, recovery.previousResponseID)
+		if httpContinuationConn == "" || recovery.owner != nil || recovery.preservesHistory() || controlledMode(ctx) != nil {
+			return nil, openAIAgentRecoveryError("http_previous_response_unsupported")
+		}
+		ctx = context.WithValue(ctx, openAIHTTPContinuationConnContextKey{}, httpContinuationConn)
+		wsDecision = OpenAIWSProtocolDecision{Transport: OpenAIUpstreamTransportResponsesWebsocketV2, Reason: "http_continuation"}
+	}
+
 	passthroughEnabled := account.IsOpenAIPassthroughEnabled() && !openAI409UsesNativeAPIKey(ctx, account)
 	compactPath := isOpenAIResponsesCompactPath(c)
 	body, err = normalizeOpenAIResponsesNamespaces(c, account, body, wsDecision.Transport, passthroughEnabled, compactPath)
@@ -1161,7 +1172,7 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			hasPreviousResponseID,
 		)
 		maxAttempts := openAIWSReconnectRetryLimit + 1
-		if isControlledExperiment(ctx) {
+		if isControlledExperiment(ctx) || httpContinuationConn != "" {
 			maxAttempts = 1
 		}
 		wsAttempts := 0
@@ -1298,10 +1309,10 @@ func (s *OpenAIGatewayService) Forward(ctx context.Context, c *gin.Context, acco
 			}
 			// previous_response_not_found 说明续链锚点不可用：
 			// 对非 function_call_output 场景，允许一次“去掉 previous_response_id 后重放”。
-			if codexWSAnchorFromContext(ctx) == nil && reason == "previous_response_not_found" && recoverPrevResponseNotFound(attempt) {
+			if httpContinuationConn == "" && codexWSAnchorFromContext(ctx) == nil && reason == "previous_response_not_found" && recoverPrevResponseNotFound(attempt) {
 				continue
 			}
-			if codexWSAnchorFromContext(ctx) == nil && reason == "invalid_encrypted_content" && recoverInvalidEncryptedContent(attempt, openAIStreamEncryptedRejection(c)) {
+			if httpContinuationConn == "" && codexWSAnchorFromContext(ctx) == nil && reason == "invalid_encrypted_content" && recoverInvalidEncryptedContent(attempt, openAIStreamEncryptedRejection(c)) {
 				continue
 			}
 			if codexWSAnchorFromContext(ctx) != nil {

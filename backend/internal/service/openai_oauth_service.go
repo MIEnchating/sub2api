@@ -464,7 +464,13 @@ func (s *OpenAIOAuthService) RefreshAccountToken(ctx context.Context, account *A
 	}
 
 	clientID := account.GetCredential("client_id")
-	info, err := s.RefreshTokenWithClientID(ctx, refreshToken, proxyURL, clientID)
+	var info *OpenAITokenInfo
+	var err error
+	if account.GetCredential("oauth_client_registration") == openai.KeyPouchClientRegistration {
+		info, err = refreshKeyPouchAccount(ctx, account, proxyURL)
+	} else {
+		info, err = s.RefreshTokenWithClientID(ctx, refreshToken, proxyURL, clientID)
+	}
 	s.refreshRecorderMu.RLock()
 	recorder := s.refreshFailureRecorder
 	s.refreshRecorderMu.RUnlock()
@@ -480,6 +486,29 @@ func (s *OpenAIOAuthService) RefreshAccountToken(ctx context.Context, account *A
 		}
 	}
 	return info, err
+}
+
+func refreshKeyPouchAccount(ctx context.Context, account *Account, proxyURL string) (*OpenAITokenInfo, error) {
+	clientID := account.GetCredential("client_id")
+	response, err := openai.RefreshKeyPouchGrant(ctx, clientID, account.GetCredential("refresh_token"), proxyURL)
+	if err != nil {
+		return nil, err
+	}
+	email, workspace, user := account.GetCredential("email"), account.GetCredential("chatgpt_account_id"), account.GetCredential("chatgpt_user_id")
+	if response.IDToken != "" {
+		claims, err := openai.DecodeKeyPouchCredentialClaims(response.IDToken)
+		if err != nil || !claims.AgreesWith(email, workspace, user) {
+			return nil, KeyPouchIdentityConflict
+		}
+	}
+	if claims, err := openai.DecodeKeyPouchCredentialClaims(response.AccessToken); err == nil && !claims.AgreesWith(email, workspace, user) {
+		return nil, KeyPouchIdentityConflict
+	}
+	expiresIn := int64(response.ExpiresIn)
+	return &OpenAITokenInfo{
+		AccessToken: response.AccessToken, RefreshToken: response.RefreshToken, ClientID: clientID,
+		ExpiresIn: expiresIn, ExpiresAt: time.Now().Unix() + expiresIn,
+	}, nil
 }
 
 // BuildAccountCredentials builds credentials map from token info

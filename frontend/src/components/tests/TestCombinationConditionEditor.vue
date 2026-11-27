@@ -1,24 +1,24 @@
 <template>
   <div class="min-w-0 space-y-3 rounded-lg border border-gray-200 bg-white p-3 dark:border-dark-600 dark:bg-dark-900" data-combination-condition :data-condition-depth="depth">
     <div v-if="modelValue.operator === 'test'" class="flex flex-wrap items-center gap-2">
-      <select :value="modelValue.test_definition_id ?? ''" class="input min-w-0 flex-1" :aria-label="t('admin.tests.protection.combined.test')" data-condition-test @change="patch({ test_definition_id: Number(($event.target as HTMLSelectElement).value) })">
+      <FormSelect :value="modelValue.test_definition_id ?? ''" class="min-w-0 flex-1" :aria-label="t('admin.tests.protection.combined.test')" data-condition-test @change="patch({ test_definition_id: Number(($event.target as HTMLSelectElement).value) })">
         <option value="" disabled>{{ t('admin.tests.protection.combined.chooseTest') }}</option>
         <option v-if="missingReference" :value="modelValue.test_definition_id" disabled>{{ t('admin.tests.protection.combined.unavailableTest', { id: modelValue.test_definition_id }) }}</option>
         <option v-for="type in types" :key="type.id" :value="type.id">{{ type.name }}</option>
-      </select>
-      <select :value="modelValue.verdict || 'pass'" class="input w-32" :aria-label="t('admin.tests.protection.combined.verdict')" data-condition-verdict @change="patch({ verdict: ($event.target as HTMLSelectElement).value as 'pass' | 'fail' })">
+      </FormSelect>
+      <FormSelect :value="modelValue.verdict || 'pass'" class="w-32" :aria-label="t('admin.tests.protection.combined.verdict')" data-condition-verdict @change="patch({ verdict: ($event.target as HTMLSelectElement).value as 'pass' | 'fail' })">
         <option value="pass">{{ t('admin.tests.protection.combined.pass') }}</option>
         <option value="fail">{{ t('admin.tests.protection.combined.fail') }}</option>
-      </select>
-      <button v-if="removable" type="button" class="btn btn-secondary btn-sm" :aria-label="t('admin.tests.protection.combined.removeCondition')" data-remove-condition @click="emit('remove')">{{ t('common.delete') }}</button>
+      </FormSelect>
+      <BaseButton v-if="removable" type="button" class="btn-secondary btn-sm" :aria-label="t('admin.tests.protection.combined.removeCondition')" data-remove-condition @click="emit('remove')">{{ t('common.delete') }}</BaseButton>
     </div>
     <template v-else>
       <div class="flex flex-wrap items-center gap-2">
-        <select :value="modelValue.operator" class="input w-full sm:w-auto" :aria-label="t('admin.tests.protection.combined.operator')" data-condition-operator @change="patch({ operator: ($event.target as HTMLSelectElement).value as 'all' | 'any' })">
+        <FormSelect :value="modelValue.operator" class="w-full sm:w-auto" :aria-label="t('admin.tests.protection.combined.operator')" data-condition-operator @change="patch({ operator: ($event.target as HTMLSelectElement).value as 'all' | 'any' })">
           <option value="all">{{ t('admin.tests.protection.combined.all') }}</option>
           <option value="any">{{ t('admin.tests.protection.combined.any') }}</option>
-        </select>
-        <button v-if="removable" type="button" class="btn btn-secondary btn-sm sm:ml-auto" :aria-label="t('admin.tests.protection.combined.removeGroup')" data-remove-condition @click="emit('remove')">{{ t('common.delete') }}</button>
+        </FormSelect>
+        <BaseButton v-if="removable" type="button" class="btn-secondary btn-sm sm:ml-auto" :aria-label="t('admin.tests.protection.combined.removeGroup')" data-remove-condition @click="emit('remove')">{{ t('common.delete') }}</BaseButton>
       </div>
       <div class="space-y-2 border-l-2 border-primary-100 pl-2 dark:border-primary-900 sm:pl-3">
         <TestCombinationConditionEditor v-for="(child, index) in modelValue.conditions || []" :key="index" :model-value="child" :types="types" :depth="depth + 1" :remaining-nodes="remainingNodes" removable @update:model-value="updateChild(index, $event)" @remove="removeChild(index)" />
@@ -34,6 +34,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TestCombinationCondition, TestType } from '@/types'

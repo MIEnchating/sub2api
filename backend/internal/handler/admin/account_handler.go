@@ -244,11 +244,11 @@ type CheckMixedChannelRequest struct {
 type AccountWithConcurrency struct {
 	ModerationScopeEligible bool `json:"moderation_scope_eligible"`
 	*dto.Account
-	simpleMode         bool                         `json:"-"`
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	ProxyPool          []service.ProxyPoolUsage     `json:"proxy_pool,omitempty"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	simpleMode         bool `json:"-"`
+	CurrentConcurrency int  `json:"current_concurrency"`
+
+	SchedulerScore  *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
+	SchedulerScores []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
 	// 以下字段仅在对应账号启用运行时容量控制时返回；OpenAI OAuth 仅使用 RPM 字段
 	CurrentWindowCost *float64 `json:"current_window_cost,omitempty"` // 当前窗口费用
 	ActiveSessions    *int     `json:"active_sessions,omitempty"`     // 当前活跃会话数
@@ -263,15 +263,15 @@ type AccountWithConcurrency struct {
 type AccountListItemWithConcurrency struct {
 	ModerationScopeEligible bool `json:"moderation_scope_eligible"`
 	*dto.AccountListItem
-	CurrentConcurrency int                          `json:"current_concurrency"`
-	ProxyPool          []service.ProxyPoolUsage     `json:"proxy_pool,omitempty"`
-	SchedulerScore     *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
-	SchedulerScores    []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
-	CurrentWindowCost  *float64                     `json:"current_window_cost,omitempty"`
-	ActiveSessions     *int                         `json:"active_sessions,omitempty"`
-	CurrentRPM         *int                         `json:"current_rpm,omitempty"`
-	RPMPaused          bool                         `json:"rpm_paused,omitempty"`
-	RPMResetAt         *int64                       `json:"rpm_reset_at,omitempty"`
+	CurrentConcurrency int `json:"current_concurrency"`
+
+	SchedulerScore    *AccountSchedulerScore       `json:"scheduler_score,omitempty"`
+	SchedulerScores   []AccountSchedulerGroupScore `json:"scheduler_scores,omitempty"`
+	CurrentWindowCost *float64                     `json:"current_window_cost,omitempty"`
+	ActiveSessions    *int                         `json:"active_sessions,omitempty"`
+	CurrentRPM        *int                         `json:"current_rpm,omitempty"`
+	RPMPaused         bool                         `json:"rpm_paused,omitempty"`
+	RPMResetAt        *int64                       `json:"rpm_reset_at,omitempty"`
 }
 
 type simpleModeGroupReference struct {
@@ -436,11 +436,6 @@ func (h *AccountHandler) buildAccountResponseWithRuntime(ctx context.Context, ac
 		}
 	}
 
-	if h.concurrencyService != nil {
-		if pools, err := h.concurrencyService.GetProxyPoolUsage(ctx, []service.Account{*account}); err == nil {
-			item.ProxyPool = pools[account.ID]
-		}
-	}
 	if account.SupportsRPMLimit() {
 		if account.IsAnthropicOAuthOrSetupToken() && h.accountUsageService != nil && account.GetWindowCostLimit() > 0 {
 			startTime := account.GetCurrentWindowStartTime()
@@ -948,13 +943,6 @@ func (h *AccountHandler) List(c *gin.Context) {
 		result[i] = item
 	}
 
-	if h.concurrencyService != nil {
-		if pools, err := h.concurrencyService.GetProxyPoolUsage(c.Request.Context(), accounts); err == nil {
-			for i := range result {
-				result[i].ProxyPool = pools[result[i].ID]
-			}
-		}
-	}
 	if err := h.enrichUpstreamChannelBindings(c.Request.Context(), result); err != nil {
 		response.InternalError(c, "Upstream channel readback failed")
 		return
@@ -966,9 +954,9 @@ func (h *AccountHandler) List(c *gin.Context) {
 		for i := range result {
 			item := result[i]
 			compact[i] = AccountListItemWithConcurrency{
-				AccountListItem:         dto.AccountListItemFromAccount(item.Account),
-				CurrentConcurrency:      item.CurrentConcurrency,
-				ProxyPool:               item.ProxyPool,
+				AccountListItem:    dto.AccountListItemFromAccount(item.Account),
+				CurrentConcurrency: item.CurrentConcurrency,
+
 				SchedulerScore:          item.SchedulerScore,
 				SchedulerScores:         item.SchedulerScores,
 				CurrentWindowCost:       item.CurrentWindowCost,

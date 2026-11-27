@@ -21,18 +21,17 @@ describe('provider key creation failure classification', () => {
     ['PROVIDER_KEY_CREATE_PENDING', true, 'matureProviders.keyUncertain'],
   ])('handles %s without repeating a remote write', async (reason, uncertain, message) => {
     api.post.mockRejectedValue({ status: 502, reason })
-    const w = mount(MatureProviderImport, { props: { platform: 'openai' }, global: { stubs: { NewFeatureBadge: true } } })
+    const w = mount(MatureProviderImport, { props: { platform: 'openai' }, global: { stubs: { NewFeatureBadge: true, teleport: true } } })
     await flushPromises()
     await w.get('[data-testid="provider-choice"]').setValue('7'); await flushPromises()
     await w.get('[data-testid="provider-key-new"]').trigger('click'); await flushPromises()
     await w.get('[data-testid="provider-group-choice"]').setValue('4')
     await w.get('input[type="checkbox"]').setValue(true)
-    const create = w.findAll('button').find(b => b.text() === 'matureProviders.create')!
-    await create.trigger('click'); await flushPromises()
+    await w.get('[data-testid="provider-key-create"]').trigger('click'); await flushPromises()
     expect(api.post).toHaveBeenCalledTimes(1)
     expect(w.findAll('[role="alert"]')[0]!.text(), 'definite refusals must remain distinct from uncertain writes').toBe(message)
     expect(w.get('input[type="checkbox"]').attributes('disabled') !== undefined).toBe(uncertain)
-    expect(create.attributes('disabled')).toBeDefined()
+    expect(w.get('[data-testid="provider-key-create"]').attributes('disabled')).toBeDefined()
     w.unmount()
   })
 })

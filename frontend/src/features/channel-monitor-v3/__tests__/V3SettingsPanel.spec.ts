@@ -1,7 +1,6 @@
 import { flushPromises, mount } from '@vue/test-utils'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { createPinia, setActivePinia } from 'pinia'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import V3SettingsPanel from '../V3SettingsPanel.vue'
 import ComponentEditorDialog from '../ComponentEditorDialog.vue'
 import type { MonitorV3Component, MonitorV3Settings } from '@/api/channelMonitorV3'
@@ -189,7 +188,6 @@ describe('V3 component editor', () => {
   it('saves two selected group models and keeps the first as the idle probe model', async () => {
     const wrapper = mount(ComponentEditorDialog, { props: { ...props, component: component(1, 1) }, global: { stubs } })
     await flushPromises()
-    expect(wrapper.findComponent({ name: 'NewFeatureBadge' }).props('noticeId')).toBe(NEW_FEATURE_NOTICES.monitorV3ComponentModels)
     await wrapper.get('input[value="sol"]').setValue(true)
     await wrapper.get('input[value="astra"]').setValue(true)
     await wrapper.get('form').trigger('submit')

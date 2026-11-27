@@ -3,16 +3,16 @@
     <h3 class="text-sm font-medium">{{ t('qqbot.rewardEditor.items') }}</h3>
     <div class="grid items-start gap-4 sm:grid-cols-2 lg:grid-cols-3">
       <label class="block min-w-0 space-y-1 text-sm">{{ t('qqbot.rewardEditor.type') }}
-        <select v-model="reward.type" :data-testid="fieldId('reward-type')" class="input" :disabled="allowedTypes?.length === 1" @change="changeType">
+        <FormSelect v-model="reward.type" :data-testid="fieldId('reward-type')" :disabled="allowedTypes?.length === 1" @change="changeType">
           <option v-for="kind in allowedTypes ?? types" :key="kind" :value="kind">{{ t('qqbot.rewardEditor.types.' + kind) }}</option>
-        </select>
+        </FormSelect>
       </label>
-      <label v-if="reward.type === 'balance'" class="block min-w-0 space-y-1 text-sm">{{ t('qqbot.rewardEditor.amount') }}<input v-model.number="reward.amount" :data-testid="fieldId('reward-amount')" type="number" min="0" max="1000" step="0.00000001" required class="input" /></label>
-      <label v-else class="block min-w-0 space-y-1 text-sm">{{ t(reward.type === 'chances' ? 'qqbot.rewardEditor.chancesQuantity' : reward.type === 'coupon' ? 'qqbot.rewardEditor.couponQuantity' : 'qqbot.rewardEditor.quantity') }}<input v-model.number="reward.quantity" :data-testid="fieldId(reward.type === 'chances' ? 'chances' : 'reward-quantity')" type="number" :min="minimumQuantity ?? 0" :max="reward.type === 'coupon' ? 100 : 1000" step="1" required class="input" /></label>
+      <label v-if="reward.type === 'balance'" class="block min-w-0 space-y-1 text-sm">{{ t('qqbot.rewardEditor.amount') }}<FormInput v-model.number="reward.amount" :data-testid="fieldId('reward-amount')" type="number" min="0" max="1000" step="0.00000001" required /></label>
+      <label v-else class="block min-w-0 space-y-1 text-sm">{{ t(reward.type === 'chances' ? 'qqbot.rewardEditor.chancesQuantity' : reward.type === 'coupon' ? 'qqbot.rewardEditor.couponQuantity' : 'qqbot.rewardEditor.quantity') }}<FormInput v-model.number="reward.quantity" :data-testid="fieldId(reward.type === 'chances' ? 'chances' : 'reward-quantity')" type="number" :min="minimumQuantity ?? 0" :max="reward.type === 'coupon' ? 100 : 1000" step="1" required /></label>
       <div v-if="reward.type === 'coupon'" class="min-w-0 space-y-1 text-sm"><span>{{ t('coupon.template') }}</span><CouponTemplateSelect v-model="reward.coupon_template_id" required /></div>
       <template v-if="reward.type === 'physical' || reward.type === 'other'">
-        <label class="block space-y-1">{{ t('qqbot.redemption.prize') }}<input v-model="reward.prize_name" :data-testid="fieldId('prize-name')" maxlength="100" :required="reward.quantity > 0" class="input" /></label>
-        <label class="block space-y-1">{{ t('qqbot.redemption.instructions') }}<textarea v-model="reward.claim_instructions" :data-testid="fieldId('instructions')" maxlength="500" rows="2" class="input" /></label>
+        <label class="block space-y-1">{{ t('qqbot.redemption.prize') }}<FormInput v-model="reward.prize_name" :data-testid="fieldId('prize-name')" maxlength="100" :required="reward.quantity > 0" /></label>
+        <label class="block space-y-1">{{ t('qqbot.redemption.instructions') }}<FormTextarea v-model="reward.claim_instructions" :data-testid="fieldId('instructions')" maxlength="500" rows="2" /></label>
       </template>
     </div>
     <p v-if="reward.type === 'coupon'" class="text-xs text-gray-500">{{ t('coupon.costHint') }}</p>
@@ -20,6 +20,9 @@
   </section>
 </template>
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import CouponTemplateSelect from './CouponTemplateSelect.vue'
 import { useI18n } from 'vue-i18n'
 import type { QQGrowthReward, QQRewardType } from '@/api/qqbot'

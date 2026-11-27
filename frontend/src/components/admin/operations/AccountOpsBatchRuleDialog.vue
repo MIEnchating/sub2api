@@ -47,7 +47,7 @@
           </details>
           <label class="flex items-center justify-between text-sm">
             <span>{{ t('accountOps.ruleEnabled') }}</span>
-            <input
+            <FormInput
               v-model="section.form.enabled"
               type="checkbox"
               :data-testid="`${section.testIdPrefix}-enabled`"
@@ -56,13 +56,13 @@
           <label class="block space-y-2 text-sm">
             <span>{{ t('accountOps.thresholdValue') }}</span>
             <div class="flex items-center gap-2">
-              <input
+              <FormInput
                 v-model="section.form.threshold"
                 type="number"
                 :min="section.metric === 'quota' ? 0.01 : 0"
                 :max="section.metric === 'quota' ? 100 : 1e12"
                 step="any"
-                class="input w-full"
+                class="w-full"
                 :data-testid="`${section.testIdPrefix}-threshold`"
               />
               <span class="shrink-0 text-gray-500">
@@ -72,21 +72,21 @@
           </label>
           <label v-if="section.metric === 'quota'" class="block space-y-2 text-sm">
             <span>{{ t('accountOps.quotaWindow') }}</span>
-            <select
+            <FormSelect
               v-model="section.form.window"
-              class="input w-full"
+              class="w-full"
               :data-testid="`${section.testIdPrefix}-window`"
             >
               <option value="any">{{ t('accountOps.anyWindow') }}</option>
               <option v-for="window in commonWindows" :key="window.window" :value="window.window">
                 {{ window.label }}
               </option>
-            </select>
+            </FormSelect>
           </label>
           <div class="space-y-3 border-y border-gray-200 py-4 dark:border-dark-700">
             <p class="text-sm font-medium">{{ t('accountOps.transitionNotices') }}</p>
             <label class="flex items-start gap-3 text-sm">
-              <input
+              <FormInput
                 v-model="section.form.notifyAlert"
                 type="checkbox"
                 class="mt-1"
@@ -100,7 +100,7 @@
               </span>
             </label>
             <label class="flex items-start gap-3 text-sm">
-              <input
+              <FormInput
                 v-model="section.form.notifyRecovery"
                 type="checkbox"
                 class="mt-1"
@@ -121,28 +121,31 @@
       </div>
     </form>
     <template #footer>
-      <button
+      <BaseButton
         type="button"
-        class="btn btn-secondary"
+        class="btn-secondary"
         data-testid="cancel-batch-rules"
         @click="close"
       >
         {{ t('common.cancel') }}
-      </button>
-      <button
+      </BaseButton>
+      <BaseButton
         type="submit"
         form="account-ops-batch-rule-form"
-        class="btn btn-primary"
+        class="btn-primary"
         data-testid="save-batch-rules"
         :disabled="busy || !validSelection || mixedUnits"
       >
         {{ busy ? t('common.loading') : accounts.length === 1 ? t('accountOps.saveRule') : t('accountOps.saveBatchRules', { count: accounts.length }) }}
-      </button>
+      </BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

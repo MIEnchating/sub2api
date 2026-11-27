@@ -92,19 +92,18 @@
                 data-testid="profile-binding-email-form"
                 class="grid gap-2 sm:grid-cols-[minmax(0,1.4fr)_auto]"
               >
-                <input
+                <FormInput
                   v-model.trim="emailBindingForm.email"
                   data-testid="profile-binding-email-input"
                   type="email"
-                  class="input"
                   :placeholder="t('profile.authBindings.emailPlaceholder')"
                   :disabled="isSendingEmailCode || isBindingEmail"
                   @input="isEmailBindingFormDirty = true"
                 />
-                <button
+                <BaseButton
                   data-testid="profile-binding-email-send-code"
                   type="button"
-                  class="btn btn-secondary btn-sm"
+                  class="btn-secondary btn-sm"
                   :disabled="isSendingEmailCode || isBindingEmail"
                   @click="sendEmailCode"
                 >
@@ -113,31 +112,29 @@
                       ? t('common.loading')
                       : t('profile.authBindings.sendCodeAction')
                   }}
-                </button>
-                <input
+                </BaseButton>
+                <FormInput
                   v-model.trim="emailBindingForm.verifyCode"
                   data-testid="profile-binding-email-code-input"
                   type="text"
                   inputmode="numeric"
                   maxlength="6"
-                  class="input"
                   :placeholder="t('profile.authBindings.codePlaceholder')"
                   :disabled="isBindingEmail"
                   @input="isEmailBindingFormDirty = true"
                 />
-                <input
+                <FormInput
                   v-model="emailBindingForm.password"
                   data-testid="profile-binding-email-password-input"
                   type="password"
-                  class="input"
                   :placeholder="emailPasswordPlaceholder"
                   :disabled="isBindingEmail"
                   @input="isEmailBindingFormDirty = true"
                 />
-                <button
+                <BaseButton
                   data-testid="profile-binding-email-submit"
                   type="button"
-                  class="btn btn-primary btn-sm sm:col-span-2"
+                  class="btn-primary btn-sm sm:col-span-2"
                   :disabled="isBindingEmail"
                   @click="bindEmail"
                 >
@@ -146,17 +143,17 @@
                       ? t('common.loading')
                       : emailSubmitActionLabel
                   }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
 
           <div class="flex shrink-0 flex-wrap items-center gap-3">
-            <button
+            <BaseButton
               v-if="item.provider === 'email' && compact"
               data-testid="profile-binding-email-toggle"
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               @click="toggleEmailForm"
             >
               {{
@@ -164,21 +161,21 @@
                   ? t('profile.authBindings.hideEmailFormAction')
                   : t('profile.authBindings.manageEmailAction')
               }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-if="item.canBind"
               :data-testid="`profile-binding-${item.provider}-action`"
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn-primary btn-sm"
               @click="startBinding(item.provider)"
             >
               {{ t('profile.authBindings.bindAction', { providerName: item.label }) }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-if="item.canUnbind"
               :data-testid="`profile-binding-${item.provider}-unbind`"
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="unbindingProvider === item.provider"
               @click="handleUnbindForItem(item.provider, item.label)"
             >
@@ -187,7 +184,7 @@
                   ? t('common.loading')
                   : t('profile.authBindings.unbindAction')
               }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -196,6 +193,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute } from 'vue-router'

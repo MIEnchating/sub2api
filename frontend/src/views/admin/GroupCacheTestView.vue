@@ -4,7 +4,7 @@
       <SmartOpsNav />
       <header class="flex flex-wrap items-start justify-between gap-4">
         <div><h1 class="text-2xl font-semibold text-gray-900 dark:text-white">{{ t('admin.groupCacheTest.title') }}</h1><p class="mt-2 max-w-3xl text-sm text-gray-500 dark:text-gray-400">{{ t('admin.groupCacheTest.description') }}</p></div>
-        <button class="btn btn-secondary" :disabled="busy || loading" @click="loadGroups">{{ t('admin.groupCacheTest.reload') }}</button>
+        <BaseButton class="btn-secondary" :disabled="busy || loading" @click="loadGroups">{{ t('admin.groupCacheTest.reload') }}</BaseButton>
       </header>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300">{{ error }}</p>
       <p v-if="storageError" role="status" class="text-sm text-amber-600">{{ t('admin.groupCacheTest.storageError') }}</p>
@@ -13,39 +13,39 @@
           <h2 id="cache-config-title" class="cache-heading">{{ t('admin.groupCacheTest.configuration') }}</h2>
           <form class="mt-4 space-y-4" @submit.prevent="start">
             <fieldset :disabled="busy || loading" class="space-y-4">
-              <label class="cache-field"><span>{{ t('admin.groupCacheTest.group') }}</span><select v-model="groupId" class="input" data-testid="cache-group"><option :value="null">{{ t('admin.groupCacheTest.selectGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform }}</option></select></label>
-              <label class="cache-field"><span>{{ t('admin.groupCacheTest.key') }}</span><select v-model="keyId" class="input" :disabled="keysLoading || !groupId" data-testid="cache-key"><option :value="null">{{ keysLoading ? t('admin.groupCacheTest.loading') : t('admin.groupCacheTest.selectKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }} · #{{ key.id }}</option></select></label>
+              <label class="cache-field"><span>{{ t('admin.groupCacheTest.group') }}</span><FormSelect v-model="groupId" data-testid="cache-group"><option :value="null">{{ t('admin.groupCacheTest.selectGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform }}</option></FormSelect></label>
+              <label class="cache-field"><span>{{ t('admin.groupCacheTest.key') }}</span><FormSelect v-model="keyId" :disabled="keysLoading || !groupId" data-testid="cache-key"><option :value="null">{{ keysLoading ? t('admin.groupCacheTest.loading') : t('admin.groupCacheTest.selectKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id">{{ key.name }} · #{{ key.id }}</option></FormSelect></label>
               <p class="cache-hint">{{ t('admin.groupCacheTest.ownedKeyHint') }}</p>
               <p v-if="keyError" role="alert" class="text-sm text-red-600">{{ t('admin.groupCacheTest.keysError') }} <button type="button" class="underline" @click="loadKeys">{{ t('admin.groupCacheTest.reload') }}</button></p>
               <p v-else-if="groupId && !keysLoading && !keys.length" class="cache-hint">{{ t('admin.groupCacheTest.noKeys') }} <RouterLink to="/keys" class="text-primary-600 underline">{{ t('admin.groupCacheTest.manageKeys') }}</RouterLink></p>
-              <label class="cache-field"><span>{{ t('admin.groupCacheTest.protocol') }}</span><select v-model="settings.protocol" class="input" data-testid="cache-protocol"><option value="responses">Responses</option><option value="chat">Chat Completions</option><option value="messages">Messages</option></select></label>
-              <label class="cache-field"><span>{{ t('admin.groupCacheTest.model') }}</span><input v-model.trim="settings.model" list="cache-models" class="input" maxlength="200" required autocomplete="off" :placeholder="t('admin.groupCacheTest.modelPlaceholder')" data-testid="cache-model" /><datalist id="cache-models"><option v-for="model in models" :key="model" :value="model" /></datalist></label>
+              <label class="cache-field"><span>{{ t('admin.groupCacheTest.protocol') }}</span><FormSelect v-model="settings.protocol" data-testid="cache-protocol"><option value="responses">Responses</option><option value="chat">Chat Completions</option><option value="messages">Messages</option></FormSelect></label>
+              <label class="cache-field"><span>{{ t('admin.groupCacheTest.model') }}</span><FormInput v-model.trim="settings.model" list="cache-models" maxlength="200" required autocomplete="off" :placeholder="t('admin.groupCacheTest.modelPlaceholder')" data-testid="cache-model" /><datalist id="cache-models"><option v-for="model in models" :key="model" :value="model" /></datalist></label>
               <div class="grid grid-cols-2 gap-3">
-                <label class="cache-field"><span>{{ t('admin.groupCacheTest.rounds') }}</span><select v-model.number="settings.rounds" class="input"><option v-for="count in [2, 3, 4, 5, 6]" :key="count" :value="count">{{ count }}</option></select></label>
-                <label class="cache-field"><span>{{ t('admin.groupCacheTest.prefix') }}</span><select v-model.number="settings.prefixBlocks" class="input"><option v-for="count in [16, 48, 96, 128]" :key="count" :value="count">{{ t('admin.groupCacheTest.blocks', { count }) }}</option></select></label>
+                <label class="cache-field"><span>{{ t('admin.groupCacheTest.rounds') }}</span><FormSelect v-model.number="settings.rounds"><option v-for="count in [2, 3, 4, 5, 6]" :key="count" :value="count">{{ count }}</option></FormSelect></label>
+                <label class="cache-field"><span>{{ t('admin.groupCacheTest.prefix') }}</span><FormSelect v-model.number="settings.prefixBlocks"><option v-for="count in [16, 48, 96, 128]" :key="count" :value="count">{{ t('admin.groupCacheTest.blocks', { count }) }}</option></FormSelect></label>
               </div>
               <p class="cache-hint">{{ t('admin.groupCacheTest.prefixHint', { count: prefixLength.toLocaleString() }) }}</p>
               <details class="rounded-lg border border-gray-200 p-3 dark:border-dark-600">
                 <summary class="cursor-pointer text-sm font-medium">{{ t('admin.groupCacheTest.advanced') }}</summary>
                 <div class="mt-3 space-y-3">
-                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.interval') }}</span><input v-model.number="settings.intervalMs" class="input" type="number" min="0" max="10000" step="100" required /></label>
-                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.timeout') }}</span><select v-model.number="settings.timeoutMs" class="input"><option :value="60000">60 s</option><option :value="120000">120 s</option><option :value="300000">300 s</option></select></label>
-                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.maxOutput') }}</span><input v-model.number="settings.maxOutputTokens" class="input" type="number" min="64" max="4096" required /></label>
+                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.interval') }}</span><FormInput v-model.number="settings.intervalMs" type="number" min="0" max="10000" step="100" required /></label>
+                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.timeout') }}</span><FormSelect v-model.number="settings.timeoutMs"><option :value="60000">60 s</option><option :value="120000">120 s</option><option :value="300000">300 s</option></FormSelect></label>
+                  <label class="cache-field"><span>{{ t('admin.groupCacheTest.maxOutput') }}</span><FormInput v-model.number="settings.maxOutputTokens" type="number" min="64" max="4096" required /></label>
                   <template v-if="settings.protocol !== 'messages'">
-                    <label class="cache-field"><span>{{ t('admin.groupCacheTest.reasoning') }}</span><select v-model="settings.reasoningEffort" class="input"><option value="">{{ t('admin.groupCacheTest.unspecified') }}</option><option v-for="effort in ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']" :key="effort" :value="effort">{{ effort }}</option></select></label>
-                    <label class="cache-field"><span>{{ t('admin.groupCacheTest.tier') }}</span><select v-model="settings.serviceTier" class="input"><option value="">{{ t('admin.groupCacheTest.unspecified') }}</option><option value="default">default</option><option value="priority">priority</option></select></label>
+                    <label class="cache-field"><span>{{ t('admin.groupCacheTest.reasoning') }}</span><FormSelect v-model="settings.reasoningEffort"><option value="">{{ t('admin.groupCacheTest.unspecified') }}</option><option v-for="effort in ['none', 'minimal', 'low', 'medium', 'high', 'xhigh', 'max']" :key="effort" :value="effort">{{ effort }}</option></FormSelect></label>
+                    <label class="cache-field"><span>{{ t('admin.groupCacheTest.tier') }}</span><FormSelect v-model="settings.serviceTier"><option value="">{{ t('admin.groupCacheTest.unspecified') }}</option><option value="default">default</option><option value="priority">priority</option></FormSelect></label>
                   </template>
                   <p class="cache-hint">{{ t('admin.groupCacheTest.compatibility') }}</p>
                 </div>
               </details>
             </fieldset>
             <div class="rounded-lg bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950/40 dark:text-amber-200">{{ t('admin.groupCacheTest.chargeWarning', { count: settings.rounds }) }}</div>
-            <div class="flex gap-2"><button type="submit" class="btn btn-primary flex-1" :disabled="!canStart" data-testid="cache-start">{{ t('admin.groupCacheTest.start') }}</button><button v-if="busy" type="button" class="btn btn-secondary" :disabled="stopping" data-testid="cache-stop" @click="stop">{{ stopping ? t('admin.groupCacheTest.stopping') : t('admin.groupCacheTest.stop') }}</button></div>
+            <div class="flex gap-2"><BaseButton type="submit" class="btn-primary flex-1" :disabled="!canStart" data-testid="cache-start">{{ t('admin.groupCacheTest.start') }}</BaseButton><BaseButton v-if="busy" type="button" class="btn-secondary" :disabled="stopping" data-testid="cache-stop" @click="stop">{{ stopping ? t('admin.groupCacheTest.stopping') : t('admin.groupCacheTest.stop') }}</BaseButton></div>
           </form>
         </section>
         <div class="min-w-0 space-y-5">
           <section class="cache-panel" aria-labelledby="cache-results-title">
-            <div class="flex flex-wrap items-center justify-between gap-3"><h2 id="cache-results-title" class="cache-heading">{{ t('admin.groupCacheTest.results') }}</h2><div v-if="selected" class="flex flex-wrap gap-2"><button class="btn btn-secondary btn-sm" :disabled="busy || !hasPendingBills" data-testid="cache-reconcile" @click="refreshBills">{{ t('admin.groupCacheTest.reconcile') }}</button><button class="btn btn-secondary btn-sm" :disabled="busy" @click="download">{{ t('admin.groupCacheTest.export') }}</button></div></div>
+            <div class="flex flex-wrap items-center justify-between gap-3"><h2 id="cache-results-title" class="cache-heading">{{ t('admin.groupCacheTest.results') }}</h2><div v-if="selected" class="flex flex-wrap gap-2"><BaseButton class="btn-secondary btn-sm" :disabled="busy || !hasPendingBills" data-testid="cache-reconcile" @click="refreshBills">{{ t('admin.groupCacheTest.reconcile') }}</BaseButton><BaseButton class="btn-secondary btn-sm" :disabled="busy" @click="download">{{ t('admin.groupCacheTest.export') }}</BaseButton></div></div>
             <div v-if="!selected" class="py-16 text-center"><p class="font-medium text-gray-700 dark:text-gray-200">{{ t('admin.groupCacheTest.emptyTitle') }}</p><p class="mx-auto mt-2 max-w-md text-sm leading-6 text-gray-500">{{ t('admin.groupCacheTest.emptyHint') }}</p></div>
             <template v-else>
               <div class="mt-4 flex flex-wrap items-center gap-x-4 gap-y-2 text-sm"><strong>{{ selected.groupName }}</strong><span>{{ selected.settings.model }}</span><code class="text-xs">{{ CACHE_ENDPOINTS[selected.settings.protocol] }}</code><span role="status" aria-live="polite" class="ml-auto">{{ busy ? t(reconciling ? 'admin.groupCacheTest.reconciling' : 'admin.groupCacheTest.testing') : t('admin.groupCacheTest.status.' + selected.status) }}</span></div>
@@ -58,9 +58,9 @@
               </div>
               <p class="cache-hint">{{ t('admin.groupCacheTest.resultHint') }}</p>
               <div class="mt-4 overflow-x-auto">
-                <table class="cache-table"><thead><tr><th>{{ t('admin.groupCacheTest.round') }}</th><th>{{ t('admin.groupCacheTest.input') }}</th><th>{{ t('admin.groupCacheTest.cacheRead') }}</th><th>{{ t('admin.groupCacheTest.cacheWrite') }}</th><th>{{ t('admin.groupCacheTest.hitRate') }}</th><th>{{ t('admin.groupCacheTest.output') }}</th><th>{{ t('admin.groupCacheTest.firstText') }}</th><th>{{ t('admin.groupCacheTest.billed') }}</th></tr></thead><tbody>
+                <BaseTable class="cache-table"><thead><tr><th>{{ t('admin.groupCacheTest.round') }}</th><th>{{ t('admin.groupCacheTest.input') }}</th><th>{{ t('admin.groupCacheTest.cacheRead') }}</th><th>{{ t('admin.groupCacheTest.cacheWrite') }}</th><th>{{ t('admin.groupCacheTest.hitRate') }}</th><th>{{ t('admin.groupCacheTest.output') }}</th><th>{{ t('admin.groupCacheTest.firstText') }}</th><th>{{ t('admin.groupCacheTest.billed') }}</th></tr></thead><tbody>
                   <tr v-for="round in selected.rounds" :key="round.index"><td><button class="text-left text-primary-600 underline underline-offset-4" :aria-expanded="detailIndex === round.index" @click="detailIndex = detailIndex === round.index ? null : round.index">{{ round.index === 1 ? t('admin.groupCacheTest.baseline') : t('admin.groupCacheTest.repeat', { index: round.index - 1 }) }}</button><small :class="round.status === 'failed' ? 'text-red-600' : ''">{{ t('admin.groupCacheTest.status.' + round.status) }}</small></td><td>{{ number(round.tokens?.input) }}</td><td>{{ number(round.tokens?.read) }}</td><td>{{ number(round.tokens?.write) }}</td><td>{{ percent(cacheHitRate(round.tokens)) }}</td><td>{{ number(round.tokens?.output) }}</td><td>{{ ms(round.firstTextMs) }}</td><td>{{ money(round.bill?.actualCost) }}<small>{{ t('admin.groupCacheTest.billing.' + round.billingState) }}</small></td></tr>
-                </tbody></table>
+                </tbody></BaseTable>
               </div>
               <div v-if="detail" class="mt-4 rounded-lg border border-gray-200 bg-gray-50 p-4 dark:border-dark-600 dark:bg-dark-900" data-testid="cache-detail">
                 <h3 class="text-sm font-semibold">{{ t('admin.groupCacheTest.roundDetails', { index: detail.index }) }}</h3>
@@ -85,6 +85,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { RouterLink } from 'vue-router'
 import { useI18n } from 'vue-i18n'

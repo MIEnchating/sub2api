@@ -7,16 +7,18 @@
     <ModelWhitelistSelector v-model="models" v-model:model-mappings="mappings" platform="gateway"
       :sync-credentials="syncCredentials" />
     <div v-for="(mapping, index) in mappings" :key="index" class="flex items-center gap-2">
-      <input v-model="mapping.from" class="input min-w-0 flex-1" :aria-label="t('admin.accounts.fromModel')" :placeholder="t('admin.accounts.fromModel')" />
+      <FormInput v-model="mapping.from" class="min-w-0 flex-1" :aria-label="t('admin.accounts.fromModel')" :placeholder="t('admin.accounts.fromModel')" />
       <span aria-hidden="true">→</span>
-      <input v-model="mapping.to" class="input min-w-0 flex-1" :aria-label="t('admin.accounts.toModel')" :placeholder="t('admin.accounts.toModel')" />
+      <FormInput v-model="mapping.to" class="min-w-0 flex-1" :aria-label="t('admin.accounts.toModel')" :placeholder="t('admin.accounts.toModel')" />
       <button type="button" class="text-red-600" :aria-label="t('common.delete')" @click="mappings.splice(index, 1)">×</button>
     </div>
-    <button type="button" class="btn btn-secondary text-sm" @click="mappings.push({ from: '', to: '' })">{{ t('admin.accounts.addMapping') }}</button>
+    <BaseButton type="button" class="btn-secondary text-sm" @click="mappings.push({ from: '', to: '' })">{{ t('admin.accounts.addMapping') }}</BaseButton>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores'
 import type { SyncUpstreamPreviewParams } from '@/api/admin/accounts'

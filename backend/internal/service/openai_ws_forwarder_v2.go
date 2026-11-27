@@ -196,6 +196,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		}
 	}
 	preferredConnID := ""
+	httpContinuationConn, _ := ctx.Value(openAIHTTPContinuationConnContextKey{}).(string)
 	if stateStore != nil && previousResponseID != "" {
 		if connID, ok := stateStore.GetResponseConn(previousResponseID); ok {
 			preferredConnID = connID
@@ -210,6 +211,9 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 	anchor := codexWSAnchorFromContext(ctx)
 	if anchor != nil && anchor.previousID != "" {
 		preferredConnID = anchor.connID
+	}
+	if httpContinuationConn != "" {
+		preferredConnID = httpContinuationConn
 	}
 	storeDisabledConnMode := s.openAIWSStoreDisabledConnMode()
 	forceNewConnByPolicy := shouldForceNewConnOnStoreDisabled(storeDisabledConnMode, lastFailureReason)
@@ -379,7 +383,7 @@ func (s *OpenAIGatewayService) forwardOpenAIWSV2(
 		},
 		PreferredConnID:    preferredConnID,
 		ForceNewConn:       forceNewConn || (anchor != nil && anchor.connID == ""),
-		ForcePreferredConn: anchor != nil && anchor.connID != "",
+		ForcePreferredConn: httpContinuationConn != "" || anchor != nil && anchor.connID != "",
 		ProxyURL:           proxyURL,
 		ProxyID: func() int64 {
 			if account.ProxyID != nil {
@@ -1215,6 +1219,9 @@ readLoop:
 				}
 			} else {
 				flushBufferedStreamEvents(eventType)
+				if isTerminalEvent {
+					s.bindWebSocketResponseForHTTP(ctx, c, account, message, lease.ConnID())
+				}
 				emitStreamMessage(clientMessage, isTerminalEvent || flushEarlyEvents)
 			}
 		} else {
@@ -1290,6 +1297,9 @@ readLoop:
 			responseID = strings.TrimSpace(gjson.GetBytes(finalResponse, "id").String())
 		}
 
+		terminal := append([]byte(`{"type":"response.completed","response":`), finalResponse...)
+		terminal = append(terminal, '}')
+		s.bindWebSocketResponseForHTTP(ctx, c, account, terminal, lease.ConnID())
 		c.Data(http.StatusOK, "application/json", finalResponse)
 	} else {
 		flushStreamWriter(true)

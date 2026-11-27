@@ -11,10 +11,10 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">
           {{ t('admin.errorPassthrough.description') }}
         </p>
-        <button @click="showCreateModal = true" class="btn btn-primary btn-sm">
+        <BaseButton @click="showCreateModal = true" class="btn-primary btn-sm">
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('admin.errorPassthrough.createRule') }}
-        </button>
+        </BaseButton>
       </div>
 
       <!-- Rules Table -->
@@ -35,7 +35,7 @@
       </div>
 
       <div v-else class="max-h-96 overflow-auto rounded-lg border border-gray-200 dark:border-dark-600">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
+        <BaseTable class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
           <thead class="sticky top-0 bg-gray-50 dark:bg-dark-700">
             <tr>
               <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
@@ -76,26 +76,26 @@
               </td>
               <td class="px-3 py-2">
                 <div class="flex flex-wrap gap-1 max-w-48">
-                  <span
+                  <StatusBadge
                     v-for="code in rule.error_codes.slice(0, 3)"
                     :key="code"
-                    class="badge badge-danger text-xs"
+                    class="badge-danger text-xs"
                   >
                     {{ code }}
-                  </span>
+                  </StatusBadge>
                   <span
                     v-if="rule.error_codes.length > 3"
                     class="text-xs text-gray-500"
                   >
                     +{{ rule.error_codes.length - 3 }}
                   </span>
-                  <span
+                  <StatusBadge
                     v-for="keyword in rule.keywords.slice(0, 1)"
                     :key="keyword"
-                    class="badge badge-gray text-xs"
+                    class="badge-gray text-xs"
                   >
                     "{{ keyword.length > 10 ? keyword.substring(0, 10) + '...' : keyword }}"
-                  </span>
+                  </StatusBadge>
                   <span
                     v-if="rule.keywords.length > 1"
                     class="text-xs text-gray-500"
@@ -112,13 +112,13 @@
                   {{ t('admin.errorPassthrough.allPlatforms') }}
                 </div>
                 <div v-else class="flex flex-wrap gap-1">
-                  <span
+                  <StatusBadge
                     v-for="platform in rule.platforms.slice(0, 2)"
                     :key="platform"
-                    class="badge badge-primary text-xs"
+                    class="badge-primary text-xs"
                   >
                     {{ platform }}
-                  </span>
+                  </StatusBadge>
                   <span v-if="rule.platforms.length > 2" class="text-xs text-gray-500">
                     +{{ rule.platforms.length - 2 }}
                   </span>
@@ -196,15 +196,15 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
 
     <template #footer>
       <div class="flex justify-end">
-        <button @click="$emit('close')" class="btn btn-secondary">
+        <BaseButton @click="$emit('close')" class="btn-secondary">
           {{ t('common.close') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
 
@@ -220,21 +220,19 @@
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="input-label">{{ t('admin.errorPassthrough.form.name') }}</label>
-            <input
+            <FormInput
               v-model="form.name"
               type="text"
               required
-              class="input"
               :placeholder="t('admin.errorPassthrough.form.namePlaceholder')"
             />
           </div>
           <div>
             <label class="input-label">{{ t('admin.errorPassthrough.form.priority') }}</label>
-            <input
+            <FormInput
               v-model.number="form.priority"
               type="number"
               min="0"
-              class="input"
             />
             <p class="input-hint">{{ t('admin.errorPassthrough.form.priorityHint') }}</p>
           </div>
@@ -242,10 +240,9 @@
 
         <div>
           <label class="input-label">{{ t('admin.errorPassthrough.form.description') }}</label>
-          <input
+          <FormInput
             v-model="form.description"
             type="text"
-            class="input"
             :placeholder="t('admin.errorPassthrough.form.descriptionPlaceholder')"
           />
         </div>
@@ -259,20 +256,20 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="input-label text-xs">{{ t('admin.errorPassthrough.form.errorCodes') }}</label>
-              <input
+              <FormInput
                 v-model="errorCodesInput"
                 type="text"
-                class="input text-sm"
+                class="text-sm"
                 :placeholder="t('admin.errorPassthrough.form.errorCodesPlaceholder')"
               />
               <p class="input-hint text-xs">{{ t('admin.errorPassthrough.form.errorCodesHint') }}</p>
             </div>
             <div>
               <label class="input-label text-xs">{{ t('admin.errorPassthrough.form.keywords') }}</label>
-              <textarea
+              <FormTextarea
                 v-model="keywordsInput"
                 rows="2"
-                class="input font-mono text-xs"
+                class="font-mono text-xs"
                 :placeholder="t('admin.errorPassthrough.form.keywordsPlaceholder')"
               />
               <p class="input-hint text-xs">{{ t('admin.errorPassthrough.form.keywordsHint') }}</p>
@@ -287,7 +284,7 @@
                 :key="option.value"
                 class="flex items-start gap-2 cursor-pointer"
               >
-                <input
+                <FormInput
                   type="radio"
                   :value="option.value"
                   v-model="form.match_mode"
@@ -309,7 +306,7 @@
                 :key="platform.value"
                 class="inline-flex items-center gap-1.5"
               >
-                <input
+                <FormInput
                   type="checkbox"
                   :value="platform.value"
                   v-model="form.platforms"
@@ -331,7 +328,7 @@
           <div class="grid grid-cols-2 gap-3">
             <div>
               <label class="flex items-center gap-1.5">
-                <input
+                <FormInput
                   type="checkbox"
                   v-model="form.passthrough_code"
                   class="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -342,19 +339,19 @@
               </label>
               <div v-if="!form.passthrough_code" class="mt-2">
                 <label class="input-label text-xs">{{ t('admin.errorPassthrough.form.responseCode') }}</label>
-                <input
+                <FormInput
                   v-model.number="form.response_code"
                   type="number"
                   min="100"
                   max="599"
-                  class="input text-sm"
+                  class="text-sm"
                   placeholder="422"
                 />
               </div>
             </div>
             <div>
               <label class="flex items-center gap-1.5">
-                <input
+                <FormInput
                   type="checkbox"
                   v-model="form.passthrough_body"
                   class="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -365,10 +362,10 @@
               </label>
               <div v-if="!form.passthrough_body" class="mt-2">
                 <label class="input-label text-xs">{{ t('admin.errorPassthrough.form.customMessage') }}</label>
-                <input
+                <FormInput
                   v-model="form.custom_message"
                   type="text"
-                  class="input text-sm"
+                  class="text-sm"
                   :placeholder="t('admin.errorPassthrough.form.customMessagePlaceholder')"
                 />
               </div>
@@ -378,7 +375,7 @@
 
         <!-- Skip Monitoring -->
         <div class="flex items-center gap-1.5">
-          <input
+          <FormInput
             type="checkbox"
             v-model="form.skip_monitoring"
             class="h-3.5 w-3.5 rounded border-gray-300 text-yellow-600 focus:ring-yellow-500"
@@ -391,7 +388,7 @@
 
         <!-- Enabled -->
         <div class="flex items-center gap-1.5">
-          <input
+          <FormInput
             type="checkbox"
             v-model="form.enabled"
             class="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -404,13 +401,13 @@
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeFormModal" type="button" class="btn btn-secondary">
+          <BaseButton @click="closeFormModal" type="button" class="btn-secondary">
             {{ t('common.cancel') }}
-          </button>
-          <button @click="handleSubmit" :disabled="submitting" class="btn btn-primary">
+          </BaseButton>
+          <BaseButton @click="handleSubmit" :disabled="submitting" class="btn-primary">
             <Icon v-if="submitting" name="refresh" size="sm" class="mr-1 animate-spin" />
             {{ showEditModal ? t('common.update') : t('common.create') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -430,6 +427,11 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

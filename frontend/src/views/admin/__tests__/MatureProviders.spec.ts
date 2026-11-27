@@ -17,7 +17,7 @@ describe('mature provider operations', () => {
     api.put.mockResolvedValue({ data: { ...provider, revision: 4 } })
   })
   it('manages persisted providers without inventing unknown financial values', async () => {
-    const w = mount(UpstreamChannelOperationsView, { global: { stubs: { NewFeatureBadge: true } } })
+    const w = mount(UpstreamChannelOperationsView, { global: { stubs: { NewFeatureBadge: true, teleport: true } } })
     await flushPromises()
     expect(w.find('[data-testid="provider-add"]').exists(), 'channel operations must expose provider CRUD').toBe(true)
     expect(w.text()).toContain('Synthetic provider')
@@ -35,7 +35,7 @@ describe('mature provider operations', () => {
   })
   it('keeps the edit draft on a revision conflict and does not retry writes', async () => {
     api.put.mockRejectedValue({ status: 409, message: 'conflict' })
-    const w = mount(UpstreamChannelOperationsView, { global: { stubs: { NewFeatureBadge: true } } })
+    const w = mount(UpstreamChannelOperationsView, { global: { stubs: { NewFeatureBadge: true, teleport: true } } })
     await flushPromises()
     await w.get('[data-testid="provider-7-edit"]').trigger('click')
     await w.get('[data-testid="provider-name"]').setValue('My unsaved change')

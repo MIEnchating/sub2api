@@ -8,7 +8,7 @@
 
     <section>
       <h2 class="mb-2 font-semibold">{{ t('usageApi.parameters') }}</h2>
-      <table class="w-full table-fixed text-left">
+      <BaseTable class="w-full table-fixed text-left">
         <thead class="text-gray-500 dark:text-gray-400">
           <tr><th scope="col" class="w-28 py-2">{{ t('usageApi.name') }}</th><th scope="col">{{ t('usageApi.description') }}</th></tr>
         </thead>
@@ -18,13 +18,13 @@
             <td class="break-words py-2">{{ t('usageApi.params.' + name) }}</td>
           </tr>
         </tbody>
-      </table>
+      </BaseTable>
     </section>
 
     <section v-for="example in examples" :key="example.id" class="min-w-0 space-y-2">
       <div class="flex items-center justify-between gap-2">
         <h2 class="font-semibold">{{ t('usageApi.examples.' + example.id) }}</h2>
-        <button type="button" class="btn btn-secondary btn-sm" @click="copyToClipboard(example.code)">{{ t('common.copy') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" @click="copyToClipboard(example.code)">{{ t('common.copy') }}</BaseButton>
       </div>
       <p v-if="example.id === 'csv'">{{ t('usageApi.csvHelp') }}</p>
       <p v-if="example.id === 'python'">{{ t('usageApi.pythonHelp') }}</p>
@@ -46,6 +46,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

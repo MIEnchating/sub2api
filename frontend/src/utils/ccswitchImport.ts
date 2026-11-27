@@ -116,6 +116,7 @@ export function buildCcSwitchImportDeeplink(input: CcSwitchImportDeeplinkInput):
     // CC Switch v4.0.25 still drops this field from imported TOML; its
     // deeplink/codex_link.rs whitelist uses ROW_TOP_FIELDS + CODEX_EXCLUSIVE_TOP.
     const model = escapeTomlBasicString(config.model ?? OPENAI_CODEX_MODEL)
+    const websocketConfig = input.platform === 'openai' ? 'supports_websockets = true\n' : ''
     const toml = `model_provider = "sub2api"
 model = "${model}"
 review_model = "${model}"
@@ -128,7 +129,7 @@ name = "${escapeTomlBasicString(input.providerName)}"
 base_url = "${escapeTomlBasicString(config.endpoint)}"
 model_catalog_url = "${escapeTomlBasicString(buildCodexModelCatalogUrl(config.endpoint))}"
 wire_api = "responses"
-${buildCodexApiKeyAuthConfig(input.apiKey)}
+${websocketConfig}${buildCodexApiKeyAuthConfig(input.apiKey)}
 `
     entries.push(['config', encodeUtf8Base64(JSON.stringify({
       auth: { OPENAI_API_KEY: input.apiKey },

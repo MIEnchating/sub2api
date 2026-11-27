@@ -80,7 +80,7 @@ func TestOpenAIIPv6RepositoryLifecycle(t *testing.T) {
 		require.False(t, marked)
 		var count int
 		require.NoError(t, integrationDB.QueryRow("SELECT count(*) FROM account_proxies WHERE account_id=$1", id).Scan(&count))
-		require.Equal(t, 2, count)
+		require.Zero(t, count)
 	}
 	var deleted bool
 	require.NoError(t, integrationDB.QueryRow("SELECT deleted_at IS NOT NULL FROM proxies WHERE id=$1", b.ManagedProxyID).Scan(&deleted))

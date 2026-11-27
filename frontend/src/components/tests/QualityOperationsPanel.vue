@@ -9,38 +9,42 @@
       <p class="text-xs text-gray-500">{{ tr('resetHint', { date: date(snapshot.resets_at) }) }}</p>
       <form class="space-y-5 rounded-xl border border-gray-200 bg-white p-5 dark:border-dark-700 dark:bg-dark-900" @submit.prevent="save">
         <h3 class="font-semibold">{{ tr('budgetTitle') }}</h3><p class="text-sm text-gray-500">{{ tr('budgetHint') }}</p>
-        <label class="flex items-center gap-2 text-sm"><input v-model="config.budget_enabled" type="checkbox" />{{ tr('enableBudget') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="config.budget_enabled" type="checkbox" />{{ tr('enableBudget') }}</label>
         <fieldset :disabled="!config.budget_enabled && !budgetError" v-show="config.budget_enabled || !!budgetError" class="space-y-4" data-budget-fields>
-          <div class="grid gap-4 sm:grid-cols-2"><label v-for="f in budgetFields.slice(0, 2)" :key="f.key" class="input-label">{{ tr(f.key) }}<input v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="input mt-1 w-full" /></label></div>
-          <details :open="!!budgetError" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"><summary class="cursor-pointer text-sm">{{ t('admin.tests.experience.budgetAdvanced') }}</summary><div class="mt-3 grid gap-4 sm:grid-cols-3"><label v-for="f in budgetFields.slice(2)" :key="f.key" class="input-label">{{ tr(f.key) }}<input v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="input mt-1 w-full" /></label></div></details>
+          <div class="grid gap-4 sm:grid-cols-2"><label v-for="f in budgetFields.slice(0, 2)" :key="f.key" class="input-label">{{ tr(f.key) }}<FormInput v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="mt-1 w-full" /></label></div>
+          <details :open="!!budgetError" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700"><summary class="cursor-pointer text-sm">{{ t('admin.tests.experience.budgetAdvanced') }}</summary><div class="mt-3 grid gap-4 sm:grid-cols-3"><label v-for="f in budgetFields.slice(2)" :key="f.key" class="input-label">{{ tr(f.key) }}<FormInput v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="mt-1 w-full" /></label></div></details>
         </fieldset>
         <p v-if="!config.budget_enabled" class="text-sm text-gray-500">{{ t('admin.tests.experience.budgetOff') }}</p>
         <p v-if="config.budget_enabled" class="text-xs text-amber-700 dark:text-amber-400">{{ tr('tokenHint') }}</p>
         <hr class="dark:border-dark-700" /><h3 class="font-semibold">{{ tr('frequencyTitle') }}</h3>
-        <label class="flex items-center gap-2 text-sm"><input v-model="config.dynamic_enabled" type="checkbox" />{{ tr('enableDynamic') }}</label><p class="text-sm text-gray-500">{{ tr('frequencyHint') }}</p>
-        <fieldset :disabled="!config.dynamic_enabled && !frequencyError" v-show="config.dynamic_enabled || !!frequencyError" data-frequency-fields class="grid gap-4 sm:grid-cols-3"><label v-for="f in frequencyFields" :key="f.key" class="input-label">{{ tr(f.key) }}<input v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="input mt-1 w-full" /></label></fieldset>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="config.dynamic_enabled" type="checkbox" />{{ tr('enableDynamic') }}</label><p class="text-sm text-gray-500">{{ tr('frequencyHint') }}</p>
+        <fieldset :disabled="!config.dynamic_enabled && !frequencyError" v-show="config.dynamic_enabled || !!frequencyError" data-frequency-fields class="grid gap-4 sm:grid-cols-3"><label v-for="f in frequencyFields" :key="f.key" class="input-label">{{ tr(f.key) }}<FormInput v-model.number="config[f.key]" type="number" :min="f.min" :max="f.max" step="1" required class="mt-1 w-full" /></label></fieldset>
         <p v-if="!config.dynamic_enabled" class="text-sm text-gray-500">{{ t('admin.tests.experience.dynamicOff') }}</p>
         <hr class="dark:border-dark-700" />
         <section v-if="config.pelican_review" class="space-y-3" data-pelican-review-config>
           <h3 class="font-semibold">{{ t('admin.tests.autoReview.title') }}</h3>
-          <label class="flex items-center gap-2 text-sm"><input v-model="config.pelican_review.enabled" type="checkbox" data-pelican-review-global-enabled />{{ t('admin.tests.autoReview.enableGlobal') }}</label>
+          <label class="flex items-center gap-2 text-sm"><FormInput v-model="config.pelican_review.enabled" type="checkbox" data-pelican-review-global-enabled />{{ t('admin.tests.autoReview.enableGlobal') }}</label>
           <p class="text-sm text-gray-500">{{ t('admin.tests.autoReview.globalHint') }}</p>
           <fieldset v-if="config.pelican_review.enabled" class="grid gap-4 sm:grid-cols-2" data-pelican-review-fields>
-            <label class="input-label">{{ t('admin.tests.autoReview.judgeAccount') }}<select v-model.number="config.pelican_review.judge_account_id" required class="input mt-1 w-full" data-pelican-review-account><option :value="0" disabled>{{ t('admin.tests.autoReview.selectAccount') }}</option><option v-for="a in judgeAccounts" :key="a.id" :value="a.id">{{ a.name }} #{{ a.id }}</option></select></label>
-            <label class="input-label">{{ t('admin.tests.autoReview.judgeModel') }}<input v-model.trim="config.pelican_review.judge_model" required maxlength="200" class="input mt-1 w-full" data-pelican-review-model /></label>
-            <label class="input-label">{{ t('admin.tests.autoReview.dailyRequests') }}<input v-model.number="config.pelican_review.daily_requests" required type="number" min="1" max="1000000" step="1" class="input mt-1 w-full" data-pelican-review-budget /></label>
+            <label class="input-label">{{ t('admin.tests.autoReview.judgeAccount') }}<FormSelect v-model.number="config.pelican_review.judge_account_id" required class="mt-1 w-full" data-pelican-review-account><option :value="0" disabled>{{ t('admin.tests.autoReview.selectAccount') }}</option><option v-for="a in judgeAccounts" :key="a.id" :value="a.id">{{ a.name }} #{{ a.id }}</option></FormSelect></label>
+            <label class="input-label">{{ t('admin.tests.autoReview.judgeModel') }}<FormInput v-model.trim="config.pelican_review.judge_model" required maxlength="200" class="mt-1 w-full" data-pelican-review-model /></label>
+            <label class="input-label">{{ t('admin.tests.autoReview.dailyRequests') }}<FormInput v-model.number="config.pelican_review.daily_requests" required type="number" min="1" max="1000000" step="1" class="mt-1 w-full" data-pelican-review-budget /></label>
             <p class="text-xs text-gray-500 sm:col-span-2">{{ t('admin.tests.autoReview.budgetHint') }}</p>
           </fieldset>
           <p v-if="reviewError" role="alert" class="text-sm text-red-600">{{ reviewError }}</p>
         </section>
         <p v-if="budgetError || frequencyError" role="alert" class="text-sm text-red-600">{{ budgetError || frequencyError }}</p>
-        <div class="flex items-center gap-3"><button class="btn btn-primary" type="submit" :disabled="busy || !!budgetError || !!frequencyError || !!reviewError" data-save-operations>{{ t('common.save') }}</button><span v-if="saved" role="status" class="text-sm text-green-600">{{ tr('saved') }}</span></div>
+        <div class="flex items-center gap-3"><BaseButton class="btn-primary" type="submit" :disabled="busy || !!budgetError || !!frequencyError || !!reviewError" data-save-operations>{{ t('common.save') }}</BaseButton><span v-if="saved" role="status" class="text-sm text-green-600">{{ tr('saved') }}</span></div>
       </form>
-      <details class="rounded-xl border border-gray-200 p-4 dark:border-dark-700"><summary class="cursor-pointer text-sm font-medium">{{ tr('accountUsage') }}</summary><div class="mt-3 max-h-72 overflow-auto"><table class="w-full text-left text-sm"><thead><tr><th class="p-2">{{ tr('account') }}</th><th class="p-2">{{ tr('requests') }}</th><th class="p-2">{{ tr('tokens') }}</th><th class="p-2">{{ tr('unknown_requests') }}</th></tr></thead><tbody><tr v-for="u in snapshot.usage.filter(u => u.account_id)" :key="u.account_id"><td class="p-2">{{ accountName(u.account_id) }}</td><td class="p-2">{{ u.requests }}</td><td class="p-2">{{ u.tokens }}</td><td class="p-2">{{ u.unknown_requests }}</td></tr></tbody></table></div></details>
+      <details class="rounded-xl border border-gray-200 p-4 dark:border-dark-700"><summary class="cursor-pointer text-sm font-medium">{{ tr('accountUsage') }}</summary><div class="mt-3 max-h-72 overflow-auto"><BaseTable class="w-full text-left text-sm"><thead><tr><th class="p-2">{{ tr('account') }}</th><th class="p-2">{{ tr('requests') }}</th><th class="p-2">{{ tr('tokens') }}</th><th class="p-2">{{ tr('unknown_requests') }}</th></tr></thead><tbody><tr v-for="u in snapshot.usage.filter(u => u.account_id)" :key="u.account_id"><td class="p-2">{{ accountName(u.account_id) }}</td><td class="p-2">{{ u.requests }}</td><td class="p-2">{{ u.tokens }}</td><td class="p-2">{{ u.unknown_requests }}</td></tr></tbody></BaseTable></div></details>
     </template>
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qualityOperationsAPI as api, copyQualityOperationsConfig, type QualityOperationsSnapshot, type QualityOperationsConfig } from '@/api/admin/qualityOperations'

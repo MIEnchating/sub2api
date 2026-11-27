@@ -52,7 +52,7 @@
         <fieldset v-else :disabled="busy || loading" class="min-w-0 space-y-4">
           <div class="flex flex-wrap items-center justify-between gap-2">
             <label class="flex items-center gap-2 font-semibold">
-              <input v-model="draft.enabled" type="checkbox" data-testid="monitor-enabled" :disabled="!snapshot.monitoring_available && !draft.enabled">
+              <FormInput v-model="draft.enabled" type="checkbox" data-testid="monitor-enabled" :disabled="!snapshot.monitoring_available && !draft.enabled" />
               {{ t('accountPerformance.enabled') }}
             </label>
             <button type="button" class="text-sm font-medium text-primary-700 hover:underline dark:text-primary-300"
@@ -69,31 +69,31 @@
                 <label v-for="column in visibleColumns(metric)" :key="column.key" class="min-w-0"
                   :class="advanced ? 'text-xs text-gray-600 dark:text-dark-300' : 'grid grid-cols-[minmax(0,1fr)_7rem] items-center gap-2'">
                   <span>{{ advanced ? t('accountPerformance.' + column.key) : t('accountPerformance.quickBounds.' + metric) + ' (' + unit(metric) + ')' }}</span>
-                  <input type="number" class="input" :class="advanced && 'mt-1'" min="0" :max="maxValue(metric)" step="any"
+                  <FormInput type="number" :class="advanced && 'mt-1'" min="0" :max="maxValue(metric)" step="any"
                     :aria-label="advanced ? t('accountPerformance.' + metric) + ' ' + t('accountPerformance.' + column.key) + ' (' + unit(metric) + ')' : undefined"
                     :placeholder="t(column.group === 'pause' ? 'accountPerformance.noBound' : 'accountPerformance.inherit')"
                     :data-testid="metric + '-' + column.key" :value="draft[metric][column.group][column.bound]"
-                    @input="setBound(metric, column, $event)">
+                    @input="setBound(metric, column, $event)" />
                 </label>
               </div>
             </div>
           </div>
           <label class="grid items-center gap-2 sm:grid-cols-[minmax(12rem,1fr)_7rem]">
             {{ t('accountPerformance.minSamples') }}
-            <input v-model.number="draft.min_samples" class="input" type="number" min="1" max="10000" data-testid="min-samples">
+            <FormInput v-model.number="draft.min_samples" type="number" min="1" max="10000" data-testid="min-samples" />
           </label>
           <div class="space-y-3 border-t border-gray-200 pt-4 dark:border-dark-700">
             <label class="flex items-center gap-2 font-semibold">
-              <input v-model="draft.auto_recover" type="checkbox" data-testid="auto-recover">
+              <FormInput v-model="draft.auto_recover" type="checkbox" data-testid="auto-recover" />
               {{ t('accountPerformance.autoRecover') }}
             </label>
             <template v-if="draft.auto_recover">
               <div class="grid gap-3 sm:grid-cols-2">
                 <label>{{ t('accountPerformance.cooldown') }}
-                  <input v-model.number="draft.cooldown_minutes" class="input mt-1" type="number" min="1" max="1440" data-testid="cooldown-minutes">
+                  <FormInput v-model.number="draft.cooldown_minutes" class="mt-1" type="number" min="1" max="1440" data-testid="cooldown-minutes" />
                 </label>
                 <label>{{ t('accountPerformance.recoverySamples') }}
-                  <input v-model.number="draft.recovery_samples" class="input mt-1" type="number" min="1" max="100" data-testid="recovery-samples">
+                  <FormInput v-model.number="draft.recovery_samples" class="mt-1" type="number" min="1" max="100" data-testid="recovery-samples" />
                 </label>
               </div>
               <p v-if="Number.isInteger(draft.recovery_samples) && draft.recovery_samples >= 1 && draft.recovery_samples <= 100"
@@ -106,16 +106,16 @@
         <section class="space-y-3" aria-labelledby="account-observed-performance">
           <h4 id="account-observed-performance" class="text-sm font-semibold">{{ t('accountPerformance.observedHeading', { minutes: windowMinutes }) }}</h4>
           <AccountPerformanceCell :metrics="snapshot" :can-configure="false" :notice-user-id="noticeUserId" :upstream-error-threshold="upstreamErrorThreshold" />
-          <table class="w-full text-left text-sm">
+          <BaseTable class="w-full text-left text-sm">
             <thead><tr><th></th><th>{{ t('accountPerformance.min') }}</th><th>{{ t('accountPerformance.max') }}</th></tr></thead>
             <tbody><tr v-for="metric in observedMetricKeys" :key="metric" :data-threshold="metric">
               <th class="py-2 pr-2"><span class="inline-flex items-center gap-1">
                 {{ t('accountPerformance.' + metric, { minutes: windowMinutes }) }} {{ metric==='observed_ttft' ? '(' + t('accountPerformance.ms') + ')' : isPercentageMetric(metric)?'(%)':'' }}
                 <NewFeatureBadge v-if="metric==='upstream_error' && noticeUserId != null" :notice-id="NEW_FEATURE_NOTICES.accountUpstreamHTTPErrorThreshold" :user-id="noticeUserId" compact />
               </span></th>
-              <td v-for="bound in bounds" :key="bound" class="p-1"><input :value="draft[metric][bound] ?? ''" @input="setObservedBound(metric, bound, $event)" type="number" min="0" :max="isPercentageMetric(metric)?100:1000000000" step="any" :aria-label="t('accountPerformance.'+metric, { minutes: windowMinutes })+' '+t('accountPerformance.'+bound)" :placeholder="t('accountPerformance.noBound')" class="input w-full min-w-0" :data-testid="metric+'-'+bound" :disabled="busy"></td>
+              <td v-for="bound in bounds" :key="bound" class="p-1"><FormInput :value="draft[metric][bound] ?? ''" @input="setObservedBound(metric, bound, $event)" type="number" min="0" :max="isPercentageMetric(metric)?100:1000000000" step="any" :aria-label="t('accountPerformance.'+metric, { minutes: windowMinutes })+' '+t('accountPerformance.'+bound)" :placeholder="t('accountPerformance.noBound')" class="w-full min-w-0" :data-testid="metric+'-'+bound" :disabled="busy" /></td>
             </tr></tbody>
-          </table>
+          </BaseTable>
           <p class="text-xs text-gray-500">{{ t('accountPerformance.qualityNote') }}</p>
           <p class="text-xs text-gray-500" data-testid="upstream-threshold-samples">{{ t('accountPerformance.upstreamThresholdSamples', { failures: snapshot.upstream_error?.failures ?? '—', total: snapshot.upstream_error?.total ?? '—' }) }}</p>
           <p class="text-xs text-gray-500" data-testid="upstream-threshold-note">{{ t('accountPerformance.upstreamThresholdNote', { minutes: windowMinutes }) }}</p>
@@ -140,15 +140,15 @@
     <template #footer>
       <div class="flex w-full flex-wrap items-center justify-end gap-2">
         <p v-if="error" role="alert" class="w-full text-sm text-red-700 dark:text-red-300">{{ error }}</p>
-        <button v-if="view === 'status' && snapshot?.paused" type="button" class="btn btn-secondary mr-auto" :disabled="busy || loading"
-          data-testid="performance-release" @click="releaseTarget = snapshot">{{ t('accountPerformance.release') }}</button>
-        <button v-if="view === 'status' || !snapshot" type="button" class="btn btn-secondary"
-          data-testid="performance-refresh" :disabled="busy || loading" @click="reload('refresh')">{{ t('accountPerformance.refresh') }}</button>
+        <BaseButton v-if="view === 'status' && snapshot?.paused" type="button" class="btn-secondary mr-auto" :disabled="busy || loading"
+          data-testid="performance-release" @click="releaseTarget = snapshot">{{ t('accountPerformance.release') }}</BaseButton>
+        <BaseButton v-if="view === 'status' || !snapshot" type="button" class="btn-secondary"
+          data-testid="performance-refresh" :disabled="busy || loading" @click="reload('refresh')">{{ t('accountPerformance.refresh') }}</BaseButton>
         <template v-else>
-          <button v-if="dirty || error" type="button" class="btn btn-secondary" :disabled="busy || loading"
-            @click="reload()">{{ t(dirty ? 'accountPerformance.discardReload' : 'accountPerformance.refresh') }}</button>
-          <button type="button" class="btn btn-primary" :disabled="busy || loading || !dirty || (!snapshot.monitoring_available && draft.enabled)"
-            data-testid="performance-save" @click="save">{{ t('accountPerformance.save') }}</button>
+          <BaseButton v-if="dirty || error" type="button" class="btn-secondary" :disabled="busy || loading"
+            @click="reload()">{{ t(dirty ? 'accountPerformance.discardReload' : 'accountPerformance.refresh') }}</BaseButton>
+          <BaseButton type="button" class="btn-primary" :disabled="busy || loading || !dirty || (!snapshot.monitoring_available && draft.enabled)"
+            data-testid="performance-save" @click="save">{{ t('accountPerformance.save') }}</BaseButton>
         </template>
       </div>
     </template>
@@ -158,6 +158,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, onUnmounted, ref, shallowRef } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

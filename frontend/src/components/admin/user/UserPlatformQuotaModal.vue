@@ -17,7 +17,7 @@
       </p>
       <div v-if="loading" class="py-10 text-center text-gray-500">{{ t('common.loading') }}</div>
       <div v-else class="overflow-x-auto">
-        <table class="min-w-full text-sm">
+        <BaseTable class="min-w-full text-sm">
           <thead>
             <tr class="border-b border-gray-200 text-gray-700 dark:border-dark-700 dark:text-gray-300">
               <th class="px-3 py-2 text-left font-medium">{{ t('admin.users.platformQuota.columns.platform') }}</th>
@@ -32,12 +32,12 @@
               <td class="px-3 py-2 font-mono text-gray-900 dark:text-white">{{ row.platform }}</td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <input
+                  <FormInput
                     v-model.number="row.daily_limit_usd"
                     type="number"
                     min="0"
                     step="0.01"
-                    class="input w-24"
+                    class="w-24"
                     :placeholder="t('admin.users.platformQuota.placeholder')"
                   />
                   <button
@@ -51,12 +51,12 @@
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <input
+                  <FormInput
                     v-model.number="row.weekly_limit_usd"
                     type="number"
                     min="0"
                     step="0.01"
-                    class="input w-24"
+                    class="w-24"
                     :placeholder="t('admin.users.platformQuota.placeholder')"
                   />
                   <button
@@ -70,12 +70,12 @@
               </td>
               <td class="px-3 py-2">
                 <div class="flex items-center gap-1">
-                  <input
+                  <FormInput
                     v-model.number="row.monthly_limit_usd"
                     type="number"
                     min="0"
                     step="0.01"
-                    class="input w-24"
+                    class="w-24"
                     :placeholder="t('admin.users.platformQuota.placeholder')"
                   />
                   <button
@@ -92,29 +92,32 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
         <p class="mt-3 text-xs text-gray-500">{{ t('admin.users.platformQuota.hint') }}</p>
         <div class="mt-3">
-          <button type="button" class="btn btn-secondary text-sm" @click="onClearAll">
+          <BaseButton type="button" class="btn-secondary text-sm" @click="onClearAll">
             {{ t('admin.users.platformQuota.clearAll') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" @click="$emit('close')">
+        <BaseButton type="button" class="btn-secondary" @click="$emit('close')">
           {{ t('admin.users.platformQuota.cancel') }}
-        </button>
-        <button type="button" class="btn btn-primary" :disabled="submitting || loading" @click="onSave">
+        </BaseButton>
+        <BaseButton type="button" class="btn-primary" :disabled="submitting || loading" @click="onSave">
           {{ submitting ? t('admin.users.platformQuota.saving') : t('admin.users.platformQuota.save') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, reactive, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

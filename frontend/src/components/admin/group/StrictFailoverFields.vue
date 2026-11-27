@@ -12,14 +12,14 @@
       <p v-if="loading" class="text-sm text-gray-500">{{ t('admin.groups.strictFailover.loading') }}</p>
       <div v-if="loadFailed" class="text-sm text-red-600" role="alert">
         {{ t('admin.groups.strictFailover.loadError') }}
-        <button type="button" class="btn btn-secondary ml-2" @click="loadAccounts">{{ t('admin.groups.strictFailover.retry') }}</button>
+        <BaseButton type="button" class="btn-secondary ml-2" @click="loadAccounts">{{ t('admin.groups.strictFailover.retry') }}</BaseButton>
       </div>
       <div v-for="(tier, index) in modelValue.tiers" :key="index" class="rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="strict-tier">
         <div class="mb-2 flex items-center justify-between gap-2">
           <label :for="'strict-tier-' + index" class="text-sm font-medium">{{ t('admin.groups.strictFailover.tier', { tier: index + 1 }) }}</label>
           <div class="flex gap-2">
-            <button type="button" :disabled="index === 0" :aria-label="t('admin.groups.strictFailover.moveUp')" class="btn btn-secondary" @click="move(index, -1)">↑</button>
-            <button type="button" :disabled="index === modelValue.tiers.length - 1" :aria-label="t('admin.groups.strictFailover.moveDown')" class="btn btn-secondary" @click="move(index, 1)">↓</button>
+            <BaseButton type="button" :disabled="index === 0" :aria-label="t('admin.groups.strictFailover.moveUp')" class="btn-secondary" @click="move(index, -1)">↑</BaseButton>
+            <BaseButton type="button" :disabled="index === modelValue.tiers.length - 1" :aria-label="t('admin.groups.strictFailover.moveDown')" class="btn-secondary" @click="move(index, 1)">↓</BaseButton>
             <button type="button" class="text-sm text-red-600" @click="removeTier(index)">{{ t('admin.groups.strictFailover.remove') }}</button>
           </div>
         </div>
@@ -29,13 +29,13 @@
             <button type="button" :aria-label="t('admin.groups.strictFailover.removeAccount') + ' ' + id" class="ml-1" @click="removeAccount(index, id)">×</button>
           </span>
         </div>
-        <input :id="'strict-tier-' + index" v-model="search[index]" class="input" :placeholder="t('admin.groups.strictFailover.account')" @focus="activeTier = index" />
+        <FormInput :id="'strict-tier-' + index" v-model="search[index]" :placeholder="t('admin.groups.strictFailover.account')" @focus="activeTier = index" />
         <div v-if="activeTier === index" class="mt-1 max-h-40 overflow-auto rounded border border-gray-200 dark:border-dark-600">
           <button v-for="account in matches(index)" :key="account.id" type="button" class="block w-full px-3 py-2 text-left text-sm hover:bg-gray-100 dark:hover:bg-dark-700" @click="addAccount(index, account.id)">{{ account.name }} · #{{ account.id }}</button>
           <p v-if="!loading && matches(index).length === 0" class="px-3 py-2 text-xs text-gray-500">{{ t('admin.groups.strictFailover.noResults') }}</p>
         </div>
       </div>
-      <button type="button" class="btn btn-secondary" :disabled="modelValue.tiers.length >= 10" data-testid="strict-add-tier" @click="addTier">{{ t('admin.groups.strictFailover.add') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="modelValue.tiers.length >= 10" data-testid="strict-add-tier" @click="addTier">{{ t('admin.groups.strictFailover.add') }}</BaseButton>
       <div class="rounded-lg border border-gray-200 bg-gray-50 p-3 dark:border-dark-600 dark:bg-dark-800" data-testid="strict-automatic-tier">
         <h5 class="text-sm font-medium">{{ t('admin.groups.strictFailover.automaticTier') }}</h5>
         <p v-if="!loading && !loadFailed" class="mt-1 text-xs text-gray-500" data-testid="strict-automatic-count">{{ t('admin.groups.strictFailover.automaticCount', { count: unassignedAccounts.length }) }}</p>
@@ -47,6 +47,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

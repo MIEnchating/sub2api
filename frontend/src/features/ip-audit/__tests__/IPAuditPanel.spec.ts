@@ -15,7 +15,7 @@ const page = (): AuditPage => ({ items: [entry], sources: [
   { id: 'host_firewall', scope: 'external_host', storage: 'not_connected', enumeration: 'not_connected', can_release: false }
 ], has_more: true, next_cursor: 20, unrestricted: false })
 function render(locale: 'en' | 'zh' = 'en') {
- return mount(IPAuditPanel, { global: { plugins: [createI18n({ legacy: false, locale, messages: { en: { ipAudit: en, common: { search: 'Search', refresh: 'Refresh', cancel: 'Cancel', actions: 'Actions', loading: 'Loading' } }, zh: { ipAudit: zh, common: { search: '搜索', refresh: '刷新', cancel: '取消', actions: '操作', loading: '加载中' } } } })] } })
+ return mount(IPAuditPanel, { global: { stubs: { teleport: true }, plugins: [createI18n({ legacy: false, locale, messages: { en: { ipAudit: en, common: { search: 'Search', refresh: 'Refresh', cancel: 'Cancel', actions: 'Actions', loading: 'Loading' } }, zh: { ipAudit: zh, common: { search: '搜索', refresh: '刷新', cancel: '取消', actions: '操作', loading: '加载中' } } } })] } })
 }
 beforeEach(() => {
  vi.resetAllMocks();vi.mocked(listIPAudit).mockResolvedValue(page())

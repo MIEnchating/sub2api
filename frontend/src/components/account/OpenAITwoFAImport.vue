@@ -7,7 +7,7 @@
     </a>
     <template v-if="!rows.length">
       <label for="two-fa-credentials" class="input-label">{{ t('openaiRelogin.twoFA.credentials') }}</label>
-      <textarea id="two-fa-credentials" v-model="raw" class="input font-mono" rows="6"
+      <FormTextarea id="two-fa-credentials" v-model="raw" class="font-mono" rows="6"
         autocomplete="off" autocapitalize="off" :spellcheck="false" :disabled="busy"
         :placeholder="t('openaiRelogin.twoFA.placeholder')" />
     </template>
@@ -22,20 +22,22 @@
       </li>
     </ul>
     <div class="flex gap-3">
-      <button v-if="!busy && (!rows.length || hasPending)" type="button" class="btn btn-primary" :disabled="!encryptionReady" data-testid="two-fa-start" @click="run">
+      <BaseButton v-if="!busy && (!rows.length || hasPending)" type="button" class="btn-primary" :disabled="!encryptionReady" data-testid="two-fa-start" @click="run">
         {{ t(rows.length ? 'openaiRelogin.twoFA.retry' : 'openaiRelogin.twoFA.start') }}
-      </button>
-      <button v-if="busy || hasOwnedJobs" type="button" class="btn btn-secondary" :disabled="busy && stopRequested" data-testid="two-fa-stop" @click="stop">
+      </BaseButton>
+      <BaseButton v-if="busy || hasOwnedJobs" type="button" class="btn-secondary" :disabled="busy && stopRequested" data-testid="two-fa-stop" @click="stop">
         {{ t('openaiRelogin.twoFA.stop') }}
-      </button>
-      <button v-if="!busy && rows.length" type="button" class="btn btn-secondary" :disabled="hasOwnedJobs" @click="reset">
+      </BaseButton>
+      <BaseButton v-if="!busy && rows.length" type="button" class="btn-secondary" :disabled="hasOwnedJobs" @click="reset">
         {{ t('openaiRelogin.twoFA.reset') }}
-      </button>
+      </BaseButton>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import CredentialEncryptionSetup from './CredentialEncryptionSetup.vue'
 import { useI18n } from 'vue-i18n'

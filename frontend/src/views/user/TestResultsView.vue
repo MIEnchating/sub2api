@@ -3,24 +3,24 @@
     <div class="space-y-5">
       <header class="flex flex-wrap items-center justify-between gap-3">
         <h2 class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('tests.title') }}</h2>
-        <button class="btn btn-secondary" :disabled="loading" @click="load(true)"><Icon name="refresh" size="sm" />{{ t('common.refresh') }}</button>
+        <BaseButton class="btn-secondary" :disabled="loading" @click="load(true)"><Icon name="refresh" size="sm" />{{ t('common.refresh') }}</BaseButton>
       </header>
 
       <p v-if="auth.isAdmin && reviewError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ reviewError }}</p>
       <div v-if="auth.isAdmin && hasAutomaticReviews" class="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-gray-200 p-3 dark:border-dark-700" data-review-filter>
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.tests.autoReview.filterHint') }}</p>
-        <label class="flex items-center gap-2 text-sm"><input v-model="showAllReviewResults" type="checkbox" data-show-all-reviews />{{ t('admin.tests.autoReview.showAllResults') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="showAllReviewResults" type="checkbox" data-show-all-reviews />{{ t('admin.tests.autoReview.showAllResults') }}</label>
       </div>
 
       <div v-if="displayResults.length" class="flex flex-wrap items-end justify-between gap-3 border-b border-gray-200 dark:border-dark-700">
         <nav class="flex w-full min-w-0 gap-1 overflow-x-auto sm:w-auto sm:flex-1" role="tablist" :aria-label="t('tests.groupFilter')">
-          <button v-for="group in availableGroups" :id="tabId(group.key)" :key="group.key" type="button" role="tab" :aria-selected="activeGroup === group.key" aria-controls="quality-results" :tabindex="activeGroup === group.key ? 0 : -1" class="shrink-0 border-b-2 px-4 py-3 text-base font-semibold transition-colors" :class="activeGroup === group.key ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'" @click="activeGroup = group.key" @keydown="onGroupKeydown($event, group.key)">{{ group.name }}</button>
+          <TabButton v-for="group in availableGroups" :id="tabId(group.key)" :key="group.key" type="button" :aria-selected="activeGroup === group.key" aria-controls="quality-results" :tabindex="activeGroup === group.key ? 0 : -1" class="shrink-0 border-b-2 px-4 py-3 text-base font-semibold transition-colors" :class="activeGroup === group.key ? 'border-primary-500 text-primary-600 dark:text-primary-400' : 'border-transparent text-gray-500 hover:border-gray-300 hover:text-gray-800 dark:text-gray-400 dark:hover:text-gray-200'" @click="activeGroup = group.key" @keydown="onGroupKeydown($event, group.key)">{{ group.name }}</TabButton>
         </nav>
         <label v-if="availableModels.length" class="flex w-full min-w-0 max-w-full items-center gap-2 pb-2 text-sm text-gray-500 dark:text-gray-400 sm:w-auto">
           <span class="shrink-0">{{ t('tests.modelFilter') }}</span>
-          <select v-model="selectedModel" :aria-label="t('tests.modelFilter')" class="input min-w-0 max-w-full flex-1 text-sm sm:max-w-xs" data-model-selector>
+          <FormSelect v-model="selectedModel" :aria-label="t('tests.modelFilter')" class="min-w-0 max-w-full flex-1 text-sm sm:max-w-xs" data-model-selector>
             <option v-for="model in availableModels" :key="model" :value="model">{{ model || '—' }}</option>
-          </select>
+          </FormSelect>
         </label>
       </div>
 
@@ -91,9 +91,9 @@
       <div v-if="historyTarget" class="space-y-4">
         <div class="divide-y divide-gray-200 dark:divide-dark-700"><article v-for="result in historyResults" :key="result.id" class="py-5 first:pt-0"><div class="mb-3 flex flex-wrap items-center justify-between gap-2 text-xs text-gray-500 dark:text-gray-400"><span>{{ modelLabel(result) }}<span v-if="result.latency_ms != null"> · {{ result.latency_ms }}ms</span> · {{ formatDate(resultTime(result)) }}</span><span :class="statusClass(result)">{{ statusLabel(result) }}</span></div><TestResultOutput :result="result" /></article></div>
         <p v-if="historyLoading" class="py-4 text-center text-sm text-gray-500" role="status">{{ t('common.loading') }}</p>
-        <div v-else-if="historyError" class="flex flex-wrap items-center justify-center gap-3 py-4 text-sm"><p class="text-red-600 dark:text-red-400" role="alert">{{ historyError }}</p><button type="button" class="btn btn-secondary" @click="loadHistory"><Icon name="refresh" size="sm" />{{ t('common.retry') }}</button></div>
+        <div v-else-if="historyError" class="flex flex-wrap items-center justify-center gap-3 py-4 text-sm"><p class="text-red-600 dark:text-red-400" role="alert">{{ historyError }}</p><BaseButton type="button" class="btn-secondary" @click="loadHistory"><Icon name="refresh" size="sm" />{{ t('common.retry') }}</BaseButton></div>
         <p v-else-if="!historyResults.length" class="py-4 text-center text-sm text-gray-500">{{ t('tests.empty') }}</p>
-        <div v-else-if="historyBeforeId" class="flex justify-center"><button type="button" class="btn btn-secondary" @click="loadHistory">{{ t('tests.loadMore') }}</button></div>
+        <div v-else-if="historyBeforeId" class="flex justify-center"><BaseButton type="button" class="btn-secondary" @click="loadHistory">{{ t('tests.loadMore') }}</BaseButton></div>
       </div>
     </BaseDialog>
     <BaseDialog :show="!!previewTarget" :title="previewTarget ? `${targetName(previewTarget)} · ${testName(previewTarget)}` : ''" width="extra-wide" @close="previewTarget = null">
@@ -106,6 +106,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, nextTick, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { testResultsAPI } from '@/api/testResults'

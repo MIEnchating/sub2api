@@ -104,7 +104,6 @@ export interface User {
 }
 
 export interface AdminUser extends User {
-  auto_credit_outstanding?: string
   // 管理员备注（普通用户接口不返回）
   notes: string
   last_used_at?: string | null
@@ -1559,6 +1558,7 @@ export interface Account {
   opencode_go_usage?: OpenCodeGoUsageState
   // Extra fields including Codex usage, OpenAI compact capability, and model-level rate limits.
   extra?: (CodexUsageSnapshot & OpenAICompactState & {
+    openai_import_tibo?: { verdict: 'healthy' | 'degraded' | 'unknown'; model: string; checked_at: string }
     model_rate_limits?: Record<string, { rate_limited_at: string; rate_limit_reset_at: string }>
     antigravity_credits_overages?: Record<string, { activated_at: string; active_until: string }>
     upstream_billing_provider?: 'new_api'
@@ -1593,7 +1593,6 @@ export interface Account {
   } & Record<string, unknown>)
   proxy_id: number | null
   proxy_ids?: number[]
-  proxy_pool?: Array<{ proxy_id: number; proxy_name: string; current_concurrency: number; max_concurrency: number }>
   proxy_fallback_origin_id?: number | null
   proxy_fallback_origin_name?: string | null
   concurrency: number

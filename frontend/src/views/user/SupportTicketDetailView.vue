@@ -24,16 +24,16 @@
             </div>
             <div class="flex items-center gap-2">
               <TicketStatusBadge :status="detail.ticket.status" />
-              <button
+              <BaseButton
                 v-if="!closed"
                 type="button"
-                class="btn btn-secondary btn-sm"
+                class="btn-secondary btn-sm"
                 :disabled="busy"
                 data-testid="ticket-close"
                 @click="confirmClose = true"
               >
                 {{ t('supportTickets.detail.close') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -47,9 +47,9 @@
             {{ detail.ticket.closed_by_role === 'admin' ? t('supportTickets.detail.closedBySupport') : t('supportTickets.detail.closedByYou') }}
             {{ t('supportTickets.detail.closedHintUser') }}
           </span>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" data-testid="ticket-reopen" @click="reopen">
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" data-testid="ticket-reopen" @click="reopen">
             {{ t('supportTickets.detail.reopen') }}
-          </button>
+          </BaseButton>
         </div>
         <div v-else class="card p-5">
           <TicketReplyBox v-model="reply" :placeholder="t('supportTickets.detail.replyPlaceholder')" :sending="busy" @submit="send" />
@@ -71,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

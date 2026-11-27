@@ -18,7 +18,7 @@
       <fieldset :disabled="submitting" class="space-y-5">
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enabled.group_id" type="checkbox" class="checkbox" data-test="enable-group" />
+            <FormInput v-model="enabled.group_id" type="checkbox" class="checkbox" data-test="enable-group" />
             {{ t('keys.groupLabel') }}
           </label>
           <Select
@@ -35,7 +35,7 @@
 
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enabled.status" type="checkbox" class="checkbox" data-test="enable-status" />
+            <FormInput v-model="enabled.status" type="checkbox" class="checkbox" data-test="enable-status" />
             {{ t('keys.statusLabel') }}
           </label>
           <Select
@@ -50,7 +50,7 @@
 
         <div v-for="field in limitFields" :key="field.key" class="space-y-2">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input
+            <FormInput
               v-model="enabled[field.key]"
               type="checkbox"
               class="checkbox"
@@ -59,14 +59,13 @@
             {{ t(field.label) }}
           </label>
           <div v-if="enabled[field.key]">
-            <input
+            <FormInput
               v-model="limits[field.key]"
               type="number"
               min="0"
               :step="field.key === 'concurrency_limit' ? 1 : 'any'"
               :max="field.key === 'concurrency_limit' ? Number.MAX_SAFE_INTEGER : undefined"
               required
-              class="input"
               :aria-label="t(field.label)"
               :data-test="`${field.key}-input`"
             />
@@ -76,20 +75,19 @@
 
         <div class="space-y-2">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enabled.expires_at" type="checkbox" class="checkbox" data-test="enable-expiration" />
+            <FormInput v-model="enabled.expires_at" type="checkbox" class="checkbox" data-test="enable-expiration" />
             {{ t('keys.expiration') }}
           </label>
           <div v-if="enabled.expires_at" class="space-y-2">
             <label class="flex items-center gap-2 text-sm">
-              <input v-model="neverExpires" type="checkbox" class="checkbox" data-test="never-expires" />
+              <FormInput v-model="neverExpires" type="checkbox" class="checkbox" data-test="never-expires" />
               {{ t('keys.noExpiration') }}
             </label>
-            <input
+            <FormInput
               v-if="!neverExpires"
               v-model="expirationDate"
               type="datetime-local"
               required
-              class="input"
               :aria-label="t('keys.expirationDate')"
               data-test="expiration-input"
             />
@@ -98,7 +96,7 @@
 
         <div v-for="field in ipFields" :key="field.key" class="space-y-2">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input
+            <FormInput
               v-model="enabled[field.key]"
               type="checkbox"
               class="checkbox"
@@ -107,10 +105,10 @@
             {{ t(field.label) }}
           </label>
           <div v-if="enabled[field.key]">
-            <textarea
+            <FormTextarea
               v-model="ipLists[field.key]"
               rows="3"
-              class="input font-mono text-sm"
+              class="font-mono text-sm"
               :aria-label="t(field.label)"
               :data-test="`${field.key}-input`"
             />
@@ -133,23 +131,26 @@
     </form>
 
     <template #footer>
-      <button type="button" class="btn btn-secondary" :disabled="submitting" @click="close">
+      <BaseButton type="button" class="btn-secondary" :disabled="submitting" @click="close">
         {{ t('common.cancel') }}
-      </button>
-      <button
+      </BaseButton>
+      <BaseButton
         type="submit"
         form="bulk-edit-keys-form"
-        class="btn btn-primary"
+        class="btn-primary"
         :disabled="!canSubmit"
         data-test="submit"
       >
         {{ submitting ? t('keys.saving') : t('keys.bulkEdit.apply', { count: pendingKeys.length }) }}
-      </button>
+      </BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { keysAPI } from '@/api'

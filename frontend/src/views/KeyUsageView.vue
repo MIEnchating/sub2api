@@ -311,7 +311,7 @@
               </div>
             </div>
             <div v-if="dailyUsageRows.length > 0" class="overflow-x-auto">
-              <table class="w-full">
+              <BaseTable class="w-full">
                 <thead>
                   <tr class="border-b border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-950">
                     <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.date') }}</th>
@@ -338,7 +338,7 @@
                     <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(row.actual_cost != null ? row.actual_cost : row.cost) }}</td>
                   </tr>
                 </tbody>
-              </table>
+              </BaseTable>
             </div>
             <div v-else class="px-8 py-8 text-center text-sm text-gray-500 dark:text-dark-400">
               {{ t('keyUsage.noDailyUsage') }}
@@ -354,7 +354,7 @@
               <h3 class="text-sm font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.modelStats') }}</h3>
             </div>
             <div class="overflow-x-auto">
-              <table class="w-full">
+              <BaseTable class="w-full">
                 <thead>
                   <tr class="border-b border-gray-200 bg-gray-50 dark:border-dark-700 dark:bg-dark-950">
                     <th class="px-4 py-3 text-left text-xs font-semibold uppercase tracking-wider text-gray-500 dark:text-dark-400">{{ t('keyUsage.model') }}</th>
@@ -383,7 +383,7 @@
                     <td class="px-4 py-3 text-sm tabular-nums text-right font-medium text-gray-900 dark:text-white">{{ usd(m.actual_cost != null ? m.actual_cost : m.cost) }}</td>
                   </tr>
                 </tbody>
-              </table>
+              </BaseTable>
             </div>
           </div>
         </div>
@@ -417,6 +417,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseTable from '@/components/common/BaseTable.vue'
 import { ref, computed, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'

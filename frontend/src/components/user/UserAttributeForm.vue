@@ -7,18 +7,17 @@
       </label>
 
       <!-- Text Input -->
-      <input
+      <FormInput
         v-if="attr.type === 'text' || attr.type === 'email' || attr.type === 'url'"
         v-model="localValues[attr.id]"
         :type="attr.type === 'text' ? 'text' : attr.type"
         :required="attr.required"
         :placeholder="attr.placeholder"
-        class="input"
         @input="emitChange"
       />
 
       <!-- Number Input -->
-      <input
+      <FormInput
         v-else-if="attr.type === 'number'"
         :value="localValues[attr.id]"
         type="number"
@@ -26,28 +25,25 @@
         :placeholder="attr.placeholder"
         :min="attr.validation?.min"
         :max="attr.validation?.max"
-        class="input"
         @input="localValues[attr.id] = ($event.target as HTMLInputElement).value; emitChange()"
       />
 
       <!-- Date Input -->
-      <input
+      <FormInput
         v-else-if="attr.type === 'date'"
         v-model="localValues[attr.id]"
         type="date"
         :required="attr.required"
-        class="input"
         @input="emitChange"
       />
 
       <!-- Textarea -->
-      <textarea
+      <FormTextarea
         v-else-if="attr.type === 'textarea'"
         v-model="localValues[attr.id]"
         :required="attr.required"
         :placeholder="attr.placeholder"
         rows="3"
-        class="input"
         @input="emitChange"
       />
 
@@ -66,7 +62,7 @@
           :key="opt.value"
           class="flex items-center gap-2"
         >
-          <input
+          <FormInput
             type="checkbox"
             :value="opt.value"
             :checked="isOptionSelected(attr.id, opt.value)"
@@ -92,6 +88,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, watch, onMounted } from 'vue'
 import { adminAPI } from '@/api/admin'
 import type { UserAttributeDefinition, UserAttributeValuesMap } from '@/types'

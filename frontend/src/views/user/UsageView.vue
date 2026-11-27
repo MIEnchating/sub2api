@@ -127,23 +127,23 @@
           </div>
 
           <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
-            <button type="button" @click="refreshData" :disabled="activeTab === 'errors' ? errorLoading : loading" class="btn btn-secondary">
+            <BaseButton type="button" @click="refreshData" :disabled="activeTab === 'errors' ? errorLoading : loading" class="btn-secondary">
               {{ t('common.refresh') }}
-            </button>
-            <button type="button" @click="resetFilters" class="btn btn-secondary">
+            </BaseButton>
+            <BaseButton type="button" @click="resetFilters" class="btn-secondary">
               {{ t('common.reset') }}
-            </button>
+            </BaseButton>
             <div class="relative" ref="columnDropdownRef">
-              <button
+              <BaseButton
                 type="button"
                 data-testid="usage-column-settings"
                 @click="showColumnDropdown = !showColumnDropdown"
-                class="btn btn-secondary px-2 md:px-3"
+                class="btn-secondary px-2 md:px-3"
                 :title="t('admin.users.columnSettings')"
               >
                 <Icon name="grid" size="sm" />
                 <span class="hidden md:inline">{{ t('admin.users.columnSettings') }}</span>
-              </button>
+              </BaseButton>
               <div
                 v-if="showColumnDropdown"
                 class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
@@ -161,9 +161,9 @@
                 </button>
               </div>
             </div>
-            <button v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn btn-primary">
+            <BaseButton v-if="activeTab !== 'errors'" type="button" @click="exportToCSV" :disabled="exporting" class="btn-primary">
               {{ exporting ? t('usage.exporting') : t('usage.exportCsv') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -235,6 +235,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

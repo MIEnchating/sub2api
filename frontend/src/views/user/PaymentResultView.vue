@@ -93,8 +93,8 @@
         <!-- Actions -->
         <router-link v-if="lottery.enabled && order?.status === 'COMPLETED' && hasAmountFields(order) && order.order_type === 'balance'" to="/lottery" class="btn btn-secondary w-full">{{ t('lottery.goLottery') }}</router-link>
         <div class="flex gap-3">
-          <button class="btn btn-secondary flex-1" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</button>
-          <button class="btn btn-primary flex-1" @click="router.push('/orders')">{{ t('payment.result.viewOrders') }}</button>
+          <BaseButton class="btn-secondary flex-1" @click="router.push('/purchase')">{{ t('payment.result.backToRecharge') }}</BaseButton>
+          <BaseButton class="btn-primary flex-1" @click="router.push('/orders')">{{ t('payment.result.viewOrders') }}</BaseButton>
         </div>
       </template>
     </div>
@@ -102,6 +102,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, computed, onBeforeUnmount, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'

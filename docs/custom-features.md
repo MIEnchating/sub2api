@@ -8,7 +8,7 @@
 | 主动质量判定 | 糖果、鹈鹕、自定义题、随机能力题、模型元数据一致性；组合条件、全部通过、连续整轮通过；按模型暂停与恢复，全部配置模型失败才暂停账号；账号列表展示各模型状态；通过率、切组、投票及管理员复核 | channel-quality.md；channel-quality-protection.md |
 | 独立视觉评审 | 隔离 Chromium 截图；独立裁判账号和预算；失败复判；待复核与人工改判；作品预览和历史 | renderer/；backend/internal/service/scheduled_test_auto_review.go |
 | 渠道状态展示 | 完整输入口径缓存率、输出 TPS、近期请求、健康条、分组作品画廊；聚合追赶和迟到数据补算 | frontend/src/features/channel-monitor-v2/；channel-quality.md |
-| 路由与容量 | 多代理池及每出口并发；用户与分组并发；严格分层故障转移；分组账号兜底；API Key 同平台兜底 | strict-failover.md；group-unavailable-fallback.md |
+| 路由与容量 | 单代理及账号并发；用户与分组并发；严格分层故障转移；分组账号兜底；API Key 同平台兜底 | strict-failover.md；group-unavailable-fallback.md |
 | 个人 API Key 兜底计费 | 兜底前重新校验目标组余额、订阅、额度和 RPM；原子换组并发；目标价格在途预留；异步计费快照 | backend/internal/service/api_key_fallback_admission.go；backend/internal/repository/concurrency_group_transfer.go |
 | 网关兼容与错误处理 | 歧义模型字段拒绝；上游余额与额度错误识别、脱敏；可配置错误重试；HTTP/SSE/WS、媒体及异步请求重放边界 | upstream-error-message.md；backend/internal/service/upstream_error_retry.go |
 | API Key 安全 | 哈希存储；创建与轮换时显示原密钥；敏感操作验证；主组及兜底组快捷选择 | backend/internal/service/api_key_secret.go |

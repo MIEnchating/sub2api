@@ -987,6 +987,8 @@ run_validation_with_repairs() {
 create_final_merge_commit() {
   local tree commit
   local -a parents
+  printf '{\n  "official": "%s",\n  "custom": "%s",\n  "ranxi": "%s"\n}\n' \
+    "$PRIMARY_HEAD" "$SECOND_HEAD" "$THIRD_HEAD" > "$WORKTREE/backend/internal/service/upstream_baselines.json"
   git -C "$WORKTREE" add --all
   tree="$(git -C "$WORKTREE" write-tree)"
   parents=(-p "$ORIGIN_HEAD")

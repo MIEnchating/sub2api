@@ -38,10 +38,10 @@
         class="absolute left-0 right-0 top-full z-50 mt-1 rounded-lg border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-700"
       >
         <div class="sticky top-0 border-b border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-700">
-          <input
+          <FormInput
             v-model="searchQuery"
             type="text"
-            class="input w-full text-sm"
+            class="w-full text-sm"
             :placeholder="t('admin.accounts.searchModels')"
             @click.stop
           />
@@ -124,10 +124,10 @@
     <div class="mb-3">
       <label class="mb-1.5 block text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.accounts.customModelName') }}</label>
       <div class="flex gap-2">
-        <input
+        <FormInput
           v-model="customModel"
           type="text"
-          class="input flex-1"
+          class="flex-1"
           :placeholder="t('admin.accounts.enterCustomModelName')"
           @keydown.enter.prevent="handleEnter"
           @compositionstart="isComposing = true"
@@ -146,6 +146,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, computed, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

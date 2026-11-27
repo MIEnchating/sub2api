@@ -9,20 +9,20 @@
           :key="i"
           class="flex items-center gap-2"
         >
-          <input
+          <FormInput
             v-model="row.name"
             type="text"
             spellcheck="false"
             :placeholder="t('admin.channelMonitor.advanced.headerNamePlaceholder')"
-            class="input w-52 flex-none font-mono text-xs"
+            class="w-52 flex-none font-mono text-xs"
             @blur="commitHeaders"
           />
-          <input
+          <FormInput
             v-model="row.value"
             type="text"
             spellcheck="false"
             :placeholder="t('admin.channelMonitor.advanced.headerValuePlaceholder')"
-            class="input flex-1 font-mono text-xs"
+            class="flex-1 font-mono text-xs"
             @blur="commitHeaders"
           />
           <button
@@ -86,11 +86,11 @@
           {{ t('admin.channelMonitor.advanced.bodyJsonFormat') }}
         </button>
       </div>
-      <textarea
+      <FormTextarea
         v-model="bodyText"
         rows="10"
         :placeholder="bodyPlaceholder"
-        class="input font-mono text-xs"
+        class="font-mono text-xs"
         style="white-space: pre; overflow-wrap: normal; overflow-x: auto;"
         spellcheck="false"
         @blur="commitBody"
@@ -104,6 +104,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { APIMode, BodyOverrideMode, Provider } from '@/api/admin/channelMonitor'

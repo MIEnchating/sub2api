@@ -7,20 +7,22 @@
     </div>
     <section v-for="(rule, index) in modelValue" :key="rule.id" class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700" :data-combination-rule="rule.id">
       <div class="flex flex-wrap items-end gap-3">
-        <label class="input-label min-w-0 flex-1">{{ t('admin.tests.protection.combined.name') }}<input :value="rule.name" maxlength="100" class="input mt-1 w-full" data-combination-name @input="patchRule(index, { name: ($event.target as HTMLInputElement).value })" /></label>
-        <label class="input-label">{{ t('admin.tests.protection.priority') }}<input :value="rule.priority" type="number" min="0" max="1000" step="1" class="input mt-1 w-28" data-combination-priority @input="patchRule(index, { priority: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
-        <button type="button" class="btn btn-secondary btn-sm" :aria-label="t('admin.tests.protection.combined.removeRule')" data-remove-combination @click="emit('update:modelValue', modelValue.filter((_, i) => i !== index))">{{ t('common.delete') }}</button>
+        <label class="input-label min-w-0 flex-1">{{ t('admin.tests.protection.combined.name') }}<FormInput :value="rule.name" maxlength="100" class="mt-1 w-full" data-combination-name @input="patchRule(index, { name: ($event.target as HTMLInputElement).value })" /></label>
+        <label class="input-label">{{ t('admin.tests.protection.priority') }}<FormInput :value="rule.priority" type="number" min="0" max="1000" step="1" class="mt-1 w-28" data-combination-priority @input="patchRule(index, { priority: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
+        <BaseButton type="button" class="btn-secondary btn-sm" :aria-label="t('admin.tests.protection.combined.removeRule')" data-remove-combination @click="emit('update:modelValue', modelValue.filter((_, i) => i !== index))">{{ t('common.delete') }}</BaseButton>
       </div>
       <TestCombinationConditionEditor :model-value="rule.condition" :types="types" :remaining-nodes="128 - combinationNodeCount(rule.condition)" @update:model-value="patchRule(index, { condition: $event })" />
       <TestOutcomeActionEditor :model-value="rule.action" outcome="pass" :groups="groups" :title="t('admin.tests.protection.combined.action')" :resume-label="t('admin.tests.protection.combined.resume')" @update:model-value="patchRule(index, { action: $event })" />
     </section>
     <p v-if="!modelValue.length" class="text-xs text-amber-700 dark:text-amber-300" data-no-combinations>{{ t('admin.tests.protection.combined.emptyRules') }}</p>
-    <button type="button" class="btn btn-secondary btn-sm" :disabled="modelValue.length >= 32 || !types.length" data-add-combination @click="addRule">+ {{ t('admin.tests.protection.combined.addRule') }}</button>
+    <BaseButton type="button" class="btn-secondary btn-sm" :disabled="modelValue.length >= 32 || !types.length" data-add-combination @click="addRule">+ {{ t('admin.tests.protection.combined.addRule') }}</BaseButton>
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.combined.actionHint') }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import type { AdminGroup, TestCombinationRule, TestType } from '@/types'
 import { combinationNodeCount, newTestCombinationID } from '@/utils/testProtection'

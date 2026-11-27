@@ -279,19 +279,3 @@ func pr885SIWCConfigSwitchRun(t *testing.T, singleProxyID int64, terminal string
 	require.Equal(t, http.StatusServiceUnavailable, infraerrors.Code(completed.err))
 	require.Empty(t, hits, "single configuration must reject before refresh or inference sends")
 }
-
-func TestExcelBPSRequestProxyConfigSwitchSIWC(t *testing.T) {
-	for _, tc := range []struct {
-		name  string
-		proxy int64
-	}{{"single_B", 3}, {"single_empty", 0}} {
-		t.Run(tc.name, func(t *testing.T) { pr885SIWCConfigSwitchRun(t, tc.proxy, "") })
-	}
-}
-
-// These pass controls are intentionally outside the strict behavioral RED roots.
-func TestExcelBPSRequestProxyConfigSwitchSIWCControls(t *testing.T) {
-	for _, terminal := range []string{"refresh_error", "refresh_cancel"} {
-		t.Run(terminal, func(t *testing.T) { pr885SIWCConfigSwitchRun(t, 3, terminal) })
-	}
-}

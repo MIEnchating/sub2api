@@ -1,15 +1,15 @@
 <template>
   <section class="card space-y-4 p-5">
     <form class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4" @submit.prevent="search">
-      <label class="text-sm">{{ t('qqbot.group') }}<input v-model.trim="filters.group_id" class="input" maxlength="128" data-testid="qq-job-group" /></label>
+      <label class="text-sm">{{ t('qqbot.group') }}<FormInput v-model.trim="filters.group_id" maxlength="128" data-testid="qq-job-group" /></label>
       <QQMemberPicker v-model="filters.member_id" :group-id="filters.group_id" :app-id="appId" :disabled="loading" @select="selectMember" />
-      <label class="text-sm">{{ t('qqbot.workspace.jobKind') }}<select v-model="filters.kind" class="input" data-testid="qq-job-kind"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="kind in kinds" :key="kind" :value="kind">{{ kindLabel(kind) }}</option></select></label>
-      <label class="text-sm">{{ t('common.status') }}<select v-model="filters.status" class="input"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="status in statuses" :key="status" :value="status">{{ status }}</option></select></label>
-      <label class="text-sm">{{ t('qqbot.siteQuery.kindFilter') }}<select v-model="filters.query_kind" class="input" data-testid="qq-job-query-kind"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="kind in queryKinds" :key="kind" :value="kind">{{ t(`qqbot.siteQuery.kinds.${kind}`) }}</option></select></label>
-      <label class="text-sm">{{ t('qqbot.siteQuery.statusFilter') }}<select v-model="filters.query_status" class="input" data-testid="qq-job-query-status"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="status in queryStatuses" :key="status" :value="status">{{ t(`qqbot.siteQuery.statuses.${status}`) }}</option></select></label>
-      <label class="text-sm">{{ t('qqbot.workspace.from') }}<input v-model="filters.from" class="input" type="datetime-local" /></label>
-      <label class="text-sm">{{ t('qqbot.workspace.to') }}<input v-model="filters.to" class="input" type="datetime-local" /></label>
-      <button class="btn btn-primary self-end" :disabled="loading">{{ t('common.search') }}</button>
+      <label class="text-sm">{{ t('qqbot.workspace.jobKind') }}<FormSelect v-model="filters.kind" data-testid="qq-job-kind"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="kind in kinds" :key="kind" :value="kind">{{ kindLabel(kind) }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('common.status') }}<FormSelect v-model="filters.status"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="status in statuses" :key="status" :value="status">{{ status }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('qqbot.siteQuery.kindFilter') }}<FormSelect v-model="filters.query_kind" data-testid="qq-job-query-kind"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="kind in queryKinds" :key="kind" :value="kind">{{ t(`qqbot.siteQuery.kinds.${kind}`) }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('qqbot.siteQuery.statusFilter') }}<FormSelect v-model="filters.query_status" data-testid="qq-job-query-status"><option value="">{{ t('qqbot.workspace.all') }}</option><option v-for="status in queryStatuses" :key="status" :value="status">{{ t(`qqbot.siteQuery.statuses.${status}`) }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('qqbot.workspace.from') }}<FormInput v-model="filters.from" type="datetime-local" /></label>
+      <label class="text-sm">{{ t('qqbot.workspace.to') }}<FormInput v-model="filters.to" type="datetime-local" /></label>
+      <BaseButton class="btn-primary self-end" :disabled="loading">{{ t('common.search') }}</BaseButton>
     </form>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p class="text-xs text-gray-500">{{ t('qqbot.workspace.recordsHelp') }}</p>
@@ -33,10 +33,13 @@
       <p v-if="job.error" class="break-all text-red-600">{{ job.error }}</p>
     </article>
     <p v-if="!loading && !data.items.length">{{ t('common.noData') }}</p>
-    <div class="flex flex-wrap items-center justify-between gap-3 text-sm"><span>{{ t('qqbot.recordsPage', { total: data.total, page: data.page, pages }) }}</span><div class="flex gap-2"><button class="btn btn-secondary" :disabled="loading || data.page <= 1" @click="load(data.page - 1)">{{ t('qqbot.previousPage') }}</button><button class="btn btn-secondary" :disabled="loading || data.page >= pages" @click="load(data.page + 1)">{{ t('qqbot.nextPage') }}</button></div></div>
+    <div class="flex flex-wrap items-center justify-between gap-3 text-sm"><span>{{ t('qqbot.recordsPage', { total: data.total, page: data.page, pages }) }}</span><div class="flex gap-2"><BaseButton class="btn-secondary" :disabled="loading || data.page <= 1" @click="load(data.page - 1)">{{ t('qqbot.previousPage') }}</BaseButton><BaseButton class="btn-secondary" :disabled="loading || data.page >= pages" @click="load(data.page + 1)">{{ t('qqbot.nextPage') }}</BaseButton></div></div>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQJobPage, type QQMemberOption, type QQSiteQueryKind } from '@/api/qqbot'

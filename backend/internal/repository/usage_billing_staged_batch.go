@@ -292,16 +292,5 @@ func (r *usageBillingRepository) applyStagedBatchEffects(ctx context.Context, tx
 			outcomes[i].Result.PlatformQuotaApplied = true
 		}
 	}
-	// Auto credit is an automatic recharge, evaluated once against the batch's
-	// closing balance. Its wallet lock, cap and ledger identity remain atomic
-	// with the debit; do not manufacture intermediate per-request recharges.
-	for i := len(cmds) - 1; i >= 0; i-- {
-		if applied[i] && cmds[i].BalanceCost > 0 {
-			if err := advanceAutoCreditAfterDebit(ctx, tx, cmds[i], outcomes[i].Result); err != nil {
-				return err
-			}
-			break
-		}
-	}
 	return nil
 }

@@ -10,46 +10,46 @@
         <summary class="cursor-pointer px-5 py-4 font-semibold">{{ t('priorityScheduling.reading.configuration') }}</summary>
       <form class="p-5 pt-0" @submit.prevent="save">
         <fieldset :disabled="saving" class="min-w-0 space-y-5">
-          <label class="flex items-center gap-3 font-medium"><input v-model="draft.enabled" data-testid="enabled" type="checkbox" role="switch" />{{ t('priorityScheduling.enabled') }}</label>
-          <label class="block text-sm"><span class="flex items-center gap-3"><input v-model="draft.balance_protocols" data-testid="balance-protocols" type="checkbox" />{{ t('priorityScheduling.balanceProtocols') }}</span><small class="mt-1 block text-gray-500">{{ t('priorityScheduling.balanceProtocolsHint') }}</small></label>
+          <label class="flex items-center gap-3 font-medium"><FormInput v-model="draft.enabled" data-testid="enabled" type="checkbox" role="switch" />{{ t('priorityScheduling.enabled') }}</label>
+          <label class="block text-sm"><span class="flex items-center gap-3"><FormInput v-model="draft.balance_protocols" data-testid="balance-protocols" type="checkbox" />{{ t('priorityScheduling.balanceProtocols') }}</span><small class="mt-1 block text-gray-500">{{ t('priorityScheduling.balanceProtocolsHint') }}</small></label>
           <section class="rounded-xl border border-gray-200 p-4 dark:border-dark-700">
-            <label class="flex items-center gap-3 font-medium"><input v-model="draft.oauth_quota_priority" data-testid="oauth-quota-priority" type="checkbox" role="switch" />{{ t('priorityScheduling.oauthQuotaPriority') }}</label>
+            <label class="flex items-center gap-3 font-medium"><FormInput v-model="draft.oauth_quota_priority" data-testid="oauth-quota-priority" type="checkbox" role="switch" />{{ t('priorityScheduling.oauthQuotaPriority') }}</label>
             <p class="mt-2 text-sm leading-6 text-gray-500">{{ t('priorityScheduling.oauthQuotaHint') }}</p>
-            <label v-if="draft.oauth_quota_priority" class="mt-3 block max-w-xs"><span class="field-title">{{ t('priorityScheduling.oauthQuotaThreshold') }}</span><input v-model.number="draft.oauth_quota_threshold" data-testid="oauth-quota-threshold" type="number" min="1" max="100" step="1" required class="input w-full" /></label>
+            <label v-if="draft.oauth_quota_priority" class="mt-3 block max-w-xs"><span class="field-title">{{ t('priorityScheduling.oauthQuotaThreshold') }}</span><FormInput v-model.number="draft.oauth_quota_threshold" data-testid="oauth-quota-threshold" type="number" min="1" max="100" step="1" required class="w-full" /></label>
           </section>
           <div class="grid gap-5 lg:grid-cols-2">
             <section class="min-w-0 space-y-4">
-              <label class="block"><span class="field-title">{{ t('priorityScheduling.strategy') }}</span><select v-model="draft.mode" class="input w-full" data-testid="mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ t(`priorityScheduling.modes.${mode}`) }}</option></select></label>
-              <div class="grid grid-cols-2 gap-3"><label v-for="(weight, index) in weightKeys" :key="weight"><span class="field-title">{{ t(`priorityScheduling.${weight}`) }}</span><input v-if="draft.mode === 'custom'" v-model.number="draft[weight]" type="number" min="0" max="100" step="0.1" required class="input w-full" /><div v-else class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800">{{ presets[draft.mode][index] }}</div></label></div>
+              <label class="block"><span class="field-title">{{ t('priorityScheduling.strategy') }}</span><FormSelect v-model="draft.mode" class="w-full" data-testid="mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ t(`priorityScheduling.modes.${mode}`) }}</option></FormSelect></label>
+              <div class="grid grid-cols-2 gap-3"><label v-for="(weight, index) in weightKeys" :key="weight"><span class="field-title">{{ t(`priorityScheduling.${weight}`) }}</span><FormInput v-if="draft.mode === 'custom'" v-model.number="draft[weight]" type="number" min="0" max="100" step="0.1" required class="w-full" /><div v-else class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800">{{ presets[draft.mode][index] }}</div></label></div>
               <label class="block">
                 <span class="field-title">{{ t('priorityScheduling.cache_weight') }} <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.priorityCacheWeight" :user-id="auth.user?.id" compact /></span>
-                <input v-model.number="draft.cache_weight" data-testid="cache-weight" type="number" min="0" max="100" step="0.1" required class="input w-full" />
+                <FormInput v-model.number="draft.cache_weight" data-testid="cache-weight" type="number" min="0" max="100" step="0.1" required class="w-full" />
               </label>
               <p data-testid="cache-weight-hint" class="text-xs leading-5 text-gray-500">{{ t('priorityScheduling.cacheWeightHint') }}</p>
               <p class="text-sm leading-6 text-gray-500">{{ t('priorityScheduling.rule') }}</p>
               <p class="text-xs leading-5 text-gray-500">{{ t('priorityScheduling.costHint') }}</p>
-              <label><span class="field-title">{{ t('priorityScheduling.error_rate_weight') }}</span><input v-model.number="draft.error_rate_weight" data-testid="error-rate-weight" type="number" min="0" max="100" step="1" required class="input w-full" /></label>
+              <label><span class="field-title">{{ t('priorityScheduling.error_rate_weight') }}</span><FormInput v-model.number="draft.error_rate_weight" data-testid="error-rate-weight" type="number" min="0" max="100" step="1" required class="w-full" /></label>
               <p class="text-xs leading-5 text-gray-500">{{ t('priorityScheduling.errorRateHint') }}</p>
             </section>
             <section>
-              <label class="mb-3 block"><span class="field-title">{{ t('priorityScheduling.latencyPenaltyMode') }}</span><select v-model="draft.latency_penalty_mode" data-testid="latency-penalty-mode" class="input w-full"><option value="deprioritize">{{ t('priorityScheduling.latencyPenaltyModes.deprioritize') }}</option><option value="stop">{{ t('priorityScheduling.latencyPenaltyModes.stop') }}</option></select><small class="mt-2 block text-gray-500">{{ t('priorityScheduling.latencyPenaltyModeHint') }}</small></label>
+              <label class="mb-3 block"><span class="field-title">{{ t('priorityScheduling.latencyPenaltyMode') }}</span><FormSelect v-model="draft.latency_penalty_mode" data-testid="latency-penalty-mode" class="w-full"><option value="deprioritize">{{ t('priorityScheduling.latencyPenaltyModes.deprioritize') }}</option><option value="stop">{{ t('priorityScheduling.latencyPenaltyModes.stop') }}</option></FormSelect><small class="mt-2 block text-gray-500">{{ t('priorityScheduling.latencyPenaltyModeHint') }}</small></label>
 
-              <h2 class="mb-3 font-medium">{{ t('priorityScheduling.thresholds') }}</h2><div class="grid gap-3 sm:grid-cols-2"><label v-for="field in fields" :key="field.key"><span class="field-title">{{ t(`priorityScheduling.${field.key}`) }} <NewFeatureBadge v-if="field.key === 'target_tps'" :notice-id="NEW_FEATURE_NOTICES.priorityAccountPerformance" :user-id="auth.user?.id" compact /></span><input v-model.number="draft[field.key]" type="number" :data-testid="field.key" :min="field.min" :max="field.max" step="1" required class="input w-full" /></label></div></section>
+              <h2 class="mb-3 font-medium">{{ t('priorityScheduling.thresholds') }}</h2><div class="grid gap-3 sm:grid-cols-2"><label v-for="field in fields" :key="field.key"><span class="field-title">{{ t(`priorityScheduling.${field.key}`) }} <NewFeatureBadge v-if="field.key === 'target_tps'" :notice-id="NEW_FEATURE_NOTICES.priorityAccountPerformance" :user-id="auth.user?.id" compact /></span><FormInput v-model.number="draft[field.key]" type="number" :data-testid="field.key" :min="field.min" :max="field.max" step="1" required class="w-full" /></label></div></section>
           </div>
-          <div class="grid gap-5 sm:grid-cols-2"><label><span class="field-title">{{ t('priorityScheduling.groupIds') }}</span><input v-model="groups" class="input w-full" data-testid="groups" /><small class="text-gray-500">{{ t('priorityScheduling.groupHint') }}</small></label><label><span class="field-title">{{ t('priorityScheduling.models') }}</span><textarea v-model="modelsText" class="input w-full" rows="3" /><small class="text-gray-500">{{ t('priorityScheduling.modelHint') }}</small></label></div>
-          <button class="btn btn-primary" type="submit">{{ t(saving ? 'priorityScheduling.saving' : 'priorityScheduling.save') }}</button>
+          <div class="grid gap-5 sm:grid-cols-2"><label><span class="field-title">{{ t('priorityScheduling.groupIds') }}</span><FormInput v-model="groups" class="w-full" data-testid="groups" /><small class="text-gray-500">{{ t('priorityScheduling.groupHint') }}</small></label><label><span class="field-title">{{ t('priorityScheduling.models') }}</span><FormTextarea v-model="modelsText" class="w-full" rows="3" /><small class="text-gray-500">{{ t('priorityScheduling.modelHint') }}</small></label></div>
+          <BaseButton class="btn-primary" type="submit">{{ t(saving ? 'priorityScheduling.saving' : 'priorityScheduling.save') }}</BaseButton>
         </fieldset>
       </form>
       </details>
       <section class="card grid gap-3 p-4 sm:grid-cols-2 lg:grid-cols-4" data-testid="priority-filters">
         <label class="min-w-0"><span class="field-title">{{ t('priorityScheduling.model') }}</span><Select v-model="selectedModel" data-testid="priority-model-filter" :disabled="!initialized" :options="modelOptions" :searchable="true" :creatable="true" :aria-label="t('priorityScheduling.model')" /></label>
         <label class="min-w-0"><span class="field-title">{{ t('priorityScheduling.group') }}</span><Select v-model="selectedGroup" data-testid="priority-group-filter" :disabled="!initialized" :options="groupOptions" :searchable="true" :aria-label="t('priorityScheduling.group')" /></label>
-        <label><span class="field-title">{{ t('priorityScheduling.window_minutes') }}</span><select id="priority-profit-window" v-model.number="financeMinutes" :disabled="!initialized" class="input w-full" data-testid="latency-window"><option :value="15">15m</option><option :value="60">60m</option><option :value="180">180m</option></select></label>
-        <div class="flex items-end"><button class="btn btn-secondary w-full" :disabled="refreshing || catalogLoading" data-testid="latency-refresh" @click="refresh">{{ t('priorityScheduling.refresh') }}</button></div>
+        <label><span class="field-title">{{ t('priorityScheduling.window_minutes') }}</span><FormSelect id="priority-profit-window" v-model.number="financeMinutes" :disabled="!initialized" class="w-full" data-testid="latency-window"><option :value="15">15m</option><option :value="60">60m</option><option :value="180">180m</option></FormSelect></label>
+        <div class="flex items-end"><BaseButton class="btn-secondary w-full" :disabled="refreshing || catalogLoading" data-testid="latency-refresh" @click="refresh">{{ t('priorityScheduling.refresh') }}</BaseButton></div>
         <p v-if="catalogError" class="text-sm text-red-600 sm:col-span-2 lg:col-span-4" role="alert">{{ t('priorityScheduling.filters.catalogError') }}</p>
       </section>
       <section class="card p-5">
-        <header class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('priorityScheduling.filters.candidates') }}</h2><div class="flex flex-wrap items-center gap-2"><button class="btn btn-secondary" :disabled="recomputeLoading" data-testid="recompute" @click="recompute">{{ t(recomputeLoading ? 'priorityScheduling.recompute.running' : 'priorityScheduling.filters.recomputeLatest') }}</button><button class="btn btn-secondary" :disabled="refreshing" @click="refresh">{{ t('priorityScheduling.refresh') }}</button></div></header>
+        <header class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('priorityScheduling.filters.candidates') }}</h2><div class="flex flex-wrap items-center gap-2"><BaseButton class="btn-secondary" :disabled="recomputeLoading" data-testid="recompute" @click="recompute">{{ t(recomputeLoading ? 'priorityScheduling.recompute.running' : 'priorityScheduling.filters.recomputeLatest') }}</BaseButton><BaseButton class="btn-secondary" :disabled="refreshing" @click="refresh">{{ t('priorityScheduling.refresh') }}</BaseButton></div></header>
         <p v-if="recomputeError" role="alert" class="mt-3 text-red-600">{{ recomputeError }}</p>
         <details class="my-3 text-xs text-gray-500"><summary class="cursor-pointer">{{ t('priorityScheduling.reading.diagnostics') }}</summary><p class="mt-2 leading-5">{{ t('priorityScheduling.filters.analysisHint') }}</p></details>
         <p v-if="!snapshot" data-testid="snapshot-initial-state" :role="snapshotError ? 'alert' : 'status'" class="py-8 text-center text-sm text-gray-500">{{ t(snapshotError ? 'priorityScheduling.error' : refreshing ? 'priorityScheduling.loading' : 'priorityScheduling.filters.choose') }}</p>
@@ -63,7 +63,7 @@
           <p v-if="snapshot.latency_fallback" role="status" class="mb-3 text-sm text-amber-600" data-testid="priority-latency-fallback">{{ t('priorityScheduling.latencyFallback') }}</p>
           <p class="mb-3 text-xs text-gray-500">{{ t('priorityScheduling.performanceSource') }} · {{ t('priorityScheduling.window_minutes') }}: {{ snapshot.window_minutes ?? '—' }} · {{ t('priorityScheduling.configRevision') }}: {{ snapshot.config_revision ?? '—' }}<template v-if="snapshot.history_window_end"> · {{ t('priorityScheduling.windowEnd') }}: {{ new Date(snapshot.history_window_end).toLocaleString() }}</template></p>
           <p data-testid="candidate-status" :role="snapshotError ? 'alert' : 'status'" class="reading-status mb-3 text-xs" :class="snapshotError ? 'text-red-600' : 'text-gray-500'">{{ t(snapshotError ? 'priorityScheduling.reading.stale' : refreshing ? 'priorityScheduling.reading.refreshing' : 'priorityScheduling.filters.updated') }}</p>
-          <div class="mb-3 flex flex-wrap items-center justify-between gap-3"><span class="text-sm font-medium">{{ t('priorityScheduling.account') }} ({{ candidateRows.length }})</span><label class="flex items-center gap-2 text-sm sm:hidden">{{ t('priorityScheduling.reading.pageSize') }}<select v-model.number="candidatePageSize" class="input" data-testid="candidate-mobile-size"><option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option></select></label></div>
+          <div class="mb-3 flex flex-wrap items-center justify-between gap-3"><span class="text-sm font-medium">{{ t('priorityScheduling.account') }} ({{ candidateRows.length }})</span><label class="flex items-center gap-2 text-sm sm:hidden">{{ t('priorityScheduling.reading.pageSize') }}<FormSelect v-model.number="candidatePageSize" data-testid="candidate-mobile-size"><option v-for="size in pageSizeOptions" :key="size" :value="size">{{ size }}</option></FormSelect></label></div>
           <div v-if="candidateRows.length" data-testid="priority-candidate-scroll" class="overflow-x-auto">
           <DataTable :key="displayScope(snapshot)" data-testid="candidate-table" data-reading-scroll="candidates" class="reading-table candidate-table" :columns="candidateColumns" :data="candidatePageRows" row-key="account_id">
             <template #cell-account="{ row }"><div class="account-cell" :data-reading-account="row.account_id"><strong class="font-medium" :title="row.account_name">{{ row.account_name }}</strong><small class="block text-gray-400">#{{ row.account_id }}</small></div></template>
@@ -102,14 +102,14 @@
         <section v-if="recomputeResult" class="mt-5 border-t border-gray-100 pt-4 dark:border-dark-700" data-testid="recompute-diff">
           <header class="flex flex-wrap items-center justify-between gap-2">
             <h3 class="font-medium">{{ t('priorityScheduling.recompute.title') }}</h3>
-            <button v-if="recomputeCanClearSticky" class="btn btn-secondary" :disabled="stickyLoading || !changedDiffRows.length" data-testid="clear-changed-sticky" @click="clearChangedSticky">{{ t('priorityScheduling.recompute.clearChanged') }}</button>
+            <BaseButton v-if="recomputeCanClearSticky" class="btn-secondary" :disabled="stickyLoading || !changedDiffRows.length" data-testid="clear-changed-sticky" @click="clearChangedSticky">{{ t('priorityScheduling.recompute.clearChanged') }}</BaseButton>
           </header>
           <p class="my-2 text-xs text-gray-500" data-testid="recompute-scope">{{ t('priorityScheduling.recompute.scope', { model: recomputeResult.before?.model ?? '—', group: recomputeResult.before?.group_id ?? '—', accounts: changedDiffRows.map(row => `${row.account_name} (#${row.account_id})`).join(', ') || '—' }) }}</p>
           <p class="my-2 text-xs leading-5 text-gray-500">{{ t('priorityScheduling.recompute.hint') }}</p>
           <p v-if="recomputeResult.timed_out" class="text-amber-600">{{ t('priorityScheduling.recompute.timedOut') }}</p>
           <p v-if="!changedDiffRows.length" class="text-sm text-gray-500">{{ t('priorityScheduling.recompute.noChange') }}</p>
           <div v-else class="overflow-x-auto">
-            <table class="w-full whitespace-nowrap text-left text-sm">
+            <BaseTable class="w-full whitespace-nowrap text-left text-sm">
               <thead><tr><th v-for="key in ['account','rank','score','weight','tier','average','errors']" :key="key" class="px-3 py-2 text-xs font-medium text-gray-500">{{ t(`priorityScheduling.recompute.${key}`) }}</th></tr></thead>
               <tbody>
                 <tr v-for="row in changedDiffRows" :key="row.account_id" class="border-t border-gray-100 dark:border-dark-700">
@@ -122,7 +122,7 @@
                   <td class="px-3 py-2 tabular-nums">{{ row.old_error_samples }} → {{ row.new_error_samples }}</td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
         </section>
       </section>
@@ -130,9 +130,9 @@
         <header class="flex flex-wrap items-center justify-between gap-3">
           <h2 class="text-lg font-semibold">{{ t('priorityScheduling.sticky.title') }}</h2>
           <div class="flex flex-wrap items-center gap-2">
-            <label class="flex items-center gap-2 text-sm">{{ t('priorityScheduling.sticky.group') }}<input v-model.number="stickyGroupID" type="number" min="1" class="input w-24" data-testid="sticky-group" /></label>
-            <button class="btn btn-secondary" :disabled="stickyLoading" data-testid="sticky-refresh" @click="loadSticky()">{{ t('priorityScheduling.sticky.refresh') }}</button>
-            <button class="btn btn-secondary" :disabled="stickyLoading || !stickyVisible?.total" data-testid="sticky-clear-all" @click="clearDisplayedSticky">{{ t('priorityScheduling.sticky.clearAll') }}</button>
+            <label class="flex items-center gap-2 text-sm">{{ t('priorityScheduling.sticky.group') }}<FormInput v-model.number="stickyGroupID" type="number" min="1" class="w-24" data-testid="sticky-group" /></label>
+            <BaseButton class="btn-secondary" :disabled="stickyLoading" data-testid="sticky-refresh" @click="loadSticky()">{{ t('priorityScheduling.sticky.refresh') }}</BaseButton>
+            <BaseButton class="btn-secondary" :disabled="stickyLoading || !stickyVisible?.total" data-testid="sticky-clear-all" @click="clearDisplayedSticky">{{ t('priorityScheduling.sticky.clearAll') }}</BaseButton>
           </div>
         </header>
         <p class="my-3 text-xs leading-5 text-gray-500">{{ t('priorityScheduling.sticky.hint') }}</p>
@@ -143,16 +143,16 @@
         <template v-else-if="stickyVisible">
           <p class="mb-3 text-sm text-gray-500" data-testid="sticky-scope">{{ t('priorityScheduling.sticky.total', { count: stickyVisible.total }) }} · {{ t('priorityScheduling.group') }}: {{ stickyVisible.group_id }}</p>
           <div v-if="stickyVisible.by_account.length" class="overflow-x-auto">
-            <table class="w-full whitespace-nowrap text-left text-sm">
+            <BaseTable class="w-full whitespace-nowrap text-left text-sm">
               <thead><tr><th class="px-3 py-2 text-xs font-medium text-gray-500">{{ t('priorityScheduling.account') }}</th><th class="px-3 py-2 text-xs font-medium text-gray-500">{{ t('priorityScheduling.sticky.count') }}</th><th class="px-3 py-2"></th></tr></thead>
               <tbody>
                 <tr v-for="row in stickyVisible.by_account" :key="row.account_id" class="border-t border-gray-100 dark:border-dark-700">
                   <td class="px-3 py-2"><strong class="font-medium">{{ accountName(row.account_id) }}</strong><small class="block text-gray-400">#{{ row.account_id }}</small></td>
                   <td class="px-3 py-2 tabular-nums">{{ row.count }}</td>
-                  <td class="px-3 py-2 text-right"><button class="btn btn-secondary" :disabled="stickyLoading" :data-testid="`sticky-clear-${row.account_id}`" @click="clearStickyAccount(row.account_id)">{{ t('priorityScheduling.sticky.clear') }}</button></td>
+                  <td class="px-3 py-2 text-right"><BaseButton class="btn-secondary" :disabled="stickyLoading" :data-testid="`sticky-clear-${row.account_id}`" @click="clearStickyAccount(row.account_id)">{{ t('priorityScheduling.sticky.clear') }}</BaseButton></td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
           <p v-else class="py-4 text-center text-sm text-gray-500">{{ t('priorityScheduling.sticky.empty') }}</p>
         </template>
@@ -162,6 +162,11 @@
   </AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { nextTick, computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

@@ -50,7 +50,7 @@
       <!-- Deduct Balance -->
       <div>
         <div class="flex items-center gap-2">
-          <input
+          <FormInput
             id="deduct-balance"
             v-model="form.deduct_balance"
             type="checkbox"
@@ -96,13 +96,13 @@
         <label class="input-label">{{ t('payment.admin.refundAmount') }}</label>
         <div class="relative">
           <span class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500">{{ creditedAmountSymbol }}</span>
-          <input
+          <FormInput
             v-model.number="form.amount"
             type="number"
             step="0.01"
             min="0.01"
             :max="maxRefundable"
-            class="input pl-7"
+            class="pl-7"
             required
           />
         </div>
@@ -114,13 +114,12 @@
       <!-- Reason -->
       <div>
         <label class="input-label">{{ t('payment.admin.refundReason') }}</label>
-        <textarea
+        <FormTextarea
           v-model="form.reason"
           rows="3"
-          class="input"
           :placeholder="t('payment.admin.refundReasonPlaceholder')"
           required
-        ></textarea>
+        ></FormTextarea>
       </div>
 
       <!-- Warning -->
@@ -133,7 +132,7 @@
 
       <!-- Force Refund -->
       <div v-if="requireForce" class="flex items-center gap-2">
-        <input
+        <FormInput
           id="force-refund"
           v-model="form.force"
           type="checkbox"
@@ -147,9 +146,9 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" @click="emit('cancel')" class="btn btn-secondary">
+        <BaseButton type="button" @click="emit('cancel')" class="btn-secondary">
           {{ t('common.cancel') }}
-        </button>
+        </BaseButton>
         <button
           type="submit"
           form="refund-form"
@@ -164,6 +163,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

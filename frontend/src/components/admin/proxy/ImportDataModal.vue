@@ -27,9 +27,9 @@
             </div>
             <div class="text-xs text-gray-500 dark:text-dark-400">JSON (.json)</div>
           </div>
-          <button type="button" class="btn btn-secondary shrink-0" @click="openFilePicker">
+          <BaseButton type="button" class="btn-secondary shrink-0" @click="openFilePicker">
             {{ t('common.chooseFile') }}
-          </button>
+          </BaseButton>
         </div>
         <input
           ref="fileInput"
@@ -68,23 +68,24 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button class="btn btn-secondary" type="button" :disabled="importing" @click="handleClose">
+        <BaseButton class="btn-secondary" type="button" :disabled="importing" @click="handleClose">
           {{ t('common.cancel') }}
-        </button>
-        <button
-          class="btn btn-primary"
+        </BaseButton>
+        <BaseButton
+          class="btn-primary"
           type="submit"
           form="import-proxy-data-form"
           :disabled="importing"
         >
           {{ importing ? t('admin.proxies.dataImporting') : t('admin.proxies.dataImportButton') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

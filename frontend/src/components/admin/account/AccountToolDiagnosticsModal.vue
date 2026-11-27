@@ -11,17 +11,17 @@
           <div class="font-semibold text-gray-900 dark:text-white">{{ account.name }}</div>
           <div class="text-xs text-gray-500 dark:text-gray-400">#{{ account.id }} · {{ t('admin.accounts.toolDiagnostics.window') }}</div>
         </div>
-        <button type="button" class="btn btn-secondary px-2 py-1 text-xs" :disabled="loading" @click="load">
+        <BaseButton type="button" class="btn-secondary px-2 py-1 text-xs" :disabled="loading" @click="load">
           <Icon name="refresh" size="xs" :class="loading ? 'animate-spin' : ''" />
           {{ t('common.refresh') }}
-        </button>
+        </BaseButton>
       </div>
 
       <div v-if="loading" class="py-10 text-center text-sm text-gray-500">{{ t('common.loading') }}</div>
       <div v-else-if="error" class="rounded-lg border border-red-200 bg-red-50 p-4 text-sm text-red-700 dark:border-red-800/50 dark:bg-red-900/20 dark:text-red-300">{{ error }}</div>
       <div v-else-if="logs.length === 0" class="py-10 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('admin.accounts.toolDiagnostics.empty') }}</div>
       <div v-else class="overflow-x-auto">
-        <table class="min-w-full text-left text-sm">
+        <BaseTable class="min-w-full text-left text-sm">
           <thead class="border-b border-gray-200 text-xs text-gray-500 dark:border-dark-700 dark:text-gray-400">
             <tr>
               <th class="px-2 py-2 font-medium">{{ t('admin.accounts.toolDiagnostics.time') }}</th>
@@ -42,13 +42,15 @@
               <td class="px-2 py-2 font-mono text-[11px] text-gray-500 dark:text-gray-400">{{ log.request_id || log.client_request_id || '-' }}</td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

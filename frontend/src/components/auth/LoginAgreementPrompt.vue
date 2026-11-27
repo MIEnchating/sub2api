@@ -4,7 +4,7 @@
     class="px-0.5"
   >
     <div class="flex items-start gap-2">
-      <input
+      <FormInput
         id="login-agreement-consent"
         type="checkbox"
         :checked="accepted"
@@ -143,6 +143,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

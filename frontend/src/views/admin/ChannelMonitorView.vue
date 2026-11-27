@@ -43,9 +43,8 @@
             role="tablist"
             :aria-label="t('channelMonitorV2.admin.tabAria')"
           >
-            <button
+            <TabButton
               type="button"
-              role="tab"
               class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'v3' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'v3'"
@@ -53,27 +52,25 @@
               @click="adminMonitorTab = 'v3'"
             >
               {{ t('channelMonitorV3.admin.tab') }}
-            </button>
-            <button
+            </TabButton>
+            <TabButton
               type="button"
-              role="tab"
               class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'v2' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'v2'"
               @click="adminMonitorTab = 'v2'"
             >
               {{ t('channelMonitorV2.admin.tabV2') }}
-            </button>
-            <button
+            </TabButton>
+            <TabButton
               type="button"
-              role="tab"
               class="tab flex-1 sm:flex-none"
               :class="adminMonitorTab === 'legacy' ? 'tab-active' : ''"
               :aria-selected="adminMonitorTab === 'legacy'"
               @click="adminMonitorTab = 'legacy'"
             >
               {{ isV1Mode ? t('channelMonitorV2.admin.tabV1Active') : t('channelMonitorV2.admin.tabV1History') }}
-            </button>
+            </TabButton>
           </div>
         </div>
       </header>
@@ -211,6 +208,7 @@
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { RouterLink } from 'vue-router'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

@@ -1,11 +1,11 @@
 <template>
   <div class="space-y-2" data-testid="announcement-user-picker">
     <div class="relative">
-      <input
+      <FormInput
         v-model="query"
         type="text"
         autocomplete="off"
-        class="input w-full"
+        class="w-full"
         :placeholder="t('admin.announcements.form.searchUsersPlaceholder')"
         data-testid="announcement-user-search"
         @input="handleSearch"
@@ -64,6 +64,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

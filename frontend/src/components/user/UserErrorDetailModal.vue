@@ -35,7 +35,7 @@
         <div>
           <span class="font-medium text-gray-500 dark:text-dark-400">{{ t(detail.category === 'transport_error' ? 'usage.errors.detail.clientHttpStatus' : 'usage.errors.status') }}</span>
           <p class="mt-0.5">
-            <span class="badge" :class="statusClass(detail.status_code)">{{ detail.status_code || '-' }}</span>
+            <StatusBadge :class="statusClass(detail.status_code)">{{ detail.status_code || '-' }}</StatusBadge>
           </p>
           <p v-if="detail.category === 'transport_error' && detail.status_code >= 200 && detail.status_code < 300" class="mt-1 text-xs text-amber-700 dark:text-amber-300">
             {{ t('usage.errors.detail.streamFailedAfterHeaders') }}
@@ -74,6 +74,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

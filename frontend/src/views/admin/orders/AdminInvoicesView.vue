@@ -8,26 +8,26 @@
           <fieldset :disabled="configLoading || configSaving" class="space-y-5">
             <div class="flex items-center justify-between gap-4 rounded-xl bg-gray-50 p-4 dark:bg-dark-800"><span class="text-sm font-medium">{{ t('invoice.enabled') }}</span><Toggle v-model="config.enabled" :aria-label="t('invoice.enabled')" /></div>
             <div class="grid gap-5 md:grid-cols-2">
-              <label class="block"><span class="input-label">{{ t('invoice.minAmount') }}</span><input v-model.number="config.min_amount" data-testid="invoice-min-amount" type="number" min="0.01" max="1000000000" step="0.01" required class="input mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.minAmountHint') }}</span></label>
-              <label class="block"><span class="input-label">{{ t('invoice.feeRate') }}</span><input v-model.number="config.fee_rate" data-testid="invoice-fee-rate" type="number" min="0" max="100" step="0.01" required class="input mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.feeRateHint') }}</span></label>
-              <label class="block"><span class="input-label">{{ t('invoice.feeMinAmount') }}</span><input v-model.number="config.fee_min_amount" data-testid="invoice-fee-min-amount" type="number" min="0" max="1000000000" step="0.01" required class="input mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.feeMinAmountHint') }}</span></label>
-              <label class="block"><span class="input-label">{{ t('invoice.customInstructions') }}</span><textarea v-model="config.instructions" data-testid="invoice-instructions" class="input mt-1" rows="3" maxlength="5000" :placeholder="t('invoice.instructionsPlaceholder')" /></label>
+              <label class="block"><span class="input-label">{{ t('invoice.minAmount') }}</span><FormInput v-model.number="config.min_amount" data-testid="invoice-min-amount" type="number" min="0.01" max="1000000000" step="0.01" required class="mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.minAmountHint') }}</span></label>
+              <label class="block"><span class="input-label">{{ t('invoice.feeRate') }}</span><FormInput v-model.number="config.fee_rate" data-testid="invoice-fee-rate" type="number" min="0" max="100" step="0.01" required class="mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.feeRateHint') }}</span></label>
+              <label class="block"><span class="input-label">{{ t('invoice.feeMinAmount') }}</span><FormInput v-model.number="config.fee_min_amount" data-testid="invoice-fee-min-amount" type="number" min="0" max="1000000000" step="0.01" required class="mt-1" /><span class="mt-1 block text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('invoice.feeMinAmountHint') }}</span></label>
+              <label class="block"><span class="input-label">{{ t('invoice.customInstructions') }}</span><FormTextarea v-model="config.instructions" data-testid="invoice-instructions" class="mt-1" rows="3" maxlength="5000" :placeholder="t('invoice.instructionsPlaceholder')" /></label>
             </div>
           </fieldset>
-          <div class="flex justify-end"><button data-testid="invoice-config-save" class="btn btn-primary" type="submit" :disabled="configLoading || configSaving">{{ configSaving ? t('common.saving') : t('common.save') }}</button></div>
+          <div class="flex justify-end"><BaseButton data-testid="invoice-config-save" class="btn-primary" type="submit" :disabled="configLoading || configSaving">{{ configSaving ? t('common.saving') : t('common.save') }}</BaseButton></div>
         </form>
       </section>
 
       <section class="card overflow-hidden">
-        <div class="flex flex-wrap items-center justify-between gap-3 p-5"><h2 class="font-semibold">{{ t('invoice.requestsTitle') }}</h2><div class="flex items-center gap-3"><Select v-model="statusFilter" :options="statusOptions" class="w-36" @change="changeStatus" /><button class="btn btn-secondary" :title="t('common.refresh')" :disabled="loading" @click="loadRequests"><Icon name="refresh" :class="loading ? 'animate-spin' : ''" /></button></div></div>
-        <div class="overflow-x-auto"><table class="w-full min-w-[960px] text-left text-sm">
+        <div class="flex flex-wrap items-center justify-between gap-3 p-5"><h2 class="font-semibold">{{ t('invoice.requestsTitle') }}</h2><div class="flex items-center gap-3"><Select v-model="statusFilter" :options="statusOptions" class="w-36" @change="changeStatus" /><BaseButton class="btn-secondary" :title="t('common.refresh')" :disabled="loading" @click="loadRequests"><Icon name="refresh" :class="loading ? 'animate-spin' : ''" /></BaseButton></div></div>
+        <div class="overflow-x-auto"><BaseTable class="w-full min-w-[960px] text-left text-sm">
           <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400"><tr><th class="px-5 py-3 font-medium">{{ t('invoice.requestId') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.applicant') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.invoiceTitle') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.amount') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.status') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.createdAt') }}</th><th class="px-4 py-3 font-medium">{{ t('common.actions') }}</th></tr></thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
             <tr v-if="loading"><td colspan="7" class="p-8 text-center text-gray-400">{{ t('common.loading') }}</td></tr>
             <tr v-else-if="!requests.length"><td colspan="7" class="p-10 text-center text-gray-400">{{ t('invoice.noRequests') }}</td></tr>
             <tr v-for="request in loading ? [] : requests" :key="request.id"><td class="px-5 py-4 font-mono">#{{ request.id }}</td><td class="max-w-56 break-all px-4 py-4"><p>{{ request.user_email }}</p><p class="mt-1 text-xs text-gray-400">#{{ request.user_id }}</p></td><td class="max-w-64 break-words px-4 py-4">{{ request.title }}</td><td class="px-4 py-4 font-semibold">¥{{ request.amount.toFixed(2) }}</td><td class="px-4 py-4"><InvoiceStatusBadge :status="request.status" /></td><td class="whitespace-nowrap px-4 py-4 text-gray-500 dark:text-gray-400">{{ formatOrderDateTime(request.created_at) }}</td><td class="px-4 py-4"><div class="flex items-center gap-3 whitespace-nowrap"><button class="text-primary-600 hover:underline dark:text-primary-400" @click="openRequest(request)">{{ t('common.view') }}</button><button v-if="request.status === 'pending'" class="text-primary-600 hover:underline dark:text-primary-400" @click="openRequest(request, 'issue')">{{ t('invoice.issue') }}</button><button v-if="request.status === 'issued'" class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="downloadingIds.has(request.id)" @click="download(request)"><Icon name="download" size="sm" />{{ t('invoice.download') }}</button></div></td></tr>
           </tbody>
-        </table></div>
+        </BaseTable></div>
         <Pagination v-if="pagination.total > 0" class="p-4" :page="pagination.page" :total="pagination.total" :page-size="pagination.page_size" @update:page="changePage" @update:page-size="changePageSize" />
       </section>
     </div>
@@ -38,17 +38,17 @@
         <p class="rounded-xl p-4 text-sm leading-6" :class="action === 'issue' ? 'bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300' : 'bg-red-50 text-red-700 dark:bg-red-900/20 dark:text-red-300'">{{ t(action === 'issue' ? 'invoice.issueHint' : 'invoice.rejectHint') }}</p>
         <fieldset :disabled="actionLoading" class="space-y-4">
           <template v-if="action === 'issue'">
-            <label class="block"><span class="input-label">{{ t('invoice.invoiceNumber') }}</span><input v-model="invoiceNumber" data-testid="invoice-number" class="input mt-1" maxlength="100" required /></label>
-            <label class="block"><span class="input-label">{{ t('invoice.pdfFile') }}</span><input data-testid="invoice-file" type="file" accept="application/pdf,.pdf" class="input mt-1 cursor-pointer file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1 file:text-sm file:text-primary-700 dark:file:bg-primary-900/20 dark:file:text-primary-300" required @change="selectFile" /><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.pdfHint') }}</span></label>
+            <label class="block"><span class="input-label">{{ t('invoice.invoiceNumber') }}</span><FormInput v-model="invoiceNumber" data-testid="invoice-number" class="mt-1" maxlength="100" required /></label>
+            <label class="block"><span class="input-label">{{ t('invoice.pdfFile') }}</span><FormInput data-testid="invoice-file" type="file" accept="application/pdf,.pdf" class="mt-1 cursor-pointer file:mr-3 file:rounded-lg file:border-0 file:bg-primary-50 file:px-3 file:py-1 file:text-sm file:text-primary-700 dark:file:bg-primary-900/20 dark:file:text-primary-300" required @change="selectFile" /><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.pdfHint') }}</span></label>
           </template>
-          <label class="block"><span class="input-label">{{ t('invoice.adminRemark') }}</span><textarea v-model="adminRemark" data-testid="invoice-admin-remark" class="input mt-1" rows="3" maxlength="2000" :required="action === 'reject'" /></label>
+          <label class="block"><span class="input-label">{{ t('invoice.adminRemark') }}</span><FormTextarea v-model="adminRemark" data-testid="invoice-admin-remark" class="mt-1" rows="3" maxlength="2000" :required="action === 'reject'" /></label>
         </fieldset>
       </form>
       <template #footer>
         <div class="flex flex-wrap justify-end gap-3">
-          <template v-if="action"><button class="btn btn-secondary" :disabled="actionLoading" @click="action = null">{{ t('common.cancel') }}</button><button type="submit" form="invoice-process-form" class="btn" :class="action === 'reject' ? 'btn-danger' : 'btn-primary'" :disabled="actionLoading || (action === 'issue' && !pdfFile)">{{ actionLoading ? t('common.processing') : t(action === 'issue' ? 'invoice.issueSubmit' : 'invoice.reject') }}</button></template>
-          <template v-else-if="selectedRequest?.status === 'pending'"><button class="btn btn-danger" @click="action = 'reject'">{{ t('invoice.reject') }}</button><button class="btn btn-primary" @click="action = 'issue'">{{ t('invoice.issue') }}</button></template>
-          <button v-else-if="selectedRequest?.status === 'issued'" class="btn btn-primary" :disabled="downloadingIds.has(selectedRequest.id)" @click="download(selectedRequest)"><Icon name="download" />{{ t('invoice.download') }}</button>
+          <template v-if="action"><BaseButton class="btn-secondary" :disabled="actionLoading" @click="action = null">{{ t('common.cancel') }}</BaseButton><BaseButton type="submit" form="invoice-process-form" :class="action === 'reject' ? 'btn-danger' : 'btn-primary'" :disabled="actionLoading || (action === 'issue' && !pdfFile)">{{ actionLoading ? t('common.processing') : t(action === 'issue' ? 'invoice.issueSubmit' : 'invoice.reject') }}</BaseButton></template>
+          <template v-else-if="selectedRequest?.status === 'pending'"><BaseButton class="btn-danger" @click="action = 'reject'">{{ t('invoice.reject') }}</BaseButton><BaseButton class="btn-primary" @click="action = 'issue'">{{ t('invoice.issue') }}</BaseButton></template>
+          <BaseButton v-else-if="selectedRequest?.status === 'issued'" class="btn-primary" :disabled="downloadingIds.has(selectedRequest.id)" @click="download(selectedRequest)"><Icon name="download" />{{ t('invoice.download') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -56,6 +56,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminInvoiceAPI, saveInvoicePDF } from '@/api/invoices'

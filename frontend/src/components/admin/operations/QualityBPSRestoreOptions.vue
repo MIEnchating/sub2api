@@ -1,11 +1,11 @@
 <template>
   <div>
-    <label class="flex items-center gap-2 font-medium"><input v-model="autoRestore" type="checkbox" data-testid="quality-bps-auto-disable" />{{ t('qualityOps.bpsAutoDisable') }}</label>
+    <label class="flex items-center gap-2 font-medium"><FormInput v-model="autoRestore" type="checkbox" data-testid="quality-bps-auto-disable" />{{ t('qualityOps.bpsAutoDisable') }}</label>
     <p class="mt-1 pl-6 text-xs text-gray-500">{{ t('qualityOps.bpsRestoreHelp') }}</p>
     <div v-if="autoRestore" class="mt-3 space-y-3 pl-6" data-testid="quality-bps-restore-options">
-      <label class="block space-y-1"><span>{{ t('qualityOps.bpsPassThreshold') }}</span><input v-model.number="bps.pass_threshold" type="number" min="1" max="100" step="1" class="input sm:w-40" data-testid="quality-bps-pass-threshold" /><span class="block text-xs text-gray-500">{{ t('qualityOps.bpsPassThresholdHint') }}</span></label>
+      <label class="block space-y-1"><span>{{ t('qualityOps.bpsPassThreshold') }}</span><FormInput v-model.number="bps.pass_threshold" type="number" min="1" max="100" step="1" class="sm:w-40" data-testid="quality-bps-pass-threshold" /><span class="block text-xs text-gray-500">{{ t('qualityOps.bpsPassThresholdHint') }}</span></label>
       <div v-if="holdShown">
-        <label class="flex items-center gap-2"><input v-model="bps.hold_on_usage" type="checkbox" data-testid="quality-bps-hold-on-usage" />{{ t('qualityOps.bpsHoldOnUsage') }}</label>
+        <label class="flex items-center gap-2"><FormInput v-model="bps.hold_on_usage" type="checkbox" data-testid="quality-bps-hold-on-usage" />{{ t('qualityOps.bpsHoldOnUsage') }}</label>
         <p class="mt-1 pl-6 text-xs text-gray-500">{{ t('qualityOps.bpsHoldOnUsageHint') }}</p>
       </div>
     </div>
@@ -13,6 +13,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 // 「满血后自动关闭 BPS」及其关闭条件：连续满血几次才关、用量仍高时是否先不关。
 // BPS 设置里和批量只改「自动恢复」时共用。
 import { computed } from 'vue'

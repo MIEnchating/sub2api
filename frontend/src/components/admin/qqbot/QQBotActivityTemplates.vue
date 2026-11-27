@@ -2,26 +2,28 @@
   <section class="card space-y-5 p-6">
     <h2 class="text-lg font-semibold">{{ t('qqbot.simple.templates') }}</h2><p class="text-sm text-gray-500">{{ t('qqbot.simple.templatesHelp') }}</p>
     <p v-if="error" role="alert" class="text-red-600">{{ error }}</p><p v-if="notice" role="status" class="text-green-700">{{ notice }}</p>
-    <button v-if="!bundles" class="btn btn-secondary" :disabled="busy" @click="load">{{ t('common.refresh') }}</button>
+    <BaseButton v-if="!bundles" class="btn-secondary" :disabled="busy" @click="load">{{ t('common.refresh') }}</BaseButton>
     <template v-if="bundles">
       <form class="space-y-3 rounded-lg border p-4 dark:border-dark-700" @submit.prevent="saveBudget">
         <h3 class="font-medium">{{ t('qqbot.simple.rewardBudget') }}</h3>
-        <label class="flex items-center gap-2 text-sm"><input v-model="unlimited" type="checkbox" :disabled="busy" />{{ t('qqbot.simple.unlimited') }}</label>
-        <input v-model.number="budget" :disabled="busy || unlimited" type="number" class="input" min="0" max="1000000" step="0.00000001" required :aria-label="t('qqbot.simple.rewardBudget')" data-testid="reward-budget" />
-        <p class="text-sm text-gray-500">{{ t('qqbot.simple.budgetHelp') }}</p><button class="btn btn-secondary" :disabled="busy">{{ t('qqbot.simple.saveBudget') }}</button>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="unlimited" type="checkbox" :disabled="busy" />{{ t('qqbot.simple.unlimited') }}</label>
+        <FormInput v-model.number="budget" :disabled="busy || unlimited" type="number" min="0" max="1000000" step="0.00000001" required :aria-label="t('qqbot.simple.rewardBudget')" data-testid="reward-budget" />
+        <p class="text-sm text-gray-500">{{ t('qqbot.simple.budgetHelp') }}</p><BaseButton class="btn-secondary" :disabled="busy">{{ t('qqbot.simple.saveBudget') }}</BaseButton>
       </form>
       <div class="grid gap-3 sm:grid-cols-2"><button v-for="item in presets" :key="item" type="button" class="rounded-xl border p-4 text-left dark:border-dark-700" :class="selected === item ? 'ring-2 ring-primary-500' : ''" :disabled="busy" @click="selected = item; confirmed = false"><strong>{{ t('qqbot.simple.preset.' + item) }}</strong><p class="mt-2 text-sm text-gray-500">{{ t('qqbot.simple.preset.' + item + 'Help') }}</p></button></div>
       <template v-if="preview">
         <ul class="space-y-2 rounded-lg bg-gray-50 p-4 text-sm dark:bg-dark-800"><li>{{ t('qqbot.simple.previewCheckin', { min: preview.checkin.min_amount, max: preview.checkin.max_amount }) }}</li><li>{{ t('qqbot.simple.previewTasks') }}</li><li>{{ t(preview.lottery.enabled ? 'qqbot.simple.previewLottery' : 'qqbot.simple.noLottery') }}</li><li>{{ t(preview.invite.enabled ? 'qqbot.simple.previewInvite' : 'qqbot.simple.noInvite') }}</li><li>{{ t(preview.ranking.rewards_enabled ? 'qqbot.simple.previewRanking' : 'qqbot.simple.noRanking') }}</li></ul>
         <p class="text-sm text-amber-700 dark:text-amber-400">{{ t('qqbot.simple.preserveTasks') }}</p>
         <details><summary class="cursor-pointer text-sm">{{ t('qqbot.simple.fullPreview') }}</summary><div class="mt-3 grid gap-3 md:grid-cols-2"><div><h4 class="text-sm font-medium">{{ t('qqbot.simple.currentRules') }}</h4><pre class="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-3 text-xs dark:bg-dark-800">{{ JSON.stringify(bundles.current, null, 2) }}</pre></div><div><h4 class="text-sm font-medium">{{ t('qqbot.simple.nextRules') }}</h4><pre class="max-h-96 overflow-auto whitespace-pre-wrap break-all rounded bg-gray-50 p-3 text-xs dark:bg-dark-800">{{ JSON.stringify({ ...preview, budget: unlimited ? null : budget }, null, 2) }}</pre></div></div></details>
-        <label class="flex items-start gap-2 text-sm"><input v-model="confirmed" type="checkbox" class="mt-1" :disabled="busy" />{{ t('qqbot.simple.confirmRewards') }}</label>
-        <button type="button" class="btn btn-primary" :disabled="busy || !confirmed || unlimited || !(budget > 0)" data-testid="apply-template" @click="apply">{{ t('qqbot.simple.applyTemplate') }}</button>
+        <label class="flex items-start gap-2 text-sm"><FormInput v-model="confirmed" type="checkbox" class="mt-1" :disabled="busy" />{{ t('qqbot.simple.confirmRewards') }}</label>
+        <BaseButton type="button" class="btn-primary" :disabled="busy || !confirmed || unlimited || !(budget > 0)" data-testid="apply-template" @click="apply">{{ t('qqbot.simple.applyTemplate') }}</BaseButton>
       </template>
     </template>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQActivityBundle, type QQBotConfig } from '@/api/qqbot'

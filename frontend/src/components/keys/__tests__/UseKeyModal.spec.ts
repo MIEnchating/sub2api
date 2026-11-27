@@ -400,6 +400,9 @@ describe('UseKeyModal', () => {
       }
     })
 
+    expect(wrapper.findAll('pre code').some((code) => code.text().includes('supports_websockets = true'))).toBe(true)
+    const httpTab = wrapper.findAll('button').find((button) => button.text().trim() === 'keys.useKeyModal.cliTabs.codexCliHttp')
+    await httpTab!.trigger('click')
     await wrapper.get('[data-testid="codex-auth-mode-legacy"]').trigger('click')
     await nextTick()
 
@@ -1128,7 +1131,7 @@ describe('UseKeyModal', () => {
     })
 
     await wrapper.get(`[data-testid="codex-auth-mode-${authMode}"]`).trigger('click')
-    for (const transport of ['keys.useKeyModal.cliTabs.codexCli', 'keys.useKeyModal.cliTabs.codexCliWs']) {
+    for (const transport of ['keys.useKeyModal.cliTabs.codexCliHttp', 'keys.useKeyModal.cliTabs.codexCliWs']) {
       await wrapper.findAll('button').find((button) => button.text().trim() === transport)!.trigger('click')
       for (const os of ['macOS / Linux', 'Windows']) {
         await wrapper.findAll('button').find((button) => button.text().trim() === os)!.trigger('click')

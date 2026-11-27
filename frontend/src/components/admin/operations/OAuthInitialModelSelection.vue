@@ -1,7 +1,7 @@
 <template>
   <fieldset class="space-y-3 border-t border-gray-100 pt-4 dark:border-dark-700" data-testid="initial-model-selection">
     <legend class="flex items-center gap-2 text-sm font-medium text-gray-600 dark:text-gray-300">{{ t('autoConfig.selection.title') }}<NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthInitialModelSelection" :user-id="userId" /></legend>
-    <label class="flex items-center gap-2 text-sm"><input data-testid="model-selection-enabled" type="checkbox" :checked="modelValue != null" @change="toggle" />{{ t('autoConfig.selection.enable') }}</label>
+    <label class="flex items-center gap-2 text-sm"><FormInput data-testid="model-selection-enabled" type="checkbox" :checked="modelValue != null" @change="toggle" />{{ t('autoConfig.selection.enable') }}</label>
     <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.selection.hint') }}</p>
     <template v-if="modelValue != null">
       <div class="flex flex-wrap gap-3 text-sm">
@@ -9,16 +9,18 @@
         <button type="button" data-testid="model-selection-none" class="text-primary-600 underline" @click="emit('update:modelValue', [])">{{ t('autoConfig.selection.none') }}</button>
       </div>
       <div class="max-h-60 space-y-2 overflow-y-auto rounded-xl border border-gray-200 p-3 dark:border-dark-700">
-        <label v-for="model in options" :key="model" class="flex items-center gap-2 break-all text-sm"><input type="checkbox" :data-model="model" :checked="modelValue.includes(model)" @change="select(model)" /><span>{{ model }}</span></label>
+        <label v-for="model in options" :key="model" class="flex items-center gap-2 break-all text-sm"><FormInput type="checkbox" :data-model="model" :checked="modelValue.includes(model)" @change="select(model)" /><span>{{ model }}</span></label>
       </div>
-      <label class="block text-sm">{{ t('autoConfig.selection.custom') }}<input v-model="custom" data-testid="model-selection-custom" class="input mt-2 w-full" maxlength="256" @keydown.enter.prevent="addCustom" /></label>
-      <button type="button" data-testid="model-selection-add" class="btn btn-secondary" :disabled="!validCustom" @click="addCustom">{{ t('autoConfig.selection.add') }}</button>
+      <label class="block text-sm">{{ t('autoConfig.selection.custom') }}<FormInput v-model="custom" data-testid="model-selection-custom" class="mt-2 w-full" maxlength="256" @keydown.enter.prevent="addCustom" /></label>
+      <BaseButton type="button" data-testid="model-selection-add" class="btn-secondary" :disabled="!validCustom" @click="addCustom">{{ t('autoConfig.selection.add') }}</BaseButton>
       <p v-if="!modelValue.length" data-testid="model-selection-empty" class="rounded-xl bg-amber-50 p-3 text-sm text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ t('autoConfig.selection.empty') }}</p>
       <p class="text-xs leading-5 text-gray-500">{{ t('autoConfig.selection.scope') }}</p>
     </template>
   </fieldset>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getModelsByPlatform } from '@/composables/useModelWhitelist'

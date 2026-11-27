@@ -71,10 +71,5 @@
       "backend/**",
       "deploy/traffic/**"
     ]
-  },
-  "vip-auto-credit.yml": {
-    "postgres-repository": [
-      "backend/**"
-    ]
   }
 }

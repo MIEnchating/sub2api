@@ -153,12 +153,7 @@ try {
     if (await page.locator('[data-test="reasoning-effort"]').inputValue() !== 'xhigh') throw Error('Saved effort did not return on reopen')
     if (await longContextSwitch.getAttribute('aria-checked') !== 'false') throw Error('Saved long-context permission did not return on reopen')
     if (await contextLimit.inputValue() !== '100000') throw Error('Saved context ceiling did not return on reopen')
-    if (lang === 'zh') {
-      const beforeDismiss = await page.locator('[data-testid="new-feature-badge"]').count()
-      await page.locator('label[for="api-key-context-token-limit"]').locator('..').locator('[data-testid="new-feature-badge"]').click()
-      if (await page.locator('[data-testid="new-feature-badge"]').count() !== beforeDismiss - 3) throw Error('Context ceiling notice did not dismiss at both entries and dialog')
-      if (await contextLimit.inputValue() !== '100000') throw Error('Dismissing notice changed context ceiling')
-    }
+    if (await page.getByTestId('new-feature-badge').count()) throw Error('Retired feature badge is visible')
     await capture(lang + '-saved')
     await page.setViewportSize({ width: 390, height: 844 })
     await capture(lang + '-mobile')

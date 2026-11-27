@@ -29,8 +29,6 @@
       </div>
     </div>
 
-    <FeatureSearch v-if="isAdmin" :items="searchNavItems" :collapsed="sidebarCollapsed" @navigate="handleMenuItemClick" />
-
     <!-- Navigation -->
     <nav ref="sidebarNavRef" class="sidebar-nav scrollbar-hide">
       <div v-if="authStore.isObserver" class="sidebar-section">
@@ -86,7 +84,6 @@
                     :to="child.path"
                     class="sidebar-link mb-0.5 py-1.5 text-sm"
                     :class="{ 'sidebar-link-active': route.path === child.path }"
-                    :style="child.noticeId ? { paddingRight: '3.5rem' } : undefined"
                     @click="handleMenuItemClick(child.path)"
                   >
                     <component :is="child.icon" class="h-4 w-4 flex-shrink-0" />
@@ -117,7 +114,6 @@
                         ? 'sidebar-wallet'
                         : undefined
                 "
-                :style="item.path === '/admin/settings' && !sidebarCollapsed ? { paddingRight: '6.5rem' } : undefined"
                 @click="handleMenuItemClick(item.path)"
               >
                 <span v-if="item.iconSvg" class="h-5 w-5 flex-shrink-0 sidebar-svg-icon" v-html="sanitizeSvg(item.iconSvg)"></span>
@@ -238,7 +234,6 @@ import { useBatchImageAccess } from '@/composables/useBatchImageAccess'
 import { useAdminSettingsStore, useAppStore, useAuthStore, useOnboardingStore, useSupportTicketStore } from '@/stores'
 import VersionBadge from '@/components/common/VersionBadge.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import FeatureSearch from './FeatureSearch.vue'
 import Icon from '@/components/icons/Icon.vue'
 import { sanitizeSvg } from '@/utils/sanitize'
 import { sanitizeUrl } from '@/utils/url'
@@ -1018,12 +1013,6 @@ const adminNavItems = computed((): NavItem[] => {
   }
   return visible
 })
-
-// Use exactly the visible navigation, including the personal section only when shown.
-const searchNavItems = computed(() => [
-  ...adminNavItems.value,
-  ...(authStore.isSimpleMode ? [] : personalNavItems.value)
-])
 
 function toggleSidebar() {
   appStore.toggleSidebar()

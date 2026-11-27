@@ -35,7 +35,7 @@
               </div>
             </div>
           </div>
-          <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>
+          <BaseButton class="btn-primary" @click="handleDone">{{ t('common.confirm') }}</BaseButton>
         </div>
       </div>
     </template>
@@ -51,7 +51,7 @@
           </div>
           <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.qr.cancelled') }}</p>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.cancelledDesc') }}</p>
-          <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>
+          <BaseButton class="btn-primary" @click="handleDone">{{ t('common.confirm') }}</BaseButton>
         </div>
       </div>
     </template>
@@ -67,7 +67,7 @@
           </div>
           <p class="text-lg font-bold text-gray-900 dark:text-white">{{ t('payment.qr.expired') }}</p>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.expiredDesc') }}</p>
-          <button class="btn btn-primary" @click="handleDone">{{ t('common.confirm') }}</button>
+          <BaseButton class="btn-primary" @click="handleDone">{{ t('common.confirm') }}</BaseButton>
         </div>
       </div>
     </template>
@@ -93,15 +93,15 @@
               {{ deepLinkState === 'backgrounded' ? t('payment.qr.alipayContinueInApp') : t('payment.qr.alipayOpening') }}
             </p>
             <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.alipayWaitingHint') }}</p>
-            <button
+            <BaseButton
               v-if="deepLinkState === 'backgrounded'"
               data-test="reopen-alipay"
-              class="btn btn-alipay inline-flex items-center gap-2 text-sm"
+              class="btn-alipay inline-flex items-center gap-2 text-sm"
               @click="reopenAlipay"
             >
               <Icon name="externalLink" size="sm" />
               {{ t('payment.qr.reopenAlipay') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
         <div class="card p-4 text-center">
@@ -145,26 +145,26 @@
               {{ t('payment.qr.alipaySaveAndScanHint') }}
             </p>
             <div class="grid w-full gap-2 sm:grid-cols-2">
-              <button
+              <BaseButton
                 data-test="reopen-alipay"
-                class="btn btn-alipay inline-flex items-center justify-center gap-2"
+                class="btn-alipay inline-flex items-center justify-center gap-2"
                 @click="reopenAlipay"
               >
                 <Icon name="externalLink" size="sm" />
                 {{ t('payment.qr.reopenAlipay') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 data-test="save-alipay-qr"
-                class="btn btn-secondary inline-flex items-center justify-center gap-2"
+                class="btn-secondary inline-flex items-center justify-center gap-2"
                 @click="saveQRCode"
               >
                 <Icon name="download" size="sm" />
                 {{ t('payment.qr.saveQRCode') }}
-              </button>
+              </BaseButton>
             </div>
-            <button class="btn btn-secondary w-full" @click="handleDone">
+            <BaseButton class="btn-secondary w-full" @click="handleDone">
               {{ t('payment.result.backToRecharge') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -185,9 +185,9 @@
             </div>
           </div>
           <p v-if="scanHint" class="text-center text-sm text-gray-500 dark:text-gray-400">{{ scanHint }}</p>
-          <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
+          <BaseButton v-if="payUrl" class="btn-secondary text-sm" @click="reopenPopup">
             {{ t('payment.qr.openPayWindow') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
       <div class="card p-4 text-center">
@@ -195,9 +195,9 @@
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
         <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
       </div>
-      <button class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
+      <BaseButton class="btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
-      </button>
+      </BaseButton>
     </template>
 
     <!-- Waiting for Popup/Redirect Mode -->
@@ -206,23 +206,24 @@
         <div class="flex flex-col items-center space-y-4 py-4">
           <div class="h-10 w-10 animate-spin rounded-full border-4 border-primary-500 border-t-transparent"></div>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('payment.qr.payInNewWindowHint') }}</p>
-          <button v-if="payUrl" class="btn btn-secondary text-sm" @click="reopenPopup">
+          <BaseButton v-if="payUrl" class="btn-secondary text-sm" @click="reopenPopup">
             {{ t('payment.qr.openPayWindow') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
       <div class="card p-4 text-center">
         <p class="mt-1 text-2xl font-bold tabular-nums text-gray-900 dark:text-white">{{ countdownDisplay }}</p>
         <p class="mt-1 text-xs text-gray-400 dark:text-gray-500">{{ t('payment.qr.waitingPayment') }}</p>
       </div>
-      <button class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
+      <BaseButton class="btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
-      </button>
+      </BaseButton>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, computed, watch, onMounted, onUnmounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { usePaymentStore } from '@/stores/payment'

@@ -56,7 +56,7 @@
           <label :for="`${inputIdPrefix}-start-${index}`" class="block text-xs text-gray-400">
             {{ t('admin.channels.form.startTime') }}
           </label>
-          <input
+          <FormInput
             :id="`${inputIdPrefix}-start-${index}`"
             :value="period.start_time"
             type="text"
@@ -65,7 +65,7 @@
             placeholder="HH:mm:ss"
             pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
             autocomplete="off"
-            class="input mt-1 w-full text-sm"
+            class="mt-1 w-full text-sm"
             @input="updatePeriod(index, 'start_time', normalizeClockTime(($event.target as HTMLInputElement).value))"
           />
         </div>
@@ -73,7 +73,7 @@
           <label :for="`${inputIdPrefix}-end-${index}`" class="block text-xs text-gray-400">
             {{ t('admin.channels.form.endTime') }}
           </label>
-          <input
+          <FormInput
             :id="`${inputIdPrefix}-end-${index}`"
             :value="period.end_time"
             type="text"
@@ -82,7 +82,7 @@
             placeholder="HH:mm:ss"
             pattern="[0-9]{2}:[0-9]{2}:[0-9]{2}"
             autocomplete="off"
-            class="input mt-1 w-full text-sm"
+            class="mt-1 w-full text-sm"
             @input="updatePeriod(index, 'end_time', normalizeClockTime(($event.target as HTMLInputElement).value))"
           />
         </div>
@@ -90,13 +90,13 @@
           <label :for="`${inputIdPrefix}-multiplier-${index}`" class="block text-xs text-gray-400">
             {{ t('admin.channels.form.multiplier') }}
           </label>
-          <input
+          <FormInput
             :id="`${inputIdPrefix}-multiplier-${index}`"
             :value="period.multiplier"
             type="number"
             min="0.01"
             step="0.01"
-            class="input mt-1 w-full text-sm"
+            class="mt-1 w-full text-sm"
             @input="updatePeriod(index, 'multiplier', ($event.target as HTMLInputElement).value)"
             @blur="formatMultiplier(index, ($event.target as HTMLInputElement).value)"
           />
@@ -117,6 +117,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, getCurrentInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'

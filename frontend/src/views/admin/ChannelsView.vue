@@ -11,11 +11,11 @@
                 size="md"
                 class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
               />
-              <input
+              <FormInput
                 v-model="searchQuery"
                 type="text"
                 :placeholder="t('admin.channels.searchChannels', 'Search channels...')"
-                class="input pl-10"
+                class="pl-10"
                 @input="handleSearch"
               />
             </div>
@@ -37,22 +37,22 @@
               {{ t('admin.channels.pricingTransfer.import') }}
               <input data-testid="list-pricing-import" type="file" accept=".json,application/json" class="sr-only" :aria-label="t('admin.channels.pricingTransfer.import')" :disabled="readingPricing || listActionBusy" @change="importListPricing($event)" />
             </label>
-            <button data-testid="export-channel-selection" class="btn btn-secondary" :disabled="listActionBusy || (!selectedChannelIds.length && !channels.length)" @click="exportSelectedPricing">
+            <BaseButton data-testid="export-channel-selection" class="btn-secondary" :disabled="listActionBusy || (!selectedChannelIds.length && !channels.length)" @click="exportSelectedPricing">
               <Icon name="download" size="md" class="mr-2" />
               {{ t(selectedChannelIds.length ? 'admin.channels.pricingTransfer.exportSelected' : 'admin.channels.pricingTransfer.exportPage') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               @click="loadChannels"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('common.refresh', 'Refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
-            <button @click="openCreateDialog" class="btn btn-primary">
+            </BaseButton>
+            <BaseButton @click="openCreateDialog" class="btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.channels.createChannel', 'Create Channel') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -65,7 +65,7 @@
             <button class="text-gray-500 hover:underline" @click="selectedChannelKeys = []">{{ t('admin.channels.pricingTransfer.clearSelection') }}</button>
           </div>
           <div class="flex flex-wrap items-center gap-2">
-            <button data-testid="bulk-edit-channel-pricing" class="btn btn-secondary btn-sm" :disabled="listActionBusy" @click="openBulkEdit">{{ t('admin.channels.pricingTransfer.bulkEdit') }}</button>
+            <BaseButton data-testid="bulk-edit-channel-pricing" class="btn-secondary btn-sm" :disabled="listActionBusy" @click="openBulkEdit">{{ t('admin.channels.pricingTransfer.bulkEdit') }}</BaseButton>
             <label class="btn btn-secondary btn-sm cursor-pointer">
               {{ t('admin.channels.pricingTransfer.importSelected') }}
               <input data-testid="selected-pricing-import" type="file" accept=".json,application/json" class="sr-only" :aria-label="t('admin.channels.pricingTransfer.importSelected')" :disabled="readingPricing || listActionBusy" @change="importListPricing($event, true)" />
@@ -230,11 +230,10 @@
             <!-- Name -->
             <div>
               <label class="input-label">{{ t('admin.channels.form.name', 'Name') }} <span class="text-red-500">*</span></label>
-              <input
+              <FormInput
                 v-model="form.name"
                 type="text"
                 required
-                class="input"
                 :placeholder="t('admin.channels.form.namePlaceholder', 'Enter channel name')"
               />
             </div>
@@ -242,12 +241,11 @@
             <!-- Description -->
             <div>
               <label class="input-label">{{ t('admin.channels.form.description', 'Description') }}</label>
-              <textarea
+              <FormTextarea
                 v-model="form.description"
                 rows="2"
-                class="input"
                 :placeholder="t('admin.channels.form.descriptionPlaceholder', 'Optional description')"
-              ></textarea>
+              ></FormTextarea>
             </div>
 
             <!-- Status (edit only) -->
@@ -259,7 +257,7 @@
             <!-- Model Restriction -->
             <div>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input
+                <FormInput
                   type="checkbox"
                   v-model="form.restrict_models"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -274,7 +272,7 @@
             <!-- Expose actual response model to users -->
             <div>
               <label class="flex items-center gap-2 cursor-pointer">
-                <input
+                <FormInput
                   type="checkbox"
                   v-model="form.expose_response_model"
                   data-testid="channel-expose-response-model"
@@ -308,7 +306,7 @@
                     ? 'bg-primary-50 border-primary-300 dark:bg-primary-900/20 dark:border-primary-700'
                     : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"
                 >
-                  <input
+                  <FormInput
                     type="checkbox"
                     :checked="activePlatforms.includes(p)"
                     class="h-3.5 w-3.5 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -371,7 +369,7 @@
                       isGroupInOtherChannel(group.id, section.platform) ? 'opacity-40' : ''
                     ]"
                   >
-                    <input
+                    <FormInput
                       type="checkbox"
                       :checked="section.group_ids.includes(group.id)"
                       :disabled="isGroupInOtherChannel(group.id, section.platform)"
@@ -457,19 +455,19 @@
                   :key="srcModel"
                   class="flex items-center gap-2"
                 >
-                  <input
+                  <FormInput
                     :value="srcModel"
                     type="text"
-                    class="input flex-1 text-xs"
+                    class="flex-1 text-xs"
                     :class="platformTextClass(section.platform)"
                     :placeholder="t('admin.channels.form.mappingSource', 'Source model')"
                     @change="renameMappingKey(sIdx, srcModel, ($event.target as HTMLInputElement).value)"
                   />
                   <span class="text-gray-400 text-xs">→</span>
-                  <input
+                  <FormInput
                     :value="section.model_mapping[srcModel]"
                     type="text"
-                    class="input flex-1 text-xs"
+                    class="flex-1 text-xs"
                     :class="platformTextClass(section.platform)"
                     :placeholder="t('admin.channels.form.mappingTarget', 'Target model')"
                     @input="section.model_mapping[srcModel] = ($event.target as HTMLInputElement).value"
@@ -592,7 +590,7 @@
                         ? 'border-primary-300 bg-primary-50 dark:border-primary-700 dark:bg-primary-900/20'
                         : 'border-gray-200 hover:bg-gray-50 dark:border-dark-600 dark:hover:bg-dark-700'"
                     >
-                      <input type="checkbox" :checked="rule.group_ids.includes(gid)" class="h-3 w-3 rounded border-gray-300 text-primary-600 focus:ring-primary-500" @change="rule.group_ids.includes(gid) ? rule.group_ids.splice(rule.group_ids.indexOf(gid), 1) : rule.group_ids.push(gid)" />
+                      <FormInput type="checkbox" :checked="rule.group_ids.includes(gid)" class="h-3 w-3 rounded border-gray-300 text-primary-600 focus:ring-primary-500" @change="rule.group_ids.includes(gid) ? rule.group_ids.splice(rule.group_ids.indexOf(gid), 1) : rule.group_ids.push(gid)" />
                       <span :class="['font-medium', platformTextClass(section.platform)]">{{ getGroupNameById(gid) }}</span>
                     </label>
                   </div>
@@ -618,10 +616,10 @@
                   </div>
                   <!-- Account search input -->
                   <div class="relative mt-1 rule-account-search-container">
-                    <input
+                    <FormInput
                       v-model="ruleAccountSearchKeyword[`${section.platform}-${ruleIndex}`]"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       :placeholder="t('admin.channels.form.searchAccountPlaceholder')"
                       @input="onRuleAccountSearchInput(section.platform, ruleIndex)"
                       @focus="onRuleAccountSearchFocus(section.platform, ruleIndex)"
@@ -679,14 +677,14 @@
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeDialog" type="button" :disabled="submitting" class="btn btn-secondary">
+          <BaseButton @click="closeDialog" type="button" :disabled="submitting" class="btn-secondary">
             {{ t('common.cancel', 'Cancel') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="submit"
             form="channel-form"
             :disabled="submitting || syncingPlatform !== null"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             {{ submitting
               ? t('common.submitting', 'Submitting...')
@@ -694,7 +692,7 @@
                 ? t('common.update', 'Update')
                 : t('common.create', 'Create')
             }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -733,6 +731,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'
 import { useAuthStore } from '@/stores/auth'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'

@@ -20,25 +20,25 @@
         </p>
       </div>
       <div class="flex shrink-0 gap-2">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-secondary btn-sm"
+          class="btn-secondary btn-sm"
           :disabled="loading || loadError || savedEmails.length === 0 || checking"
           data-testid="email-blacklist-check"
           @click="checkRegisteredUsers(savedEmails)"
         >
           <Icon name="search" size="sm" class="mr-1" />
           {{ t('admin.settings.registration.emailBlacklist.checkUsers') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn-primary btn-sm"
+          class="btn-primary btn-sm"
           :disabled="loading || loadError || checking"
           data-testid="email-blacklist-edit"
           @click="openEditor"
         >
           {{ t('admin.settings.registration.emailBlacklist.edit') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
 
@@ -54,25 +54,25 @@
           <label class="text-sm font-medium text-gray-700 dark:text-gray-300" for="email-blacklist-bulk">
             {{ t('admin.settings.registration.emailBlacklist.bulkLabel') }}
           </label>
-          <textarea
+          <FormTextarea
             id="email-blacklist-bulk"
             v-model="bulkInput"
             rows="5"
-            class="input mt-2 w-full font-mono text-sm"
+            class="mt-2 w-full font-mono text-sm"
             :placeholder="t('admin.settings.registration.emailBlacklist.bulkPlaceholder')"
             data-testid="email-blacklist-bulk-input"
           />
           <div class="mt-2 flex flex-wrap items-center gap-3">
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="!bulkInput.trim()"
               data-testid="email-blacklist-bulk-add"
               @click="addBulk"
             >
               <Icon name="plus" size="sm" class="mr-1" />
               {{ t('admin.settings.registration.emailBlacklist.bulkAdd') }}
-            </button>
+            </BaseButton>
             <span v-if="addResult" class="text-sm text-gray-600 dark:text-gray-400" data-testid="email-blacklist-add-result">
               {{
                 t('admin.settings.registration.emailBlacklist.addResult', {
@@ -114,22 +114,22 @@
               </span>
             </div>
             <div class="flex items-center gap-2">
-              <input
+              <FormInput
                 v-model="search"
                 type="search"
-                class="input w-full text-sm sm:w-64"
+                class="w-full text-sm sm:w-64"
                 :placeholder="t('admin.settings.registration.emailBlacklist.searchPlaceholder')"
                 data-testid="email-blacklist-search"
               />
-              <button
+              <BaseButton
                 type="button"
-                class="btn btn-secondary btn-sm shrink-0"
+                class="btn-secondary btn-sm shrink-0"
                 :disabled="draft.length === 0"
                 data-testid="email-blacklist-clear"
                 @click="clearDraft"
               >
                 {{ t('admin.settings.registration.emailBlacklist.clear') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
 
@@ -179,18 +179,18 @@
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button type="button" class="btn btn-secondary" :disabled="saving" @click="closeEditor">
+          <BaseButton type="button" class="btn-secondary" :disabled="saving" @click="closeEditor">
             {{ t('common.cancel') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="button"
-            class="btn btn-primary"
+            class="btn-primary"
             :disabled="saving || !dirty || draft.length > maxEntries"
             data-testid="email-blacklist-save"
             @click="save"
           >
             {{ saving ? t('common.saving') : t('admin.settings.registration.emailBlacklist.save') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -236,18 +236,18 @@
       </div>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button type="button" class="btn btn-secondary" :disabled="disabling" @click="closeDisableDialog">
+          <BaseButton type="button" class="btn-secondary" :disabled="disabling" @click="closeDisableDialog">
             {{ t('admin.settings.registration.emailBlacklist.disableLater') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="button"
-            class="btn btn-danger"
+            class="btn-danger"
             :disabled="disabling"
             data-testid="email-blacklist-disable-confirm"
             @click="disableMatchedUsers"
           >
             {{ t('admin.settings.registration.emailBlacklist.disableConfirm', { count: formatCount(matchedUsers.length) }) }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -255,6 +255,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'

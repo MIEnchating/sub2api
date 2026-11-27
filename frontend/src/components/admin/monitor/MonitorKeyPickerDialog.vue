@@ -11,10 +11,10 @@
       </p>
 
       <div class="relative">
-        <input
+        <FormInput
           v-model="search"
           type="text"
-          class="input pl-9"
+          class="pl-9"
           :placeholder="t('keys.searchPlaceholder')"
         />
         <svg class="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-gray-400" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
@@ -29,7 +29,7 @@
         {{ t('admin.channelMonitor.form.noActiveKey') }}
       </div>
       <div v-else class="max-h-96 overflow-auto rounded-lg border border-gray-200 dark:border-dark-600">
-        <table class="w-full text-sm">
+        <BaseTable class="w-full text-sm">
           <thead class="bg-gray-50 dark:bg-dark-800 sticky top-0 z-10">
             <tr class="text-left text-xs font-medium uppercase tracking-wider text-gray-500 dark:text-gray-400">
               <th class="px-3 py-2">{{ t('common.name') }}</th>
@@ -59,20 +59,23 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
     <template #footer>
       <div class="flex justify-end">
-        <button @click="$emit('close')" class="btn btn-secondary">
+        <BaseButton @click="$emit('close')" class="btn-secondary">
           {{ t('common.cancel') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ApiKey } from '@/types'

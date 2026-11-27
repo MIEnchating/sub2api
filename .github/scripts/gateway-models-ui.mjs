@@ -287,11 +287,6 @@ try {
 
     mode = 'after'; await page.reload()
     await page.getByTestId('gateway-sync-saved').first().waitFor()
-    if (lang === 'en') {
-      await page.goto(`${origin}/pr838-notices.html?phase=a&user=1003`)
-      await page.getByTestId('notice-A-0').getByTestId('new-feature-badge').click()
-      await page.goto(origin + '/admin/accounts')
-    }
     for (const kind of ['new_api', 'sub2api']) {
       await openCreate(page, lang)
       await fields(page).locator('select').selectOption(kind)
@@ -412,13 +407,12 @@ try {
     await selectProxy(page, 7)
     const light = await css(page, 'light-before-dark')
     if (lang === 'en') {
-      assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 1, 'new B remains visible after actual A dismissal')
-      const listNotice = rowFor(page, 'Fixture new_api').locator('[data-testid="gateway-sync-saved"] + [data-testid="new-feature-badge"]')
-      assert.equal(await listNotice.count(), 1, 'list entry shares B before dismissal')
-      await settings(page).getByTestId('new-feature-badge').click(); await close(page)
-      await listNotice.waitFor({ state: 'detached' })
+      assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 0)
+      const listNotice = rowFor(page, 'Fixture new_api').getByTestId('new-feature-badge')
+      assert.equal(await listNotice.count(), 0)
+      await close(page)
       await openEdit(page, lang, 'Fixture new_api')
-      assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 0, 'same dismissal hides actual Edit entry')
+      assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 0)
       await close(page); await page.reload(); await openCreate(page, lang)
       assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 0)
       await close(page)
@@ -429,13 +423,8 @@ try {
       await page.goto(origin + '/admin/accounts'); await openEdit(page, lang, 'Fixture new_api')
       assert.equal(await settings(page).getByTestId('new-feature-badge').count(), 0)
       await close(page)
-      await page.goto(`${origin}/pr838-notices.html?phase=c&user=1003`)
-      assert.equal(await page.getByTestId('notice-A-0').getByTestId('new-feature-badge').count(), 0)
-      assert.equal(await page.getByTestId('notice-B-1').getByTestId('new-feature-badge').count(), 0)
-      await page.getByTestId('notice-C-3').getByTestId('new-feature-badge').waitFor()
-      await shot(page, 'after-notice-future-C.png', page.locator('main'))
       await page.goto(origin + '/admin/accounts'); await openCreate(page, lang)
-      manifest.assertions.push({ notice_actual_create_edit_list_shared: true, refresh_and_mock_relogin_persistent: true, A_B_C_independent: true })
+      manifest.assertions.push({ retired_badges_absent_after_mock_relogin: true })
     }
     await fields(page).locator('input[type=url]').fill('https://narrow.example.invalid')
     await fields(page).locator('input[type=password]').fill('synthetic-narrow-key'); await selectProxy(page, 7)

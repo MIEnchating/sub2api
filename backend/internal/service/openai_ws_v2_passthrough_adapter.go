@@ -1728,6 +1728,7 @@ func (s *OpenAIGatewayService) proxyResponsesWebSocketV2Passthrough(
 					openAIWSPassthroughIsTerminalOutput(payload)
 				if terminalWrite {
 					turnLifecycle.beginTerminalWrite()
+					s.bindWebSocketResponseForHTTP(ctx, c, account, payload)
 				}
 			},
 			AfterClientWrite: func(msgType coderws.MessageType, payload []byte, writeErr error) {

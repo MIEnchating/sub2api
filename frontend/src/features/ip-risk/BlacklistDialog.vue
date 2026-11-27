@@ -8,7 +8,7 @@
           <button type="button" class="btn btn-primary btn-sm" ref="addButton" data-testid="risk-add-rule" @click="openEditor(null)">{{ tr('newRule') }}</button>
         </div>
         <div v-if="rules.length" class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-700">
-          <table class="w-full min-w-[640px] text-left text-sm" data-testid="risk-blacklist-table">
+          <BaseTable class="w-full min-w-[640px] text-left text-sm" data-testid="risk-blacklist-table">
             <caption class="sr-only">{{ tr('blacklist') }}</caption>
             <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400">
               <tr>
@@ -35,32 +35,35 @@
                 </td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
         </div>
         <p v-else class="rounded-lg bg-gray-50 p-6 text-center text-sm text-gray-500 dark:bg-dark-800">{{ tr('noRules') }}</p>
       </div>
       <form v-if="editor" id="ip-risk-rule-form" class="grid gap-4 sm:grid-cols-2" data-testid="risk-rule-form" @submit.prevent="saveRule">
         <p class="text-sm text-gray-500 sm:col-span-2">{{ tr('ruleEditorHint') }}</p>
         <label class="text-sm">{{ tr('network') }}<input ref="networkInput" v-model.trim="editor.network" class="input mt-1 w-full font-mono" placeholder="198.51.100.0/24" data-testid="risk-rule-network" required /></label>
-        <label class="text-sm">{{ tr('note') }}<input v-model="editor.note" class="input mt-1 w-full" maxlength="256" data-testid="risk-rule-note" /></label>
-        <label class="text-sm">{{ tr('expires') }}<input v-model="editor.expiration" type="datetime-local" class="input mt-1 w-full" data-testid="risk-rule-expiry" /></label>
-        <label class="flex items-center gap-2 text-sm"><input v-model="editor.enabled" type="checkbox" data-testid="risk-rule-enabled" />{{ tr('ruleEnabled') }}</label>
+        <label class="text-sm">{{ tr('note') }}<FormInput v-model="editor.note" class="mt-1 w-full" maxlength="256" data-testid="risk-rule-note" /></label>
+        <label class="text-sm">{{ tr('expires') }}<FormInput v-model="editor.expiration" type="datetime-local" class="mt-1 w-full" data-testid="risk-rule-expiry" /></label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="editor.enabled" type="checkbox" data-testid="risk-rule-enabled" />{{ tr('ruleEnabled') }}</label>
       </form>
     </div>
     <template #footer>
       <template v-if="editor">
-        <button type="button" class="btn btn-secondary" data-testid="risk-rule-cancel" @click="closeEditor">{{ tr('cancel') }}</button>
-        <button type="submit" form="ip-risk-rule-form" class="btn btn-primary" data-testid="risk-rule-save">{{ tr('saveRule') }}</button>
+        <BaseButton type="button" class="btn-secondary" data-testid="risk-rule-cancel" @click="closeEditor">{{ tr('cancel') }}</BaseButton>
+        <BaseButton type="submit" form="ip-risk-rule-form" class="btn-primary" data-testid="risk-rule-save">{{ tr('saveRule') }}</BaseButton>
       </template>
       <template v-else>
-        <button type="button" class="btn btn-secondary" data-testid="risk-blacklist-cancel" @click="emit('close')">{{ tr('cancel') }}</button>
-        <button type="button" class="btn btn-primary" data-testid="risk-blacklist-apply" @click="apply">{{ tr('applyBlacklist') }}</button>
+        <BaseButton type="button" class="btn-secondary" data-testid="risk-blacklist-cancel" @click="emit('close')">{{ tr('cancel') }}</BaseButton>
+        <BaseButton type="button" class="btn-primary" data-testid="risk-blacklist-apply" @click="apply">{{ tr('applyBlacklist') }}</BaseButton>
       </template>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

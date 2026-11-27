@@ -1,21 +1,23 @@
 <template>
   <fieldset class="min-w-0 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
     <legend class="px-1 text-sm font-medium text-gray-800 dark:text-gray-100">{{ label }} · {{ modelValue.length }}/64</legend>
-    <input v-model="search" type="search" class="input mb-3 w-full" :aria-label="t('admin.astraGateway.search')" :placeholder="t('admin.astraGateway.search')" />
+    <FormInput v-model="search" type="search" class="mb-3 w-full" :aria-label="t('admin.astraGateway.search')" :placeholder="t('admin.astraGateway.search')" />
     <div class="max-h-52 space-y-1 overflow-y-auto">
       <label v-for="account in filtered" :key="account.id" class="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-gray-50 dark:hover:bg-dark-700">
-        <input type="checkbox" :checked="modelValue.includes(account.id)" :disabled="disabled || (!modelValue.includes(account.id) && modelValue.length >= 64)" @change="select(account.id, ($event.target as HTMLInputElement).checked)" />
+        <FormInput type="checkbox" :checked="modelValue.includes(account.id)" :disabled="disabled || (!modelValue.includes(account.id) && modelValue.length >= 64)" @change="select(account.id, ($event.target as HTMLInputElement).checked)" />
         <span class="min-w-0 break-words text-gray-700 dark:text-gray-200">#{{ account.id }} · {{ account.name }}</span>
       </label>
       <p v-if="!filtered.length" class="py-3 text-sm text-gray-500">{{ t('admin.astraGateway.noAccounts') }}</p>
     </div>
     <div v-if="missing.length" class="mt-3 space-y-2">
       <p class="text-xs text-amber-600">{{ t('admin.astraGateway.missingAccounts') }}</p>
-      <button v-for="id in missing" :key="id" type="button" class="btn btn-secondary btn-sm mr-2" :disabled="disabled" @click="select(id, false)">#{{ id }} · {{ t('common.remove') }}</button>
+      <BaseButton v-for="id in missing" :key="id" type="button" class="btn-secondary btn-sm mr-2" :disabled="disabled" @click="select(id, false)">#{{ id }} · {{ t('common.remove') }}</BaseButton>
     </div>
   </fieldset>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 const props = defineProps<{ label: string; modelValue: number[]; accounts: { id: number; name: string }[]; disabled?: boolean }>()

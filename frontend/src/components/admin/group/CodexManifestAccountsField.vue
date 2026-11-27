@@ -54,10 +54,10 @@
 
       <!-- 搜索输入 + 下拉 -->
       <div class="relative" ref="searchContainerRef">
-        <input
+        <FormInput
           v-model="searchKeyword"
           type="text"
-          class="input text-sm"
+          class="text-sm"
           data-testid="codex-manifest-search"
           :placeholder="t('admin.groups.codexModelsManifest.searchPlaceholder')"
           @input="searchAccounts"
@@ -126,6 +126,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, onUnmounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import Icon from "@/components/icons/Icon.vue";

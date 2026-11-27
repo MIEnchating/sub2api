@@ -4,19 +4,19 @@
     <p class="text-sm text-gray-500">{{ t('qqbot.autonomous.help') }}</p>
     <label class="flex items-center justify-between gap-4 rounded-xl bg-primary-50 p-4 dark:bg-primary-950/30">
       <span class="font-medium">{{ t('qqbot.autonomous.enabled') }}</span>
-      <input v-model="enabled" data-testid="autonomous-enabled" type="checkbox" role="switch" class="h-5 w-5" />
+      <FormInput v-model="enabled" data-testid="autonomous-enabled" type="checkbox" role="switch" class="h-5 w-5" />
     </label>
     <p class="text-sm text-gray-500">{{ t('qqbot.autonomous.simpleHelp') }}</p>
     <label class="block space-y-2 text-sm">
       <span class="font-medium">{{ t('qqbot.autonomous.replyMode') }}</span>
-      <select v-model="value.reply_mode" data-testid="autonomous-mode" class="input">
+      <FormSelect v-model="value.reply_mode" data-testid="autonomous-mode">
         <option v-for="mode in modes" :key="mode" :value="mode">{{ t('qqbot.autonomous.modes.' + mode) }}</option>
-      </select>
+      </FormSelect>
     </label>
     <p class="text-sm text-gray-500">{{ t('qqbot.autonomous.modeHelp.' + (value.reply_mode || 'natural')) }}</p>
     <div v-if="value.reply_mode === 'always'" class="space-y-2 rounded-lg bg-primary-50 p-3 text-sm dark:bg-primary-950/30">
       <p>{{ t('qqbot.autonomous.alwaysHelp') }}</p>
-      <button type="button" class="btn btn-secondary" data-testid="autonomous-apply-always" @click="applyPreset('allMessages')">{{ t('qqbot.autonomous.applyAlways') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-testid="autonomous-apply-always" @click="applyPreset('allMessages')">{{ t('qqbot.autonomous.applyAlways') }}</BaseButton>
     </div>
     <p class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800">{{ t('qqbot.autonomous.deliverySummary', { cooldown: value.cooldown_seconds, hourly: value.hourly_replies, daily: value.daily_replies, calls: value.daily_calls, merge: value.merge_seconds ?? 0, global: props.totalDailyChatLimit ?? '—' }) }}</p>
     <p v-if="blockingLimits" data-testid="autonomous-limit-warning" class="text-sm text-amber-700 dark:text-amber-300">{{ t('qqbot.autonomous.blockingLimits') }}</p>
@@ -26,16 +26,16 @@
       <div class="mt-4 space-y-4">
         <p class="text-xs text-gray-500">{{ t('qqbot.autonomous.customHelp') }}</p>
         <p class="text-sm font-medium">{{ t('qqbot.autonomous.frequencyPresets') }}</p>
-        <div class="flex flex-wrap gap-2"><button v-for="preset in autonomousPresets" :key="preset.key" type="button" class="btn btn-secondary" @click="applyPreset(preset.key)">{{ preset.key === 'allMessages' ? t('qqbot.autonomous.allMessages') : t('qqbot.workspace.' + preset.key) }}</button></div>
+        <div class="flex flex-wrap gap-2"><BaseButton v-for="preset in autonomousPresets" :key="preset.key" type="button" class="btn-secondary" @click="applyPreset(preset.key)">{{ preset.key === 'allMessages' ? t('qqbot.autonomous.allMessages') : t('qqbot.workspace.' + preset.key) }}</BaseButton></div>
         <p v-if="value.reply_mode !== 'always'" class="text-sm text-gray-500">{{ t('qqbot.workspace.behaviorSummary', { sample: value.sample_percent, cooldown: value.cooldown_seconds, messages: value.min_messages, hourly: value.hourly_replies, daily: value.daily_replies, calls: value.daily_calls, start: value.start_hour, end: value.end_hour }) }}</p>
-        <label class="flex items-center gap-2 text-sm"><input v-model="value.inherit_groups" type="checkbox" />{{ t('qqbot.simple.inheritGroups') }}</label>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="value.inherit_groups" type="checkbox" />{{ t('qqbot.simple.inheritGroups') }}</label>
         <QQGroupPicker v-if="!value.inherit_groups" v-model="value.groups" :groups="groups || []" :policies="policies" :names="props.names" :label="t('qqbot.autonomous.groups')" />
         <div class="grid gap-4 md:grid-cols-2">
-          <label class="space-y-1">{{ t('qqbot.autonomous.names') }}<textarea v-model="botNames" data-testid="autonomous-names" class="input" rows="2" /></label>
-          <label class="space-y-1 md:col-span-2">{{ t('qqbot.autonomous.topics') }}<textarea v-model="topics" data-testid="autonomous-topics" class="input" rows="2" /></label>
-          <label v-for="field in fields" :key="field.key" class="space-y-1">{{ t('qqbot.autonomous.' + field.key) }}<input v-model.number="value[field.key]" :data-testid="'autonomous-' + field.key" type="number" :min="field.min" :max="field.max" :disabled="value.reply_mode === 'always' && (field.key === 'sample_percent' || field.key === 'min_messages')" step="1" required class="input disabled:opacity-50" /></label>
+          <label class="space-y-1">{{ t('qqbot.autonomous.names') }}<FormTextarea v-model="botNames" data-testid="autonomous-names" rows="2" /></label>
+          <label class="space-y-1 md:col-span-2">{{ t('qqbot.autonomous.topics') }}<FormTextarea v-model="topics" data-testid="autonomous-topics" rows="2" /></label>
+          <label v-for="field in fields" :key="field.key" class="space-y-1">{{ t('qqbot.autonomous.' + field.key) }}<FormInput v-model.number="value[field.key]" :data-testid="'autonomous-' + field.key" type="number" :min="field.min" :max="field.max" :disabled="value.reply_mode === 'always' && (field.key === 'sample_percent' || field.key === 'min_messages')" step="1" required class="disabled:opacity-50" /></label>
         </div>
-        <label class="flex items-center gap-2"><input v-model="value.mention_user" data-testid="autonomous-mention" type="checkbox" />{{ t('qqbot.autonomous.mention') }}</label>
+        <label class="flex items-center gap-2"><FormInput v-model="value.mention_user" data-testid="autonomous-mention" type="checkbox" />{{ t('qqbot.autonomous.mention') }}</label>
         <p class="text-xs text-gray-500">{{ t('qqbot.autonomous.limitsHelp') }}</p>
       </div>
     </details>
@@ -69,6 +69,10 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QQGroupPicker from './QQGroupPicker.vue'

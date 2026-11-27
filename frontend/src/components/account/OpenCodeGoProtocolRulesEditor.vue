@@ -14,23 +14,23 @@
     <div v-if="rows.length > 0" class="mb-2 space-y-2">
       <div v-for="(row, index) in rows" :key="getRowKey(row)">
         <div class="flex items-center gap-2">
-          <input
+          <FormInput
             v-model="row.pattern"
             type="text"
-            class="input flex-1 font-mono text-sm"
+            class="flex-1 font-mono text-sm"
             :placeholder="t('admin.accounts.opencodeGo.protocolRules.patternPlaceholder')"
             :data-testid="`opencode-go-protocol-pattern-${index}`"
           />
-          <select
+          <FormSelect
             :value="row.protocol"
-            class="input w-44 shrink-0"
+            class="w-44 shrink-0"
             :data-testid="`opencode-go-protocol-select-${index}`"
             @change="setPrimaryProtocol(row, ($event.target as HTMLSelectElement).value as CnNativeApiProtocol)"
           >
             <option v-for="option in protocolOptions" :key="option.value" :value="option.value">
               {{ t(`admin.accounts.cnProviders.apiProtocol.${option.labelKey}`) }}
             </option>
-          </select>
+          </FormSelect>
           <button
             type="button"
             class="rounded-lg p-2 text-red-500 transition-colors hover:bg-red-50 hover:text-red-600 dark:hover:bg-red-900/20"
@@ -82,6 +82,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

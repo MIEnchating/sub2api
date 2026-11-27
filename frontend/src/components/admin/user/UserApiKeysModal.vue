@@ -17,9 +17,9 @@
               <p class="truncate font-mono text-sm text-gray-500">{{ key.key }}</p>
             </div>
             <div class="ml-3 flex items-center gap-2">
-              <button type="button" class="btn btn-secondary text-xs" :disabled="updatingKeyIds.has(key.id)" data-test="edit-key-model-policy" @click="openModelPolicy(key)">
+              <BaseButton type="button" class="btn-secondary text-xs" :disabled="updatingKeyIds.has(key.id)" data-test="edit-key-model-policy" @click="openModelPolicy(key)">
                 {{ t('apiKeyModelPolicy.title') }}
-              </button>
+              </BaseButton>
               <NewFeatureBadge
                 v-if="authStore.isAdmin"
                 :notice-id="NEW_FEATURE_NOTICES.apiKeyModelPolicy"
@@ -135,6 +135,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

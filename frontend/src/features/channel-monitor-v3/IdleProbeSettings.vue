@@ -29,7 +29,7 @@
           :data-group="row.groupId"
         >
           <label class="flex cursor-pointer items-start gap-2.5">
-            <input
+            <FormInput
               v-model="drafts[row.groupId].checked"
               type="checkbox"
               class="mt-0.5 rounded text-primary-600"
@@ -50,10 +50,9 @@
             <div class="min-w-0">
               <template v-if="row.wholeGroup">
                 <label class="input-label" :for="`idle-probe-model-${row.groupId}`">{{ t('channelMonitorV3.admin.idleProbe.model') }}</label>
-                <input
+                <FormInput
                   :id="`idle-probe-model-${row.groupId}`"
                   v-model="drafts[row.groupId].model"
-                  class="input"
                   maxlength="100"
                   :placeholder="t('channelMonitorV3.admin.idleProbe.modelPlaceholder')"
                   :class="missingModel(row) ? '!border-red-300 dark:!border-red-700' : ''"
@@ -69,9 +68,9 @@
             </div>
             <div>
               <label class="input-label" :for="`idle-probe-effort-${row.groupId}`">{{ t('channelMonitorV3.admin.idleProbe.effort') }}</label>
-              <select :id="`idle-probe-effort-${row.groupId}`" v-model="drafts[row.groupId].effort" class="input" :title="t('channelMonitorV3.admin.idleProbe.effortHint')" data-testid="monitor-v3-idle-probe-effort">
+              <FormSelect :id="`idle-probe-effort-${row.groupId}`" v-model="drafts[row.groupId].effort" :title="t('channelMonitorV3.admin.idleProbe.effortHint')" data-testid="monitor-v3-idle-probe-effort">
                 <option v-for="effort in MONITOR_V3_PROBE_EFFORTS" :key="effort" :value="effort">{{ effort || t('channelMonitorV3.admin.idleProbe.effortDefault') }}</option>
-              </select>
+              </FormSelect>
             </div>
           </div>
 
@@ -90,15 +89,18 @@
 
       <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
         <span class="text-xs text-gray-400">{{ dirty ? t('channelMonitorV3.admin.unsaved') : t('channelMonitorV3.admin.saved') }}</span>
-        <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || saving || invalid" data-testid="monitor-v3-idle-probe-save" @click="save">
+        <BaseButton type="button" class="btn-primary btn-sm" :disabled="!dirty || saving || invalid" data-testid="monitor-v3-idle-probe-save" @click="save">
           {{ t('common.save') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

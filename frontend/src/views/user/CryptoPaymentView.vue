@@ -32,14 +32,14 @@
         </template>
         <p v-else class="py-6 text-center text-lg font-medium">{{ statusText }}</p>
         <div class="flex flex-wrap justify-center gap-3">
-          <button type="button" class="btn btn-primary" :disabled="checking" @click="refresh(true)">{{ t('payment.cryptoCheckout.check') }}</button>
-          <button v-if="payable && !checkout.confirming && !networkDelayed" type="button" class="btn btn-secondary" :disabled="checking" @click="confirmCancel = true">{{ t('common.cancel') }}</button>
+          <BaseButton type="button" class="btn-primary" :disabled="checking" @click="refresh(true)">{{ t('payment.cryptoCheckout.check') }}</BaseButton>
+          <BaseButton v-if="payable && !checkout.confirming && !networkDelayed" type="button" class="btn-secondary" :disabled="checking" @click="confirmCancel = true">{{ t('common.cancel') }}</BaseButton>
           <RouterLink v-if="completed" :to="{ path: '/payment/result', query: { order_id: checkout.order_id, out_trade_no: checkout.out_trade_no } }" class="btn btn-secondary">{{ t('payment.cryptoCheckout.viewResult') }}</RouterLink>
         </div>
         <div v-if="confirmCancel" class="flex flex-wrap items-center justify-center gap-3 border-t pt-4">
           <span class="text-sm">{{ t('payment.cryptoCheckout.cancelConfirm') }}</span>
-          <button type="button" class="btn btn-secondary" :disabled="checking" @click="cancel">{{ t('common.confirm') }}</button>
-          <button type="button" class="btn btn-secondary" @click="confirmCancel = false">{{ t('payment.cryptoCheckout.keepWaiting') }}</button>
+          <BaseButton type="button" class="btn-secondary" :disabled="checking" @click="cancel">{{ t('common.confirm') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" @click="confirmCancel = false">{{ t('payment.cryptoCheckout.keepWaiting') }}</BaseButton>
         </div>
       </section>
     </main>
@@ -47,6 +47,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'

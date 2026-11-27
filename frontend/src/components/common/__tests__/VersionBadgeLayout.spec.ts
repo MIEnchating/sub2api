@@ -14,8 +14,9 @@ describe('VersionBadge upstream layout', () => {
   })
 
   it('keeps upstream labels readable and stacks rows on narrow screens', () => {
-    expect(componentSource).toContain('grid-cols-[7rem_minmax(0,1fr)]')
-    expect(componentSource).toContain('max-[420px]:grid-cols-1')
+    expect(componentSource).toContain('grid-cols-[minmax(0,1fr)_auto]')
+    expect(componentSource).toContain('max-[480px]:grid-cols-1')
+    expect(componentSource).toContain('break-words')
     expect(componentSource).toContain('whitespace-nowrap text-xs font-medium')
   })
 })

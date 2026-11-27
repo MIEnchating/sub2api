@@ -5,7 +5,7 @@
     </div>
     <div v-else-if="initError" class="card p-6 text-center">
       <p class="text-sm text-red-600 dark:text-red-400">{{ initError }}</p>
-      <button class="btn btn-secondary mt-4" @click="$emit('back')">{{ t('payment.result.backToRecharge') }}</button>
+      <BaseButton class="btn-secondary mt-4" @click="$emit('back')">{{ t('payment.result.backToRecharge') }}</BaseButton>
     </div>
     <!-- Success -->
     <template v-else-if="success">
@@ -31,7 +31,7 @@
               </div>
             </div>
           </div>
-          <button class="btn btn-primary" @click="$emit('done')">{{ t('common.confirm') }}</button>
+          <BaseButton class="btn-primary" @click="$emit('done')">{{ t('common.confirm') }}</BaseButton>
         </div>
       </div>
     </template>
@@ -47,23 +47,24 @@
       <div class="card p-6">
         <div ref="stripeMount" class="min-h-[200px]"></div>
         <p v-if="error" class="mt-4 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
-        <button class="btn btn-stripe mt-6 w-full py-3 text-base" :disabled="submitting || !ready" @click="handlePay">
+        <BaseButton class="btn-stripe mt-6 w-full py-3 text-base" :disabled="submitting || !ready" @click="handlePay">
           <span v-if="submitting" class="flex items-center justify-center gap-2">
             <span class="h-4 w-4 animate-spin rounded-full border-2 border-white border-t-transparent"></span>
             {{ t('common.processing') }}
           </span>
           <span v-else>{{ t('payment.stripePay') }}</span>
-        </button>
+        </BaseButton>
       </div>
       <!-- Cancel order -->
-      <button class="btn btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
+      <BaseButton class="btn-secondary w-full" :disabled="cancelling" @click="handleCancel">
         {{ cancelling ? t('common.processing') : t('payment.qr.cancelOrder') }}
-      </button>
+      </BaseButton>
     </template>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, onMounted, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'

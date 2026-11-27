@@ -134,7 +134,7 @@
       <template v-if="questionKind === 'pelican'">
         <PelicanPromptMode :model-value="promptMode" @update:model-value="selectPromptMode" :disabled="running || preparingQuestion" />
         <template v-if="promptMode === 'random'">
-          <button type="button" class="btn btn-secondary" data-testid="pelican-next-round" :disabled="running || preparingQuestion" @click="prepareQuestion">{{ t('pelicanTests.questionBank.next') }}</button>
+          <BaseButton type="button" class="btn-secondary" data-testid="pelican-next-round" :disabled="running || preparingQuestion" @click="prepareQuestion">{{ t('pelicanTests.questionBank.next') }}</BaseButton>
           <p v-if="questionError" role="alert">{{ questionError }}</p>
           <PelicanQuestionSnapshot v-if="questionSnapshot" :question="questionSnapshot.pelican_question" :actual-prompt="questionSnapshot.actual_prompt" />
         </template>
@@ -275,23 +275,23 @@
 
     <template #footer>
       <div class="flex w-full items-center justify-between gap-3">
-        <button v-if="testMode === 'question' && questionKind !== 'ciallo'" type="button" class="btn btn-secondary" :disabled="running || !hasDownloadable" @click="downloadAll">
+        <BaseButton v-if="testMode === 'question' && questionKind !== 'ciallo'" type="button" class="btn-secondary" :disabled="running || !hasDownloadable" @click="downloadAll">
           <Icon name="download" size="sm" />
           {{ t('admin.accounts.pelicanTest.downloadAll') }}
-        </button>
+        </BaseButton>
         <span v-else />
         <div class="flex gap-3">
-          <button type="button" class="btn btn-secondary" :disabled="running" @click="handleClose">{{ t('common.close') }}</button>
-          <button v-if="testMode === 'probe'" type="button" data-testid="probe-start" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStartProbe" @click="startProbe">
+          <BaseButton type="button" class="btn-secondary" :disabled="running" @click="handleClose">{{ t('common.close') }}</BaseButton>
+          <BaseButton v-if="testMode === 'probe'" type="button" data-testid="probe-start" class="btn-primary flex items-center gap-2" :disabled="running || !canStartProbe" @click="startProbe">
             <Icon v-if="running" name="refresh" size="sm" class="animate-spin" />
             <Icon v-else name="play" size="sm" />
             {{ running ? t('admin.accounts.pelicanTest.probe.probing') : t('admin.accounts.pelicanTest.probe.start') }}
-          </button>
-          <button v-else-if="testMode === 'question' && questionKind !== 'ciallo' && activeTab !== 'schedule'" type="button" class="btn btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
+          </BaseButton>
+          <BaseButton v-else-if="testMode === 'question' && questionKind !== 'ciallo' && activeTab !== 'schedule'" type="button" class="btn-primary flex items-center gap-2" :disabled="running || !canStart" @click="startTest">
             <Icon v-if="running" name="refresh" size="sm" class="animate-spin" />
             <Icon v-else name="play" size="sm" />
             {{ running ? t('admin.accounts.pelicanTest.generating') : t('admin.accounts.pelicanTest.start') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </template>
@@ -299,6 +299,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { questionPrompt, questionContract, isTextAnswerKind, stateProbeVerdict, STATE_PROBE_QUESTION, type IntelligenceQuestion, type StateProbeVerdict } from '@/utils/intelligenceTest'
 import { useI18n } from 'vue-i18n'

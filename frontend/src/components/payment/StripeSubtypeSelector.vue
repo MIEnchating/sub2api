@@ -1,15 +1,16 @@
 <template>
   <label class="mt-4 block text-sm font-medium text-gray-700 dark:text-gray-300">
     {{ t('payment.stripePaymentMethod') }}
-    <select class="input mt-2 w-full" :value="modelValue" data-testid="stripe-subtype" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
+    <FormSelect class="mt-2 w-full" :value="modelValue" data-testid="stripe-subtype" @change="emit('update:modelValue', ($event.target as HTMLSelectElement).value)">
       <option v-for="(rates, method) in methods" :key="method" :value="method">
         {{ t(`payment.methods.${method}`, method) }} · {{ rateLabel(rates) }}
       </option>
-    </select>
+    </FormSelect>
   </label>
 </template>
 
 <script setup lang="ts">
+import FormSelect from '@/components/common/FormSelect.vue'
 import { useI18n } from 'vue-i18n'
 import type { MethodFeeRates } from '@/types/payment'
 import { paymentFeeRange } from './fees'

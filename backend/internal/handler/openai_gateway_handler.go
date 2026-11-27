@@ -1228,10 +1228,13 @@ func (h *OpenAIGatewayHandler) Responses(c *gin.Context) {
 			zap.Float64("load_skew", scheduleDecision.LoadSkew),
 		)
 		account := selection.Account
-		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() {
-			// The public Responses HTTP API supports previous_response_id on API-key
-			// accounts. OAuth/SetupToken upstreams do not, so keep searching instead
-			// of silently deleting continuation state from a mixed account pool.
+		continuationGroupID := int64(0)
+		if apiKey.GroupID != nil {
+			continuationGroupID = *apiKey.GroupID
+		}
+		if previousResponseID != "" && requestPlatform == service.PlatformOpenAI && !account.IsOpenAIApiKey() &&
+			(!scheduleDecision.StickyPreviousHit || h.gatewayService.OpenAIOAuthHTTPContinuationConn(account, continuationGroupID, previousResponseID) == "") {
+			// OAuth continuation requires its original pooled upstream connection.
 			failedAccountIDs[account.ID] = struct{}{}
 			if selection.ReleaseFunc != nil {
 				selection.ReleaseFunc()
@@ -2339,6 +2342,10 @@ func (h *OpenAIGatewayHandler) ensureAnthropicStreamReadErrorResponse(c *gin.Con
 }
 
 func (h *OpenAIGatewayHandler) validateFunctionCallOutputRequest(c *gin.Context, body []byte, reqLog *zap.Logger) bool {
+	if !service.ValidateCodexExecNotificationContext(body) {
+		h.errorResponse(c, http.StatusBadRequest, "invalid_request_error", "Codex exec notifications require their original tool call or a continuation response ID")
+		return false
+	}
 	if !gjson.GetBytes(body, `input.#(type=="function_call_output")`).Exists() {
 		return true
 	}
@@ -3118,6 +3125,7 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 		return
 	}
 
+	service.SetOpenAIWSResponseOwner(c, subject.UserID, apiKey.ID)
 	reqLog := requestLogger(
 		c,
 		"handler.openai_gateway.responses_ws",
@@ -3241,6 +3249,10 @@ func (h *OpenAIGatewayHandler) ResponsesWebSocket(c *gin.Context) {
 	if err := requestmodel.ValidateWebSocketRequestFields(firstMessage); err != nil {
 		middleware2.MarkIngressRejected(c, middleware2.IngressRejectConflictingRequestFields)
 		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, err.Error())
+		return
+	}
+	if !service.ValidateCodexExecNotificationContext(firstMessage) {
+		closeOpenAIClientWS(wsConn, coderws.StatusPolicyViolation, "Codex exec notifications require their original tool call or a continuation response ID")
 		return
 	}
 	if middleware2.CheckGroupSubagentFrame(c, firstMessage) {

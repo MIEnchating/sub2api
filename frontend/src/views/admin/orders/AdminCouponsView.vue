@@ -1,35 +1,34 @@
 <template>
   <AppLayout><div class="space-y-6">
-    <section class="card space-y-3 p-6"><div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('coupon.adminTitle') }} <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.qqRewardCoupons" :user-id="auth.user?.id" /></h2><button class="btn btn-primary" @click="form = blank()">{{ t('coupon.create') }}</button></div><p class="text-sm text-gray-500">{{ t('coupon.rules') }}</p></section>
+    <section class="card space-y-3 p-6"><div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('coupon.adminTitle') }} <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.qqRewardCoupons" :user-id="auth.user?.id" /></h2><BaseButton class="btn-primary" @click="form = blank()">{{ t('coupon.create') }}</BaseButton></div><p class="text-sm text-gray-500">{{ t('coupon.rules') }}</p></section>
     <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950">{{ error }}</p><p v-if="notice" role="status" class="text-green-600">{{ notice }}</p>
     <form v-if="form" class="card space-y-4 p-6" @submit.prevent="save"><h3 class="font-semibold">{{ t(form.id ? 'coupon.edit' : 'coupon.create') }}</h3><p class="text-sm text-gray-500">{{ t('coupon.templateHint') }}</p>
       <fieldset :disabled="busy" class="grid gap-4 md:grid-cols-3">
-        <label>{{ t('coupon.name') }}<input v-model.trim="form.name" class="input" maxlength="100" required /></label>
-        <label>{{ t('coupon.kind') }}<select v-model="form.kind" class="input"><option v-for="kind in ['fixed', 'percent', 'bonus']" :key="kind" :value="kind">{{ t('coupon.' + kind) }}</option></select></label>
-        <label>{{ t('coupon.currency') }}<select v-model="form.currency" class="input"><option v-for="currency in currencies" :key="currency">{{ currency }}</option></select></label>
-        <label>{{ t('coupon.minAmount') }}<input v-model.number="form.min_amount" class="input" type="number" min="0" max="1000000000" step="0.01" required /></label>
-        <label>{{ t('coupon.value') }}<input v-model.number="form.value" class="input" type="number" min="0.01" :max="form.kind === 'percent' ? 99.99 : form.kind === 'bonus' ? 1000 : 1000000000" step="0.01" required /></label>
-        <label v-if="form.kind !== 'bonus'">{{ t('coupon.maxDiscount') }}<input v-model.number="form.max_discount" class="input" type="number" min="0" max="1000000000" step="0.01" required /></label>
-        <label>{{ t('coupon.validDays') }}<input v-model.number="form.valid_days" class="input" type="number" min="1" max="3650" required /></label>
-        <label>{{ t('coupon.maxIssues') }}<input v-model.number="form.max_issues" class="input" type="number" min="0" max="10000000" required /></label>
-        <label>{{ t('coupon.perUserLimit') }}<input v-model.number="form.per_user_limit" class="input" type="number" min="0" max="10000" required /></label>
-        <label class="flex items-center gap-2"><input v-model="form.stackable" type="checkbox" />{{ t('coupon.stackable') }}</label><label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('coupon.enabled') }}</label>
-      </fieldset><div class="flex gap-3"><button class="btn btn-primary" :disabled="busy">{{ t('common.save') }}</button><button type="button" class="btn btn-secondary" :disabled="busy" @click="form = null">{{ t('common.cancel') }}</button></div>
+        <label>{{ t('coupon.name') }}<FormInput v-model.trim="form.name" maxlength="100" required /></label>
+        <label>{{ t('coupon.kind') }}<FormSelect v-model="form.kind"><option v-for="kind in ['fixed', 'percent', 'bonus']" :key="kind" :value="kind">{{ t('coupon.' + kind) }}</option></FormSelect></label>
+        <label>{{ t('coupon.currency') }}<FormSelect v-model="form.currency"><option v-for="currency in currencies" :key="currency">{{ currency }}</option></FormSelect></label>
+        <label>{{ t('coupon.minAmount') }}<FormInput v-model.number="form.min_amount" type="number" min="0" max="1000000000" step="0.01" required /></label>
+        <label>{{ t('coupon.value') }}<FormInput v-model.number="form.value" type="number" min="0.01" :max="form.kind === 'percent' ? 99.99 : form.kind === 'bonus' ? 1000 : 1000000000" step="0.01" required /></label>
+        <label v-if="form.kind !== 'bonus'">{{ t('coupon.maxDiscount') }}<FormInput v-model.number="form.max_discount" type="number" min="0" max="1000000000" step="0.01" required /></label>
+        <label>{{ t('coupon.validDays') }}<FormInput v-model.number="form.valid_days" type="number" min="1" max="3650" required /></label>
+        <label>{{ t('coupon.maxIssues') }}<FormInput v-model.number="form.max_issues" type="number" min="0" max="10000000" required /></label>
+        <label>{{ t('coupon.perUserLimit') }}<FormInput v-model.number="form.per_user_limit" type="number" min="0" max="10000" required /></label>
+        <label class="flex items-center gap-2"><FormInput v-model="form.stackable" type="checkbox" />{{ t('coupon.stackable') }}</label><label class="flex items-center gap-2"><FormInput v-model="form.enabled" type="checkbox" />{{ t('coupon.enabled') }}</label>
+      </fieldset><div class="flex gap-3"><BaseButton class="btn-primary" :disabled="busy">{{ t('common.save') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="form = null">{{ t('common.cancel') }}</BaseButton></div>
     </form>
     <section class="card space-y-4 p-6"><h3 class="font-semibold">{{ t('coupon.templates') }}</h3><div class="grid gap-4 md:grid-cols-2 xl:grid-cols-3"><article v-for="c in templates" :key="c.id" class="space-y-2 rounded-xl border p-4 dark:border-dark-700"><div class="flex justify-between gap-3"><strong>{{ c.name }}</strong><span class="text-xs">#{{ c.id }}</span></div><p>{{ rule(c) }}</p><p class="text-sm text-gray-500">{{ t('coupon.issued') }}：{{ c.issued_count }} / {{ c.max_issues || '∞' }} · {{ t(c.enabled ? 'common.enabled' : 'common.disabled') }}</p><div class="flex flex-wrap gap-3"><button class="text-primary-600" @click="form = { ...c }">{{ t('common.edit') }}</button><button class="text-primary-600" :disabled="!c.enabled" @click="issueTemplate = c.id">{{ t('coupon.issue') }}</button><button class="text-primary-600" @click="filterTemplate = c.id; page = 1; loadRecords()">{{ t('coupon.records') }}</button></div></article></div></section>
     <form class="card space-y-4 p-6" @submit.prevent="issue">
       <h3 class="font-semibold">{{ t('coupon.issue') }}</h3>
       <p class="text-sm text-gray-500">{{ t('coupon.issueHint') }}</p>
       <fieldset class="grid gap-4 md:grid-cols-3" :disabled="busy">
-        <label>{{ t('coupon.template') }}<select v-model.number="issueTemplate" class="input" required><option :value="0" disabled>{{ t('coupon.template') }}</option><option v-for="c in templates.filter(c => c.enabled)" :key="c.id" :value="c.id">#{{ c.id }} {{ c.name }}</option></select></label>
+        <label>{{ t('coupon.template') }}<FormSelect v-model.number="issueTemplate" required><option :value="0" disabled>{{ t('coupon.template') }}</option><option v-for="c in templates.filter(c => c.enabled)" :key="c.id" :value="c.id">#{{ c.id }} {{ c.name }}</option></FormSelect></label>
         <div ref="userSearchRef" class="min-w-0">
           <label for="coupon-user-search">{{ t('coupon.users') }}</label>
           <div class="relative">
-            <input
+            <FormInput
               id="coupon-user-search"
               v-model="userKeyword"
               type="text"
-              class="input"
               autocomplete="off"
               :placeholder="t('coupon.userSearchPlaceholder')"
               :disabled="selectedUsers.length >= 100"
@@ -58,16 +57,20 @@
             </span>
           </div>
         </div>
-        <label>{{ t('coupon.quantity') }}<input v-model.number="quantity" class="input" type="number" min="1" max="100" required /></label>
+        <label>{{ t('coupon.quantity') }}<FormInput v-model.number="quantity" type="number" min="1" max="100" required /></label>
       </fieldset>
-      <button class="btn btn-primary" :disabled="busy || !issueTemplate || !selectedUsers.length || !!userKeyword.trim()">{{ t('coupon.issue') }}</button>
+      <BaseButton class="btn-primary" :disabled="busy || !issueTemplate || !selectedUsers.length || !!userKeyword.trim()">{{ t('coupon.issue') }}</BaseButton>
     </form>
-    <section class="card overflow-hidden"><div class="space-y-3 p-6"><h3 class="font-semibold">{{ t('coupon.records') }} · {{ total }}</h3><form class="flex flex-wrap gap-3" @submit.prevent="page = 1; loadRecords()"><input v-model="search" class="input min-w-48 flex-1" :placeholder="t('coupon.search')" /><select v-model="filterTemplate" class="input w-auto"><option :value="0">{{ t('coupon.templates') }}</option><option v-for="c in templates" :key="c.id" :value="c.id">{{ c.name }}</option></select><select v-model="status" class="input w-auto"><option value="">{{ t('coupon.all') }}</option><option v-for="s in statuses" :key="s" :value="s">{{ t('coupon.' + s) }}</option></select><button class="btn btn-secondary">{{ t('common.search') }}</button></form></div>
-      <div class="overflow-x-auto"><table class="w-full min-w-[680px] text-left text-sm"><thead class="bg-gray-50 dark:bg-dark-800"><tr><th class="p-3">ID / {{ t('coupon.name') }}</th><th class="p-3">{{ t('coupon.user') }}</th><th class="p-3">{{ t('coupon.status') }}</th><th class="p-3">{{ t('coupon.source') }}</th><th class="p-3">{{ t('coupon.order') }}</th><th class="p-3">{{ t('coupon.benefit') }}</th><th class="p-3">{{ t('coupon.expires') }}</th><th class="p-3">{{ t('coupon.usedAt') }}</th><th class="p-3"></th></tr></thead><tbody class="divide-y dark:divide-dark-700"><tr v-for="c in items" :key="c.id"><td class="p-3">#{{ c.id }} {{ c.snapshot.name }}</td><td class="p-3">{{ c.user_email || '#' + c.user_id }}</td><td class="p-3">{{ t('coupon.' + c.status) }}</td><td class="p-3">{{ t('coupon.sources.' + c.source, c.source) }}</td><td class="p-3">{{ c.order_id ? '#' + c.order_id : '—' }}<p class="text-xs text-gray-500">{{ c.order_status ? t('payment.status.' + c.order_status.toLowerCase(), c.order_status) : '' }}</p></td><td class="p-3">{{ c.snapshot.currency }} {{ c.discount_amount.toFixed(2) }}<p v-if="c.bonus_amount">+ USD {{ c.bonus_amount.toFixed(2) }}</p></td><td class="whitespace-nowrap p-3">{{ date(c.expires_at) }}</td><td class="whitespace-nowrap p-3">{{ c.used_at ? date(c.used_at) : '—' }}</td><td class="p-3"><button v-if="c.status === 'available'" class="text-red-600" :disabled="busy" @click="revoke(c.id)">{{ t('coupon.revoke') }}</button></td></tr></tbody></table><p v-if="!items.length" class="p-8 text-center text-gray-500">{{ t('coupon.noCoupons') }}</p></div><div class="p-4"><Pagination :page="page" :page-size="20" :total="total" @update:page="page = $event; loadRecords()" /></div>
+    <section class="card overflow-hidden"><div class="space-y-3 p-6"><h3 class="font-semibold">{{ t('coupon.records') }} · {{ total }}</h3><form class="flex flex-wrap gap-3" @submit.prevent="page = 1; loadRecords()"><FormInput v-model="search" class="min-w-48 flex-1" :placeholder="t('coupon.search')" /><FormSelect v-model="filterTemplate" class="w-auto"><option :value="0">{{ t('coupon.templates') }}</option><option v-for="c in templates" :key="c.id" :value="c.id">{{ c.name }}</option></FormSelect><FormSelect v-model="status" class="w-auto"><option value="">{{ t('coupon.all') }}</option><option v-for="s in statuses" :key="s" :value="s">{{ t('coupon.' + s) }}</option></FormSelect><BaseButton class="btn-secondary">{{ t('common.search') }}</BaseButton></form></div>
+      <div class="overflow-x-auto"><BaseTable class="w-full min-w-[680px] text-left text-sm"><thead class="bg-gray-50 dark:bg-dark-800"><tr><th class="p-3">ID / {{ t('coupon.name') }}</th><th class="p-3">{{ t('coupon.user') }}</th><th class="p-3">{{ t('coupon.status') }}</th><th class="p-3">{{ t('coupon.source') }}</th><th class="p-3">{{ t('coupon.order') }}</th><th class="p-3">{{ t('coupon.benefit') }}</th><th class="p-3">{{ t('coupon.expires') }}</th><th class="p-3">{{ t('coupon.usedAt') }}</th><th class="p-3"></th></tr></thead><tbody class="divide-y dark:divide-dark-700"><tr v-for="c in items" :key="c.id"><td class="p-3">#{{ c.id }} {{ c.snapshot.name }}</td><td class="p-3">{{ c.user_email || '#' + c.user_id }}</td><td class="p-3">{{ t('coupon.' + c.status) }}</td><td class="p-3">{{ t('coupon.sources.' + c.source, c.source) }}</td><td class="p-3">{{ c.order_id ? '#' + c.order_id : '—' }}<p class="text-xs text-gray-500">{{ c.order_status ? t('payment.status.' + c.order_status.toLowerCase(), c.order_status) : '' }}</p></td><td class="p-3">{{ c.snapshot.currency }} {{ c.discount_amount.toFixed(2) }}<p v-if="c.bonus_amount">+ USD {{ c.bonus_amount.toFixed(2) }}</p></td><td class="whitespace-nowrap p-3">{{ date(c.expires_at) }}</td><td class="whitespace-nowrap p-3">{{ c.used_at ? date(c.used_at) : '—' }}</td><td class="p-3"><button v-if="c.status === 'available'" class="text-red-600" :disabled="busy" @click="revoke(c.id)">{{ t('coupon.revoke') }}</button></td></tr></tbody></BaseTable><p v-if="!items.length" class="p-8 text-center text-gray-500">{{ t('coupon.noCoupons') }}</p></div><div class="p-4"><Pagination :page="page" :page-size="20" :total="total" @update:page="page = $event; loadRecords()" /></div>
     </section>
   <CouponUsageHistory admin /></div></AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { useAuthStore } from '@/stores/auth'

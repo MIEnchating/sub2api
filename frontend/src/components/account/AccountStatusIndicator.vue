@@ -12,19 +12,19 @@
 
       <!-- OpenAI OAuth RPM Display - keep the pause reason explicit -->
       <div v-else-if="isRPMPaused" class="flex flex-col items-center gap-1">
-        <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rpmPaused') }}</span>
+        <StatusBadge class="text-xs badge-warning">{{ t('admin.accounts.status.rpmPaused') }}</StatusBadge>
         <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rpmResumeText }}</span>
       </div>
 
       <!-- Rate Limit Display (429) - Two-line layout -->
       <div v-else-if="isRateLimited" class="flex flex-col items-center gap-1">
-        <span class="badge text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</span>
+        <StatusBadge class="text-xs badge-warning">{{ t('admin.accounts.status.rateLimited') }}</StatusBadge>
         <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ rateLimitResumeText }}</span>
       </div>
 
       <!-- Overload Display (529) - Two-line layout -->
       <div v-else-if="isOverloaded" class="flex flex-col items-center gap-1">
-        <span class="badge text-xs badge-danger">{{ t('admin.accounts.status.overloaded') }}</span>
+        <StatusBadge class="text-xs badge-danger">{{ t('admin.accounts.status.overloaded') }}</StatusBadge>
         <span class="text-[11px] text-gray-400 dark:text-gray-500">{{ overloadCountdown }}</span>
       </div>
 
@@ -153,6 +153,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import ExcelBPSCredentialStatus from './ExcelBPSCredentialStatus.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'

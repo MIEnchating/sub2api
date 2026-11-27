@@ -53,25 +53,25 @@
             {{ t('profile.avatar.uploadAction') }}
           </label>
 
-          <button
+          <BaseButton
             data-testid="profile-avatar-save"
             type="button"
-            class="btn btn-primary btn-sm"
+            class="btn-primary btn-sm"
             :disabled="avatarSaving || !avatarDraft"
             @click="handleAvatarSave"
           >
             {{ t('common.save') }}
-          </button>
+          </BaseButton>
 
-          <button
+          <BaseButton
             data-testid="profile-avatar-delete"
             type="button"
-            class="btn btn-secondary btn-sm"
+            class="btn-secondary btn-sm"
             :disabled="avatarSaving"
             @click="handleAvatarDelete"
           >
             {{ t('common.delete') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -79,6 +79,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { userAPI } from '@/api'

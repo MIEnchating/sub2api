@@ -8,7 +8,6 @@ import (
 
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	"github.com/Wei-Shaw/sub2api/internal/handler"
-	"github.com/Wei-Shaw/sub2api/internal/middleware"
 	middleware2 "github.com/Wei-Shaw/sub2api/internal/server/middleware"
 	"github.com/Wei-Shaw/sub2api/internal/server/routes"
 	"github.com/Wei-Shaw/sub2api/internal/service"
@@ -148,27 +147,10 @@ func registerRoutes(
 
 	// API v1
 	v1 := r.Group("/api/v1")
-	if h.Admin != nil && h.Admin.OpenAIReauth != nil {
-		worker := v1.Group("/internal/openai-reauth")
-		worker.POST("/runtime-settings", h.Admin.OpenAIReauth.RuntimeSettings)
-		worker.POST("/claim", h.Admin.OpenAIReauth.Claim)
-		worker.POST("/:task_id/progress", h.Admin.OpenAIReauth.Progress)
-		worker.POST("/:task_id/credentials", h.Admin.OpenAIReauth.Credentials)
-		worker.POST("/:task_id/fail", h.Admin.OpenAIReauth.Fail)
-	}
-	if h.QQBot != nil {
-		v1.POST("/qqbot/webhook", h.QQBot.Webhook)
-		limits := middleware.NewRateLimiter(redisClient)
-		binding := v1.Group("/qqbot/email-binding")
-		binding.Use(limits.LimitWithOptions("qqbot-email-binding", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}))
-		binding.Use(gin.HandlerFunc(auditLog))
-		binding.POST("/preview", h.QQBot.PreviewEmailBinding)
-		binding.POST("/confirm", h.QQBot.ConfirmEmailBinding)
-		transfer := v1.Group("/qqbot/transfer")
-		transfer.Use(limits.LimitWithOptions("qqbot-transfer", 10, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}))
-		transfer.Use(gin.HandlerFunc(auditLog))
-		transfer.POST("/preview", h.QQBot.PreviewTransfer)
-		transfer.POST("/confirm", h.QQBot.ConfirmTransfer)
+	if h.KeyPouchImport != nil {
+		imports := v1.Group("/internal/keypouch/imports/:job_id")
+		imports.POST("/start", h.KeyPouchImport.Start)
+		imports.POST("/complete", h.KeyPouchImport.Complete)
 	}
 
 	// 面板 API 限流器：认证接口按用户 ID、公开接口按安全客户端 IP，

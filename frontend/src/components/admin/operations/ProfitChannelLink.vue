@@ -4,22 +4,24 @@
     <p>{{ t('profitOps.currentLink', { channel: currentChannel }) }}</p>
     <p class="text-sm text-gray-500">{{ t('profitOps.linkImpact') }}</p>
     <form class="flex flex-wrap items-end gap-2" @submit.prevent="verify">
-      <label>{{ t('profitOps.existingId') }}<input v-model="id" type="number" min="1" step="1" required class="input block" @input="clearTarget" /></label>
-      <button class="btn btn-secondary" :disabled="!validId || busy">{{ t('profitOps.checkChannel') }}</button>
+      <label>{{ t('profitOps.existingId') }}<FormInput v-model="id" type="number" min="1" step="1" required class="block" @input="clearTarget" /></label>
+      <BaseButton class="btn-secondary" :disabled="!validId || busy">{{ t('profitOps.checkChannel') }}</BaseButton>
     </form>
     <template v-if="target">
       <p>{{ t('profitOps.proposedLink', { name: target.name, code: target.code, id: target.id }) }}</p>
-      <label class="flex items-center gap-2"><input v-model="confirmed" type="checkbox" />{{ t('profitOps.confirmLink', { provider: provider.provider_name, channel: target.name }) }}</label>
+      <label class="flex items-center gap-2"><FormInput v-model="confirmed" type="checkbox" />{{ t('profitOps.confirmLink', { provider: provider.provider_name, channel: target.name }) }}</label>
     </template>
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="btn btn-primary" :disabled="!target || !confirmed || busy" @click="save">{{ t('profitOps.saveLink') }}</button>
-      <button type="button" class="btn btn-secondary" @click="emit('cancel')">{{ t('upstreamEntities.cancel') }}</button>
+      <BaseButton type="button" class="btn-primary" :disabled="!target || !confirmed || busy" @click="save">{{ t('profitOps.saveLink') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary" @click="emit('cancel')">{{ t('upstreamEntities.cancel') }}</BaseButton>
     </div>
     <p v-if="error" role="alert" class="text-red-600">{{ t('profitOps.channelNotVerified') }}</p>
   </fieldset>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getUpstreamChannel, type UpstreamChannel } from '@/api/admin/upstreamChannels'

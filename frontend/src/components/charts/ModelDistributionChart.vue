@@ -107,7 +107,7 @@
         <Doughnut :data="chartData" :options="doughnutOptions" />
       </div>
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
-        <table class="w-full text-xs">
+        <BaseTable class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
               <th class="pb-2 text-left">{{ t('admin.dashboard.model') }}</th>
@@ -163,7 +163,7 @@
               </tr>
             </template>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
     <div
@@ -187,7 +187,7 @@
         <Doughnut :data="rankingChartData" :options="rankingDoughnutOptions" />
       </div>
       <div class="max-h-48 w-full min-w-0 flex-1 overflow-auto">
-        <table class="w-full text-xs">
+        <BaseTable class="w-full text-xs">
           <thead>
             <tr class="text-gray-500 dark:text-gray-400">
               <th class="pb-2 text-left">{{ t('admin.dashboard.spendingRankingUser') }}</th>
@@ -230,7 +230,7 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
     <div
@@ -243,6 +243,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseTable from '@/components/common/BaseTable.vue'
 import { computed, ref, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { Chart as ChartJS, ArcElement, Tooltip, Legend } from 'chart.js'

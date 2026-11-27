@@ -12,3 +12,7 @@ type OpenAIHTTPResponseOwnerCache interface {
 	SetHTTPResponseOwner(ctx context.Context, groupID int64, responseID string, userID, apiKeyID int64, ttl time.Duration) error
 	GetHTTPResponseOwner(ctx context.Context, groupID int64, responseID string) (userID, apiKeyID int64, found bool, err error)
 }
+
+type openAIHTTPResponseRouteCache interface {
+	BindHTTPResponseRoute(ctx context.Context, groupID int64, responseID, accountKey string, userID, apiKeyID, accountID int64, ttl time.Duration) error
+}

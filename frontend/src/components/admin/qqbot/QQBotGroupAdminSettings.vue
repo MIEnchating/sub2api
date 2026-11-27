@@ -2,7 +2,7 @@
   <section class="card space-y-4 p-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-lg font-semibold">{{ t('qqbot.groupAdmins.title') }}</h2>
-      <button type="button" class="btn btn-secondary" data-testid="add-group-admin" :disabled="disabled || !appId || modelValue.length >= 100" @click="add">{{ t('qqbot.groupAdmins.add') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-testid="add-group-admin" :disabled="disabled || !appId || modelValue.length >= 100" @click="add">{{ t('qqbot.groupAdmins.add') }}</BaseButton>
     </div>
     <p class="text-sm text-gray-500">{{ t('qqbot.groupAdmins.help') }}</p>
     <p class="text-sm text-gray-500">{{ t('qqbot.groupAdmins.recentHelp') }}</p>
@@ -12,15 +12,15 @@
       <legend class="px-1 text-sm font-medium">{{ admin.nickname || t('qqbot.groupAdmins.entry', { index: index + 1 }) }}</legend>
       <div class="flex flex-wrap items-center justify-between gap-2">
         <span class="break-all text-xs text-gray-500">AppID: {{ admin.app_id }}</span>
-        <button type="button" class="btn btn-secondary text-sm" :aria-label="t('qqbot.groupAdmins.remove', { index: index + 1 })" @click="remove(index)">{{ t('common.delete') }}</button>
+        <BaseButton type="button" class="btn-secondary text-sm" :aria-label="t('qqbot.groupAdmins.remove', { index: index + 1 })" @click="remove(index)">{{ t('common.delete') }}</BaseButton>
       </div>
       <p v-if="admin.app_id !== appId" role="alert" class="text-sm text-amber-700">{{ t('qqbot.groupAdmins.appChanged') }}</p>
       <fieldset :disabled="admin.app_id !== appId" class="space-y-3">
         <div class="grid gap-3 md:grid-cols-2">
-          <label class="space-y-1">{{ t('qqbot.groupAdmins.group') }}<select :value="admin.group_id" data-testid="group-admin-group" class="input" required @change="changeGroup(index, $event)"><option value="">{{ t('qqbot.workspace.chooseGroup') }}</option><option v-for="group in [...new Set([...groups, admin.group_id].filter(Boolean))]" :key="group" :value="group">{{ groupLabels?.[group] || group }}</option></select></label>
+          <label class="space-y-1">{{ t('qqbot.groupAdmins.group') }}<FormSelect :value="admin.group_id" data-testid="group-admin-group" required @change="changeGroup(index, $event)"><option value="">{{ t('qqbot.workspace.chooseGroup') }}</option><option v-for="group in [...new Set([...groups, admin.group_id].filter(Boolean))]" :key="group" :value="group">{{ groupLabels?.[group] || group }}</option></FormSelect></label>
           <div class="min-w-0" data-testid="group-admin-member"><QQMemberPicker :key="JSON.stringify([admin.app_id, admin.group_id])" :model-value="admin.member_id" :group-id="admin.group_id" :app-id="admin.app_id" :selected-label="admin.nickname" :disabled="disabled || admin.app_id !== appId || !admin.group_id" required @update:model-value="updateMember(index, $event)" @select="selectMember(index, $event)" /></div>
         </div>
-        <label class="block space-y-1">{{ t('qqbot.groupAdmins.nickname') }}<input :value="admin.nickname" data-testid="group-admin-nickname" class="input" maxlength="100" @input="updateNickname(index, $event)" /></label>
+        <label class="block space-y-1">{{ t('qqbot.groupAdmins.nickname') }}<FormInput :value="admin.nickname" data-testid="group-admin-nickname" maxlength="100" @input="updateNickname(index, $event)" /></label>
       </fieldset>
     </fieldset>
     <p class="text-xs text-gray-500">{{ t('qqbot.groupAdmins.saveHelp') }}</p>
@@ -28,6 +28,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { useI18n } from 'vue-i18n'
 import type { QQBotRuntime, QQGroupAdmin, QQMemberOption } from '@/api/qqbot'
 import QQMemberPicker from './QQMemberPicker.vue'

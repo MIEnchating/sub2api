@@ -9,9 +9,9 @@
           {{ t('admin.promptAudit.runtime.description') }}
         </p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="$emit('refresh')">
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading" @click="$emit('refresh')">
         {{ t('admin.promptAudit.actions.refresh') }}
-      </button>
+      </BaseButton>
     </div>
 
     <div v-if="error" role="alert" class="mt-5 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
@@ -72,6 +72,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PromptAuditRuntime } from '../types'

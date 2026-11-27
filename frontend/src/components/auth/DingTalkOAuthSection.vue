@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-4">
-    <button type="button" :disabled="disabled" class="btn btn-secondary w-full" @click="startLogin">
+    <BaseButton type="button" :disabled="disabled" class="btn-secondary w-full" @click="startLogin">
       <svg
         class="icon mr-2"
         viewBox="0 0 24 24"
@@ -22,7 +22,7 @@
         >D</text>
       </svg>
       {{ t('auth.dingtalk.signIn') }}
-    </button>
+    </BaseButton>
 
     <div v-if="showDivider" class="flex items-center gap-3">
       <div class="h-px flex-1 bg-gray-200 dark:bg-dark-700"></div>
@@ -35,6 +35,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useRoute } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import type { OAuthLoginStart } from '@/api/auth'

@@ -16,8 +16,8 @@
       </div>
     </div>
     <div class="flex flex-wrap items-center gap-3">
-      <button v-if="!running" type="button" class="btn btn-primary" data-testid="modeltrace-start" :disabled="!supported || !modelId.trim()" @click="start">{{ t('modelTrace.start') }}</button>
-      <button v-else type="button" class="btn btn-secondary" data-testid="modeltrace-cancel" @click="cancel">{{ t('modelTrace.cancel') }}</button>
+      <BaseButton v-if="!running" type="button" class="btn-primary" data-testid="modeltrace-start" :disabled="!supported || !modelId.trim()" @click="start">{{ t('modelTrace.start') }}</BaseButton>
+      <BaseButton v-else type="button" class="btn-secondary" data-testid="modeltrace-cancel" @click="cancel">{{ t('modelTrace.cancel') }}</BaseButton>
       <span v-if="running" class="text-sm text-primary-600 dark:text-primary-300" role="status">{{ t('modelTrace.progress', { count: samples.length }) }}</span>
     </div>
     <p v-if="error" class="text-sm text-red-600 dark:text-red-400" role="alert">{{ error }}</p>
@@ -82,6 +82,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'

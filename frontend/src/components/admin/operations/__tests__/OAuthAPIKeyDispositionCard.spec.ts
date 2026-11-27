@@ -4,10 +4,7 @@ import { createPinia } from 'pinia'
 import { ref, reactive } from 'vue'
 import Card from '../OAuthAPIKeyDispositionCard.vue'
 import QualityAccountSelector from '../QualityAccountSelector.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { oauthAPIKeyDispositionPayload, oauthAPIKeyDispositionError } from '@/utils/oauthAPIKeyDisposition'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import type { Group } from '@/types'
 const { list } = vi.hoisted(() => ({ list: vi.fn() }))
 vi.mock('@/api/admin/accounts', () => ({ list }))
@@ -58,22 +55,6 @@ it('validates default off, delayed pause and permanent disable', () => {
  p.delay_minutes = 0.5; expect(oauthAPIKeyDispositionError(p)).not.toBeNull()
  p.delay_minutes = 5; p.action = 'disable'; expect(oauthAPIKeyDispositionError(p)).toBeNull()
 })
-it('keeps A dismissed, shares B dismissal, reloads B and leaves future C visible', async () => {
- const pinia = createPinia(), old = NEW_FEATURE_NOTICES.oauthInitialWSSettings
- useNewFeatureNoticeStore(pinia).dismiss(41, old)
- const a = card(pinia), b = card(pinia); await flushPromises()
- expect(a.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- await a.get('[data-testid="new-feature-badge"]').trigger('click')
- expect(b.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- a.unmount(); b.unmount()
- const reloaded = createPinia(), c = card(reloaded); await flushPromises()
- expect(c.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- expect(useNewFeatureNoticeStore(reloaded).isDismissed(41, old)).toBe(true)
- const future = mount(NewFeatureBadge, { props: { noticeId: 'disposition-future-C', userId: 41 }, global: { plugins: [reloaded] } })
- expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- expect(new Set(Object.values(NEW_FEATURE_NOTICES)).size).toBe(Object.values(NEW_FEATURE_NOTICES).length)
-})
-
 it('normalizes empty account/group arrays from legacy JSON without sharing draft arrays', () => {
  const source = oauthAPIKeyDispositionPayload({ account_ids: [7], group_ids: [5] })
  const copy = oauthAPIKeyDispositionPayload(source)

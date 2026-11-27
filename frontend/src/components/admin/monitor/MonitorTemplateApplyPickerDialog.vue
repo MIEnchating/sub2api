@@ -48,7 +48,7 @@
           class="flex cursor-pointer items-center gap-3 px-3 py-2 hover:bg-gray-50 dark:hover:bg-dark-800"
           @click="toggle(m.id)"
         >
-          <input
+          <FormInput
             type="checkbox"
             :checked="selectedSet.has(m.id)"
             class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -69,24 +69,26 @@
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <button class="btn btn-secondary" @click="$emit('close')">
+        <BaseButton class="btn-secondary" @click="$emit('close')">
           {{ t('common.cancel') }}
-        </button>
-        <button
-          class="btn btn-primary"
+        </BaseButton>
+        <BaseButton
+          class="btn-primary"
           :disabled="submitting || selectedIds.length === 0"
           @click="handleApply"
         >
           {{ submitting
             ? t('common.submitting')
             : t('admin.channelMonitor.template.applyPickerConfirm', { n: selectedIds.length }) }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

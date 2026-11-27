@@ -11,8 +11,8 @@
       </div>
     </div>
     <div v-if="summary" class="mt-3 flex min-w-0 gap-2">
-      <input :value="link" readonly class="input min-w-0 flex-1 text-xs" :aria-label="t('lottery.inviteLink')" @focus="($event.target as HTMLInputElement).select()" />
-      <button class="btn btn-secondary !h-11 !w-11 shrink-0 !p-2" :title="t(copied ? 'lottery.copied' : 'lottery.copyLink')" :aria-label="t(copied ? 'lottery.copied' : 'lottery.copyLink')" @click="copyLink"><Icon :name="copied ? 'check' : 'clipboard'" size="sm" /></button>
+      <FormInput :value="link" readonly class="min-w-0 flex-1 text-xs" :aria-label="t('lottery.inviteLink')" @focus="($event.target as HTMLInputElement).select()" />
+      <BaseButton class="btn-secondary !h-11 !w-11 shrink-0 !p-2" :title="t(copied ? 'lottery.copied' : 'lottery.copyLink')" :aria-label="t(copied ? 'lottery.copied' : 'lottery.copyLink')" @click="copyLink"><Icon :name="copied ? 'check' : 'clipboard'" size="sm" /></BaseButton>
     </div>
     <p v-if="summary?.invited && pool.mode === 'invite_recharge'" class="mt-3 text-xs text-primary-700 dark:text-primary-400">{{ t('lottery.invitedProgress', { amount: money(summary.incoming_progress), threshold: money(pool.threshold) }) }}</p>
     <p v-if="pool.mode === 'invite_visit' && pool.invite_config?.reward_to === 'both'" class="mt-2 text-xs leading-5 text-gray-500 dark:text-gray-400">{{ t('lottery.visitRecipientNote') }}</p>
@@ -22,6 +22,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

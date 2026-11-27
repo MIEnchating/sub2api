@@ -80,9 +80,13 @@ func sanitizeOpenAIResponsesInputItemIDs(body []byte) ([]byte, bool, error) {
 	}
 
 	items := make([]inputItem, 0)
+	var notificationCallIDs map[string]bool
+	if bytes.Contains(body, []byte("custom_tool_call_output")) || bytes.Contains(body, []byte(`\u`)) {
+		notificationCallIDs = rawCodexExecNotificationCallIDs(input)
+	}
 	input.ForEach(func(_, item gjson.Result) bool {
 		parsed := inputItem{raw: item.Raw}
-		if item.IsObject() {
+		if item.IsObject() && !notificationCallIDs[item.Get("call_id").Str] {
 			itemType := item.Get("type")
 			id := item.Get("id")
 			trimmedItemType := strings.TrimSpace(itemType.String())

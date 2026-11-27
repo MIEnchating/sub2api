@@ -33,12 +33,6 @@
           {{ t('admin.settings.payment.feeMethodOverrides', { count: Object.keys(provider.method_fee_rates || {}).length }) }}
         </span>
         <NewFeatureBadge v-if="userId != null" :notice-id="NEW_FEATURE_NOTICES.paymentProviderFees" :user-id="userId" class="pointer-events-auto" />
-        <NewFeatureBadge
-          v-if="provider.provider_key === 'bepusdt' && userId != null"
-          :notice-id="NEW_FEATURE_NOTICES.bepusdtPayment"
-          :user-id="userId"
-          class="pointer-events-auto"
-        />
         <span v-if="provider.payment_mode" class="text-xs text-gray-400 dark:text-gray-500">· {{ modeLabel }}</span>
         <span v-if="enabled && availableTypes.length" class="text-xs text-gray-300 dark:text-gray-600">|</span>
         <div v-if="enabled" class="flex flex-wrap items-center gap-1" :class="{ 'basis-full': provider.provider_key === 'bepusdt' }">

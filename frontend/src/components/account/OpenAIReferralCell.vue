@@ -39,9 +39,9 @@
             <p class="font-medium text-violet-800 dark:text-violet-300">{{ programLabel }}</p>
             <p class="mt-1 text-gray-600 dark:text-gray-300">{{ t('admin.accounts.openaiReferral.available') }} {{ countDisplay }}</p>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || sending" @click="refresh()">
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading || sending" @click="refresh()">
             {{ loading ? t('common.loading') : t('common.refresh') }}
-          </button>
+          </BaseButton>
         </div>
         <div v-if="eligibility?.title || eligibility?.description || eligibility?.rules?.length" class="space-y-2 text-sm text-gray-600 dark:text-gray-300">
           <p v-if="eligibility.title" class="font-medium">{{ eligibility.title }}</p>
@@ -55,11 +55,10 @@
         </p>
         <div>
           <label :for="emailID" class="input-label">{{ t('admin.accounts.openaiReferral.email') }}</label>
-          <input
+          <FormInput
             :id="emailID"
             v-model="email"
             type="email"
-            class="input"
             autocomplete="off"
             maxlength="254"
             required
@@ -69,7 +68,7 @@
           />
         </div>
         <label v-if="needsConsent" class="flex items-start gap-2 text-sm text-gray-600 dark:text-gray-300">
-          <input v-model="confirmed" type="checkbox" class="mt-1" :disabled="sending" data-testid="referral-consent" />
+          <FormInput v-model="confirmed" type="checkbox" class="mt-1" :disabled="sending" data-testid="referral-consent" />
           {{ t('admin.accounts.openaiReferral.consent') }}
         </label>
         <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
@@ -79,16 +78,18 @@
         <p v-if="warning" role="status" class="text-sm text-amber-700 dark:text-amber-400">{{ warning }}</p>
       </form>
       <template #footer>
-        <button type="button" class="btn btn-secondary" :disabled="sending" @click="closeDialog">{{ t('common.close') }}</button>
-        <button type="submit" :form="formID" class="btn btn-primary" :disabled="!canSend" data-testid="referral-send">
+        <BaseButton type="button" class="btn-secondary" :disabled="sending" @click="closeDialog">{{ t('common.close') }}</BaseButton>
+        <BaseButton type="submit" :form="formID" class="btn-primary" :disabled="!canSend" data-testid="referral-send">
           {{ sending ? t('admin.accounts.openaiReferral.sending') : t('admin.accounts.openaiReferral.send') }}
-        </button>
+        </BaseButton>
       </template>
     </BaseDialog>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'

@@ -12,7 +12,7 @@
         <p v-if="saved" class="mt-2 text-xs text-gray-400">{{ t(`${p}.borrowSummary`, { sources: saved.cookie_pool.source_account_ids.length, targets: saved.cookie_pool.target_account_ids.length }) }}</p>
         <p v-if="error && !expanded" role="alert" class="mt-2 text-sm text-red-600">{{ error }}</p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" data-testid="expand-borrow" :aria-expanded="expanded" aria-controls="gateway-borrow-content" @click="expanded = !expanded">{{ t(expanded ? `${p}.collapse` : `${p}.expand`) }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" data-testid="expand-borrow" :aria-expanded="expanded" aria-controls="gateway-borrow-content" @click="expanded = !expanded">{{ t(expanded ? `${p}.collapse` : `${p}.expand`) }}</BaseButton>
     </div>
     <div v-if="expanded" id="gateway-borrow-content" :class="embedded ? 'mt-5 space-y-5' : 'space-y-5 border-t border-gray-100 p-5 dark:border-dark-700'">
       <header class="flex flex-wrap items-start justify-between gap-4">
@@ -22,8 +22,8 @@
         </div>
         <div class="flex items-center gap-2">
           <span v-if="dirty" class="text-xs text-amber-600">{{ t(`${p}.unsaved`) }}</span>
-          <button class="btn btn-secondary" type="button" :disabled="loading || saving" @click="load">{{ t(dirty ? `${p}.discard` : 'common.refresh') }}</button>
-          <button data-testid="save" class="btn btn-primary" type="submit" form="astra-gateway-form" :disabled="!draft || !dirty || saving || !!validation">{{ t(saving ? `${p}.saving` : `${p}.save`) }}</button>
+          <BaseButton class="btn-secondary" type="button" :disabled="loading || saving" @click="load">{{ t(dirty ? `${p}.discard` : 'common.refresh') }}</BaseButton>
+          <BaseButton data-testid="save" class="btn-primary" type="submit" form="astra-gateway-form" :disabled="!draft || !dirty || saving || !!validation">{{ t(saving ? `${p}.saving` : `${p}.save`) }}</BaseButton>
         </div>
       </header>
       <p v-if="error" role="alert" class="rounded-xl bg-red-50 p-4 text-sm text-red-700 dark:bg-red-900/20 dark:text-red-300">{{ error }}</p>
@@ -52,7 +52,7 @@
         <p v-if="validation" role="alert" class="text-sm text-amber-700 dark:text-amber-300">{{ validation }}</p>
       </form>
       <AstraGatewayRuntime :key="saved?.revision" :settings="saved" :dirty="dirty" />
-      <details><summary class="cursor-pointer text-sm font-medium text-gray-600 dark:text-gray-300">{{ t(`${p}.historyTitle`) }}</summary><AstraGatewayHistory v-if="historyExpanded" /><button v-else type="button" class="btn btn-secondary btn-sm mt-3" @click="historyExpanded = true">{{ t(`${p}.historyQuery`) }}</button></details>
+      <details><summary class="cursor-pointer text-sm font-medium text-gray-600 dark:text-gray-300">{{ t(`${p}.historyTitle`) }}</summary><AstraGatewayHistory v-if="historyExpanded" /><BaseButton v-else type="button" class="btn-secondary btn-sm mt-3" @click="historyExpanded = true">{{ t(`${p}.historyQuery`) }}</BaseButton></details>
       <aside class="rounded-xl border border-gray-200 p-5 text-sm leading-6 text-gray-600 dark:border-dark-600 dark:text-gray-300">
         <p>{{ t(`${p}.boundary`) }}</p>
         <RouterLink to="/admin/accounts" class="mt-2 inline-block font-medium text-primary-600 hover:underline">{{ t(`${p}.manageAccounts`) }} →</RouterLink>
@@ -61,6 +61,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { RouterLink } from 'vue-router'

@@ -5,7 +5,7 @@
     <p v-if="error" role="alert">{{ t('latencyObservability.error') }}</p>
     <p v-else-if="!data?.points.length">{{ t('latencyObservability.empty') }}</p>
     <label v-if="instances.length" class="text-sm">{{ t('latencyObservability.instance') }}
-      <select v-model="selected" class="input ml-2"><option v-for="(id, i) in instances" :key="id" :value="id">{{ i + 1 }} · {{ id.slice(0, 8) }}</option></select>
+      <FormSelect v-model="selected" class="ml-2"><option v-for="(id, i) in instances" :key="id" :value="id">{{ i + 1 }} · {{ id.slice(0, 8) }}</option></FormSelect>
     </label>
     <div class="grid gap-4 md:grid-cols-2">
       <div v-for="series in curves" :key="series.key" :data-testid="`network-${series.key}`">
@@ -21,6 +21,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getNetworkSeries, type NetworkSeries } from '@/api/admin/opsNetwork'

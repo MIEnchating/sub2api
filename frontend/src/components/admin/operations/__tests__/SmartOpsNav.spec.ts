@@ -7,8 +7,6 @@ import { beforeEach, describe, expect, it } from 'vitest'
 import SmartOpsNav from '../SmartOpsNav.vue'
 import { useAdminSettingsStore } from '@/stores/adminSettings'
 import { useAuthStore } from '@/stores/auth'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import type { User } from '@/types'
 
 const smartOpsPaths = ['/admin/lottery', '/admin/auto-config', '/admin/priority-scheduling',
@@ -68,52 +66,19 @@ describe('SmartOpsNav', () => {
     expect(hrefs(wrapper)).not.toContain('/admin/qqbot/overview')
   })
 
-  it('keeps the AI notice in the normal nav flow so dismissing it reserves no space', async () => {
+  it("renders the AI operations link without a feature badge or extra padding", async () => {
     const wrapper = await mountAt('/admin/ai-ops')
     const entry = wrapper.get('a[href="/admin/ai-ops"]')
-    const badge = wrapper.get('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]')
     expect(entry.classes()).not.toContain('pr-16')
-    expect(badge.classes()).not.toContain('absolute')
-    await badge.trigger('click')
-    await nextTick()
-    expect(wrapper.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(false)
-    expect(entry.classes()).not.toContain('pr-16')
-  })
-
-  it('shares the AI notice dismissal across entries and retains it after reloading preferences', async () => {
-    useNewFeatureNoticeStore().dismiss(41, NEW_FEATURE_NOTICES.protocolFeatureSwitches)
-    const first = await mountAt('/admin/ai-ops')
-    const second = await mountAt('/admin/auto-config')
-    expect(first.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(true)
-    expect(second.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(true)
-    await first.get('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').trigger('click')
-    await nextTick()
-    expect(second.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(false)
-    first.unmount(); second.unmount()
-    setActivePinia(createPinia())
-    useAuthStore().user = { id: 41, role: 'admin' } as User
-    const reloaded = await mountAt('/admin/ai-ops')
-    expect(reloaded.find('a[href="/admin/ai-ops"] + [data-testid="new-feature-badge"]').exists()).toBe(false)
-    expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.protocolFeatureSwitches)).toBe(true)
-    reloaded.unmount()
-  })
-
-  it('uses the provider reconciliation notice on the existing profit entry', async () => {
-    const wrapper = await mountAt('/admin/channel-config')
-    await wrapper.get('a[href="/admin/channel-config"] + [data-testid="new-feature-badge"]').trigger('click')
-    expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.channelConfig)).toBe(true)
+    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
     wrapper.unmount()
   })
 
-  it('shares quality rest dismissal across navigation entries without dismissing other features', async () => {
-    const first = await mountAt('/admin/account-quality')
-    const second = await mountAt('/admin/auto-config')
-    const selector = 'a[href="/admin/account-quality"] + [data-testid="new-feature-badge"]'
-    expect(second.find(selector).exists()).toBe(true)
-    await first.get(selector).trigger('click'); await nextTick()
-    expect(second.find(selector).exists()).toBe(false)
-    expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.qualityRetestRest)).toBe(true)
-    expect(useNewFeatureNoticeStore().isDismissed(41, NEW_FEATURE_NOTICES.aiOpsCodex)).toBe(false)
-    first.unmount(); second.unmount()
+  it("keeps channel configuration reachable without an announcement", async () => {
+    const wrapper = await mountAt('/admin/channel-config')
+    expect(wrapper.find('a[href="/admin/channel-config"]').exists()).toBe(true)
+    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
+    wrapper.unmount()
   })
+
 })

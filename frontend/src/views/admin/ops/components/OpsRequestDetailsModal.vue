@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
 import { computed, ref, watch } from 'vue'
 import { useMediaQuery } from '@vueuse/core'
 import { useI18n } from 'vue-i18n'
@@ -193,13 +195,13 @@ function accountLabel(row: OpsRequestDetail): string {
           <div class="text-xs text-gray-500 dark:text-gray-400">
             {{ t('admin.ops.requestDetails.rangeLabel', { range: rangeLabel }) }}
           </div>
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-secondary btn-sm"
+            class="btn-secondary btn-sm"
             @click="fetchData"
           >
             {{ t('common.refresh') }}
-          </button>
+          </BaseButton>
         </div>
 
         <!-- Loading -->
@@ -263,7 +265,7 @@ function accountLabel(row: OpsRequestDetail): string {
                   </button>
                 </div>
               </div>
-              <table v-else class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
+              <BaseTable v-else class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
                 <thead class="sticky top-0 z-10 bg-gray-50 dark:bg-dark-900">
                 <tr>
                   <th class="px-4 py-3 text-left text-[11px] font-bold uppercase tracking-wider text-gray-500 dark:text-gray-400">
@@ -346,7 +348,7 @@ function accountLabel(row: OpsRequestDetail): string {
                   </td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
             </div>
 
             <Pagination

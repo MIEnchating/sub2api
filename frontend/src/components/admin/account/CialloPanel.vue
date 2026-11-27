@@ -6,14 +6,14 @@
       @update:model-value="emit('update:modelId', $event)" />
     <label class="block space-y-1">
       <span class="input-label">{{ t('admin.accounts.pelicanTest.reasoning') }}</span>
-      <select v-model="effort" class="input" :disabled="running">
+      <FormSelect v-model="effort" :disabled="running">
         <option value="">{{ t('modelTrace.providerDefault') }}</option>
         <option v-for="level in reasoningLevels" :key="level" :value="level">{{ level }}</option>
-      </select>
+      </FormSelect>
     </label>
     <p v-if="account.platform !== 'openai'" class="text-sm">{{ t('qualityOps.ciallo.unsupported') }}</p>
-    <button v-if="running" class="btn btn-secondary" @click="controller?.abort()">{{ t('common.cancel') }}</button>
-    <button v-else class="btn btn-primary" :disabled="!modelId.trim() || account.platform !== 'openai'" @click="start">{{ t('qualityOps.ciallo.start') }}</button>
+    <BaseButton v-if="running" class="btn-secondary" @click="controller?.abort()">{{ t('common.cancel') }}</BaseButton>
+    <BaseButton v-else class="btn-primary" :disabled="!modelId.trim() || account.platform !== 'openai'" @click="start">{{ t('qualityOps.ciallo.start') }}</BaseButton>
     <p v-if="failure" role="alert" class="text-sm">{{ t('qualityOps.ciallo.unassessable') }} · {{ t('qualityOps.ciallo.' + failure) }}</p>
     <p v-if="saveFailed" role="alert">{{ t('qualityOps.ciallo.storage') }}</p>
     <ol class="space-y-2" aria-live="polite">
@@ -29,6 +29,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

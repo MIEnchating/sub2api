@@ -5,10 +5,10 @@
     <p class="rounded bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950 dark:text-amber-200">{{ t('qqbot.chatPreview.savedOnly') }}</p>
     <div class="grid gap-4 md:grid-cols-2">
       <label class="space-y-1 text-sm">{{ t('qqbot.group') }}
-        <select v-model="group" class="input" data-testid="qq-preview-group">
+        <FormSelect v-model="group" data-testid="qq-preview-group">
           <option value="">{{ t('qqbot.workspace.chooseGroup') }}</option>
           <option v-for="id in config.allowed_groups" :key="id" :value="id">{{ config.group_policies?.find(policy => policy.group_id === id)?.label || id }}</option>
-        </select>
+        </FormSelect>
       </label>
       <div>
         <QQMemberPicker v-if="group" v-model="member" :app-id="config.app_id" :group-id="group" :disabled="busy" @select="selectMember" />
@@ -16,9 +16,9 @@
       </div>
     </div>
     <label class="block space-y-1 text-sm">{{ t('qqbot.chatPreview.question') }}
-      <textarea v-model="question" rows="3" class="input" maxlength="6000" data-testid="qq-preview-question" :placeholder="t('qqbot.chatPreview.placeholder')" @keydown.ctrl.enter.prevent="preview" @keydown.meta.enter.prevent="preview" />
+      <FormTextarea v-model="question" rows="3" maxlength="6000" data-testid="qq-preview-question" :placeholder="t('qqbot.chatPreview.placeholder')" @keydown.ctrl.enter.prevent="preview" @keydown.meta.enter.prevent="preview" />
     </label>
-    <button type="button" class="btn btn-secondary" data-testid="qq-preview-run" :disabled="busy || !group || !question.trim()" @click="preview">{{ t(busy ? 'qqbot.chatPreview.running' : 'qqbot.chatPreview.run') }}</button>
+    <BaseButton type="button" class="btn-secondary" data-testid="qq-preview-run" :disabled="busy || !group || !question.trim()" @click="preview">{{ t(busy ? 'qqbot.chatPreview.running' : 'qqbot.chatPreview.run') }}</BaseButton>
     <p v-if="busy" role="status" class="text-sm text-gray-500">{{ t('qqbot.chatPreview.wait') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <article v-if="result" class="space-y-3 rounded-lg border p-4 dark:border-dark-700" data-testid="qq-preview-result">
@@ -42,6 +42,9 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQBotConfig, type QQChatPreviewResult, type QQMemberOption } from '@/api/qqbot'

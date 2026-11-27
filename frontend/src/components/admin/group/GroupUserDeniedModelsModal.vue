@@ -19,11 +19,11 @@
         </h4>
         <div class="space-y-2">
           <div class="relative">
-            <input
+            <FormInput
               v-model="searchQuery"
               type="text"
               autocomplete="off"
-              class="input w-full"
+              class="w-full"
               :placeholder="t('admin.groups.searchUserPlaceholder')"
               data-testid="denied-models-user-search"
               @input="handleSearchUsers"
@@ -55,15 +55,15 @@
                 :placeholder="t('admin.groups.deniedModelsPlaceholder')"
               />
             </div>
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary shrink-0"
+              class="btn-primary shrink-0"
               :disabled="!selectedUser || newModels.length === 0"
               data-testid="denied-models-add"
               @click="handleAddLocal"
             >
               {{ t('common.add') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -102,7 +102,7 @@
         <div v-else>
           <div class="overflow-hidden rounded-lg border border-gray-200 dark:border-dark-600">
             <div class="max-h-[420px] overflow-auto">
-              <table class="w-full text-sm">
+              <BaseTable class="w-full text-sm">
                 <thead class="sticky top-0 z-[1]">
                   <tr class="border-b border-gray-200 bg-gray-50 dark:border-dark-600 dark:bg-dark-700">
                     <th class="px-3 py-2 text-left text-xs font-medium text-gray-500 dark:text-gray-400">{{ t('admin.groups.columns.userEmail') }}</th>
@@ -155,7 +155,7 @@
                     </td>
                   </tr>
                 </tbody>
-              </table>
+              </BaseTable>
             </div>
           </div>
 
@@ -182,20 +182,20 @@
           </button>
         </template>
         <div class="ml-auto flex items-center gap-3">
-          <button type="button" class="btn btn-sm px-4 py-1.5" @click="handleClose">
+          <BaseButton type="button" class="btn-sm px-4 py-1.5" @click="handleClose">
             {{ t('common.close') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             v-if="isDirty"
             type="button"
-            class="btn btn-primary btn-sm px-4 py-1.5"
+            class="btn-primary btn-sm px-4 py-1.5"
             :disabled="saving"
             data-testid="denied-models-save"
             @click="handleSave"
           >
             <Icon v-if="saving" name="refresh" size="sm" class="mr-1 animate-spin" />
             {{ t('common.save') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -203,6 +203,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, computed, watch, onBeforeUnmount } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

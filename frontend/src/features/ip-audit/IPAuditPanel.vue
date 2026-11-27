@@ -12,14 +12,14 @@
     </details>
     <form @submit.prevent="apply">
       <fieldset :disabled="releasing" class="grid items-end gap-3 sm:grid-cols-2 lg:grid-cols-4">
-      <label class="text-sm">{{ t('ipAudit.source') }}<select v-model="source" class="input mt-1 w-full" data-testid="audit-source" @change="sourceChanged"><option v-for="item in inventory" :key="item.id" :value="item.id">{{ sourceName(item.id) }}</option></select></label>
-      <label class="text-sm">IP / CIDR<input v-model="ip" class="input mt-1 w-full" maxlength="80" :disabled="source === 'admin_history' || source === 'security_penalty'" data-testid="audit-ip" /></label>
-      <label v-if="source === 'security_penalty'" class="text-sm">{{ t('ipAudit.explicitUser') }}<input v-model="userId" class="input mt-1 w-full" type="number" min="1" data-testid="audit-user" /></label>
-      <label class="text-sm">{{ t('ipAudit.state') }}<select v-model="state" class="input mt-1 w-full" data-testid="audit-state"><option value="">{{ t('ipAudit.allStates') }}</option><option v-for="s in states" :key="s" :value="s">{{ label(s) }}</option></select></label>
-      <label class="text-sm">{{ t('ipAudit.order') }}<select v-model="sort" class="input mt-1 w-full" :disabled="source === 'admin_history'"><option value="expires_desc">{{ t('ipAudit.expiryDesc') }}</option><option value="expires_asc">{{ t('ipAudit.expiryAsc') }}</option></select></label>
-      <label class="text-sm">{{ t('ipAudit.start') }}<input v-model="start" class="input mt-1 w-full" type="datetime-local" /></label>
-      <label class="text-sm">{{ t('ipAudit.end') }}<input v-model="end" class="input mt-1 w-full" type="datetime-local" /></label>
-      <div class="flex gap-2"><button type="submit" class="btn btn-secondary" :disabled="loading || releasing" data-testid="audit-filter">{{ t('common.search') }}</button><button type="button" class="btn btn-secondary" :disabled="loading || releasing" @click="refresh">{{ t('common.refresh') }}</button></div>
+      <label class="text-sm">{{ t('ipAudit.source') }}<FormSelect v-model="source" class="mt-1 w-full" data-testid="audit-source" @change="sourceChanged"><option v-for="item in inventory" :key="item.id" :value="item.id">{{ sourceName(item.id) }}</option></FormSelect></label>
+      <label class="text-sm">IP / CIDR<FormInput v-model="ip" class="mt-1 w-full" maxlength="80" :disabled="source === 'admin_history' || source === 'security_penalty'" data-testid="audit-ip" /></label>
+      <label v-if="source === 'security_penalty'" class="text-sm">{{ t('ipAudit.explicitUser') }}<FormInput v-model="userId" class="mt-1 w-full" type="number" min="1" data-testid="audit-user" /></label>
+      <label class="text-sm">{{ t('ipAudit.state') }}<FormSelect v-model="state" class="mt-1 w-full" data-testid="audit-state"><option value="">{{ t('ipAudit.allStates') }}</option><option v-for="s in states" :key="s" :value="s">{{ label(s) }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('ipAudit.order') }}<FormSelect v-model="sort" class="mt-1 w-full" :disabled="source === 'admin_history'"><option value="expires_desc">{{ t('ipAudit.expiryDesc') }}</option><option value="expires_asc">{{ t('ipAudit.expiryAsc') }}</option></FormSelect></label>
+      <label class="text-sm">{{ t('ipAudit.start') }}<FormInput v-model="start" class="mt-1 w-full" type="datetime-local" /></label>
+      <label class="text-sm">{{ t('ipAudit.end') }}<FormInput v-model="end" class="mt-1 w-full" type="datetime-local" /></label>
+      <div class="flex gap-2"><BaseButton type="submit" class="btn-secondary" :disabled="loading || releasing" data-testid="audit-filter">{{ t('common.search') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="loading || releasing" @click="refresh">{{ t('common.refresh') }}</BaseButton></div>
       </fieldset>
     </form>
     <p v-if="exactSource && !applied.ip" class="text-sm text-amber-700">{{ t('ipAudit.exactHint') }}</p>
@@ -29,7 +29,7 @@
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="partial" class="text-sm text-amber-700">{{ t('ipAudit.partial') }}</p>
     <p v-if="loading" role="status">{{ t('common.loading') }}</p>
-    <div v-else class="overflow-x-auto"><table class="w-full text-left text-sm">
+    <div v-else class="overflow-x-auto"><BaseTable class="w-full text-left text-sm">
       <thead><tr><th class="p-2">IP / {{ t('ipAudit.subject') }}</th><th class="p-2">{{ t('ipAudit.source') }}</th><th class="p-2">{{ t('ipAudit.reason') }}</th><th class="p-2">{{ t('ipAudit.state') }}</th><th class="p-2">{{ t('ipAudit.count') }}</th><th class="p-2">{{ t('ipAudit.start') }} / {{ t('ipAudit.expiry') }}</th><th class="p-2">{{ t('common.actions') }}</th></tr></thead>
       <tbody><tr v-for="row in rows" :key="row.id" class="border-t align-top">
         <td class="p-2"><code>{{ row.network || (row.user_id ? `UID ${row.user_id}` : t('ipAudit.unavailable')) }}</code><p v-if="row.actor_id">{{ t('ipAudit.operator') }} #{{ row.actor_id }}</p></td>
@@ -37,17 +37,22 @@
         <td class="p-2">{{ label(row.reason) }}</td><td class="p-2">{{ label(row.state) }}<p>{{ label(row.effective) }}</p><p v-if="row.result">{{ label(row.result) }}</p></td>
         <td class="p-2">{{ row.count ?? t('ipAudit.unavailable') }} / {{ row.threshold ?? t('ipAudit.unavailable') }}</td>
         <td class="whitespace-nowrap p-2">{{ date(row.started_at) }}<p>{{ date(row.expires_at) }}</p></td>
-        <td class="p-2"><button v-if="row.can_release" type="button" class="btn btn-secondary btn-sm" :disabled="releasing" data-testid="release-source" @click="confirmEntry = row">{{ t('ipAudit.release') }}</button><span v-else>{{ t('ipAudit.readOnly') }}</span></td>
+        <td class="p-2"><BaseButton v-if="row.can_release" type="button" class="btn-secondary btn-sm" :disabled="releasing" data-testid="release-source" @click="confirmEntry = row">{{ t('ipAudit.release') }}</BaseButton><span v-else>{{ t('ipAudit.readOnly') }}</span></td>
       </tr></tbody>
-    </table><p v-if="!rows.length" class="p-4 text-sm text-gray-500">{{ t('ipAudit.empty') }}</p></div>
-    <div class="flex justify-between"><button class="btn btn-secondary btn-sm" :disabled="loading || releasing || !previous.length" @click="previousPage">{{ t('ipAudit.previous') }}</button><button class="btn btn-secondary btn-sm" :disabled="loading || releasing || !hasMore" data-testid="audit-next" @click="nextPage">{{ t('ipAudit.next') }}</button></div>
-    <div v-if="confirmEntry" role="dialog" aria-modal="true" :aria-label="t('ipAudit.confirmTitle')" class="space-y-3 rounded border border-amber-300 p-4" data-testid="release-dialog">
-      <p>{{ t('ipAudit.confirmTitle') }} · {{ sourceName(confirmEntry.source) }} · <code>{{ confirmEntry.network || `UID ${confirmEntry.user_id}` }}</code></p>
-      <p class="text-sm">{{ t(confirmEntry.scope === 'all_user_states' ? 'ipAudit.confirmUserScope' : 'ipAudit.confirmHint') }}</p>
-      <label class="block text-sm">{{ t('ipAudit.reason') }}<select v-model="reason" class="input ml-2"><option v-for="r in reasons" :key="r" :value="r">{{ label(r) }}</option></select></label>
-      <button type="button" class="btn btn-primary btn-sm" :disabled="releasing" data-testid="release-confirm" @click="release">{{ t('ipAudit.confirm') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm ml-2" :disabled="releasing" @click="confirmEntry = null">{{ t('common.cancel') }}</button>
-    </div>
+    </BaseTable><p v-if="!rows.length" class="p-4 text-sm text-gray-500">{{ t('ipAudit.empty') }}</p></div>
+    <div class="flex justify-between"><BaseButton class="btn-secondary btn-sm" :disabled="loading || releasing || !previous.length" @click="previousPage">{{ t('ipAudit.previous') }}</BaseButton><BaseButton class="btn-secondary btn-sm" :disabled="loading || releasing || !hasMore" data-testid="audit-next" @click="nextPage">{{ t('ipAudit.next') }}</BaseButton></div>
+    <BaseDialog :show="!!confirmEntry" :title="t('ipAudit.confirmTitle')" width="narrow"
+      :show-close-button="!releasing" :close-on-escape="!releasing" @close="confirmEntry = null">
+      <div v-if="confirmEntry" class="space-y-3" data-testid="release-dialog">
+        <p>{{ sourceName(confirmEntry.source) }} · <code>{{ confirmEntry.network || `UID ${confirmEntry.user_id}` }}</code></p>
+        <p class="text-sm">{{ t(confirmEntry.scope === 'all_user_states' ? 'ipAudit.confirmUserScope' : 'ipAudit.confirmHint') }}</p>
+        <label class="block text-sm">{{ t('ipAudit.reason') }}<FormSelect v-model="reason" class="mt-1"><option v-for="r in reasons" :key="r" :value="r">{{ label(r) }}</option></FormSelect></label>
+      </div>
+      <template #footer>
+        <BaseButton type="button" class="btn-secondary" :disabled="releasing" @click="confirmEntry = null">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="button" class="btn-primary" :disabled="releasing" data-testid="release-confirm" @click="release">{{ t('ipAudit.confirm') }}</BaseButton>
+      </template>
+    </BaseDialog>
     <div v-if="outcome" role="status" class="space-y-2 rounded border p-4" data-testid="release-outcome">
       <p>{{ t(outcome.readback === 'released' ? 'ipAudit.released' : outcome.readback === 'still_present' ? 'ipAudit.stillRestricted' : 'ipAudit.unverified') }}</p>
       <p>{{ t('ipAudit.notUnrestricted') }}</p>
@@ -57,6 +62,11 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { listIPAudit, releaseIPAudit, type AuditEntry, type AuditQuery, type AuditSource, type ReleaseResult } from './api'

@@ -19,19 +19,20 @@
       </template>
       <div v-if="confirmDetach" class="space-y-2 rounded border border-red-200 p-3">
         <p>{{ t('admin.accounts.openaiIPv6.confirmDetach') }}</p>
-        <button class="btn btn-danger" :disabled="busy" data-testid="ipv6-confirm-detach" @click="mutate('detach')">{{ t('common.confirm') }}</button>
-        <button class="btn btn-secondary" :disabled="busy" @click="confirmDetach = false">{{ t('common.cancel') }}</button>
+        <BaseButton class="btn-danger" :disabled="busy" data-testid="ipv6-confirm-detach" @click="mutate('detach')">{{ t('common.confirm') }}</BaseButton>
+        <BaseButton class="btn-secondary" :disabled="busy" @click="confirmDetach = false">{{ t('common.cancel') }}</BaseButton>
       </div>
     </div>
     <template #footer>
-      <button class="btn btn-secondary" :disabled="busy" @click="refresh">{{ t('common.refresh') }}</button>
-      <button v-if="state?.binding" class="btn btn-danger" :disabled="!canMutate" data-testid="ipv6-detach" @click="confirmDetach = true">{{ t('admin.accounts.openaiIPv6.detach') }}</button>
-      <button v-if="state && (!state.binding || ['error', 'provisioning'].includes(state.binding.status))" class="btn btn-primary" :disabled="!canMutate" data-testid="ipv6-bind" @click="mutate('bind')">{{ t(state.binding ? 'admin.accounts.openaiIPv6.retry' : 'admin.accounts.openaiIPv6.bind') }}</button>
+      <BaseButton class="btn-secondary" :disabled="busy" @click="refresh">{{ t('common.refresh') }}</BaseButton>
+      <BaseButton v-if="state?.binding" class="btn-danger" :disabled="!canMutate" data-testid="ipv6-detach" @click="confirmDetach = true">{{ t('admin.accounts.openaiIPv6.detach') }}</BaseButton>
+      <BaseButton v-if="state && (!state.binding || ['error', 'provisioning'].includes(state.binding.status))" class="btn-primary" :disabled="!canMutate" data-testid="ipv6-bind" @click="mutate('bind')">{{ t(state.binding ? 'admin.accounts.openaiIPv6.retry' : 'admin.accounts.openaiIPv6.bind') }}</BaseButton>
     </template>
   </BaseDialog>
   <TotpStepUpDialog :controller="stepUp" />
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

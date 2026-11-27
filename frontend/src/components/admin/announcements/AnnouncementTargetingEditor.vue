@@ -12,7 +12,7 @@
 
       <div class="flex flex-wrap items-center gap-3">
         <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input
+          <FormInput
             type="radio"
             name="announcement-targeting-mode"
             value="all"
@@ -23,7 +23,7 @@
           {{ t('admin.announcements.form.targetingAll') }}
         </label>
         <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input
+          <FormInput
             type="radio"
             name="announcement-targeting-mode"
             value="users"
@@ -35,7 +35,7 @@
           {{ t('admin.announcements.form.targetingUsers') }}
         </label>
         <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-          <input
+          <FormInput
             type="radio"
             name="announcement-targeting-mode"
             value="custom"
@@ -69,15 +69,15 @@
             ({{ anyOf.length }}/50)
           </span>
         </div>
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-secondary"
+          class="btn-secondary"
           :disabled="anyOf.length >= 50"
           @click="addOrGroup"
         >
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('admin.announcements.form.addOrGroup') }}
-        </button>
+        </BaseButton>
       </div>
 
       <div v-if="anyOf.length === 0" class="rounded-xl border border-dashed border-gray-300 p-4 text-sm text-gray-500 dark:border-dark-600 dark:text-dark-400">
@@ -100,14 +100,14 @@
             </div>
           </div>
 
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-secondary"
+            class="btn-secondary"
             @click="removeOrGroup(groupIndex)"
           >
             <Icon name="trash" size="sm" class="mr-1" />
             {{ t('common.delete') }}
-          </button>
+          </BaseButton>
         </div>
 
         <div class="mt-4 space-y-3">
@@ -153,39 +153,38 @@
                 </div>
                 <div class="w-full sm:flex-1">
                   <label class="input-label">{{ t('admin.announcements.form.balanceValue') }}</label>
-                  <input
+                  <FormInput
                     :value="String(cond.value ?? '')"
                     type="number"
                     step="any"
-                    class="input"
                     @input="(e) => setBalanceValue(groupIndex, condIndex, (e.target as HTMLInputElement).value)"
                   />
                 </div>
               </div>
 
               <div class="flex justify-end">
-                <button
+                <BaseButton
                   type="button"
-                  class="btn btn-secondary"
+                  class="btn-secondary"
                   @click="removeAndCondition(groupIndex, condIndex)"
                 >
                   <Icon name="trash" size="sm" class="mr-1" />
                   {{ t('common.delete') }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
 
           <div class="flex justify-end">
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :disabled="(group.all_of?.length || 0) >= 50"
               @click="addAndCondition(groupIndex)"
             >
               <Icon name="plus" size="sm" class="mr-1" />
               {{ t('admin.announcements.form.addAndCondition') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -198,6 +197,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type {

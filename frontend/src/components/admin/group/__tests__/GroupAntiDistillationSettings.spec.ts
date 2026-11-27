@@ -1,11 +1,8 @@
 import { defineComponent } from 'vue'
 import { flushPromises, mount } from '@vue/test-utils'
-import { createPinia, setActivePinia } from 'pinia'
+import { createPinia } from 'pinia'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
 import GroupAntiDistillationSettings from '../GroupAntiDistillationSettings.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(),
@@ -166,36 +163,4 @@ describe('GroupAntiDistillationSettings', () => {
     wrapper.unmount()
   })
 
-  it('shares the announcement across entries and preserves A → B → C dismissal boundaries', async () => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const notices = useNewFeatureNoticeStore()
-    const oldId = NEW_FEATURE_NOTICES.protocolFeatureSwitches
-    const newId = NEW_FEATURE_NOTICES.groupAntiDistillation
-    notices.dismiss(7, oldId)
-    const first = mountSettings(41, pinia)
-    const second = mountSettings(42, pinia)
-    await flushPromises()
-    expect(first.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-    expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-    await first.get('[data-testid="new-feature-badge"]').trigger('click')
-    expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-    expect(notices.isDismissed(7, oldId)).toBe(true)
-    expect(notices.isDismissed(7, newId)).toBe(true)
-    first.unmount()
-    second.unmount()
-
-    const reloadedPinia = createPinia()
-    const afterReload = mountSettings(41, reloadedPinia)
-    await flushPromises()
-    expect(afterReload.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-    const future = mount(NewFeatureBadge, {
-      props: { noticeId: 'future-feature-C', userId: 7 },
-      global: { plugins: [reloadedPinia] },
-    })
-    expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-    expect(useNewFeatureNoticeStore(reloadedPinia).isDismissed(7, oldId)).toBe(true)
-    afterReload.unmount()
-    future.unmount()
-  })
 })

@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"strings"
 	"sync"
@@ -127,6 +128,34 @@ func NewOpenAIWSStateStore(cache GatewayCache) OpenAIWSStateStore {
 	}
 	store.lastCleanupUnixNano.Store(time.Now().UnixNano())
 	return store
+}
+
+func (s *defaultOpenAIWSStateStore) bindHTTPResponseRoute(ctx context.Context, groupID int64, responseID string, userID, apiKeyID, accountID int64, ttl time.Duration) error {
+	ttl = normalizeOpenAIWSTTL(ttl)
+	if shared, ok := s.cache.(openAIHTTPResponseRouteCache); ok {
+		return shared.BindHTTPResponseRoute(ctx, groupID, responseID, openAIWSResponseAccountCacheKey(responseID), userID, apiKeyID, accountID, ttl)
+	}
+	if s.cache != nil {
+		return errors.New("shared response route store unavailable")
+	}
+	s.maybeCleanup()
+	now := time.Now()
+	mapKey := openAIWSResponseAccountMapKey(groupID, responseID)
+	s.responseOwnerMu.Lock()
+	defer s.responseOwnerMu.Unlock()
+	s.responseToAccountMu.Lock()
+	defer s.responseToAccountMu.Unlock()
+	if owner, ok := s.responseOwners[mapKey]; ok && now.Before(owner.expiresAt) && owner.userID != userID {
+		return errors.New("HTTP response owner conflict")
+	}
+	if route, ok := s.responseToAccount[mapKey]; ok && now.Before(route.expiresAt) && route.accountID != accountID {
+		return errors.New("HTTP response route conflict")
+	}
+	ensureBindingCapacity(s.responseOwners, mapKey, openAIWSStateStoreMaxEntriesPerMap)
+	ensureBindingCapacity(s.responseToAccount, mapKey, openAIWSStateStoreMaxEntriesPerMap)
+	s.responseOwners[mapKey] = openAIHTTPResponseOwnerBinding{userID: userID, apiKeyID: apiKeyID, expiresAt: now.Add(ttl)}
+	s.responseToAccount[mapKey] = openAIWSAccountBinding{accountID: accountID, expiresAt: now.Add(ttl)}
+	return nil
 }
 
 func (s *defaultOpenAIWSStateStore) BindHTTPResponseOwner(ctx context.Context, groupID int64, responseID string, userID, apiKeyID int64, ttl time.Duration) error {

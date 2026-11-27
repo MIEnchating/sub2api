@@ -8,7 +8,7 @@
     <form id="channel-monitor-form" @submit.prevent="handleSubmit" class="space-y-5">
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.name') }} <span class="text-red-500">*</span></label>
-        <input v-model="form.name" type="text" required class="input" :placeholder="t('admin.channelMonitor.form.namePlaceholder')" />
+        <FormInput v-model="form.name" type="text" required :placeholder="t('admin.channelMonitor.form.namePlaceholder')" />
       </div>
 
       <!-- 检测模式：probe（探活）/ quota（仅配额）/ quota_probe（探活+配额） -->
@@ -99,10 +99,10 @@
       <div v-if="usesProbePart">
         <label class="input-label">{{ t('admin.channelMonitor.form.endpoint') }} <span class="text-red-500">*</span></label>
         <div class="flex gap-2">
-          <input v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="input flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
-          <button type="button" @click="useCurrentDomain" class="btn btn-secondary whitespace-nowrap">
+          <FormInput v-model="form.endpoint" data-testid="monitor-endpoint" type="text" required class="flex-1" :placeholder="t('admin.channelMonitor.form.endpointPlaceholder')" />
+          <BaseButton type="button" @click="useCurrentDomain" class="btn-secondary whitespace-nowrap">
             {{ t('admin.channelMonitor.form.useCurrentDomain') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
 
@@ -111,28 +111,28 @@
           {{ t('admin.channelMonitor.form.apiKey') }}<span v-if="!editing" class="text-red-500"> *</span>
         </label>
         <div class="flex gap-2">
-          <input
+          <FormInput
             v-model="form.api_key"
             type="password"
             :required="!editing"
-            class="input flex-1"
+            class="flex-1"
             :placeholder="editing ? t('admin.channelMonitor.form.apiKeyEditPlaceholder') : t('admin.channelMonitor.form.apiKeyPlaceholder')"
           />
-          <button type="button" @click="openMyKeyPicker" class="btn btn-secondary whitespace-nowrap">
+          <BaseButton type="button" @click="openMyKeyPicker" class="btn-secondary whitespace-nowrap">
             {{ t('admin.channelMonitor.form.useMyKey') }}
-          </button>
+          </BaseButton>
         </div>
         <p v-if="editing && editing.api_key_masked" class="mt-1 text-xs text-gray-400">{{ editing.api_key_masked }}</p>
       </div>
 
       <div v-if="usesProbePart">
         <label class="input-label">{{ t('admin.channelMonitor.form.primaryModel') }} <span class="text-red-500">*</span></label>
-        <input
+        <FormInput
           v-model="form.primary_model"
           data-testid="monitor-primary-model"
           type="text"
           required
-          class="input font-medium"
+          class="font-medium"
           :class="getPlatformTextClass(form.provider)"
           :placeholder="t('admin.channelMonitor.form.primaryModelPlaceholder')"
         />
@@ -150,18 +150,18 @@
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.groupName') }}</label>
-        <input v-model="form.group_name" type="text" class="input" :placeholder="t('admin.channelMonitor.form.groupNamePlaceholder')" />
+        <FormInput v-model="form.group_name" type="text" :placeholder="t('admin.channelMonitor.form.groupNamePlaceholder')" />
       </div>
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.intervalSeconds') }} <span class="text-red-500">*</span></label>
-        <input v-model.number="form.interval_seconds" type="number" min="15" max="3600" required class="input" />
+        <FormInput v-model.number="form.interval_seconds" type="number" min="15" max="3600" required />
         <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.intervalSecondsHint') }}</p>
       </div>
 
       <div>
         <label class="input-label">{{ t('admin.channelMonitor.form.jitterSeconds') }}</label>
-        <input v-model.number="form.jitter_seconds" type="number" min="0" :max="maxJitterSeconds" class="input" />
+        <FormInput v-model.number="form.jitter_seconds" type="number" min="0" :max="maxJitterSeconds" />
         <p class="mt-1 text-xs text-gray-400">{{ t('admin.channelMonitor.form.jitterSecondsHint') }}</p>
       </div>
 
@@ -204,19 +204,19 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button @click="$emit('close')" type="button" class="btn btn-secondary">
+        <BaseButton @click="$emit('close')" type="button" class="btn-secondary">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="submit"
           form="channel-monitor-form"
           :disabled="submitting"
-          class="btn btn-primary"
+          class="btn-primary"
         >
           {{ submitting
             ? t('common.submitting')
             : editing ? t('common.update') : t('common.create') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -233,6 +233,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, reactive, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

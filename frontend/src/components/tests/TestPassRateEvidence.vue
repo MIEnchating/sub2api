@@ -1,6 +1,6 @@
 <template>
   <div class="space-y-2 rounded-lg border border-gray-200 p-3 text-xs dark:border-dark-700" data-pass-rate-evidence>
-    <div class="flex flex-wrap items-center gap-2"><strong>{{ tr('currentWindow') }}</strong><span class="badge" :class="evidence.blocked ? 'badge-danger' : evidence.stale || !evidence.ready ? 'badge-warning' : 'badge-success'" data-pass-rate-state>{{ tr(`states.${state}`) }}</span></div>
+    <div class="flex flex-wrap items-center gap-2"><strong>{{ tr('currentWindow') }}</strong><StatusBadge :class="evidence.blocked ? 'badge-danger' : evidence.stale || !evidence.ready ? 'badge-warning' : 'badge-success'" data-pass-rate-state>{{ tr(`states.${state}`) }}</StatusBadge></div>
     <p class="tabular-nums" data-pass-rate-counts>{{ tr('counts', { passed: evidence.passed, samples: evidence.samples, rate: rate }) }}</p>
     <p v-if="!evidence.ready" data-pass-rate-collecting>{{ tr('collectingHint', { remaining: Math.max(0, evidence.window_size - evidence.samples), required: evidence.window_size }) }}</p>
     <p v-if="evidence.stale" class="text-amber-700 dark:text-amber-300" data-pass-rate-stale>{{ tr('staleHint') }}</p>
@@ -17,6 +17,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TestPassRateSummary } from '@/types'

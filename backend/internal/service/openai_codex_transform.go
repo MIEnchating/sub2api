@@ -1676,6 +1676,7 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 	additionalToolsIDMappings := codexAdditionalToolsIDMappings(input)
 	inputItemIDs := codexInputItemIDs(input)
 	inputCallIDs := codexInputCallIDs(input)
+	notificationCallIDs := codexExecNotificationCallIDs(input)
 	for _, item := range input {
 		m, ok := item.(map[string]any)
 		if !ok {
@@ -1683,6 +1684,11 @@ func filterCodexInputWithOptions(input []any, opts codexInputFilterOptions) []an
 			continue
 		}
 		typ, _ := m["type"].(string)
+		callID, _ := m["call_id"].(string)
+		if isCodexToolCallItemType(typ) && notificationCallIDs[callID] {
+			filtered = append(filtered, item)
+			continue
+		}
 
 		// chatgpt.com codex (OAuth path) runs with store=false (forced by
 		// applyCodexOAuthTransform). Replaying a reasoning item with its rs_*

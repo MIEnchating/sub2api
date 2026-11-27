@@ -1,8 +1,8 @@
 import { nextTick, ref, watch, type Ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
-import { settingsLocation, type SettingsTab } from '@/utils/settingsSearch'
+import { settingsLocation, type SettingsTab } from '@/utils/settingsLocation'
 
-export function focusSettingsLocation(tab: unknown, hash: string) {
+function focusSettingsLocation(tab: unknown, hash: string) {
   const location = settingsLocation(tab, hash)
   if (!location.linked) return
   const target = document.getElementById(location.anchor ?? `settings-tab-${location.tab}`)
@@ -28,7 +28,6 @@ export function useSettingsNavigation(loading: Ref<boolean>, loadFailed: Ref<boo
 
   function selectSettingsTab(tab: SettingsTab) {
     activeTab.value = tab
-    // Clear the old anchor so selecting the same search result works again.
     void router.replace({ query: { ...route.query, tab }, hash: '' })
   }
 

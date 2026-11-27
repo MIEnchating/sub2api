@@ -1264,7 +1264,8 @@ type GatewayConfig struct {
 	OpenAICompactModel string `mapstructure:"openai_compact_model"`
 	// OpenAICodexTicket: ChatGPT OAuth 账号按 (账号, 模型) 捕获套餐对应长度
 	// x-codex-turn-state，并在住宅 IP 业务请求中注入该头。默认关闭。
-	OpenAICodexTicket OpenAICodexTicketConfig `mapstructure:"openai_codex_ticket"`
+	OpenAICodexTicket      OpenAICodexTicketConfig `mapstructure:"openai_codex_ticket"`
+	OpenAITiboProbeEnabled bool                    `mapstructure:"openai_tibo_probe_enabled"`
 	// OpenAIWS: OpenAI Responses WebSocket 配置（默认开启，可按需回滚到 HTTP）
 	OpenAIWS GatewayOpenAIWSConfig `mapstructure:"openai_ws"`
 	// Live: ChatGPT Frameless Live 会话配置。
@@ -2798,6 +2799,7 @@ func setDefaults() {
 	viper.SetDefault("gateway.prism_browser.base_url", "http://127.0.0.1:8319/v1")
 	viper.SetDefault("gateway.prism_browser.api_key", "")
 	viper.SetDefault("gateway.openai_codex_ticket.enabled", false)
+	viper.SetDefault("gateway.openai_tibo_probe_enabled", true)
 	viper.SetDefault("gateway.openai_codex_ticket.harvest_proxy_url", "")
 	viper.SetDefault("gateway.openai_codex_ticket.target_length", 292)
 	viper.SetDefault("gateway.openai_codex_ticket.ttl_seconds", DefaultOpenAICodexTicketTTLSeconds)

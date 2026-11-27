@@ -4,20 +4,20 @@
       <SmartOpsNav v-if="!embedded" />
       <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-200 dark:border-dark-700">
         <div role="tablist" :aria-label="t('accountOps.pageSections')" class="flex gap-6">
-          <button v-for="tab in tabs" :id="`ops-tab-${tab}`" :key="tab" type="button" role="tab" :aria-selected="activeTab === tab"
+          <TabButton v-for="tab in tabs" :id="`ops-tab-${tab}`" :key="tab" type="button" :aria-selected="activeTab === tab"
             :aria-controls="`ops-panel-${tab}`" :tabindex="activeTab === tab ? 0 : -1" class="border-b-2 px-1 py-3 text-sm font-medium"
             :class="activeTab === tab ? 'border-primary-600 text-primary-700 dark:text-primary-400' : 'border-transparent text-gray-500 hover:text-gray-800 dark:hover:text-gray-200'"
             :data-testid="`account-ops-tab-${tab}`" @click="selectTab(tab)"
-            @keydown="tabKey($event, tab)">{{ t(tab === 'records' ? 'accountOps.recordsTab' : 'accountOps.settingsTab') }}</button>
+            @keydown="tabKey($event, tab)">{{ t(tab === 'records' ? 'accountOps.recordsTab' : 'accountOps.settingsTab') }}</TabButton>
         </div>
         <div class="flex items-center gap-3 pb-2">
           <div class="flex items-center gap-3 text-sm font-medium"><span id="account-ops-enabled-label">{{ t('accountOps.enabled') }}</span>
             <Toggle :model-value="enabledDraft" aria-labelledby="account-ops-enabled-label"
               :disabled="!remote || loading || mutating || globalSaving" class="disabled:cursor-wait disabled:opacity-50"
               data-testid="notifications-enabled" @update:model-value="toggleNotifications" />
-          </div><button class="btn btn-secondary inline-flex items-center gap-2 py-1.5" :disabled="loading || thresholdLoading || mutating || globalSaving" @click="refresh">
+          </div><BaseButton class="btn-secondary inline-flex items-center gap-2 py-1.5" :disabled="loading || thresholdLoading || mutating || globalSaving" @click="refresh">
             <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />{{ t('qualityOps.refresh') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
       <section v-if="activeTab === 'records'" id="ops-panel-records" role="tabpanel" aria-labelledby="ops-tab-records"
@@ -27,21 +27,21 @@
             <h2 class="text-base font-semibold">{{ t('accountOps.recordsTab') }}</h2>
             <p class="mt-1 text-xs text-gray-500">{{ t('accountOps.recordsOnceHint') }}</p>
           </div>
-          <div class="flex flex-wrap gap-2"><input v-model="query" class="input w-48 text-sm" :placeholder="t('accountOps.search')"
-              :aria-label="t('accountOps.search')" /><select v-model="kind" class="input w-auto text-sm"
+          <div class="flex flex-wrap gap-2"><FormInput v-model="query" class="w-48 text-sm" :placeholder="t('accountOps.search')"
+              :aria-label="t('accountOps.search')" /><FormSelect v-model="kind" class="w-auto text-sm"
               :aria-label="t('accountOps.alertTypes')">
               <option value="all">{{ t('accountOps.allTypes') }}</option>
               <option v-for="value in alertKinds" :key="value" :value="value">{{ t(`accountOps.${value}`) }}</option>
-            </select><select v-model="phase" class="input w-auto text-sm" :aria-label="t('accountOps.eventPhase')">
+            </FormSelect><FormSelect v-model="phase" class="w-auto text-sm" :aria-label="t('accountOps.eventPhase')">
               <option value="all">{{ t('accountOps.allPhases') }}</option>
               <option value="alert">{{ t('accountOps.phases.alert') }}</option>
               <option value="recovery">{{ t('accountOps.phases.recovery') }}</option>
-            </select></div>
+            </FormSelect></div>
         </div>
         <p v-if="remote?.dropped_signals || remote?.storage_failures" role="alert" class="p-4 text-sm text-amber-700">
           {{ t('accountOps.captureIssue') }}</p>
         <div class="overflow-x-auto" data-testid="account-events-scroll" :aria-busy="loading">
-          <table v-if="filteredEvents.length" class="w-full min-w-[760px] text-left text-sm">
+          <BaseTable v-if="filteredEvents.length" class="w-full min-w-[760px] text-left text-sm">
             <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-800">
               <tr>
                 <th class="px-5 py-3">{{ t('qualityOps.accounts') }}</th>
@@ -80,13 +80,13 @@
                 <td class="px-5 py-4"><AccountOpsDeliveryDetails :deliveries="event.deliveries" /></td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
         </div>
         <div v-if="!filteredEvents.length" class="flex min-h-72 flex-col items-center justify-center gap-3 p-8 text-center text-gray-500">
           <Icon name="bell" size="xl" />
           <p class="text-sm">{{ t(loading ? 'common.loading' : events.length ? 'accountOps.noMatchingRecords' : 'accountOps.empty') }}</p>
-          <p class="max-w-lg text-xs leading-5">{{ t('accountOps.recordsEmptyHint') }}</p><button type="button"
-            class="btn btn-secondary mt-1" @click="selectTab('settings')">{{ t('accountOps.settingsTab') }}</button>
+          <p class="max-w-lg text-xs leading-5">{{ t('accountOps.recordsEmptyHint') }}</p><BaseButton type="button"
+            class="btn-secondary mt-1" @click="selectTab('settings')">{{ t('accountOps.settingsTab') }}</BaseButton>
         </div>
         <div class="flex items-center justify-between gap-3 border-t border-gray-100 px-5 py-3 text-xs text-gray-500 dark:border-dark-700">
           <span>{{ t('accountOps.noRawErrors') }}</span><button v-if="hasMore" :disabled="loadingMore" class="text-primary-600"
@@ -97,7 +97,7 @@
         <AccountOpsRuleList ref="ruleList" :channel-view="embedded" :scoped="!!channelId || !!accountId" :user-id="auth.user?.id" :accounts="scopedAccounts" :groups="accountGroups" :config="remote.config" :loading="thresholdLoading"
           :ready="thresholdReady" :error="thresholdError" :busy="mutating"
           @batch-edit="batchAccounts = $event" @edit-group="showGroupDialog = true" @toggle="toggleGroup" @refresh="loadAccounts()" @saved="acceptConfig">
-          <template #actions><button type="button" class="btn btn-secondary text-sm" :disabled="thresholdLoading || mutating" data-testid="edit-account-groups" @click="showGroupDialog = true">{{ t('accountOps.manageGroups') }}</button></template>
+          <template #actions><BaseButton type="button" class="btn-secondary text-sm" :disabled="thresholdLoading || mutating" data-testid="edit-account-groups" @click="showGroupDialog = true">{{ t('accountOps.manageGroups') }}</BaseButton></template>
           <template #global-settings>
             <AccountOpsGlobalSettings :config="remote.config" :disabled="mutating" @saving="globalSaving = $event" @saved="acceptConfig"
               @error="app.showError" />
@@ -159,6 +159,11 @@
   </component>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { storeToRefs } from 'pinia'

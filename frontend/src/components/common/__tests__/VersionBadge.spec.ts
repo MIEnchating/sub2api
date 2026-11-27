@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { reactive } from 'vue'
 import VersionBadge from '../VersionBadge.vue'
-import { getSourceUpdateStatus, performUpdate } from '@/api/admin/system'
+import { getSourceUpdateStatus, performUpdate, type ReleaseInfo, type UpstreamVersionInfo } from '@/api/admin/system'
 
 vi.mock('@/api/admin/system', () => ({
   performUpdate: vi.fn(),
@@ -30,7 +30,8 @@ const store = reactive({
   versionLoading: false,
   versionLoaded: true,
   versionWarning: '',
-  releaseInfo: null,
+  releaseInfo: null as ReleaseInfo | null,
+  upstreamVersions: [] as UpstreamVersionInfo[],
   fetchVersion: vi.fn(),
   clearVersionCache: vi.fn()
 })
@@ -47,7 +48,7 @@ beforeEach(() => {
   vi.useFakeTimers()
   vi.resetAllMocks()
   localStorage.clear()
-  Object.assign(store, { hasUpdate: true, sourceUpdateEnabled: true, hostUpdateManaged: true, buildType: 'release', versionLoaded: true, versionLoading: false, versionWarning: '' })
+  Object.assign(store, { hasUpdate: true, sourceUpdateEnabled: true, hostUpdateManaged: true, buildType: 'release', versionLoaded: true, versionLoading: false, versionWarning: '', releaseInfo: null, upstreamVersions: [] })
   vi.mocked(getSourceUpdateStatus).mockResolvedValue({ job_id: 'job-1', status: 'running', stage: 'pulling' })
   vi.mocked(performUpdate).mockResolvedValue({ message: 'queued', source_update: true, need_restart: false, job: { job_id: 'job-1', status: 'queued' } })
 })
@@ -57,6 +58,25 @@ afterEach(async () => {
   await flushPromises()
   vi.useRealTimers()
   localStorage.clear()
+})
+
+it('labels source builds separately from published images and shows all upstreams', async () => {
+  store.buildType = 'source'
+  store.hostUpdateManaged = false
+  store.sourceUpdateEnabled = false
+  store.releaseInfo = { name: 'Release', body: '', published_at: '', html_url: 'https://github.com/MIEnchating/sub2api/releases' }
+  store.upstreamVersions = [
+    { id: 'official', repository: 'Wei-Shaw/sub2api', html_url: 'https://github.com/Wei-Shaw/sub2api', compare_checked: true },
+    { id: 'custom', repository: 'DeanZFC/sub2api-custom', html_url: 'https://github.com/DeanZFC/sub2api-custom', compare_checked: true },
+    { id: 'ranxi', repository: 'ranxi2001/sub2api', html_url: 'https://github.com/ranxi2001/sub2api', compare_checked: true, has_update: true, ahead_by: 10 }
+  ]
+  await openMenu()
+  expect(wrapper.get('button').text()).toBe('version.sourceMode')
+  expect(wrapper.text()).toContain(`version.latestVersion ${store.latestVersion}`)
+  expect(wrapper.text()).not.toContain('version.updateAvailable')
+  expect(wrapper.text()).toContain('version.ranxiUpstream')
+  expect(wrapper.text()).toContain('version.upstreamUpdate · +10')
+  expect(wrapper.text()).toContain('DeanZFC/sub2api-custom')
 })
 
 describe('host image update', () => {

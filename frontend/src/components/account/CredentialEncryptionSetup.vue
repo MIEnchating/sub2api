@@ -5,8 +5,8 @@
         <h3 class="font-semibold text-gray-900 dark:text-gray-100">{{ t('tokenGuardV2.encryption.title') }}</h3>
         <p class="mt-1 text-sm text-gray-500 dark:text-gray-400" role="status">{{ t(status?.configured ? 'tokenGuardV2.encryption.ready' : busy ? 'tokenGuardV2.encryption.checking' : 'tokenGuardV2.encryption.required') }}</p>
       </div>
-      <button v-if="error" type="button" class="btn btn-secondary" :disabled="busy" @click="check">{{ t('tokenGuardV2.encryption.retry') }}</button>
-      <button v-else-if="status && !status.configured" type="button" class="btn btn-primary" :disabled="busy" data-testid="initialize-credential-encryption" @click="initialize">{{ t(busy ? 'tokenGuardV2.encryption.initializing' : 'tokenGuardV2.encryption.initialize') }}</button>
+      <BaseButton v-if="error" type="button" class="btn-secondary" :disabled="busy" @click="check">{{ t('tokenGuardV2.encryption.retry') }}</BaseButton>
+      <BaseButton v-else-if="status && !status.configured" type="button" class="btn-primary" :disabled="busy" data-testid="initialize-credential-encryption" @click="initialize">{{ t(busy ? 'tokenGuardV2.encryption.initializing' : 'tokenGuardV2.encryption.initialize') }}</BaseButton>
     </div>
     <p v-if="error" role="alert" class="mt-2 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
     <p v-if="status && !status.configured" class="mt-2 text-sm text-gray-500 dark:text-gray-400">{{ t('tokenGuardV2.encryption.description') }}</p>
@@ -16,6 +16,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCredentialEncryption, initializeCredentialEncryption, type CredentialEncryptionStatus } from '@/api/admin/credentialEncryption'

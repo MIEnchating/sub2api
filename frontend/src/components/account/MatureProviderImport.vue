@@ -3,23 +3,28 @@
     <div class="flex flex-wrap items-center gap-2"><h3 class="font-medium">{{ t('matureProviders.importTitle') }}</h3><NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.matureProviderImport" :user-id="auth.user?.id" /></div>
     <p class="text-xs text-gray-500">{{ t('matureProviders.importNote') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
-    <label class="block text-sm">{{ t('matureProviders.title') }}<div class="mt-1 flex gap-2"><select data-testid="provider-choice" v-model.number="providerID" class="input min-w-0 flex-1" :disabled="busy" @change="selectProvider"><option :value="0">{{ t('matureProviders.chooseProvider') }}</option><option v-for="p in providers" :key="p.id" :value="p.id" :disabled="!p.has_credential">{{ p.name }} · {{ p.site_type }}</option></select><button type="button" class="btn btn-secondary" :disabled="busy" @click="loadProviders">{{ t('matureProviders.refreshList') }}</button></div></label>
-    <label v-if="providerID" class="block text-sm">{{ t('matureProviders.chooseKey') }}<div class="mt-1 flex gap-2"><select data-testid="provider-key-choice" v-model="keyID" class="input min-w-0 flex-1" :disabled="busy" @change="selected"><option value="">{{ t('matureProviders.chooseKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id" :disabled="!key.available">{{ key.name }} · {{ key.group_name }} {{ key.group_platform || '' }} · {{ key.group_multiplier ?? t('matureProviders.unknown') }}</option></select><button type="button" class="btn btn-secondary" :disabled="busy" @click="loadKeys">{{ t('matureProviders.refreshKeys') }}</button></div></label>
-    <div v-if="providerID" class="flex flex-wrap gap-2"><button type="button" class="btn btn-secondary" :disabled="busy" @click="refreshSite">{{ t('matureProviders.refresh') }}</button><button type="button" class="btn btn-secondary" :disabled="busy" data-testid="provider-key-new" @click="openCreate">{{ t('matureProviders.createKey') }}</button></div>
-    <div v-if="creating" class="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4">
-      <section role="dialog" aria-modal="true" :aria-label="t('matureProviders.createKey')" class="w-full max-w-lg space-y-4 rounded-xl bg-white p-5 dark:bg-dark-900">
-        <h3 class="font-semibold">{{ t('matureProviders.createKey') }}</h3>
+    <label class="block text-sm">{{ t('matureProviders.title') }}<div class="mt-1 flex gap-2"><FormSelect data-testid="provider-choice" v-model.number="providerID" class="min-w-0 flex-1" :disabled="busy" @change="selectProvider"><option :value="0">{{ t('matureProviders.chooseProvider') }}</option><option v-for="p in providers" :key="p.id" :value="p.id" :disabled="!p.has_credential">{{ p.name }} · {{ p.site_type }}</option></FormSelect><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="loadProviders">{{ t('matureProviders.refreshList') }}</BaseButton></div></label>
+    <label v-if="providerID" class="block text-sm">{{ t('matureProviders.chooseKey') }}<div class="mt-1 flex gap-2"><FormSelect data-testid="provider-key-choice" v-model="keyID" class="min-w-0 flex-1" :disabled="busy" @change="selected"><option value="">{{ t('matureProviders.chooseKey') }}</option><option v-for="key in keys" :key="key.id" :value="key.id" :disabled="!key.available">{{ key.name }} · {{ key.group_name }} {{ key.group_platform || '' }} · {{ key.group_multiplier ?? t('matureProviders.unknown') }}</option></FormSelect><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="loadKeys">{{ t('matureProviders.refreshKeys') }}</BaseButton></div></label>
+    <div v-if="providerID" class="flex flex-wrap gap-2"><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="refreshSite">{{ t('matureProviders.refresh') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="busy" data-testid="provider-key-new" @click="openCreate">{{ t('matureProviders.createKey') }}</BaseButton></div>
+    <BaseDialog :show="creating" :title="t('matureProviders.createKey')" :z-index="60"
+      :show-close-button="!busy" :close-on-escape="!busy" body-class="space-y-4" @close="creating = false">
         <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
-        <label class="block text-sm">{{ t('matureProviders.chooseGroup') }}<select data-testid="provider-group-choice" v-model="groupID" class="input mt-1 w-full" :disabled="busy" @change="resetOperation"><option value="">{{ t('matureProviders.chooseGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform || '' }} · {{ group.multiplier ?? t('matureProviders.unknown') }}</option></select></label>
-        <button type="button" class="btn btn-secondary" :disabled="busy" @click="loadGroups">{{ t('matureProviders.refreshGroups') }}</button>
+        <label class="block text-sm">{{ t('matureProviders.chooseGroup') }}<FormSelect data-testid="provider-group-choice" v-model="groupID" class="mt-1 w-full" :disabled="busy" @change="resetOperation"><option value="">{{ t('matureProviders.chooseGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform || '' }} · {{ group.multiplier ?? t('matureProviders.unknown') }}</option></FormSelect></label>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="loadGroups">{{ t('matureProviders.refreshGroups') }}</BaseButton>
         <p class="text-sm">{{ t('matureProviders.keyName') }}: {{ selectedGroup?.key_name || t('matureProviders.chooseGroupFirst') }}</p>
-        <label class="flex items-start gap-2 text-sm"><input v-model="confirmed" type="checkbox" class="mt-1" :disabled="busy || uncertain" />{{ t('matureProviders.confirmKey') }}</label>
-        <div class="flex justify-end gap-2"><button type="button" class="btn btn-secondary" :disabled="busy" @click="creating = false">{{ t('matureProviders.cancel') }}</button><button type="button" class="btn btn-primary" :disabled="busy || !groupID || !confirmed || uncertain" @click="createKey">{{ t('matureProviders.create') }}</button></div>
-      </section>
-    </div>
+        <label class="flex items-start gap-2 text-sm"><FormInput v-model="confirmed" type="checkbox" class="mt-1" :disabled="busy || uncertain" />{{ t('matureProviders.confirmKey') }}</label>
+      <template #footer>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="creating = false">{{ t('matureProviders.cancel') }}</BaseButton>
+        <BaseButton type="button" class="btn-primary" data-testid="provider-key-create" :disabled="busy || !groupID || !confirmed || uncertain" @click="createKey">{{ t('matureProviders.create') }}</BaseButton>
+      </template>
+    </BaseDialog>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseDialog from '@/components/common/BaseDialog.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

@@ -22,11 +22,11 @@
           </span>
         </p>
       </div>
-      <button
+      <BaseButton
         v-if="canSync"
         type="button"
         data-testid="grok-diagnostics-sync"
-        class="btn btn-secondary btn-sm"
+        class="btn-secondary btn-sm"
         :title="t('admin.accounts.grokModelDiagnostics.syncSavedConfig')"
         :aria-label="`${t('admin.accounts.grokModelDiagnostics.syncCatalog')} — ${t('admin.accounts.grokModelDiagnostics.syncSavedConfig')}`"
         :disabled="syncing || loading"
@@ -34,7 +34,7 @@
       >
         <Icon name="refresh" size="xs" aria-hidden="true" class="max-sm:hidden" />
         {{ syncing ? t('common.loading') : t('admin.accounts.grokModelDiagnostics.syncCatalog') }}
-      </button>
+      </BaseButton>
     </div>
 
     <p v-if="loading" class="px-4 pb-3 text-xs text-gray-500 dark:text-dark-400">
@@ -212,6 +212,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, defineComponent, h, onBeforeUnmount, onMounted, ref, useId } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { GrokModelDiagnosticItem, GrokModelDiagnostics } from '@/types'

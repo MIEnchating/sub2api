@@ -8,39 +8,42 @@
       <p v-if="task?.state === 'uncertain'" class="text-sm text-amber-700 dark:text-amber-300">{{ t('tokenGuardV2.totpManage.uncertainHint') }}</p>
       <p v-if="task?.state === 'succeeded'" class="text-sm text-green-700 dark:text-green-300">{{ t(task.action === 'verify_old' ? 'tokenGuardV2.totpManage.keptOld' : 'tokenGuardV2.totpManage.completed') }}</p>
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-primary" data-testid="totp-rotate" :disabled="busy || !loaded || active" @click="start">{{ t('tokenGuardV2.totpManage.rotate') }}</button>
+        <BaseButton type="button" class="btn-primary" data-testid="totp-rotate" :disabled="busy || !loaded || active" @click="start">{{ t('tokenGuardV2.totpManage.rotate') }}</BaseButton>
         <template v-if="task?.state === 'uncertain'">
-          <button type="button" class="btn btn-secondary" data-testid="totp-verify-new" :disabled="busy || !task.has_candidate" @click="verify('verify_new')">{{ t('tokenGuardV2.totpManage.verifyNew') }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="busy" @click="verify('verify_old')">{{ t('tokenGuardV2.totpManage.verifyOld') }}</button>
+          <BaseButton type="button" class="btn-secondary" data-testid="totp-verify-new" :disabled="busy || !task.has_candidate" @click="verify('verify_new')">{{ t('tokenGuardV2.totpManage.verifyNew') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="verify('verify_old')">{{ t('tokenGuardV2.totpManage.verifyOld') }}</BaseButton>
         </template>
       </div>
       <hr class="dark:border-gray-700" />
       <label class="block text-sm">{{ t('tokenGuardV2.totpManage.exportSource') }}
-        <select v-model="source" class="input mt-1 w-full" :disabled="busy" @change="clearExport">
+        <FormSelect v-model="source" class="mt-1 w-full" :disabled="busy" @change="clearExport">
           <option value="current" :disabled="active">{{ t('tokenGuardV2.totpManage.current') }}</option>
           <option v-if="task?.state === 'uncertain' && task.has_candidate" value="candidate">{{ t('tokenGuardV2.totpManage.candidate') }}</option>
           <option v-if="task?.state === 'uncertain'" value="previous">{{ t('tokenGuardV2.totpManage.previous') }}</option>
-        </select>
+        </FormSelect>
       </label>
-      <label class="flex items-center gap-2 text-sm"><input v-model="includePassword" type="checkbox" @change="clearExport" />{{ t('tokenGuardV2.totpManage.includePassword') }}</label>
-      <button type="button" class="btn btn-secondary" data-testid="totp-export" :disabled="busy || !loaded || (active && task?.state !== 'uncertain')" @click="reveal">{{ t('tokenGuardV2.totpManage.export') }}</button>
-      <button type="button" class="btn btn-secondary" data-testid="session-export" :disabled="busy || !configured" @click="sessionExportOpen = true">{{ t('tokenGuardV2.totpManage.sessionExport.button') }}</button>
+      <label class="flex items-center gap-2 text-sm"><FormInput v-model="includePassword" type="checkbox" @change="clearExport" />{{ t('tokenGuardV2.totpManage.includePassword') }}</label>
+      <BaseButton type="button" class="btn-secondary" data-testid="totp-export" :disabled="busy || !loaded || (active && task?.state !== 'uncertain')" @click="reveal">{{ t('tokenGuardV2.totpManage.export') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary" data-testid="session-export" :disabled="busy || !configured" @click="sessionExportOpen = true">{{ t('tokenGuardV2.totpManage.sessionExport.button') }}</BaseButton>
       <div v-if="exported" class="space-y-3" data-testid="totp-export-result">
         <p v-if="exported.state === 'uncertain'" class="text-sm text-amber-700">{{ t('tokenGuardV2.totpManage.recoveryLabel') }}</p>
         <img v-if="qr" :src="qr" :alt="t('tokenGuardV2.totpManage.qr')" class="h-48 w-48 rounded bg-white" />
-        <label class="block text-sm">{{ t('tokenGuardV2.totpManage.secret') }}<input :value="exported.secret" readonly class="input mt-1 w-full font-mono" autocomplete="off" /></label>
+        <label class="block text-sm">{{ t('tokenGuardV2.totpManage.secret') }}<FormInput :value="exported.secret" readonly class="mt-1 w-full font-mono" autocomplete="off" /></label>
         <div class="flex flex-wrap gap-2">
-          <button type="button" class="btn btn-secondary" @click="download('json')">{{ t('tokenGuardV2.totpManage.downloadJSON') }}</button>
-          <button type="button" class="btn btn-secondary" @click="download('txt')">{{ t(includePassword ? 'tokenGuardV2.totpManage.downloadCombo' : 'tokenGuardV2.totpManage.downloadSecret') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="download('json')">{{ t('tokenGuardV2.totpManage.downloadJSON') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" @click="download('txt')">{{ t(includePassword ? 'tokenGuardV2.totpManage.downloadCombo' : 'tokenGuardV2.totpManage.downloadSecret') }}</BaseButton>
         </div>
       </div>
     </div>
-    <template #footer><button type="button" class="btn btn-secondary" @click="close">{{ t('tokenGuardV2.totpManage.close') }}</button></template>
+    <template #footer><BaseButton type="button" class="btn-secondary" @click="close">{{ t('tokenGuardV2.totpManage.close') }}</BaseButton></template>
   </BaseDialog>
   <OpenAISessionExportDialog v-if="sessionExportOpen" :account="sessionExportAccount" @close="sessionExportOpen = false" />
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import QRCode from 'qrcode'

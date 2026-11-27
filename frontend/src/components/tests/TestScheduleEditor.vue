@@ -1,38 +1,41 @@
 <template>
   <section class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700" data-test-schedule>
     <label class="input-label block">{{ t('admin.tests.timing.title') }}
-      <select :value="schedule ? 'periods' : 'cron'" class="input mt-1 w-full" data-schedule-mode @change="setMode(($event.target as HTMLSelectElement).value)">
+      <FormSelect :value="schedule ? 'periods' : 'cron'" class="mt-1 w-full" data-schedule-mode @change="setMode(($event.target as HTMLSelectElement).value)">
         <option value="periods">{{ t('admin.tests.timing.periodMode') }}</option>
         <option value="cron">{{ t('admin.tests.timing.cronMode') }}</option>
-      </select>
+      </FormSelect>
     </label>
     <template v-if="schedule">
       <label class="input-label block">{{ t('admin.tests.timing.timezone') }}
-        <input :value="schedule.timezone" type="text" class="input mt-1 w-full" placeholder="Asia/Shanghai" data-schedule-timezone @input="patch({ timezone: ($event.target as HTMLInputElement).value.trim() })" />
+        <FormInput :value="schedule.timezone" type="text" class="mt-1 w-full" placeholder="Asia/Shanghai" data-schedule-timezone @input="patch({ timezone: ($event.target as HTMLInputElement).value.trim() })" />
         <span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.timing.timezoneHint') }}</span>
       </label>
       <div v-for="(period, index) in schedule.periods" :key="index" class="space-y-2 rounded-md bg-gray-50 p-3 dark:bg-dark-800" data-schedule-period>
         <div class="grid items-end gap-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1.2fr)_auto]">
-          <label class="input-label block">{{ t('admin.tests.timing.start') }}<input :value="period.start" type="time" step="60" class="input mt-1 w-full" data-period-start @input="patchPeriod(index, { start: ($event.target as HTMLInputElement).value })" /></label>
-          <label class="input-label block">{{ t('admin.tests.timing.end') }}<input :value="period.end" type="text" placeholder="20:00" class="input mt-1 w-full" data-period-end @input="patchPeriod(index, { end: ($event.target as HTMLInputElement).value.trim() })" /></label>
+          <label class="input-label block">{{ t('admin.tests.timing.start') }}<FormInput :value="period.start" type="time" step="60" class="mt-1 w-full" data-period-start @input="patchPeriod(index, { start: ($event.target as HTMLInputElement).value })" /></label>
+          <label class="input-label block">{{ t('admin.tests.timing.end') }}<FormInput :value="period.end" type="text" placeholder="20:00" class="mt-1 w-full" data-period-end @input="patchPeriod(index, { end: ($event.target as HTMLInputElement).value.trim() })" /></label>
           <label class="input-label block">{{ t('admin.tests.timing.interval') }}
-            <div class="mt-1 flex gap-2"><input :value="period.interval_minutes / unitFor(index)" type="number" min="1" :max="unitFor(index) === 60 ? 24 : 1440" step="1" class="input min-w-0 w-full" data-period-interval @input="patchPeriod(index, { interval_minutes: ($event.target as HTMLInputElement).valueAsNumber * unitFor(index) })" />
-              <select :value="unitFor(index)" class="input w-20 shrink-0" data-period-unit :aria-label="t('admin.tests.timing.intervalUnit')" @change="setUnit(index, Number(($event.target as HTMLSelectElement).value))"><option :value="60">{{ t('admin.tests.timing.hours') }}</option><option :value="1">{{ t('admin.tests.timing.minutes') }}</option></select>
+            <div class="mt-1 flex gap-2"><FormInput :value="period.interval_minutes / unitFor(index)" type="number" min="1" :max="unitFor(index) === 60 ? 24 : 1440" step="1" class="min-w-0 w-full" data-period-interval @input="patchPeriod(index, { interval_minutes: ($event.target as HTMLInputElement).valueAsNumber * unitFor(index) })" />
+              <FormSelect :value="unitFor(index)" class="w-20 shrink-0" data-period-unit :aria-label="t('admin.tests.timing.intervalUnit')" @change="setUnit(index, Number(($event.target as HTMLSelectElement).value))"><option :value="60">{{ t('admin.tests.timing.hours') }}</option><option :value="1">{{ t('admin.tests.timing.minutes') }}</option></FormSelect>
             </div>
           </label>
-          <button type="button" class="btn btn-secondary" :disabled="schedule.periods.length === 1" :aria-label="t('admin.tests.timing.removePeriod', { number: index + 1 })" data-remove-period @click="removePeriod(index)">{{ t('common.remove') }}</button>
+          <BaseButton type="button" class="btn-secondary" :disabled="schedule.periods.length === 1" :aria-label="t('admin.tests.timing.removePeriod', { number: index + 1 })" data-remove-period @click="removePeriod(index)">{{ t('common.remove') }}</BaseButton>
         </div>
         <p class="text-xs text-gray-500 dark:text-gray-400" data-period-preview>{{ t('admin.tests.timing.times') }} {{ preview(period) }}<span v-if="period.end !== '24:00' && period.end < period.start" class="ml-2">{{ t('admin.tests.timing.overnight') }}</span></p>
       </div>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="schedule.periods.length >= 24" data-add-period @click="addPeriod">{{ t('admin.tests.timing.addPeriod') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="schedule.periods.length >= 24" data-add-period @click="addPeriod">{{ t('admin.tests.timing.addPeriod') }}</BaseButton>
       <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.timing.periodHint') }}</p>
       <p v-if="error" role="alert" class="text-xs text-red-600 dark:text-red-400" data-schedule-error>{{ t(`admin.tests.timing.${error}`) }}</p>
     </template>
-    <label v-else class="input-label block">{{ t('admin.tests.cron') }}<input :value="cronExpression" class="input mt-1 w-full" placeholder="0 * * * *" data-schedule-cron @input="emit('update:cronExpression', ($event.target as HTMLInputElement).value.trim())" /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.cronHint') }}</span></label>
+    <label v-else class="input-label block">{{ t('admin.tests.cron') }}<FormInput :value="cronExpression" class="mt-1 w-full" placeholder="0 * * * *" data-schedule-cron @input="emit('update:cronExpression', ($event.target as HTMLInputElement).value.trim())" /><span class="mt-1 block text-xs font-normal text-gray-500">{{ t('admin.tests.cronHint') }}</span></label>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TestSchedule, TestSchedulePeriod } from '@/types'

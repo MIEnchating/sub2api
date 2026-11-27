@@ -45,7 +45,7 @@ func PanelAPIKeyAuth(keys *service.APIKeyService, subscriptions *service.Subscri
 			AbortWithError(c, status, accessErr.Code, accessErr.Message)
 			return
 		}
-		admitLoadedAPIKey(c, key, keys, subscriptions, cfg, nil, func() {
+		admitLoadedAPIKey(c, key, keys, subscriptions, cfg, false, func() {
 			// Revalidate by owner-bound ID. No raw API credential is needed by
 			// the panel or installed into the standard request context.
 			lookup := func(ctx context.Context, _ string) (*service.APIKey, error) {

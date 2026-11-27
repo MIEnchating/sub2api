@@ -31,7 +31,7 @@
           <h4 class="mb-2 text-sm font-semibold text-gray-900 dark:text-white">{{ t('ovhIPv6.storage.filesTitle') }}</h4>
           <p v-if="!stats.files.available" role="status" class="mb-2 text-xs text-amber-700 dark:text-amber-300">{{ stats.files.error || t('ovhIPv6.storage.filesUnavailable') }}</p>
           <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-600">
-            <table class="w-full text-left text-xs">
+            <BaseTable class="w-full text-left text-xs">
               <thead class="bg-gray-50 text-gray-500 dark:bg-dark-700 dark:text-gray-400">
                 <tr><th class="px-3 py-2 font-medium">{{ t('ovhIPv6.storage.file') }}</th><th class="px-3 py-2 text-right font-medium">{{ t('ovhIPv6.storage.fileBytes') }}</th><th class="px-3 py-2 text-right font-medium">{{ t('ovhIPv6.storage.diskBytes') }}</th></tr>
               </thead>
@@ -43,7 +43,7 @@
                 </tr>
                 <tr class="font-medium"><td class="px-3 py-2">{{ t('ovhIPv6.storage.filesTotal') }}</td><td class="px-3 py-2 text-right tabular-nums">{{ bytes(stats.files.total_bytes) }}</td><td class="px-3 py-2 text-right tabular-nums">{{ bytes(stats.files.total_disk_bytes) }}</td></tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
         </section>
 
@@ -59,13 +59,15 @@
       </template>
     </div>
     <template #footer>
-      <button type="button" class="btn btn-secondary" :disabled="loading" data-testid="refresh-ipv6-storage" @click="loadStorage"><Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />{{ t('ovhIPv6.storage.refresh') }}</button>
-      <button type="button" class="btn btn-primary" @click="emit('close')">{{ t('common.close') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="loading" data-testid="refresh-ipv6-storage" @click="loadStorage"><Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />{{ t('ovhIPv6.storage.refresh') }}</BaseButton>
+      <BaseButton type="button" class="btn-primary" @click="emit('close')">{{ t('common.close') }}</BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

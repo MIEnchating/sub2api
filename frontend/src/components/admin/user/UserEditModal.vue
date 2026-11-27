@@ -8,26 +8,26 @@
     <form v-if="user" id="edit-user-form" @submit.prevent="handleUpdateUser" class="space-y-5">
       <div>
         <label class="input-label">{{ t('admin.users.email') }}</label>
-        <input v-model="form.email" type="email" class="input" />
+        <FormInput v-model="form.email" type="email" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
           <div class="relative flex-1">
-            <input v-model="form.password" type="text" class="input pr-10" :placeholder="t('admin.users.enterNewPassword')" />
+            <FormInput v-model="form.password" type="text" class="pr-10" :placeholder="t('admin.users.enterNewPassword')" />
             <button v-if="form.password" type="button" @click="copyPassword" class="absolute right-2 top-1/2 -translate-y-1/2 rounded-lg p-1 transition-colors hover:bg-gray-100 dark:hover:bg-dark-700" :class="passwordCopied ? 'text-green-500' : 'text-gray-400'">
               <svg v-if="passwordCopied" class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="2"><path stroke-linecap="round" stroke-linejoin="round" d="M5 13l4 4L19 7" /></svg>
               <svg v-else class="h-4 w-4" fill="none" stroke="currentColor" viewBox="0 0 24 24" stroke-width="1.5"><path stroke-linecap="round" stroke-linejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
             </button>
           </div>
-          <button type="button" @click="generatePassword" class="btn btn-secondary px-3">
+          <BaseButton type="button" @click="generatePassword" class="btn-secondary px-3">
             <Icon name="refresh" size="md" />
-          </button>
+          </BaseButton>
         </div>
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.username') }}</label>
-        <input v-model="form.username" type="text" class="input" />
+        <FormInput v-model="form.username" type="text" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
@@ -41,31 +41,30 @@
       <fieldset v-if="promotingObserver" class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-600" data-test="observer-setup">
         <legend class="px-1 text-sm font-medium">{{ t('admin.users.observerSetup.title') }}</legend>
         <label class="flex items-start gap-2 text-sm">
-          <input v-model="observerSetup.create_dedicated_group" :disabled="authStore.isSimpleMode" type="checkbox" class="mt-1" data-test="observer-create-group" />
+          <FormInput v-model="observerSetup.create_dedicated_group" :disabled="authStore.isSimpleMode" type="checkbox" class="mt-1" data-test="observer-create-group" />
           <span>{{ t('admin.users.observerSetup.createGroup') }}<span class="input-hint block">{{ t(authStore.isSimpleMode ? 'admin.users.observerSetup.simpleModeHint' : 'admin.users.observerSetup.createGroupHint') }}</span></span>
         </label>
         <label class="flex items-start gap-2 text-sm">
-          <input v-model="observerSetup.revoke_public_groups" type="checkbox" class="mt-1" data-test="observer-revoke-public" />
+          <FormInput v-model="observerSetup.revoke_public_groups" type="checkbox" class="mt-1" data-test="observer-revoke-public" />
           <span>{{ t('admin.users.observerSetup.revokePublic') }}<span class="input-hint block">{{ t('admin.users.observerSetup.revokePublicHint') }}</span></span>
         </label>
         <label class="flex items-start gap-2 text-sm">
-          <input v-model="observerSetup.grant_resources" type="checkbox" class="mt-1" data-test="observer-grant-resources" />
+          <FormInput v-model="observerSetup.grant_resources" type="checkbox" class="mt-1" data-test="observer-grant-resources" />
           <span>{{ t('admin.users.observerSetup.grantResources') }}<span class="input-hint block">{{ t('admin.users.observerSetup.grantResourcesHint') }}</span></span>
         </label>
         <p class="input-hint">{{ t('admin.users.observerSetup.onceHint') }}</p>
       </fieldset>
       <div>
         <label class="input-label">{{ t('admin.users.notes') }}</label>
-        <textarea v-model="form.notes" rows="3" class="input"></textarea>
+        <FormTextarea v-model="form.notes" rows="3"></FormTextarea>
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
-        <input
+        <FormInput
           v-model.number="form.concurrency"
           type="number"
           min="0"
           step="1"
-          class="input"
           :placeholder="t('admin.users.form.concurrencyPlaceholder')"
           data-test="concurrency-input"
         />
@@ -73,12 +72,11 @@
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.rpmLimit') }}</label>
-        <input
+        <FormInput
           v-model.number="form.rpm_limit"
           type="number"
           min="0"
           step="1"
-          class="input"
           :placeholder="t('admin.users.form.rpmLimitPlaceholder')"
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
@@ -88,10 +86,10 @@
     </form>
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button @click="$emit('close')" type="button" class="btn btn-secondary">{{ t('common.cancel') }}</button>
-        <button type="submit" form="edit-user-form" :disabled="submitting" class="btn btn-primary">
+        <BaseButton @click="$emit('close')" type="button" class="btn-secondary">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="edit-user-form" :disabled="submitting" class="btn-primary">
           {{ submitting ? t('admin.users.updating') : t('common.update') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -101,6 +99,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

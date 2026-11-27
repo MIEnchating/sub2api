@@ -28,32 +28,32 @@
                 {{ t('channelMonitorV2.updatedTo', { time: formatTime(snapshot.coverage.data_through) }) }}
               </span>
               <span v-else class="text-gray-400">{{ t('common.loading') }}</span>
-              <span
+              <StatusBadge
                 v-if="snapshot && !snapshot.coverage.coverage_complete && !bootstrapActive"
-                class="badge badge-warning"
+                class="badge-warning"
               >
                 {{ t('channelMonitorV2.partialCoverage') }}
-              </span>
-              <span
+              </StatusBadge>
+              <StatusBadge
                 v-if="bootstrapActive"
-                class="badge badge-primary inline-flex items-center gap-1"
+                class="badge-primary inline-flex items-center gap-1"
               >
                 <LoadingSpinner size="sm" />
                 {{ t('channelMonitorV2.bootstrap.progress', { percent: bootstrapPercent }) }}
-              </span>
+              </StatusBadge>
             </div>
           </div>
           <div class="flex items-center gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" data-testid="monitor-layout-toggle" @click="analytics = !analytics">{{ t(analytics ? 'channelMonitorV2.cards.showCards' : 'channelMonitorV2.cards.showAnalytics') }}</button>
-          <button
-            class="btn btn-secondary btn-icon flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
+          <BaseButton type="button" class="btn-secondary btn-sm" data-testid="monitor-layout-toggle" @click="analytics = !analytics">{{ t(analytics ? 'channelMonitorV2.cards.showCards' : 'channelMonitorV2.cards.showAnalytics') }}</BaseButton>
+          <BaseButton
+            class="btn-secondary btn-icon flex h-8 w-8 items-center justify-center rounded-lg bg-gray-100 text-gray-500 hover:bg-gray-200 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
             type="button"
             :title="t('common.refresh')"
             :disabled="loading"
             @click="reload(false)"
           >
             <Icon name="refresh" size="sm" :class="loading ? 'animate-spin' : ''" />
-          </button>
+          </BaseButton>
           </div>
         </header>
 
@@ -135,15 +135,15 @@
             :all-label="t('channelMonitorV2.filters.allModels')"
             :options="modelOptions"
           />
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-ghost btn-sm shrink-0 !px-2 !py-1 text-xs"
+            class="btn-ghost btn-sm shrink-0 !px-2 !py-1 text-xs"
             :disabled="!hasDimensionFilter"
             :class="!hasDimensionFilter ? 'opacity-40' : ''"
             @click="clearDimensions"
           >
             {{ t('channelMonitorV2.clearFilters') }}
-          </button>
+          </BaseButton>
 
           <span class="mx-0.5 hidden h-5 w-px shrink-0 bg-gray-200 dark:bg-dark-700 md:block" aria-hidden="true"></span>
 
@@ -197,7 +197,7 @@
           </template>
           <template v-else>
             <span class="ml-3 text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.cards.passive') }}</span>
-            <button v-if="hasDimensionFilter" class="btn btn-ghost btn-sm" @click="clearDimensions">{{ t('channelMonitorV2.clearFilters') }}</button>
+            <BaseButton v-if="hasDimensionFilter" class="btn-ghost btn-sm" @click="clearDimensions">{{ t('channelMonitorV2.clearFilters') }}</BaseButton>
             <span v-if="snapshot && hasMonitorSamples(snapshot.metrics)" class="ml-auto hidden text-xs text-gray-500 dark:text-gray-400 md:inline">{{ t('channelMonitorV2.cards.availability') }} {{ formatPercent(1 - snapshot.metrics.error_rate) }} · {{ t('channelMonitorV2.cards.cache') }} {{ formatPercent(snapshot.metrics.cache_rate) }}</span>
           </template>
         </div>
@@ -304,23 +304,22 @@
       <section class="card flex min-h-0 flex-col overflow-hidden !rounded-3xl !border-0 shadow-sm ring-1 ring-gray-900/5 dark:!bg-dark-800 dark:ring-dark-700">
         <div class="border-b border-gray-100 px-5 pt-4 dark:border-dark-700 sm:px-6">
           <nav class="tabs w-full max-w-md sm:w-auto" role="tablist" :aria-label="t('channelMonitorV2.tabs.aria')">
-            <button
+            <TabButton
               v-for="item in tabs"
               :key="item.value"
               type="button"
-              role="tab"
               class="tab flex-1 sm:flex-none"
               :aria-selected="activeTab === item.value"
               :class="activeTab === item.value ? 'tab-active' : ''"
               @click="activeTab = item.value"
             >
               {{ item.label }}
-            </button>
+            </TabButton>
           </nav>
         </div>
         <div class="min-h-0 max-h-[min(52vh,520px)] overflow-auto p-4 sm:p-5">
           <div v-if="activeTab === 'models'" class="table-container border-0">
-            <table class="table monitor-table min-w-[720px]">
+            <BaseTable class="table monitor-table min-w-[720px]">
               <thead>
                 <tr>
                   <th>{{ t('channelMonitorV2.table.platformModel') }}</th>
@@ -364,7 +363,7 @@
                   <td v-if="showThroughput">{{ formatRate(row.metrics.rpm) }}</td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
 
           <div v-else-if="isAdmin && activeTab === 'errors'" class="space-y-3">
@@ -381,7 +380,7 @@
               >
                 <span class="flex min-w-0 items-center gap-1.5 truncate text-gray-700 dark:text-gray-200">
                   <span class="truncate">{{ errorLabel(row.category) }}</span>
-                  <span v-if="row.ignored" class="badge badge-gray shrink-0 !px-1.5 !py-0 text-[10px]">{{ t('channelMonitorV2.ignored') }}</span>
+                  <StatusBadge v-if="row.ignored" class="badge-gray shrink-0 !px-1.5 !py-0 text-[10px]">{{ t('channelMonitorV2.ignored') }}</StatusBadge>
                 </span>
                 <span class="h-2 overflow-hidden rounded-full bg-gray-100 dark:bg-dark-700">
                   <i
@@ -404,7 +403,7 @@
                     class="rounded-lg bg-gray-50 px-3 py-2 text-xs text-gray-600 dark:bg-dark-900/50 dark:text-dark-300"
                   >
                     <div class="mb-1 flex flex-wrap items-center gap-2">
-                      <span class="badge badge-gray !px-1.5 !py-0 text-[10px]">{{ detail.platform ? providerLabel(detail.platform) : '-' }}</span>
+                      <StatusBadge class="badge-gray !px-1.5 !py-0 text-[10px]">{{ detail.platform ? providerLabel(detail.platform) : '-' }}</StatusBadge>
                       <span class="truncate font-medium">{{ detail.model || '-' }}</span>
                       <span v-if="detail.status_code" class="text-gray-400">{{ t('channelMonitorV2.errorDetail.http', { code: detail.status_code }) }}</span>
                       <span v-if="detail.upstream_status_code" class="text-gray-400">{{ t('channelMonitorV2.errorDetail.upstream', { code: detail.upstream_status_code }) }}</span>
@@ -419,7 +418,7 @@
           </div>
 
           <div v-else class="table-container border-0">
-            <table class="table monitor-table min-w-[640px]">
+            <BaseTable class="table monitor-table min-w-[640px]">
               <thead>
                 <tr>
                   <th class="w-16">{{ t('channelMonitorV2.table.rank') }}</th>
@@ -447,10 +446,10 @@
                       :class="row.is_self ? 'text-primary-700 dark:text-primary-300' : 'text-gray-900 dark:text-white'"
                     >
                       {{ row.display_label }}
-                      <span
+                      <StatusBadge
                         v-if="row.is_self"
-                        class="badge badge-primary ml-2 !px-1.5 !py-0 text-[10px]"
-                      >{{ t('channelMonitorV2.currentUser') }}</span>
+                        class="badge-primary ml-2 !px-1.5 !py-0 text-[10px]"
+                      >{{ t('channelMonitorV2.currentUser') }}</StatusBadge>
                     </strong>
                   </td>
                   <td>
@@ -467,26 +466,17 @@
                   <td v-if="showThroughput">{{ formatRate(row.metrics.rpm) }}</td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
 
           <div v-if="tabLoading" class="empty-state py-10 text-sm text-gray-400">{{ t('common.loading') }}</div>
-          <div v-else-if="activeRowsEmpty" class="empty-state py-10">
-            <p class="empty-state-title text-base">
-              {{
-                bootstrapActive
-                  ? t('channelMonitorV2.bootstrap.title')
-                  : t('channelMonitorV2.empty.title')
-              }}
-            </p>
-            <p class="empty-state-description">
-              {{
-                bootstrapActive
-                  ? t('channelMonitorV2.bootstrap.description')
-                  : t('channelMonitorV2.empty.description')
-              }}
-            </p>
-          </div>
+          <EmptyState
+            v-else-if="activeRowsEmpty"
+            class="py-10"
+            :show-icon="false"
+            :title="t(bootstrapActive ? 'channelMonitorV2.bootstrap.title' : 'channelMonitorV2.empty.title')"
+            :description="t(bootstrapActive ? 'channelMonitorV2.bootstrap.description' : 'channelMonitorV2.empty.description')"
+          />
         </div>
       </section>
       </template>
@@ -495,6 +485,11 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { formatMonitorCacheRate } from '@/features/channel-monitor-v2/monitorFormat'
 import { useI18n } from 'vue-i18n'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'

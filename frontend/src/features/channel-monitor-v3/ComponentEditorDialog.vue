@@ -9,7 +9,7 @@
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
           <label class="input-label" for="monitor-v3-name">{{ t('channelMonitorV3.editor.name') }}</label>
-          <input id="monitor-v3-name" v-model="form.name" class="input" maxlength="100" :placeholder="t('channelMonitorV3.editor.namePlaceholder')" data-testid="monitor-v3-name" />
+          <FormInput id="monitor-v3-name" v-model="form.name" maxlength="100" :placeholder="t('channelMonitorV3.editor.namePlaceholder')" data-testid="monitor-v3-name" />
         </div>
         <div>
           <label class="input-label">{{ t('channelMonitorV3.editor.category') }}</label>
@@ -18,7 +18,7 @@
       </div>
       <div>
         <label class="input-label" for="monitor-v3-description">{{ t('channelMonitorV3.editor.description') }}</label>
-        <input id="monitor-v3-description" v-model="form.description" class="input" maxlength="500" :placeholder="t('channelMonitorV3.editor.descriptionPlaceholder')" />
+        <FormInput id="monitor-v3-description" v-model="form.description" maxlength="500" :placeholder="t('channelMonitorV3.editor.descriptionPlaceholder')" />
       </div>
       <div class="grid gap-4 sm:grid-cols-2">
         <div>
@@ -31,10 +31,10 @@
             <label for="monitor-v3-model" class="text-sm font-medium">{{ t('channelMonitorV3.editor.model') }}</label>
             <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.monitorV3ComponentModels" :user-id="auth.user?.id" />
           </div>
-          <input id="monitor-v3-model" v-model.trim="query" type="search" class="input" maxlength="100" :disabled="!form.group_id" :placeholder="t('channelMonitorV3.editor.modelPlaceholder')" />
+          <FormInput id="monitor-v3-model" v-model.trim="query" type="search" maxlength="100" :disabled="!form.group_id" :placeholder="t('channelMonitorV3.editor.modelPlaceholder')" />
           <div v-if="options.length" class="mt-1 max-h-36 overflow-y-auto rounded border border-gray-200 p-2 dark:border-dark-600">
             <label v-for="model in options" :key="model" class="flex cursor-pointer items-center gap-2 py-1 text-xs">
-              <input v-model="form.models" type="checkbox" :value="model" />
+              <FormInput v-model="form.models" type="checkbox" :value="model" />
               <span class="break-all font-mono">{{ model }}</span>
             </label>
           </div>
@@ -88,14 +88,16 @@
     </form>
     <template #footer>
       <div class="flex w-full justify-end gap-2">
-        <button type="button" class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
-        <button type="submit" form="monitor-v3-component-form" class="btn btn-primary" :disabled="saving || !canSubmit" data-testid="monitor-v3-save">{{ t('common.save') }}</button>
+        <BaseButton type="button" class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="monitor-v3-component-form" class="btn-primary" :disabled="saving || !canSubmit" data-testid="monitor-v3-save">{{ t('common.save') }}</BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

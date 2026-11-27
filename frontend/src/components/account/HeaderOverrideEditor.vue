@@ -2,20 +2,20 @@
   <div v-if="rows.length > 0" class="space-y-2">
     <div v-for="(row, index) in rows" :key="getHeaderOverrideRowKey(row)">
       <div class="flex items-center gap-2">
-        <input
+        <FormInput
           v-model="row.name"
           type="text"
-          class="input flex-1"
+          class="flex-1"
           :class="isNameError(rowErrors[index]) ? errorInputClass : ''"
           :placeholder="t('admin.accounts.headerOverride.namePlaceholder')"
           :aria-invalid="isNameError(rowErrors[index])"
           spellcheck="false"
           autocomplete="off"
         />
-        <input
+        <FormInput
           v-model="row.value"
           type="text"
-          class="input flex-1"
+          class="flex-1"
           :class="[
             isValueError(rowErrors[index]) ? errorInputClass : '',
             hasVariable(row) ? 'font-mono text-[13px]' : ''
@@ -161,6 +161,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { computed, nextTick } from 'vue'

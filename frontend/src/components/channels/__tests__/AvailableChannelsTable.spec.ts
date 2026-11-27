@@ -23,7 +23,9 @@ describe('AvailableChannelsTable scroll integration', () => {
   // #4555：根元素必须是 TablePageLayout 滚动链约定的 .table-wrapper，
   // 否则内容超出视口高度时被外层 overflow-hidden 裁剪且没有滚动条。
   it('mounts the table on the .table-wrapper scroll hook', () => {
-    expect(componentSource).toMatch(/<div class="table-wrapper">\s*<table/)
+    const wrapper = mountTable()
+    expect(wrapper.get('.table-wrapper > table').classes()).toContain('data-table')
+    wrapper.unmount()
   })
 
   it('does not clip content with its own overflow-hidden card wrapper', () => {

@@ -2420,6 +2420,9 @@ func (s *OpenAIGatewayService) ProxyResponsesWebSocketFromClient(
 				}
 				var clientWriteErr error
 				if !clientDisconnected {
+					if isTerminalEvent {
+						s.bindWebSocketResponseForHTTP(ctx, c, account, upstreamMessage, lease.ConnID())
+					}
 					clientWriteErr = writeClientMessage(clientMessage)
 				}
 				if clientWriteErr != nil {

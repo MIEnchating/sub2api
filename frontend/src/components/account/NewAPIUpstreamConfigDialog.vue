@@ -10,11 +10,11 @@
             <div class="grid gap-4 sm:grid-cols-[10rem_1fr]">
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
                 {{ t('admin.accounts.upstreamBilling.newAPI.userId') }}
-                <input v-model="userId" type="number" min="1" step="1" autocomplete="off" class="input mt-1 w-full" data-testid="new-api-user-id" />
+                <FormInput v-model="userId" type="number" min="1" step="1" autocomplete="off" class="mt-1 w-full" data-testid="new-api-user-id" />
               </label>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-200">
                 {{ t('admin.accounts.upstreamBilling.newAPI.accessToken') }}
-                <input v-model="accessToken" type="password" autocomplete="new-password" spellcheck="false" class="input mt-1 w-full" data-testid="new-api-access-token" :placeholder="canRetainCredential ? t('admin.accounts.upstreamBilling.newAPI.retainToken') : ''" />
+                <FormInput v-model="accessToken" type="password" autocomplete="new-password" spellcheck="false" class="mt-1 w-full" data-testid="new-api-access-token" :placeholder="canRetainCredential ? t('admin.accounts.upstreamBilling.newAPI.retainToken') : ''" />
               </label>
             </div>
             <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -31,14 +31,14 @@
               <p class="text-xs text-gray-500">{{ t('admin.accounts.upstreamBilling.newAPI.costConversionHint') }}</p>
               <div v-for="candidate in config.accounts" :key="candidate.account_id" class="space-y-2 rounded-md border border-gray-100 p-2 dark:border-dark-700">
               <label class="flex items-start gap-2 text-sm text-gray-700 dark:text-gray-200">
-                <input v-model="accountIds" :value="candidate.account_id" type="checkbox" :disabled="candidate.account_id === account?.id" class="mt-0.5 h-4 w-4 rounded border-gray-300" :data-testid="`new-api-account-${candidate.account_id}`" />
+                <FormInput v-model="accountIds" :value="candidate.account_id" type="checkbox" :disabled="candidate.account_id === account?.id" class="mt-0.5 h-4 w-4 rounded border-gray-300" :data-testid="`new-api-account-${candidate.account_id}`" />
                 <span class="min-w-0 break-words">{{ candidate.name }}
                   <span v-if="candidate.account_id === account?.id" class="text-xs text-gray-500"> · {{ t('admin.accounts.upstreamBilling.newAPI.currentAccount') }}</span>
                   <span v-if="candidate.configured_user_id != null" class="text-xs text-gray-500"> · {{ t('admin.accounts.upstreamBilling.newAPI.boundUser', { id: candidate.configured_user_id }) }}</span>
                 </span>
               </label>
               <label v-if="accountIds.includes(candidate.account_id)" class="flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-                <input v-model="applyUSDRate[candidate.account_id]" type="checkbox" class="h-4 w-4 rounded border-gray-300" :data-testid="`new-api-apply-usd-rate-${candidate.account_id}`" />
+                <FormInput v-model="applyUSDRate[candidate.account_id]" type="checkbox" class="h-4 w-4 rounded border-gray-300" :data-testid="`new-api-apply-usd-rate-${candidate.account_id}`" />
                 {{ t('admin.accounts.upstreamBilling.newAPI.applyUSDRate') }}
                 <span v-if="candidate.cost_multiplier_scale === 0" class="text-xs text-gray-500">{{ t('admin.accounts.upstreamBilling.newAPI.requestPlatformFactor') }}</span>
                 <span v-else class="text-xs text-gray-500">{{ t('admin.accounts.upstreamBilling.newAPI.costPlatformFactor', { factor: conversionFactor(candidate) }) }}</span>
@@ -64,10 +64,10 @@
             <p v-else-if="row.matched" class="text-xs text-amber-700 dark:text-amber-400">{{ t('admin.accounts.upstreamBilling.newAPI.costUnavailable') }}</p>
             <label v-if="row.token_options?.length && (!row.matched || row.token_options.length > 1)" class="block text-sm text-gray-700 dark:text-gray-200">
               {{ t('admin.accounts.upstreamBilling.newAPI.chooseToken') }}
-              <select v-model="tokenSelections[row.account_id]" :disabled="busy" class="input mt-1 w-full" :data-testid="`new-api-token-${row.account_id}`">
+              <FormSelect v-model="tokenSelections[row.account_id]" :disabled="busy" class="mt-1 w-full" :data-testid="`new-api-token-${row.account_id}`">
                 <option :value="undefined">{{ t('admin.accounts.upstreamBilling.newAPI.chooseTokenPlaceholder') }}</option>
                 <option v-for="option in row.token_options" :key="option.token_id" :value="option.token_id">{{ option.name }} · #{{ option.token_id }} · {{ option.group }} · {{ option.masked_key }}</option>
-              </select>
+              </FormSelect>
             </label>
             <p v-if="row.error" class="text-xs text-red-600 dark:text-red-400">{{ rowError(row.error) }}</p>
           </div>
@@ -75,8 +75,8 @@
         <div v-if="confirmRemove" class="space-y-3 rounded-lg border border-red-200 p-3 dark:border-red-900">
           <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.accounts.upstreamBilling.newAPI.removeConfirm') }}</p>
           <div class="flex flex-wrap gap-2">
-            <button type="button" class="btn btn-danger" :disabled="busy" data-testid="new-api-confirm-remove" @click="remove">{{ t('common.confirm') }}</button>
-            <button type="button" class="btn btn-secondary" :disabled="busy" @click="confirmRemove = false">{{ t('common.cancel') }}</button>
+            <BaseButton type="button" class="btn-danger" :disabled="busy" data-testid="new-api-confirm-remove" @click="remove">{{ t('common.confirm') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="confirmRemove = false">{{ t('common.cancel') }}</BaseButton>
           </div>
         </div>
       </template>
@@ -84,15 +84,18 @@
     <template #footer>
       <div class="flex w-full flex-wrap items-center justify-end gap-2">
         <button v-if="config?.configured" type="button" class="mr-auto text-sm text-red-600 hover:underline disabled:opacity-50 dark:text-red-400" :disabled="busy" data-testid="new-api-remove" @click="confirmRemove = true">{{ t('admin.accounts.upstreamBilling.newAPI.remove') }}</button>
-        <button type="button" class="btn btn-secondary" data-testid="new-api-close" @click="close">{{ t('common.cancel') }}</button>
-        <button type="button" class="btn btn-secondary" :disabled="!canVerify" data-testid="new-api-preview" @click="verify(false)">{{ t('admin.accounts.upstreamBilling.newAPI.preview') }}</button>
-        <button type="submit" form="new-api-upstream-form" class="btn btn-primary" :disabled="!canVerify" data-testid="new-api-save" @click.prevent="verify(true)">{{ busy ? t('common.loading') : t('admin.accounts.upstreamBilling.newAPI.save') }}</button>
+        <BaseButton type="button" class="btn-secondary" data-testid="new-api-close" @click="close">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary" :disabled="!canVerify" data-testid="new-api-preview" @click="verify(false)">{{ t('admin.accounts.upstreamBilling.newAPI.preview') }}</BaseButton>
+        <BaseButton type="submit" form="new-api-upstream-form" class="btn-primary" :disabled="!canVerify" data-testid="new-api-save" @click.prevent="verify(true)">{{ busy ? t('common.loading') : t('admin.accounts.upstreamBilling.newAPI.save') }}</BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

@@ -7,7 +7,7 @@
     <p v-if="loading" role="status" class="mb-2 text-sm text-gray-500">{{ t('common.loading') }}</p>
     <p v-if="error" role="alert" class="mb-2 text-sm text-red-600 dark:text-red-400">{{ error }}</p>
     <label class="flex items-center gap-3 text-sm text-gray-700 dark:text-gray-300">
-      <input
+      <FormInput
         v-model="enabled"
         type="checkbox"
         data-testid="edit-smart-ws-enabled"
@@ -20,6 +20,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getSmartWS, setSmartWS, type SmartWSPolicy } from '@/api/admin/groups'

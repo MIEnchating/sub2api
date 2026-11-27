@@ -42,7 +42,6 @@ app.use(createI18n({legacy:false,locale:'zh-CN',messages:{'zh-CN':zh}})).mount('
   await page.locator('main').screenshot({ path: join(output, 'enabled.png') })
   await page.evaluate(() => document.documentElement.classList.add('dark'))
   await page.locator('main').screenshot({ path: join(output, 'dark.png') })
-  await card.locator('[data-testid="new-feature-badge"]').click()
   await page.reload(); await card.waitFor()
   if (await card.locator('[data-testid="new-feature-badge"]').count()) throw Error('Dismissal did not persist')
   if (errors.length) throw Error(errors.join('\n'))

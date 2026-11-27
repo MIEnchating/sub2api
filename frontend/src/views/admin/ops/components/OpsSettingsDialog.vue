@@ -1,4 +1,6 @@
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'
@@ -255,12 +257,11 @@ async function saveAllSettings() {
         <h4 class="mb-3 text-sm font-semibold text-gray-900 dark:text-white">{{ t('admin.ops.settings.dataCollection') }}</h4>
         <div>
           <label class="input-label">{{ t('admin.ops.settings.evaluationInterval') }}</label>
-          <input
+          <FormInput
             v-model.number="runtimeSettings.evaluation_interval_seconds"
             type="number"
             min="1"
             max="86400"
-            class="input"
           />
           <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.evaluationIntervalHint') }}</p>
         </div>
@@ -281,16 +282,15 @@ async function saveAllSettings() {
           <div v-if="emailConfig.alert.enabled">
             <label class="input-label">{{ t('admin.ops.settings.alertRecipients') }}</label>
             <div class="flex gap-2">
-              <input
+              <FormInput
                 v-model="alertRecipientInput"
                 type="email"
-                class="input"
                 :placeholder="t('admin.ops.settings.emailPlaceholder')"
                 @keydown.enter.prevent="addRecipient('alert')"
               />
-              <button class="btn btn-secondary whitespace-nowrap" type="button" @click="addRecipient('alert')">
+              <BaseButton class="btn-secondary whitespace-nowrap" type="button" @click="addRecipient('alert')">
                 {{ t('common.add') }}
-              </button>
+              </BaseButton>
             </div>
             <div class="mt-2 flex flex-wrap gap-2">
               <span
@@ -329,16 +329,15 @@ async function saveAllSettings() {
           <div v-if="emailConfig.report.enabled">
             <label class="input-label">{{ t('admin.ops.settings.reportRecipients') }}</label>
             <div class="flex gap-2">
-              <input
+              <FormInput
                 v-model="reportRecipientInput"
                 type="email"
-                class="input"
                 :placeholder="t('admin.ops.settings.emailPlaceholder')"
                 @keydown.enter.prevent="addRecipient('report')"
               />
-              <button class="btn btn-secondary whitespace-nowrap" type="button" @click="addRecipient('report')">
+              <BaseButton class="btn-secondary whitespace-nowrap" type="button" @click="addRecipient('report')">
                 {{ t('common.add') }}
-              </button>
+              </BaseButton>
             </div>
             <div class="mt-2 flex flex-wrap gap-2">
               <span
@@ -361,14 +360,14 @@ async function saveAllSettings() {
               <Toggle v-model="emailConfig.report.daily_summary_enabled" />
             </div>
             <div v-if="emailConfig.report.daily_summary_enabled">
-              <input v-model="emailConfig.report.daily_summary_schedule" type="text" class="input" placeholder="0 9 * * *" />
+              <FormInput v-model="emailConfig.report.daily_summary_schedule" type="text" placeholder="0 9 * * *" />
             </div>
             <div class="flex items-center justify-between">
               <label class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.ops.settings.weeklySummary') }}</label>
               <Toggle v-model="emailConfig.report.weekly_summary_enabled" />
             </div>
             <div v-if="emailConfig.report.weekly_summary_enabled">
-              <input v-model="emailConfig.report.weekly_summary_schedule" type="text" class="input" placeholder="0 9 * * 1" />
+              <FormInput v-model="emailConfig.report.weekly_summary_schedule" type="text" placeholder="0 9 * * 1" />
             </div>
           </div>
         </div>
@@ -382,13 +381,12 @@ async function saveAllSettings() {
         <div class="space-y-4">
           <div>
             <label class="input-label">{{ t('admin.ops.settings.slaMinPercent') }}</label>
-            <input
+            <FormInput
               v-model.number="metricThresholds.sla_percent_min"
               type="number"
               min="0"
               max="100"
               step="0.1"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.slaMinPercentHint') }}</p>
           </div>
@@ -396,38 +394,35 @@ async function saveAllSettings() {
 
           <div>
             <label class="input-label">{{ t('admin.ops.settings.ttftP99MaxMs') }}</label>
-            <input
+            <FormInput
               v-model.number="metricThresholds.ttft_p99_ms_max"
               type="number"
               min="0"
               step="50"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.ttftP99MaxMsHint') }}</p>
           </div>
 
           <div>
             <label class="input-label">{{ t('admin.ops.settings.requestErrorRateMaxPercent') }}</label>
-            <input
+            <FormInput
               v-model.number="metricThresholds.request_error_rate_percent_max"
               type="number"
               min="0"
               max="100"
               step="0.1"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.requestErrorRateMaxPercentHint') }}</p>
           </div>
 
           <div>
             <label class="input-label">{{ t('admin.ops.settings.upstreamErrorRateMaxPercent') }}</label>
-            <input
+            <FormInput
               v-model.number="metricThresholds.upstream_error_rate_percent_max"
               type="number"
               min="0"
               max="100"
               step="0.1"
-              class="input"
             />
             <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.upstreamErrorRateMaxPercentHint') }}</p>
           </div>
@@ -451,10 +446,9 @@ async function saveAllSettings() {
 
             <div v-if="advancedSettings.data_retention.cleanup_enabled">
               <label class="input-label">{{ t('admin.ops.settings.cleanupSchedule') }}</label>
-              <input
+              <FormInput
                 v-model="advancedSettings.data_retention.cleanup_schedule"
                 type="text"
-                class="input"
                 placeholder="0 2 * * *"
               />
               <p class="mt-1 text-xs text-gray-500">{{ t('admin.ops.settings.cleanupScheduleHint') }}</p>
@@ -463,32 +457,29 @@ async function saveAllSettings() {
             <div class="grid grid-cols-1 gap-4 md:grid-cols-3">
               <div>
                 <label class="input-label">{{ t('admin.ops.settings.errorLogRetentionDays') }}</label>
-                <input
+                <FormInput
                   v-model.number="advancedSettings.data_retention.error_log_retention_days"
                   type="number"
                   min="0"
                   max="365"
-                  class="input"
                 />
               </div>
               <div>
                 <label class="input-label">{{ t('admin.ops.settings.minuteMetricsRetentionDays') }}</label>
-                <input
+                <FormInput
                   v-model.number="advancedSettings.data_retention.minute_metrics_retention_days"
                   type="number"
                   min="0"
                   max="365"
-                  class="input"
                 />
               </div>
               <div>
                 <label class="input-label">{{ t('admin.ops.settings.hourlyMetricsRetentionDays') }}</label>
-                <input
+                <FormInput
                   v-model.number="advancedSettings.data_retention.hourly_metrics_retention_days"
                   type="number"
                   min="0"
                   max="365"
-                  class="input"
                 />
               </div>
             </div>
@@ -516,25 +507,23 @@ async function saveAllSettings() {
             <div class="grid grid-cols-1 gap-4 md:grid-cols-2">
               <div>
                 <label class="input-label">{{ t('admin.ops.settings.openaiQuotaAutoPauseDefault5h') }}</label>
-                <input
+                <FormInput
                   v-model.number="quotaAutoPause5hPercent"
                   type="number"
                   min="0"
                   max="100"
                   step="0.1"
-                  class="input"
                   data-testid="ops-quota-auto-pause-5h"
                 />
               </div>
               <div>
                 <label class="input-label">{{ t('admin.ops.settings.openaiQuotaAutoPauseDefault7d') }}</label>
-                <input
+                <FormInput
                   v-model.number="quotaAutoPause7dPercent"
                   type="number"
                   min="0"
                   max="100"
                   step="0.1"
-                  class="input"
                   data-testid="ops-quota-auto-pause-7d"
                 />
               </div>
@@ -644,10 +633,10 @@ async function saveAllSettings() {
 
     <template #footer>
       <div class="flex justify-end gap-2">
-        <button class="btn btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</button>
-        <button class="btn btn-primary" :disabled="loading || !settingsLoaded || saving || !validation.valid" @click="saveAllSettings">
+        <BaseButton class="btn-secondary" @click="emit('close')">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton class="btn-primary" :disabled="loading || !settingsLoaded || saving || !validation.valid" @click="saveAllSettings">
           {{ saving ? t('common.saving') : t('common.save') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>

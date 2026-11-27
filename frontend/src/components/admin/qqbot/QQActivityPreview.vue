@@ -1,7 +1,7 @@
 <template>
   <section class="card space-y-4 p-5">
     <h2 class="text-lg font-semibold">{{ t('qqbot.workspace.preview') }}</h2><p class="text-sm text-gray-500">{{ t('qqbot.workspace.previewHelp') }}</p>
-    <form class="flex flex-wrap gap-3" @submit.prevent="load"><input v-model.number="userID" type="number" min="1" step="1" required class="input min-w-0 flex-1 basis-48" :aria-label="t('qqbot.workspace.userID')" :placeholder="t('qqbot.workspace.userID')" /><button class="btn btn-primary" :disabled="loading">{{ t('qqbot.workspace.preview') }}</button></form>
+    <form class="flex flex-wrap gap-3" @submit.prevent="load"><FormInput v-model.number="userID" type="number" min="1" step="1" required class="min-w-0 flex-1 basis-48" :aria-label="t('qqbot.workspace.userID')" :placeholder="t('qqbot.workspace.userID')" /><BaseButton class="btn-primary" :disabled="loading">{{ t('qqbot.workspace.preview') }}</BaseButton></form>
     <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
     <div v-if="data" class="space-y-3 text-sm">
       <p>{{ t('qqbot.workspace.bindingState') }}: {{ yes(data.bound) }}</p>
@@ -19,6 +19,8 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQActivityPreview } from '@/api/qqbot'

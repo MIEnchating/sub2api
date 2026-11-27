@@ -6,25 +6,25 @@
     <form v-if="config" @submit.prevent="save">
       <fieldset :disabled="busy" class="space-y-4">
         <div class="flex flex-wrap gap-4">
-          <label><input v-model="config.enabled" type="checkbox" /> {{ t('ipAudit.keyRisk.enabled') }}</label>
-          <label><input v-model="config.age_email" type="checkbox" /> {{ t('ipAudit.keyRisk.ageEmail') }}</label>
-          <label><input v-model="config.auto_email" type="checkbox" /> {{ t('ipAudit.keyRisk.autoEmail') }}</label>
+          <label><FormInput v-model="config.enabled" type="checkbox" /> {{ t('ipAudit.keyRisk.enabled') }}</label>
+          <label><FormInput v-model="config.age_email" type="checkbox" /> {{ t('ipAudit.keyRisk.ageEmail') }}</label>
+          <label><FormInput v-model="config.auto_email" type="checkbox" /> {{ t('ipAudit.keyRisk.autoEmail') }}</label>
         </div>
         <div class="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <label v-for="field in fields" :key="field.key" class="text-sm">{{ t(`ipAudit.keyRisk.${field.key}`) }}
-            <input v-model.number="config[field.key]" type="number" :min="field.min" :max="field.max" required class="input mt-1 w-full" />
+            <FormInput v-model.number="config[field.key]" type="number" :min="field.min" :max="field.max" required class="mt-1 w-full" />
           </label>
         </div>
-        <label class="block text-sm">{{ t('ipAudit.keyRisk.trusted') }}<textarea v-model="trusted" class="input mt-1 w-full" rows="3" /></label>
-        <button type="submit" class="btn btn-primary">{{ t('common.save') }}</button>
-        <button type="button" class="btn btn-secondary ml-2" @click="refresh">{{ t('common.refresh') }}</button>
-        <button type="button" class="btn btn-secondary ml-2" @click="$emit('configure')">{{ t('ipAudit.settings') }}</button>
+        <label class="block text-sm">{{ t('ipAudit.keyRisk.trusted') }}<FormTextarea v-model="trusted" class="mt-1 w-full" rows="3" /></label>
+        <BaseButton type="submit" class="btn-primary">{{ t('common.save') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary ml-2" @click="refresh">{{ t('common.refresh') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary ml-2" @click="$emit('configure')">{{ t('ipAudit.settings') }}</BaseButton>
       </fieldset>
     </form>
     <template v-if="snapshot">
       <p class="text-sm">{{ t('ipAudit.keyRisk.lastScan') }}: {{ formatDate(snapshot.last_scan_at) }} · {{ t('ipAudit.keyRisk.delivery') }}: {{ snapshot.pending }} / {{ snapshot.sent }} / {{ snapshot.uncertain }}</p>
       <p v-if="snapshot.coverage_issue" role="alert" class="text-amber-700">{{ t(snapshot.coverage_issue.startsWith('coverage_incomplete') ? 'ipAudit.keyRisk.incomplete' : 'ipAudit.keyRisk.scanFailed') }}</p>
-      <div class="overflow-x-auto"><table class="w-full text-left text-sm">
+      <div class="overflow-x-auto"><BaseTable class="w-full text-left text-sm">
         <thead><tr><th class="p-2">{{ t('ipAudit.reason') }}</th><th class="p-2">{{ t('ipAudit.keyRisk.evidence') }}</th><th class="p-2">{{ t('ipAudit.state') }}</th><th class="p-2">{{ t('common.actions') }}</th></tr></thead>
         <tbody><tr v-for="row in snapshot.items" :key="row.id" class="border-t align-top">
           <td class="p-2">{{ t(`ipAudit.keyRisk.${row.rule}`) }}<p v-if="row.rule === 'cross_user_ip'"><code>{{ row.subject }}</code></p><p v-else><RiskIdentity :id="Number(row.subject)" :name="row.keys?.find(key => key.id === Number(row.subject))?.name" /></p><p>{{ formatDate(row.first_seen) }} → {{ formatDate(row.last_seen) }}</p></td>
@@ -43,18 +43,18 @@
             </details>
           </td>
           <td class="space-y-2 p-2">
-            <button v-if="row.state === 'pending' && row.rule === 'key_ip_spread'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="openConfirmation(row, 'notify')">{{ t('ipAudit.keyRisk.notify') }}</button>
+            <BaseButton v-if="row.state === 'pending' && row.rule === 'key_ip_spread'" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="openConfirmation(row, 'notify')">{{ t('ipAudit.keyRisk.notify') }}</BaseButton>
             <div v-if="row.rule === 'key_ip_spread' && row.state === 'pending'" class="flex items-center gap-1">
-              <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="openConfirmation(row, 'restrict')">{{ t('ipAudit.keyRisk.restrict') }}</button>
+              <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="openConfirmation(row, 'restrict')">{{ t('ipAudit.keyRisk.restrict') }}</BaseButton>
               <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.keyRiskSources" :user-id="adminId" />
             </div>
-            <button v-if="row.state === 'pending' && row.rule === 'key_ip_spread'" class="btn btn-secondary btn-sm ml-2" :disabled="busy" @click="act(row.id, 'ignored')">{{ t('ipAudit.keyRisk.ignore') }}</button>
-            <button v-if="row.rule === 'key_ip_spread'" class="btn btn-secondary btn-sm ml-2" :disabled="busy" @click="act(row.id, row.state === 'pending' ? 'resolved' : 'pending')">{{ t(row.state === 'pending' ? 'ipAudit.keyRisk.resolve' : 'ipAudit.keyRisk.reopen') }}</button>
+            <BaseButton v-if="row.state === 'pending' && row.rule === 'key_ip_spread'" class="btn-secondary btn-sm ml-2" :disabled="busy" @click="act(row.id, 'ignored')">{{ t('ipAudit.keyRisk.ignore') }}</BaseButton>
+            <BaseButton v-if="row.rule === 'key_ip_spread'" class="btn-secondary btn-sm ml-2" :disabled="busy" @click="act(row.id, row.state === 'pending' ? 'resolved' : 'pending')">{{ t(row.state === 'pending' ? 'ipAudit.keyRisk.resolve' : 'ipAudit.keyRisk.reopen') }}</BaseButton>
           </td>
         </tr></tbody>
-      </table></div>
+      </BaseTable></div>
       <p v-if="!snapshot.items.length">{{ t('ipAudit.empty') }}</p>
-      <div class="flex gap-2"><button class="btn btn-secondary" :disabled="busy || !before" @click="refresh">{{ t('ipAudit.keyRisk.firstPage') }}</button><button class="btn btn-secondary" :disabled="busy || snapshot.items.length < 50" @click="next">{{ t('ipAudit.next') }}</button></div>
+      <div class="flex gap-2"><BaseButton class="btn-secondary" :disabled="busy || !before" @click="refresh">{{ t('ipAudit.keyRisk.firstPage') }}</BaseButton><BaseButton class="btn-secondary" :disabled="busy || snapshot.items.length < 50" @click="next">{{ t('ipAudit.next') }}</BaseButton></div>
     </template>
     <BaseDialog
       :show="confirmId !== null"
@@ -68,18 +68,22 @@
         <p v-if="confirmationTarget"><RiskIdentity :id="Number(confirmationTarget.subject)" :name="confirmationTarget.keys?.find(key => key.id === Number(confirmationTarget!.subject))?.name" /></p>
         <p>{{ t(confirmAction === 'restrict' ? 'ipAudit.keyRisk.restrictConfirm' : 'ipAudit.keyRisk.confirm') }}</p>
         <label v-if="confirmAction === 'restrict'" class="block text-sm">{{ t('ipAudit.keyRisk.allowedNetworks') }}
-          <textarea v-model="allowedNetworks" data-testid="allowed-networks" class="input mt-1 w-full font-mono" rows="3" />
+          <FormTextarea v-model="allowedNetworks" data-testid="allowed-networks" class="mt-1 w-full font-mono" rows="3" />
         </label>
         <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
       </div>
       <template #footer>
-        <button type="button" data-testid="key-risk-confirm" class="btn btn-primary" :disabled="busy || (confirmAction === 'restrict' && !parseNetworks(allowedNetworks).length)" @click="act(confirmId!, confirmAction)">{{ t('ipAudit.keyRisk.confirmAction') }}</button>
-        <button type="button" data-testid="key-risk-cancel" class="btn btn-secondary ml-2" :disabled="busy" @click="closeConfirmation">{{ t('common.cancel') }}</button>
+        <BaseButton type="button" data-testid="key-risk-confirm" class="btn-primary" :disabled="busy || (confirmAction === 'restrict' && !parseNetworks(allowedNetworks).length)" @click="act(confirmId!, confirmAction)">{{ t('ipAudit.keyRisk.confirmAction') }}</BaseButton>
+        <BaseButton type="button" data-testid="key-risk-cancel" class="btn-secondary ml-2" :disabled="busy" @click="closeConfirmation">{{ t('common.cancel') }}</BaseButton>
       </template>
     </BaseDialog>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { onMounted, ref } from 'vue'
 import RiskIdentity from './RiskIdentity.vue'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'

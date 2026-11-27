@@ -6,6 +6,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
@@ -39,14 +40,12 @@ const (
 
 	releaseRepo = updatepolicy.Repository
 
-	officialUpstreamRepo      = "Wei-Shaw/sub2api"
-	officialUpstreamBaseline  = "dba770d56a0ee0ae5bad1b3dc5e11614d323163c"
-	customUpstreamRepo        = "DeanZFC/sub2api-custom"
-	customUpstreamBranch      = "sub2api-custom"
-	customUpstreamBaseline    = "5f988ae20d30053093b512f1d2870e0bb7670e87"
-	customUpstreamVersion     = "FORK_VERSION"
-	customUpstreamUpdateURL   = "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom"
-	upstreamBaselineSignature = officialUpstreamBaseline + ":" + customUpstreamBaseline
+	officialUpstreamRepo  = "Wei-Shaw/sub2api"
+	customUpstreamRepo    = "DeanZFC/sub2api-custom"
+	customUpstreamBranch  = "sub2api-custom"
+	customUpstreamVersion = "FORK_VERSION"
+	ranxiUpstreamRepo     = "ranxi2001/sub2api"
+	ranxiUpstreamBranch   = "production"
 
 	// Security: allowed download domains for updates
 	allowedDownloadHost = "github.com"
@@ -60,6 +59,22 @@ const (
 	// Fetch a few extra releases so filtering (current/newer/prerelease) still leaves enough candidates
 	rollbackFetchPageSize = 15
 )
+
+//go:embed upstream_baselines.json
+var upstreamBaselineSignature string
+
+type updateUpstream struct {
+	id          string
+	repository  string
+	branch      string
+	versionFile string
+}
+
+var updateUpstreams = [...]updateUpstream{
+	{id: "official", repository: officialUpstreamRepo, branch: "main"},
+	{id: "custom", repository: customUpstreamRepo, branch: customUpstreamBranch, versionFile: customUpstreamVersion},
+	{id: "ranxi", repository: ranxiUpstreamRepo, branch: ranxiUpstreamBranch},
+}
 
 // UpdateCache defines cache operations for update service
 type UpdateCache interface {
@@ -597,62 +612,60 @@ func (s *UpdateService) fetchPublishedUpdate(ctx context.Context) (*UpdateInfo, 
 }
 
 func (s *UpdateService) fetchUpstreamVersions(ctx context.Context) []UpstreamVersionInfo {
-	official := UpstreamVersionInfo{
-		ID:         "official",
-		Repository: officialUpstreamRepo,
-		HTMLURL:    "https://github.com/" + officialUpstreamRepo + "/releases",
-	}
-	custom := UpstreamVersionInfo{
-		ID:         "custom",
-		Repository: customUpstreamRepo,
-		HTMLURL:    customUpstreamUpdateURL,
-	}
-
+	var baselines map[string]string
+	baselineErr := json.Unmarshal([]byte(upstreamBaselineSignature), &baselines)
+	upstreams := make([]UpstreamVersionInfo, len(updateUpstreams))
 	var wg sync.WaitGroup
-	wg.Add(2)
-	go func() {
-		defer wg.Done()
-		release, err := s.githubClient.FetchLatestRelease(ctx, officialUpstreamRepo)
-		if err != nil {
-			official.Warning = err.Error()
-			return
-		}
-		if release == nil {
-			official.Warning = "latest release is empty"
-			return
-		}
-		official.Version = strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
-		if strings.TrimSpace(release.HTMLURL) != "" {
-			official.HTMLURL = release.HTMLURL
-		}
-		comparison, err := s.githubClient.FetchComparison(ctx, officialUpstreamRepo, officialUpstreamBaseline, officialUpstreamRepo, "main")
-		if err != nil {
-			official.Warning = appendUpdateWarning(official.Warning, "compare failed: "+err.Error())
-			return
-		}
-		applyUpstreamComparison(&official, comparison)
-	}()
-	go func() {
-		defer wg.Done()
-		raw, err := s.githubClient.FetchRepositoryFile(ctx, customUpstreamRepo, customUpstreamBranch, customUpstreamVersion)
-		if err != nil {
-			custom.Warning = err.Error()
-			return
-		}
-		custom.Version = strings.TrimPrefix(strings.TrimSpace(string(raw)), "v")
-		if custom.Version == "" {
-			custom.Warning = "version file is empty"
-		}
-		comparison, err := s.githubClient.FetchComparison(ctx, customUpstreamRepo, customUpstreamBaseline, customUpstreamRepo, customUpstreamBranch)
-		if err != nil {
-			custom.Warning = appendUpdateWarning(custom.Warning, "compare failed: "+err.Error())
-			return
-		}
-		applyUpstreamComparison(&custom, comparison)
-	}()
+	for i, source := range updateUpstreams {
+		wg.Go(func() {
+			upstream := &upstreams[i]
+			upstream.ID = source.id
+			upstream.Repository = source.repository
+			upstream.HTMLURL = "https://github.com/" + source.repository + "/commits/" + source.branch
+			s.fetchUpstreamVersion(ctx, source, upstream)
+			baseline := baselines[source.id]
+			if baselineErr != nil || baseline == "" {
+				upstream.Warning = appendUpdateWarning(upstream.Warning, "merged upstream commit is unavailable")
+				return
+			}
+			comparison, err := s.githubClient.FetchComparison(ctx, source.repository, baseline, source.repository, source.branch)
+			if err != nil {
+				upstream.Warning = appendUpdateWarning(upstream.Warning, "compare failed: "+err.Error())
+				return
+			}
+			applyUpstreamComparison(upstream, comparison)
+		})
+	}
 	wg.Wait()
+	return upstreams
+}
 
-	return []UpstreamVersionInfo{official, custom}
+func (s *UpdateService) fetchUpstreamVersion(ctx context.Context, source updateUpstream, upstream *UpstreamVersionInfo) {
+	if source.versionFile != "" {
+		raw, err := s.githubClient.FetchRepositoryFile(ctx, source.repository, source.branch, source.versionFile)
+		if err != nil {
+			upstream.Warning = err.Error()
+			return
+		}
+		upstream.Version = strings.TrimPrefix(strings.TrimSpace(string(raw)), "v")
+		if upstream.Version == "" {
+			upstream.Warning = "version file is empty"
+		}
+		return
+	}
+	release, err := s.githubClient.FetchLatestRelease(ctx, source.repository)
+	if err != nil {
+		upstream.Warning = err.Error()
+		return
+	}
+	if release == nil {
+		upstream.Warning = "latest release is empty"
+		return
+	}
+	upstream.Version = strings.TrimPrefix(strings.TrimSpace(release.TagName), "v")
+	if release.HTMLURL != "" {
+		upstream.HTMLURL = release.HTMLURL
+	}
 }
 
 func applyUpstreamComparison(upstream *UpstreamVersionInfo, comparison *GitHubComparison) {
@@ -871,7 +884,7 @@ func (s *UpdateService) getFromCache(ctx context.Context) (*UpdateInfo, error) {
 	if cached.Channel != updateChannel || cached.Repository != releaseRepo || cached.BuildType != s.buildType {
 		return nil, fmt.Errorf("cache belongs to a different update source")
 	}
-	if cached.UpstreamBaselines != upstreamBaselineSignature || len(cached.Upstreams) != 2 {
+	if cached.UpstreamBaselines != upstreamBaselineSignature || len(cached.Upstreams) != len(updateUpstreams) {
 		return nil, fmt.Errorf("cache belongs to different upstream baselines")
 	}
 	for _, upstream := range cached.Upstreams {

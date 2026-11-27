@@ -7,10 +7,10 @@
         <!-- User Search -->
         <div v-if="!observerMode" ref="userSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('admin.usage.userFilter') }}</label>
-          <input
+          <FormInput
             v-model="userKeyword"
             type="text"
-            class="input pr-8"
+            class="pr-8"
             :placeholder="t('admin.usage.searchUserPlaceholder')"
             @input="debounceUserSearch"
             @focus="showUserDropdown = true"
@@ -44,10 +44,10 @@
         <!-- API Key Search -->
         <div ref="apiKeySearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[240px]">
           <label class="input-label">{{ t('usage.apiKeyFilter') }}</label>
-          <input
+          <FormInput
             v-model="apiKeyKeyword"
             type="text"
-            class="input pr-8"
+            class="pr-8"
             :placeholder="t('admin.usage.searchApiKeyPlaceholder')"
             @input="debounceApiKeySearch"
             @focus="onApiKeyFocus"
@@ -105,10 +105,10 @@
         <!-- Account Filter -->
         <div ref="accountSearchRef" class="usage-filter-dropdown relative w-full sm:w-auto sm:min-w-[220px]">
           <label class="input-label">{{ t('admin.usage.account') }}</label>
-          <input
+          <FormInput
             v-model="accountKeyword"
             type="text"
-            class="input pr-8"
+            class="pr-8"
             :placeholder="t('admin.usage.searchAccountPlaceholder')"
             @input="debounceAccountSearch"
             @focus="showAccountDropdown = true"
@@ -196,20 +196,20 @@
 
       <!-- Right: actions -->
       <div v-if="showActions" class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
-        <button type="button" @click="$emit('refresh')" class="btn btn-secondary">
+        <BaseButton type="button" @click="$emit('refresh')" class="btn-secondary">
           {{ t('common.refresh') }}
-        </button>
-        <button type="button" @click="$emit('reset')" class="btn btn-secondary">
+        </BaseButton>
+        <BaseButton type="button" @click="$emit('reset')" class="btn-secondary">
           {{ t('common.reset') }}
-        </button>
+        </BaseButton>
         <slot name="after-reset" />
         <template v-if="mode === 'usage'">
-          <button v-if="!observerMode" type="button" @click="$emit('cleanup')" :disabled="!!filters.platform" :title="filters.platform ? t('admin.usage.platformCleanupUnavailable') : undefined" class="btn btn-danger">
+          <BaseButton v-if="!observerMode" type="button" @click="$emit('cleanup')" :disabled="!!filters.platform" :title="filters.platform ? t('admin.usage.platformCleanupUnavailable') : undefined" class="btn-danger">
             {{ t('admin.usage.cleanup.button') }}
-          </button>
-          <button type="button" @click="$emit('export')" :disabled="exporting" class="btn btn-primary">
+          </BaseButton>
+          <BaseButton type="button" @click="$emit('export')" :disabled="exporting" class="btn-primary">
             {{ t('usage.exportExcel') }}
-          </button>
+          </BaseButton>
         </template>
       </div>
     </div>
@@ -218,6 +218,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, onMounted, onUnmounted, toRef, watch, computed, inject } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { observerUsageAPI, type UsageFilterOption } from '@/api/observerUsage'

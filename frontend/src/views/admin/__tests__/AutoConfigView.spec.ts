@@ -3,9 +3,6 @@ import { reactive } from 'vue'
 import { createPinia, setActivePinia } from 'pinia'
 import { mount, flushPromises } from '@vue/test-utils'
 import AutoConfigView from '../AutoConfigView.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import { getAutoConfig, saveAutoConfig, type AutoConfig } from '@/api/admin/autoConfig'
 import { listQualityPlans } from '@/api/admin/accountQuality'
 import { getAll, list as listGroups } from '@/api/admin/groups'
@@ -318,25 +315,12 @@ describe('AutoConfigView', () => {
   expect(vi.mocked(saveAutoConfig).mock.lastCall![0]).not.toHaveProperty('openai_apikey_fallback_status')
   w.unmount()
  })
- it('registers an independent fallback notice and preserves its dismissal across remounts', async () => {
-  const oldId = NEW_FEATURE_NOTICES.oauthDegradationActions, id = NEW_FEATURE_NOTICES.openaiAPIKeyFallback
-  useNewFeatureNoticeStore().dismiss(1, oldId)
+ it("loads the fallback default without a feature badge", async () => {
   const w = mount(AutoConfigView); await flushPromises()
-  const badge = w.get('[data-testid="apikey-fallback"] [data-testid="new-feature-badge"]')
-  const second = mount(NewFeatureBadge, { props: { noticeId: id, userId: 1 } })
-  await badge.trigger('click')
-  expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
   expect(w.get<HTMLInputElement>('[data-testid="apikey-fallback-enabled"]').element.checked).toBe(false)
+  expect(w.get('[data-testid="apikey-fallback"]').find('[data-testid="new-feature-badge"]').exists()).toBe(false)
   expect(saveAutoConfig).not.toHaveBeenCalled()
-  w.unmount(); second.unmount(); setActivePinia(createPinia())
-  const reloaded = mount(AutoConfigView); await flushPromises()
-  expect(reloaded.find('[data-testid="apikey-fallback"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(useNewFeatureNoticeStore().isDismissed(1, oldId)).toBe(true)
-  const future = mount(NewFeatureBadge, { props: { noticeId: 'future-fallback-test', userId: 1 } })
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  const otherAdmin = mount(NewFeatureBadge, { props: { noticeId: id, userId: 2 } })
-  expect(otherAdmin.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  reloaded.unmount(); future.unmount(); otherAdmin.unmount()
+  w.unmount()
  })
  it('preserves degradation actions when saving WS settings and preserves WS settings when saving degradation actions', async () => {
   const degradation = { ...defaultOAuthDegradationConfig(), enabled: true, threshold_percent: 42, limit_concurrency: false, limit_models: false, limit_groups: true, group_ids: [5] }
@@ -462,52 +446,13 @@ describe('AutoConfigView', () => {
   expect(reloaded.get<HTMLInputElement>(twoFA).element.checked).toBe(false)
   reloaded.unmount()
  })
- it.each([NEW_FEATURE_NOTICES.oauthInitialWSSettings, NEW_FEATURE_NOTICES.oauthImportScheduling])('shares and remembers the %s notice across its controls per admin', async (id) => {
-  const oldId = NEW_FEATURE_NOTICES.oauthInitialDisableScheduling429
-  useNewFeatureNoticeStore().dismiss(1, oldId)
+ it("renders the default WebSocket controls without feature badges", async () => {
   const w = mount(AutoConfigView); await flushPromises()
-  const wsNotices = (view: typeof w) => view.findAllComponents(NewFeatureBadge).filter(badge => badge.props('noticeId') === id)
-  expect(wsNotices(w)).toHaveLength(2)
-  expect(wsNotices(w).every(badge => badge.find('[data-testid="new-feature-badge"]').exists())).toBe(true)
-  expect(w.findAllComponents(NewFeatureBadge).find(badge => badge.props('noticeId') === oldId)!.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  await wsNotices(w)[0]!.get('[data-testid="new-feature-badge"]').trigger('click')
-  expect(wsNotices(w).every(badge => !badge.find('[data-testid="new-feature-badge"]').exists())).toBe(true)
   expect(w.get<HTMLSelectElement>('[data-testid="initial-ws-mode-select"]').element.value).toBe('ctx_pool')
   expect(w.get<HTMLInputElement>('[data-testid="initial-ws-sse-acceleration-enabled"]').element.checked).toBe(false)
+  expect(w.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
   expect(saveAutoConfig).not.toHaveBeenCalled()
   w.unmount()
-  setActivePinia(createPinia())
-  const reloaded = mount(AutoConfigView); await flushPromises()
-  expect(wsNotices(reloaded).every(badge => !badge.find('[data-testid="new-feature-badge"]').exists())).toBe(true)
-  expect(useNewFeatureNoticeStore().isDismissed(1, oldId)).toBe(true)
-  const future = mount(NewFeatureBadge, { props: { noticeId: 'future-ws-announcement-test', userId: 1 } })
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  const otherAdmin = mount(NewFeatureBadge, { props: { noticeId: id, userId: 2 } })
-  expect(otherAdmin.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  reloaded.unmount(); future.unmount(); otherAdmin.unmount()
- })
- it('keeps the new 429 notice independent of old dismissals and persists its dismissal', async () => {
-  const id = NEW_FEATURE_NOTICES.oauthInitialTOTPRotation429
-  const oldId = NEW_FEATURE_NOTICES.protocolFeatureSwitches
-  useNewFeatureNoticeStore().dismiss(1, oldId)
-  const w = mount(AutoConfigView); await flushPromises()
-  const rotationNotice = (view: typeof w) => view.findAllComponents(NewFeatureBadge).find(badge => badge.props('noticeId') === id)!
-  const other = mount(NewFeatureBadge, { props: { noticeId: id, userId: 1 } })
-  expect(rotationNotice(w).find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  expect(other.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  await rotationNotice(w).get('[data-testid="new-feature-badge"]').trigger('click')
-  expect(rotationNotice(w).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(w.get('[data-testid="initial-model-selection"]').find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  expect(other.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(w.get<HTMLInputElement>('[data-testid="totp-rotate-on-429"]').element.checked).toBe(false)
-  w.unmount(); other.unmount()
-  setActivePinia(createPinia())
-  const reloaded = mount(AutoConfigView); await flushPromises()
-  expect(rotationNotice(reloaded).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(useNewFeatureNoticeStore().isDismissed(1, oldId)).toBe(true)
-  const future = mount(NewFeatureBadge, { props: { noticeId: 'future-announcement-test', userId: 1 } })
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  reloaded.unmount(); future.unmount()
  })
  it('saves the 429 2FA opt-in with initial OAuth configuration and reloads it', async () => {
   const w = mount(AutoConfigView); await flushPromises()
@@ -539,32 +484,13 @@ describe('AutoConfigView', () => {
   expect(saveAutoConfig).toHaveBeenCalledWith(config)
   w.unmount()
  })
- it('shows the scheduling notice after the 2FA notice was dismissed and remembers its own dismissal', async () => {
-  const id = NEW_FEATURE_NOTICES.oauthInitialDisableScheduling429
-  const oldId = NEW_FEATURE_NOTICES.oauthInitialTOTPRotation429
-  useNewFeatureNoticeStore().dismiss(1, oldId)
+ it("renders the default rate-limit scheduling controls without feature badges", async () => {
   const w = mount(AutoConfigView); await flushPromises()
-  const schedulingNotice = (view: typeof w) => view.findAllComponents(NewFeatureBadge).find(badge => badge.props('noticeId') === id)!
-  const rotationNotice = (view: typeof w) => view.findAllComponents(NewFeatureBadge).find(badge => badge.props('noticeId') === oldId)!
   const threshold = '[data-testid="disable-scheduling-on-429-7d-threshold"]'
-  expect(w.get(threshold).element.closest('fieldset')).toBe(schedulingNotice(w).element.closest('fieldset'))
-  const other = mount(NewFeatureBadge, { props: { noticeId: id, userId: 1 } })
-  expect(schedulingNotice(w).find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  expect(rotationNotice(w).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  await schedulingNotice(w).get('[data-testid="new-feature-badge"]').trigger('click')
-  expect(schedulingNotice(w).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(other.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
   expect(w.get<HTMLInputElement>('[data-testid="disable-scheduling-on-429"]').element.checked).toBe(false)
   expect(w.get<HTMLInputElement>(threshold).element.value).toBe('98')
-  w.unmount(); other.unmount()
-  setActivePinia(createPinia())
-  const reloaded = mount(AutoConfigView); await flushPromises()
-  expect(schedulingNotice(reloaded).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(rotationNotice(reloaded).find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(reloaded.get('[data-testid="initial-model-selection"]').find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  const future = mount(NewFeatureBadge, { props: { noticeId: 'future-scheduling-announcement-test', userId: 1 } })
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  reloaded.unmount(); future.unmount()
+  expect(w.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
+  w.unmount()
  })
  it.each([
   { disable: true, rotate: false },

@@ -160,7 +160,7 @@ func TestUpdateServiceWithoutCache(t *testing.T) {
 				require.NoError(t, err)
 				require.False(t, info.Cached)
 				require.Equal(t, !unavailable, info.HasUpdate)
-				require.Len(t, info.Upstreams, 2)
+				require.Len(t, info.Upstreams, 3)
 				if unavailable {
 					require.Contains(t, info.Warning, "release service unavailable")
 				} else {
@@ -216,7 +216,12 @@ func TestManagedReleaseNeverFallsBackToBinaryMutation(t *testing.T) {
 	require.Error(t, svc.RollbackToVersion(context.Background(), "0.2.17-custom.11"))
 }
 
-func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
+func TestUpdateServiceReportsThreeUpstreamVersionsFromMergedCommits(t *testing.T) {
+	var baselines map[string]string
+	require.NoError(t, json.Unmarshal([]byte(upstreamBaselineSignature), &baselines))
+	for _, upstream := range updateUpstreams {
+		require.Regexp(t, "^[0-9a-f]{40}$", baselines[upstream.id])
+	}
 	client := &updateServiceGitHubClientStub{
 		releases: map[string]*GitHubRelease{
 			releaseRepo: {
@@ -226,6 +231,10 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 			officialUpstreamRepo: {
 				TagName: "v0.1.179",
 				HTMLURL: "https://github.com/Wei-Shaw/sub2api/releases/tag/v0.1.179",
+			},
+			ranxiUpstreamRepo: {
+				TagName: "v2.25.4",
+				HTMLURL: "https://github.com/ranxi2001/sub2api/releases/tag/v2.25.4",
 			},
 		},
 		repositoryFiles: map[string][]byte{
@@ -252,7 +261,15 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 			ID:             "custom",
 			Repository:     customUpstreamRepo,
 			Version:        "0.2.4-custom.1",
-			HTMLURL:        customUpstreamUpdateURL,
+			HTMLURL:        "https://github.com/DeanZFC/sub2api-custom/commits/sub2api-custom",
+			CompareURL:     "https://github.com/compare",
+			CompareChecked: true,
+		},
+		{
+			ID:             "ranxi",
+			Repository:     ranxiUpstreamRepo,
+			Version:        "2.25.4",
+			HTMLURL:        "https://github.com/ranxi2001/sub2api/releases/tag/v2.25.4",
 			CompareURL:     "https://github.com/compare",
 			CompareChecked: true,
 		},
@@ -260,15 +277,21 @@ func TestUpdateServiceReportsBothUpstreamVersions(t *testing.T) {
 	require.ElementsMatch(t, []updateServiceComparisonCall{
 		{
 			baseRepo: officialUpstreamRepo,
-			baseRef:  officialUpstreamBaseline,
+			baseRef:  baselines["official"],
 			headRepo: officialUpstreamRepo,
 			headRef:  "main",
 		},
 		{
 			baseRepo: customUpstreamRepo,
-			baseRef:  customUpstreamBaseline,
+			baseRef:  baselines["custom"],
 			headRepo: customUpstreamRepo,
 			headRef:  customUpstreamBranch,
+		},
+		{
+			baseRepo: ranxiUpstreamRepo,
+			baseRef:  baselines["ranxi"],
+			headRepo: ranxiUpstreamRepo,
+			headRef:  ranxiUpstreamBranch,
 		},
 	}, client.comparisonCalls)
 }

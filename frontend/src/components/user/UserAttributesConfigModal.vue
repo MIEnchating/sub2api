@@ -6,10 +6,10 @@
         <p class="text-sm text-gray-500 dark:text-dark-400">
           {{ t('admin.users.attributes.description') }}
         </p>
-        <button @click="openCreateModal" class="btn btn-primary btn-sm">
+        <BaseButton @click="openCreateModal" class="btn-primary btn-sm">
           <Icon name="plus" size="sm" class="mr-1.5" :stroke-width="2" />
           {{ t('admin.users.attributes.addAttribute') }}
-        </button>
+        </BaseButton>
       </div>
 
       <!-- Loading State -->
@@ -53,15 +53,15 @@
               <span class="rounded bg-gray-100 px-1.5 py-0.5 font-mono text-xs text-gray-500 dark:bg-dark-700 dark:text-dark-400">
                 {{ attr.key }}
               </span>
-              <span v-if="attr.required" class="badge badge-danger text-xs">
+              <StatusBadge v-if="attr.required" class="badge-danger text-xs">
                 {{ t('admin.users.attributes.required') }}
-              </span>
-              <span v-if="!attr.enabled" class="badge badge-gray text-xs">
+              </StatusBadge>
+              <StatusBadge v-if="!attr.enabled" class="badge-gray text-xs">
                 {{ t('common.disabled') }}
-              </span>
+              </StatusBadge>
             </div>
             <div class="mt-0.5 flex items-center gap-2 text-xs text-gray-500 dark:text-dark-400">
-              <span class="badge badge-gray">{{ t(`admin.users.attributes.types.${attr.type}`) }}</span>
+              <StatusBadge class="badge-gray">{{ t(`admin.users.attributes.types.${attr.type}`) }}</StatusBadge>
               <span v-if="attr.description" class="truncate">{{ attr.description }}</span>
             </div>
           </div>
@@ -89,9 +89,9 @@
 
     <template #footer>
       <div class="flex justify-end">
-        <button @click="emit('close')" class="btn btn-secondary">
+        <BaseButton @click="emit('close')" class="btn-secondary">
           {{ t('common.close') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -107,12 +107,12 @@
       <!-- Key -->
       <div>
         <label class="input-label">{{ t('admin.users.attributes.key') }}</label>
-        <input
+        <FormInput
           v-model="form.key"
           type="text"
           required
           pattern="^[a-zA-Z][a-zA-Z0-9_]*$"
-          class="input font-mono"
+          class="font-mono"
           :placeholder="t('admin.users.attributes.keyHint')"
           :disabled="!!editingAttribute"
         />
@@ -122,11 +122,10 @@
       <!-- Name -->
       <div>
         <label class="input-label">{{ t('admin.users.attributes.name') }}</label>
-        <input
+        <FormInput
           v-model="form.name"
           type="text"
           required
-          class="input"
           :placeholder="t('admin.users.attributes.nameHint')"
         />
       </div>
@@ -144,17 +143,17 @@
       <div v-if="form.type === 'select' || form.type === 'multi_select'" class="space-y-2">
         <label class="input-label">{{ t('admin.users.attributes.options') }}</label>
         <div v-for="(option, index) in form.options" :key="getOptionKey(option)" class="flex items-center gap-2">
-          <input
+          <FormInput
             v-model="option.value"
             type="text"
-            class="input flex-1 font-mono text-sm"
+            class="flex-1 font-mono text-sm"
             :placeholder="t('admin.users.attributes.optionValue')"
             required
           />
-          <input
+          <FormInput
             v-model="option.label"
             type="text"
-            class="input flex-1 text-sm"
+            class="flex-1 text-sm"
             :placeholder="t('admin.users.attributes.optionLabel')"
             required
           />
@@ -166,19 +165,18 @@
             <Icon name="x" size="sm" :stroke-width="2" />
           </button>
         </div>
-        <button type="button" @click="addOption" class="btn btn-secondary btn-sm">
+        <BaseButton type="button" @click="addOption" class="btn-secondary btn-sm">
           <Icon name="plus" size="sm" class="mr-1" :stroke-width="2" />
           {{ t('admin.users.attributes.addOption') }}
-        </button>
+        </BaseButton>
       </div>
 
       <!-- Description -->
       <div>
         <label class="input-label">{{ t('admin.users.attributes.fieldDescription') }}</label>
-        <input
+        <FormInput
           v-model="form.description"
           type="text"
-          class="input"
           :placeholder="t('admin.users.attributes.fieldDescriptionHint')"
         />
       </div>
@@ -186,10 +184,9 @@
       <!-- Placeholder -->
       <div>
         <label class="input-label">{{ t('admin.users.attributes.placeholder') }}</label>
-        <input
+        <FormInput
           v-model="form.placeholder"
           type="text"
-          class="input"
           :placeholder="t('admin.users.attributes.placeholderHint')"
         />
       </div>
@@ -197,11 +194,11 @@
       <!-- Required & Enabled -->
       <div class="flex items-center gap-6">
         <label class="flex items-center gap-2">
-          <input v-model="form.required" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
+          <FormInput v-model="form.required" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
           <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.users.attributes.required') }}</span>
         </label>
         <label class="flex items-center gap-2">
-          <input v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
+          <FormInput v-model="form.enabled" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600" />
           <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.users.attributes.enabled') }}</span>
         </label>
       </div>
@@ -209,16 +206,16 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button @click="closeEditModal" type="button" class="btn btn-secondary">
+        <BaseButton @click="closeEditModal" type="button" class="btn-secondary">
           {{ t('common.cancel') }}
-        </button>
-        <button type="submit" form="attribute-form" :disabled="saving" class="btn btn-primary">
+        </BaseButton>
+        <BaseButton type="submit" form="attribute-form" :disabled="saving" class="btn-primary">
           <svg v-if="saving" class="-ml-1 mr-2 h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
             <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4" />
             <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
           </svg>
           {{ saving ? t('common.saving') : (editingAttribute ? t('common.update') : t('common.create')) }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -237,6 +234,9 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

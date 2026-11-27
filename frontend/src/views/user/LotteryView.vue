@@ -6,11 +6,11 @@
           <span class="page-symbol"><Icon name="gift" /></span>
           <h1 class="text-2xl font-semibold">{{ t('lottery.title') }}</h1>
         </div>
-        <button
-          class="btn btn-secondary !h-11 !w-11 shrink-0 !p-2"
+        <BaseButton
+          class="btn-secondary !h-11 !w-11 shrink-0 !p-2"
           :title="t('lottery.refresh')" :aria-label="t('lottery.refresh')"
           :disabled="busy || loading" @click="load"
-        ><Icon name="refresh" :class="{ 'animate-spin': loading }" /></button>
+        ><Icon name="refresh" :class="{ 'animate-spin': loading }" /></BaseButton>
       </header>
 
       <p v-if="error && !pool" role="alert" class="lottery-error">{{ error }}</p>
@@ -23,9 +23,9 @@
       <template v-if="pool">
         <nav v-if="pools.length > 1" class="pool-selector" :aria-label="t('lottery.choosePool')">
           <div class="pool-tabs" role="tablist" :aria-label="t('lottery.pools')">
-            <button
+            <TabButton
               v-for="p in pools" :id="`pool-tab-${p.id}`" :key="p.id"
-              role="tab" :aria-selected="selectedID === p.id" aria-controls="lottery-pool-panel"
+              :aria-selected="selectedID === p.id" aria-controls="lottery-pool-panel"
               :tabindex="selectedID === p.id ? 0 : -1" :disabled="busy"
               class="pool-option" :class="{ 'is-selected': selectedID === p.id }"
               @click="selectedID = p.id" @keydown="navigatePools($event, p.id)"
@@ -36,7 +36,7 @@
               </span>
               <span class="pool-option-count">{{ p.available }}</span>
               <Icon v-if="selectedID === p.id" name="check" size="sm" class="shrink-0 text-primary-600 dark:text-primary-400" />
-            </button>
+            </TabButton>
           </div>
         </nav>
 
@@ -57,17 +57,17 @@
                 <fieldset class="quantity-control" :disabled="busy || !!pendingKeys.length">
                   <legend class="sr-only">{{ t('lottery.drawQuantity') }}</legend>
                   <label v-for="count in DRAW_COUNTS" :key="count" :title="t('lottery.drawMany', { count })">
-                    <input v-model="drawCount" type="radio" name="draw-count" :value="count" :disabled="pool.available < count" class="peer sr-only" />
+                    <FormInput v-model="drawCount" type="radio" name="draw-count" :value="count" :disabled="pool.available < count" class="peer sr-only" />
                     <span>X{{ count }}</span>
                   </label>
                 </fieldset>
-                <button
-                  data-testid="lottery-draw" class="btn btn-primary draw-button"
+                <BaseButton
+                  data-testid="lottery-draw" class="btn-primary draw-button"
                   :disabled="busy || !canDraw" @click="draw"
                 >
                   <Icon :name="busy || pendingKeys.length ? 'refresh' : 'gift'" class="shrink-0" :class="{ 'animate-spin': busy }" />
                   <span>{{ drawLabel }}</span>
-                </button>
+                </BaseButton>
               </div>
             </div>
 
@@ -155,7 +155,7 @@
           <h2 id="history-title" class="flex items-center gap-2"><Icon name="clock" size="sm" class="text-gray-400" />{{ t('lottery.records') }}</h2>
           <span v-if="total" class="text-xs tabular-nums text-gray-500 dark:text-gray-400">{{ t('lottery.recordCount', { count: total }) }}</span>
         </div>
-        <table v-if="records.length" class="history-table">
+        <BaseTable v-if="records.length" class="history-table">
           <thead>
             <tr><th>{{ t('lottery.time') }}</th><th>{{ t('lottery.pools') }}</th><th>{{ t('lottery.reward') }}</th></tr>
           </thead>
@@ -166,7 +166,7 @@
               <td><button class="history-detail" @click="results = [record]">{{ record.prize.name }}<Icon name="chevronRight" size="sm" class="shrink-0" /></button></td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
         <div v-if="records.length" class="history-mobile">
           <button v-for="record in records" :key="record.id" class="history-record" @click="results = [record]">
             <PrizeIcon :kind="record.prize.kind" />
@@ -180,9 +180,9 @@
         </div>
         <p v-if="!records.length" class="py-8 text-center text-sm text-gray-500 dark:text-gray-400">{{ t('lottery.noRecords') }}</p>
         <div v-if="total > 10" class="history-pagination">
-          <button class="btn btn-secondary !h-11 !w-11 !p-2" :disabled="page <= 1" :aria-label="t('lottery.previous')" :title="t('lottery.previous')" @click="changePage(-1)"><Icon name="chevronLeft" /></button>
+          <BaseButton class="btn-secondary !h-11 !w-11 !p-2" :disabled="page <= 1" :aria-label="t('lottery.previous')" :title="t('lottery.previous')" @click="changePage(-1)"><Icon name="chevronLeft" /></BaseButton>
           <span>{{ t('lottery.page', { page, total }) }}</span>
-          <button class="btn btn-secondary !h-11 !w-11 !p-2" :disabled="page * 10 >= total" :aria-label="t('lottery.next')" :title="t('lottery.next')" @click="changePage(1)"><Icon name="chevronRight" /></button>
+          <BaseButton class="btn-secondary !h-11 !w-11 !p-2" :disabled="page * 10 >= total" :aria-label="t('lottery.next')" :title="t('lottery.next')" @click="changePage(1)"><Icon name="chevronRight" /></BaseButton>
         </div>
       </section>
 
@@ -214,7 +214,7 @@
           </article>
         </div>
         <template #footer>
-          <button class="btn btn-primary min-h-11 min-w-24" @click="results = []">{{ t('lottery.close') }}</button>
+          <BaseButton class="btn-primary min-h-11 min-w-24" @click="results = []">{{ t('lottery.close') }}</BaseButton>
         </template>
       </BaseDialog>
     </div>
@@ -222,6 +222,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

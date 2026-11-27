@@ -8,11 +8,10 @@
     <!-- provider tabs -->
     <div class="mb-4 border-b border-gray-200 dark:border-dark-700">
       <div role="tablist" class="flex flex-wrap gap-1">
-        <button
+        <TabButton
           v-for="tab in providerTabs"
           :key="tab.value"
           type="button"
-          role="tab"
           :aria-selected="activeProvider === tab.value"
           class="px-4 py-2 text-sm font-medium transition-colors"
           :class="tabClass(tab.value)"
@@ -25,17 +24,17 @@
           >
             {{ countByProvider[tab.value] }}
           </span>
-        </button>
+        </TabButton>
       </div>
     </div>
 
     <!-- active provider list -->
     <div v-if="!editing" class="space-y-2">
       <div class="flex justify-end">
-        <button class="btn btn-primary btn-sm" @click="openCreateForm">
+        <BaseButton class="btn-primary btn-sm" @click="openCreateForm">
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('admin.channelMonitor.template.createButton') }}
-        </button>
+        </BaseButton>
       </div>
 
       <div v-if="loading" class="py-8 text-center text-sm text-gray-400">
@@ -89,21 +88,21 @@
             </p>
           </div>
           <div class="flex flex-shrink-0 gap-2">
-            <button
-              class="btn btn-secondary btn-sm"
+            <BaseButton
+              class="btn-secondary btn-sm"
               :disabled="tpl.associated_monitors === 0"
               :title="t('admin.channelMonitor.template.applyTooltip')"
               @click="confirmApply(tpl)"
             >
               <Icon name="refresh" size="sm" class="mr-1" />
               {{ t('admin.channelMonitor.template.applyButton') }}
-            </button>
-            <button class="btn btn-secondary btn-sm" @click="openEditForm(tpl)">
+            </BaseButton>
+            <BaseButton class="btn-secondary btn-sm" @click="openEditForm(tpl)">
               {{ t('common.edit') }}
-            </button>
-            <button class="btn btn-secondary btn-sm text-red-600" @click="handleDelete(tpl)">
+            </BaseButton>
+            <BaseButton class="btn-secondary btn-sm text-red-600" @click="handleDelete(tpl)">
               {{ t('common.delete') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </div>
@@ -116,11 +115,10 @@
           {{ t('admin.channelMonitor.template.form.name') }}
           <span class="text-red-500">*</span>
         </label>
-        <input
+        <FormInput
           v-model="form.name"
           type="text"
           required
-          class="input"
           :placeholder="t('admin.channelMonitor.template.form.namePlaceholder')"
         />
       </div>
@@ -165,10 +163,9 @@
         <label class="input-label">
           {{ t('admin.channelMonitor.template.form.description') }}
         </label>
-        <input
+        <FormInput
           v-model="form.description"
           type="text"
-          class="input"
           :placeholder="t('admin.channelMonitor.template.form.descriptionPlaceholder')"
         />
       </div>
@@ -189,18 +186,18 @@
       <div class="flex w-full items-center justify-between">
         <!-- Left: back to list / nothing -->
         <div>
-          <button v-if="editing" class="btn btn-secondary" @click="backToList">
+          <BaseButton v-if="editing" class="btn-secondary" @click="backToList">
             {{ t('common.back') }}
-          </button>
+          </BaseButton>
         </div>
         <!-- Right: save or close -->
         <div class="flex gap-2">
-          <button class="btn btn-secondary" @click="$emit('close')">
+          <BaseButton class="btn-secondary" @click="$emit('close')">
             {{ t('common.close') }}
-          </button>
-          <button v-if="editing" class="btn btn-primary" :disabled="submitting" @click="handleSubmit">
+          </BaseButton>
+          <BaseButton v-if="editing" class="btn-primary" :disabled="submitting" @click="handleSubmit">
             {{ submitting ? t('common.submitting') : editing === 'new' ? t('common.create') : t('common.update') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </template>
@@ -227,6 +224,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

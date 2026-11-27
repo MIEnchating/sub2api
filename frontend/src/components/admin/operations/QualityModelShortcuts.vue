@@ -3,8 +3,8 @@
     <p class="text-sm text-gray-500">{{ t('qualityOps.modelShortcuts') }}</p>
     <div class="flex flex-wrap gap-2">
       <span v-for="model in shortcuts" :key="model" class="inline-flex max-w-full items-center gap-1">
-        <button type="button" class="btn btn-secondary btn-sm max-w-full break-all" data-testid="quality-model-shortcut"
-          :disabled="disabled || selectedModels.includes(model)" :aria-pressed="selectedModels.includes(model)" @click="emit('select', model)">{{ model }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm max-w-full break-all" data-testid="quality-model-shortcut"
+          :disabled="disabled || selectedModels.includes(model)" :aria-pressed="selectedModels.includes(model)" @click="emit('select', model)">{{ model }}</BaseButton>
         <button v-if="!builtins.includes(model)" type="button" class="shrink-0 rounded p-1 text-gray-500 hover:text-red-600"
           data-testid="quality-remove-model-shortcut" :aria-label="t('qualityOps.removeModelShortcut', { model })" @click="removeShortcut(model)"><Icon name="x" size="xs" /></button>
       </span>
@@ -13,9 +13,9 @@
       <summary class="cursor-pointer text-sm text-primary-600">{{ t('qualityOps.addModelShortcuts') }}</summary>
       <div class="mt-2 space-y-2">
         <label class="block space-y-1 text-sm"><span>{{ t('qualityOps.modelShortcutsInput') }}</span>
-          <textarea v-model="draft" rows="2" class="input text-sm" data-testid="quality-model-shortcuts-input" :placeholder="t('qualityOps.modelShortcutsPlaceholder')" />
+          <FormTextarea v-model="draft" rows="2" class="text-sm" data-testid="quality-model-shortcuts-input" :placeholder="t('qualityOps.modelShortcutsPlaceholder')" />
         </label>
-        <button type="button" class="btn btn-secondary btn-sm" data-testid="quality-save-model-shortcuts" :disabled="!draft.trim()" @click="saveShortcuts">{{ t('qualityOps.saveModelShortcuts') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" data-testid="quality-save-model-shortcuts" :disabled="!draft.trim()" @click="saveShortcuts">{{ t('qualityOps.saveModelShortcuts') }}</BaseButton>
       </div>
     </details>
     <p class="text-xs text-gray-500">{{ t('qualityOps.modelShortcutsHint') }}</p>
@@ -24,6 +24,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

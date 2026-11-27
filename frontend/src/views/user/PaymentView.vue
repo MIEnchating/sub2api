@@ -254,7 +254,7 @@
                 </span>
                 <span v-else>{{ t('payment.createOrder') }} {{ formatQuoteRange(subscriptionQuote, 'total') }}</span>
               </button>
-              <button class="btn btn-secondary w-full" @click="selectedPlan = null">{{ t('common.cancel') }}</button>
+              <BaseButton class="btn-secondary w-full" @click="selectedPlan = null">{{ t('common.cancel') }}</BaseButton>
             </template>
             <!-- Plan list -->
             <template v-else>
@@ -285,7 +285,7 @@
                         <span v-else>{{ t('userSubscriptions.noExpiration') }}</span>
                       </div>
                     </div>
-                    <span class="badge badge-success shrink-0 text-[10px]">{{ t('userSubscriptions.status.active') }}</span>
+                    <StatusBadge class="badge-success shrink-0 text-[10px]">{{ t('userSubscriptions.status.active') }}</StatusBadge>
                   </div>
                 </div>
               </div>
@@ -331,6 +331,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, computed, onMounted, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { marked } from 'marked'

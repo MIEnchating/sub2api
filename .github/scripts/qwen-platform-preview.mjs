@@ -38,7 +38,6 @@ mount(Form,{attachTo:'#app',props:{show:true,proxies:[],groups:[]},global:{plugi
   assert.equal(await page.getByTestId('generic-account-mode').count(),0)
   assert.equal((await page.getByTestId('platform-button-qwen').innerText()).trim(),'Qwen')
   await page.screenshot({path:path.join(out,'qwen-account-'+lang+'.png'),fullPage:true})
-  await page.getByTestId('qwen-platform-notice').getByTestId('new-feature-badge').click()
   assert.equal(await page.getByTestId('qwen-platform-notice').getByTestId('new-feature-badge').count(),0)
   await page.close()
  }

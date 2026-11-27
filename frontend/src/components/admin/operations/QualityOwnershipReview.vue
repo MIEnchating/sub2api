@@ -4,12 +4,12 @@
     <p>{{ t(deleting ? 'qualityOps.deleteRestoreHelp' : 'qualityOps.ownershipNotUnlock') }}</p>
     <p v-if="scopeConflict" role="alert" data-testid="quality-scope-conflict">{{ t('qualityOps.scopeConflictHelp') }}</p>
     <p v-if="error" role="alert">{{ error }}</p>
-    <button type="button" class="btn btn-secondary" :disabled="busy" @click="load">{{ t('qualityOps.previewOwnership') }}</button>
+    <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="load">{{ t('qualityOps.previewOwnership') }}</BaseButton>
     <template v-if="preview">
       <p>{{ t('qualityOps.savedScope') }}: {{ preview.models.join(', ') || '—' }} · {{ preview.group_ids.join(', ') || '—' }}</p>
       <p v-if="preview.ownership_retained">{{ t(deleting ? 'qualityOps.deleteManagedEntries' : 'qualityOps.managedEntriesRemain') }}</p>
       <div class="overflow-auto">
-        <table class="w-full text-left text-xs"><thead><tr><th>{{ t('qualityOps.ownershipTarget') }}</th><th>{{ t('qualityOps.ownershipExpected') }}</th><th>{{ t('qualityOps.ownershipCurrent') }}</th><th>{{ t('qualityOps.ownershipDecision') }}</th></tr></thead>
+        <BaseTable class="w-full text-left text-xs"><thead><tr><th>{{ t('qualityOps.ownershipTarget') }}</th><th>{{ t('qualityOps.ownershipExpected') }}</th><th>{{ t('qualityOps.ownershipCurrent') }}</th><th>{{ t('qualityOps.ownershipDecision') }}</th></tr></thead>
           <tbody><tr v-for="entry in preview.entries" :key="`${entry.kind}:${entry.model || entry.group_id}`">
             <td>{{ entry.model || `#${entry.group_id}` }}</td>
             <td>{{ t(`qualityOps.ownershipOwners.${entry.expected_owner}`) }} · {{ t(entry.expected_present ? 'qualityOps.present' : 'qualityOps.absent') }}</td>
@@ -18,33 +18,33 @@
               <details><summary>{{ t('qualityOps.restoreDiagnosticEvidence') }}</summary><p>{{ entry.changed_fields.join(', ') || '—' }}</p><code>{{ entry.expected_digest }} → {{ entry.current_digest }}</code></details>
             </td>
           </tr></tbody>
-        </table>
+        </BaseTable>
       </div>
       <fieldset v-if="!deleting && preview.model_removals?.length" class="space-y-2 border p-2" :disabled="busy" data-testid="quality-model-removal">
         <legend>{{ t('qualityOps.modelRemovalTitle') }}</legend>
         <p>{{ t('qualityOps.modelRemovalHelp') }}</p>
-        <label>{{ t('qualityOps.ownershipTarget') }} <select v-model="removalModel" data-testid="quality-removal-model"><option value="">—</option><option v-for="item in preview.model_removals" :key="item.model" :value="item.model">{{ item.model }}</option></select></label>
+        <label>{{ t('qualityOps.ownershipTarget') }} <FormSelect v-model="removalModel" data-testid="quality-removal-model"><option value="">—</option><option v-for="item in preview.model_removals" :key="item.model" :value="item.model">{{ item.model }}</option></FormSelect></label>
         <template v-if="selectedRemoval">
           <p data-testid="quality-removal-effect">{{ t(`qualityOps.modelRemovalEffects.${selectedRemoval.effect}`) }} · {{ selectedRemoval.isolation_model }}</p>
           <p v-if="!selectedRemoval.ready" role="alert" data-testid="quality-removal-blocked">{{ t(`qualityOps.modelRemovalBlocked.${selectedRemoval.blocked_reason}`) }}</p>
           <template v-else>
-            <label>{{ t('qualityOps.modelRemovalReason') }} <select v-model="removalReason" data-testid="quality-removal-reason"><option value="">—</option><option value="orphan_marker_recovery">{{ t('qualityOps.modelRemovalReasons.orphan_marker_recovery') }}</option><option value="retire_model">{{ t('qualityOps.modelRemovalReasons.retire_model') }}</option></select></label>
-            <label class="flex gap-2"><input v-model="removalConfirmed" type="checkbox" data-testid="quality-removal-confirm" />{{ t('qualityOps.modelRemovalConfirm', { model: removalModel }) }}</label>
-            <button type="button" class="btn btn-secondary" data-testid="quality-remove-model" :disabled="busy || !removalConfirmed || !removalReason || !preview.fence" @click="removeModel">{{ t('qualityOps.modelRemovalSubmit') }}</button>
+            <label>{{ t('qualityOps.modelRemovalReason') }} <FormSelect v-model="removalReason" data-testid="quality-removal-reason"><option value="">—</option><option value="orphan_marker_recovery">{{ t('qualityOps.modelRemovalReasons.orphan_marker_recovery') }}</option><option value="retire_model">{{ t('qualityOps.modelRemovalReasons.retire_model') }}</option></FormSelect></label>
+            <label class="flex gap-2"><FormInput v-model="removalConfirmed" type="checkbox" data-testid="quality-removal-confirm" />{{ t('qualityOps.modelRemovalConfirm', { model: removalModel }) }}</label>
+            <BaseButton type="button" class="btn-secondary" data-testid="quality-remove-model" :disabled="busy || !removalConfirmed || !removalReason || !preview.fence" @click="removeModel">{{ t('qualityOps.modelRemovalSubmit') }}</BaseButton>
           </template>
         </template>
       </fieldset>
       <p v-if="removedModel" role="status" data-testid="quality-removal-readback">{{ t('qualityOps.modelRemovalReadback', { model: removedModel }) }}</p>
       <p v-if="reconciled" role="status">{{ t('qualityOps.ownershipReconciled') }}</p>
       <template v-if="preview.relinquishable_count && !reconciled">
-        <label class="flex items-start gap-2"><input v-model="confirmed" type="checkbox" data-testid="quality-ownership-confirm" :disabled="busy" />{{ t('qualityOps.ownershipConfirm') }}</label>
-        <button type="button" class="btn btn-secondary" data-testid="quality-ownership-reconcile" :disabled="busy || !confirmed || !preview.fence" @click="reconcile">{{ t('qualityOps.relinquishOldOwnership') }}</button>
+        <label class="flex items-start gap-2"><FormInput v-model="confirmed" type="checkbox" data-testid="quality-ownership-confirm" :disabled="busy" />{{ t('qualityOps.ownershipConfirm') }}</label>
+        <BaseButton type="button" class="btn-secondary" data-testid="quality-ownership-reconcile" :disabled="busy || !confirmed || !preview.fence" @click="reconcile">{{ t('qualityOps.relinquishOldOwnership') }}</BaseButton>
       </template>
       <template v-if="deleting && preview.action === 'isolate_models'">
         <p v-if="!preview.restore_ready" role="alert" data-testid="quality-delete-restore-blocked">{{ t(`qualityOps.deleteRestoreBlocked.${preview.restore_blocked_reason || 'ownership_conflict'}`) }}</p>
         <template v-else>
-          <label class="flex items-start gap-2"><input v-model="restoreConfirmed" type="checkbox" data-testid="quality-restore-confirm" :disabled="busy" />{{ t('qualityOps.deleteRestoreConfirm') }}</label>
-          <button type="button" class="btn btn-secondary" data-testid="quality-restore-owned" :disabled="busy || !restoreConfirmed || !preview.fence" @click="restore">{{ t('qualityOps.restoreBeforeDelete') }}</button>
+          <label class="flex items-start gap-2"><FormInput v-model="restoreConfirmed" type="checkbox" data-testid="quality-restore-confirm" :disabled="busy" />{{ t('qualityOps.deleteRestoreConfirm') }}</label>
+          <BaseButton type="button" class="btn-secondary" data-testid="quality-restore-owned" :disabled="busy || !restoreConfirmed || !preview.fence" @click="restore">{{ t('qualityOps.restoreBeforeDelete') }}</BaseButton>
         </template>
       </template>
       <p>{{ t(deleting ? 'qualityOps.deleteAfterRestoreHelp' : 'qualityOps.keepDraftHelp') }}</p>
@@ -52,6 +52,10 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { previewQualityOwnership, reconcileQualityOwnership, restoreQualityOwnership, removeQualityOwnedModel, type QualityOwnershipPreview } from '@/api/admin/accountQuality'

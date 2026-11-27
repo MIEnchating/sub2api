@@ -164,16 +164,6 @@ try {
     await screenshot(`before-edit-${lang}.png`, section(labels)); await close()
 
     mode = 'after'; await page.reload()
-    const userId = await page.evaluate(() => JSON.parse(localStorage.getItem('auth_user')).id)
-    const noticePage = async phase => { await page.goto(`${origin}/pr838-notices.html?phase=${phase}&user=${userId}`); await page.locator('h1').waitFor() }
-    if (lang === 'en') {
-      await noticePage('a'); await page.getByTestId('notice-A-0').getByTestId('new-feature-badge').click()
-      await noticePage('b')
-      assert.equal(await page.getByTestId('notice-A-0').getByTestId('new-feature-badge').count(), 0)
-      assert.equal(await page.getByTestId('new-feature-badge').count(), 2)
-      await screenshot('notice-B-after-A-dismissed.png', page.locator('main'))
-      await page.goto(origin + '/admin/accounts')
-    }
     await openCreate(labels)
     await section(labels).getByRole('button', { name: labels.add, exact: true }).click()
     await checkFields([true], ['1'], ['5'])
@@ -182,7 +172,7 @@ try {
     await screenshot(`after-create-defaults-${lang}.png`, section(labels))
     for (const preset of labels.presets) await section(labels).getByRole('button', { name: '+ ' + preset, exact: true }).click()
     await checkFields([true, false, false, false], ['1', '1', '1', '1'], ['5', '5', '5', '5'])
-    assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 4)
+    assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 0)
     const ruleCard = index => dialog().getByTestId('temp-unsched-trigger-count').nth(index).locator('..').locator('..').locator('..')
     for (let index = 1; index <= 3; index++) await screenshot(`after-create-preset-${[529, 429, 503][index - 1]}-${lang}.png`, ruleCard(index))
     await dialog().locator('[data-tour="account-form-name"]').fill(`PR838 ${lang} created`)
@@ -199,9 +189,7 @@ try {
     await openEdit(`PR838 ${lang} created`, labels)
     await checkFields([true, false, false, false], ['1', '1', '1', '1'], ['5', '5', '5', '5'])
     await screenshot(`after-edit-created-readback-${lang}.png`, ruleCard(0))
-    assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 4)
-    await section(labels).getByTestId('new-feature-badge').first().click()
-    assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 0, 'one click hides all four actual Edit locations')
+    assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 0)
     await section(labels).getByRole('button', { name: labels.add, exact: true }).click()
     for (const preset of labels.presets) await section(labels).getByRole('button', { name: '+ ' + preset, exact: true }).click()
     await checkFields([true, false, false, false, true, false, false, false], Array(8).fill('1'), Array(8).fill('5'))
@@ -226,7 +214,7 @@ try {
     await readback(legacy.id, explicit.sent.rules, `${lang}: explicit timing/count/window PUT readback`)
     await openEdit(legacyName + ' renamed', labels); await checkFields([true], ['3'], ['7'])
     await screenshot(`after-edit-saved-readback-${lang}.png`, section(labels))
-    // Real close/open interactions preserve one ID across all cards and Create/Edit.
+    // Check that reopening Create and Edit keeps feature badges absent.
     assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 0)
     await close(); await openCreate(labels)
     await section(labels).getByRole('button', { name: labels.add, exact: true }).click()
@@ -236,24 +224,13 @@ try {
     await screenshot(`after-edit-notice-hidden-reload-${lang}.png`, section(labels)); await close()
 
     if (lang === 'en') {
-      await noticePage('c')
-      assert.equal(await page.getByTestId('notice-B-1').getByTestId('new-feature-badge').count(), 0, 'actual administrator B remains hidden')
-      assert.equal(await page.getByTestId('notice-A-0').getByTestId('new-feature-badge').count(), 0)
-      assert.equal(await page.getByTestId('new-feature-badge').count(), 1)
-      assert.equal(await page.getByTestId('notice-C-3').getByTestId('new-feature-badge').count(), 1)
-      await screenshot('notice-C-independent-A-B-stay-hidden.png', page.locator('main'))
-      await page.reload(); await page.locator('h1').waitFor()
-      assert.equal(await page.getByTestId('new-feature-badge').count(), 1)
-      const dismissed = await page.evaluate(id => JSON.parse(localStorage.getItem('sub2api:new-feature-notices:v1:' + id)), userId)
-      assert(dismissed.includes(B))
-      await page.goto(origin + '/admin/accounts')
       await page.getByRole('button', { name: 'User menu', exact: true }).click()
       await page.getByRole('button', { name: 'Logout', exact: true }).click()
       await page.waitForURL(url => url.pathname === '/login')
       await login(labels); await openEdit(legacyName + ' renamed', labels)
       assert.equal(await section(labels).getByTestId('new-feature-badge').count(), 0)
       await close()
-      manifest.scenarios.push({ name: 'A -> B multiple locations -> reload -> future C; actual B Create/Edit/reload/same-admin-login', passed: true, futureC: 'test-only registry; actual badge/store', actualUser: userId })
+      manifest.scenarios.push({ name: 'Account editor renders without feature badges after re-login', passed: true })
     }
     manifest.scenarios.push({ lang, name: 'full administration Create/Edit, defaults/presets, rename-only omitted timing, explicit save, API + SQL readback', passed: true })
     await context.close()

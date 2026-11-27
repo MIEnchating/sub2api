@@ -2,7 +2,7 @@
   <section class="mb-3 space-y-2 rounded-lg border border-gray-200 p-3 text-sm dark:border-dark-700" data-auto-review-output>
     <div class="flex flex-wrap items-center gap-2">
       <strong>{{ tr('title') }}</strong>
-      <span class="badge" :class="review.verdict === 'pass' ? 'badge-success' : review.verdict === 'fail' ? 'badge-danger' : 'badge-warning'" data-auto-review-verdict>{{ tr(renderFailed ? 'renderFailed' : review.verdict) }}</span>
+      <StatusBadge :class="review.verdict === 'pass' ? 'badge-success' : review.verdict === 'fail' ? 'badge-danger' : 'badge-warning'" data-auto-review-verdict>{{ tr(renderFailed ? 'renderFailed' : review.verdict) }}</StatusBadge>
     </div>
     <p v-if="displayReason" class="break-words text-gray-600 dark:text-gray-300" data-auto-review-reason>{{ displayReason }}</p>
     <template v-if="renderFailed">
@@ -22,6 +22,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { TestAutoReview } from '@/types'

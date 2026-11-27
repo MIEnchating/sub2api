@@ -2,13 +2,13 @@
   <section class="space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-dark-700 dark:bg-dark-900" data-testid="apikey-fallback">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">{{ t('autoConfig.apikeyFallback.title') }}</h2><NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.openaiAPIKeyFallback" :user-id="userId" /></div>
-      <label class="flex items-center gap-2 text-sm"><input v-model="model.enabled" data-testid="apikey-fallback-enabled" type="checkbox" role="switch" class="h-4 w-4 rounded text-primary-600" />{{ t('autoConfig.enable') }}</label>
+      <label class="flex items-center gap-2 text-sm"><FormInput v-model="model.enabled" data-testid="apikey-fallback-enabled" type="checkbox" role="switch" class="h-4 w-4 rounded text-primary-600" />{{ t('autoConfig.enable') }}</label>
     </header>
     <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.apikeyFallback.hint') }}</p>
     <div class="grid min-w-0 gap-4 sm:grid-cols-2">
-      <label class="sm:col-span-2"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.metric') }}</span><select v-model="model.metric" data-testid="apikey-fallback-metric" class="input w-full"><option value="sla">{{ t('autoConfig.apikeyFallback.metrics.sla') }}</option><option value="health_score">{{ t('autoConfig.apikeyFallback.metrics.health_score') }}</option></select></label>
-      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.threshold') }}</span><div class="flex items-center gap-2"><input v-model.number="model.threshold" data-testid="apikey-fallback-threshold" type="number" min="0" max="100" step="any" required class="input min-w-0 w-full" /><span class="shrink-0 text-sm text-gray-500">{{ model.metric === 'sla' ? '%' : t('autoConfig.apikeyFallback.scoreUnit') }}</span></div></label>
-      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.window') }}</span><input v-model.number="model.window_minutes" data-testid="apikey-fallback-window" type="number" min="1" max="1440" step="1" required class="input w-full" /></label>
+      <label class="sm:col-span-2"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.metric') }}</span><FormSelect v-model="model.metric" data-testid="apikey-fallback-metric" class="w-full"><option value="sla">{{ t('autoConfig.apikeyFallback.metrics.sla') }}</option><option value="health_score">{{ t('autoConfig.apikeyFallback.metrics.health_score') }}</option></FormSelect></label>
+      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.threshold') }}</span><div class="flex items-center gap-2"><FormInput v-model.number="model.threshold" data-testid="apikey-fallback-threshold" type="number" min="0" max="100" step="any" required class="min-w-0 w-full" /><span class="shrink-0 text-sm text-gray-500">{{ model.metric === 'sla' ? '%' : t('autoConfig.apikeyFallback.scoreUnit') }}</span></div></label>
+      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyFallback.window') }}</span><FormInput v-model.number="model.window_minutes" data-testid="apikey-fallback-window" type="number" min="1" max="1440" step="1" required class="w-full" /></label>
     </div>
     <div class="flex justify-end"><button type="button" data-testid="apikey-fallback-reload-accounts" class="text-sm text-primary-600 underline" :disabled="loading" @click="loadAccounts">{{ t('autoConfig.apikeyFallback.reloadAccounts') }}</button></div>
     <p v-if="loading" class="text-sm text-gray-500" data-testid="apikey-fallback-loading">{{ t('common.loading') }}</p>
@@ -26,7 +26,7 @@
     </fieldset>
     <div v-if="unavailableAccountIds.length && !loading && !failed" class="space-y-2 text-sm text-amber-700 dark:text-amber-300" data-testid="apikey-fallback-unavailable">
       <p>{{ t('autoConfig.apikeyFallback.unavailableHint') }}</p>
-      <label v-for="id in unavailableAccountIds" :key="id" class="flex items-center gap-2"><input v-model="model.account_ids" :value="id" :data-testid="'apikey-fallback-unavailable-' + id" type="checkbox" class="h-4 w-4 rounded text-primary-600" /><span>#{{ id }} · {{ t('autoConfig.apikeyFallback.unavailableAccount') }}</span></label>
+      <label v-for="id in unavailableAccountIds" :key="id" class="flex items-center gap-2"><FormInput v-model="model.account_ids" :value="id" :data-testid="'apikey-fallback-unavailable-' + id" type="checkbox" class="h-4 w-4 rounded text-primary-600" /><span>#{{ id }} · {{ t('autoConfig.apikeyFallback.unavailableAccount') }}</span></label>
     </div>
     <p v-if="failed && model.account_ids.length" class="break-words text-sm text-amber-700 dark:text-amber-300" data-testid="apikey-fallback-retained-ids">{{ t('autoConfig.apikeyFallback.retainedIds') }} {{ model.account_ids.map(id => '#' + id).join(', ') }}</p>
     <p class="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ t('autoConfig.apikeyFallback.recoveryHint') }}</p>
@@ -48,6 +48,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { list } from '@/api/admin/accounts'

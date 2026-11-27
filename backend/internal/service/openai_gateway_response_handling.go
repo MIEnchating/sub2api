@@ -1792,6 +1792,9 @@ func extractOpenAIResponseIDFromJSONBytes(body []byte) string {
 }
 
 const openAIHTTPResponseOwnerContextKey = "openai_http_response_owner"
+const openAIWSResponseOwnerContextKey = "openai_ws_response_owner"
+
+type openAIHTTPContinuationConnContextKey struct{}
 
 type openAIHTTPResponseOwner struct {
 	userID   int64
@@ -1805,6 +1808,13 @@ func SetOpenAIHTTPResponseOwner(c *gin.Context, userID, apiKeyID int64) {
 		return
 	}
 	c.Set(openAIHTTPResponseOwnerContextKey, openAIHTTPResponseOwner{userID: userID, apiKeyID: apiKeyID})
+}
+
+func SetOpenAIWSResponseOwner(c *gin.Context, userID, apiKeyID int64) {
+	if c == nil || userID <= 0 || apiKeyID <= 0 {
+		return
+	}
+	c.Set(openAIWSResponseOwnerContextKey, openAIHTTPResponseOwner{userID: userID, apiKeyID: apiKeyID})
 }
 
 // ValidateOpenAIHTTPResponseOwner authorizes a continuation by downstream
@@ -1883,6 +1893,54 @@ func (s *OpenAIGatewayService) bindHTTPResponseAccount(ctx context.Context, c *g
 			}
 		}
 	}
+}
+
+// Publish the owning route before the client can continue a completed turn over HTTP.
+func (s *OpenAIGatewayService) bindWebSocketResponseForHTTP(ctx context.Context, c *gin.Context, account *Account, payload []byte, pooledConn ...string) {
+	if c == nil || account == nil || (!account.IsOpenAIOAuth() && !account.IsOpenAIApiKey()) {
+		return
+	}
+	event, _, response := parseOpenAIWSEventEnvelope(payload)
+	responseID := strings.TrimSpace(response.Get("id").Str)
+	if (event != "response.completed" && event != "response.done") ||
+		responseID == "" || !openAIAgentCompletedResponse(payload, true) ||
+		response.Get("incomplete_details").Type != gjson.Null || gjson.GetBytes(payload, "error").Type != gjson.Null {
+		return
+	}
+	rawOwner, _ := c.Get(openAIWSResponseOwnerContextKey)
+	if GetOpenAIClientTransport(c) == OpenAIClientTransportHTTP {
+		rawOwner, _ = c.Get(openAIHTTPResponseOwnerContextKey)
+	}
+	owner, ok := rawOwner.(openAIHTTPResponseOwner)
+	if !ok {
+		return
+	}
+	groupID := getOpenAIGroupIDFromContext(c)
+	bindCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), openAIWSStateStoreRedisTimeout)
+	defer cancel()
+	store, ok := s.getOpenAIWSStateStore().(*defaultOpenAIWSStateStore)
+	if ok {
+		ttl := s.openAIWSResponseStickyTTL()
+		if err := store.bindHTTPResponseRoute(bindCtx, groupID, responseID, owner.userID, owner.apiKeyID, account.ID, ttl); err != nil {
+			logger.L().Warn("openai.ws_bind_http_response_owner_failed", zap.Int64("account_id", account.ID), zap.Error(err))
+		} else if len(pooledConn) > 0 && pooledConn[0] != "" && account.IsOpenAIOAuth() {
+			store.BindResponseConn(openAIHTTPWSConnKey(groupID, account.ID, responseID), pooledConn[0], ttl)
+		}
+	}
+}
+
+func openAIHTTPWSConnKey(groupID, accountID int64, responseID string) string {
+	return fmt.Sprintf("http-continuation:%d:%d:%s", groupID, accountID, responseID)
+}
+
+func (s *OpenAIGatewayService) OpenAIOAuthHTTPContinuationConn(account *Account, groupID int64, responseID string) string {
+	if account == nil || !account.IsOpenAIOAuth() || account.HasManagedOpenAIConnections() ||
+		account.IsOpenAIPassthroughEnabled() || account.OpenAIRequestProxyEnabled() ||
+		s.getOpenAIWSProtocolResolver().Resolve(account).Transport != OpenAIUpstreamTransportResponsesWebsocketV2 {
+		return ""
+	}
+	connID, _ := s.getOpenAIWSStateStore().GetResponseConn(openAIHTTPWSConnKey(groupID, account.ID, responseID))
+	return connID
 }
 
 func openAIUsageFromGJSON(value gjson.Result) (OpenAIUsage, bool) {

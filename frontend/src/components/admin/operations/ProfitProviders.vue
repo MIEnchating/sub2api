@@ -1,22 +1,22 @@
 <template>
   <section class="space-y-2 border-y py-3" data-testid="provider-links">
-    <div class="flex flex-wrap items-center gap-2"><h3 class="font-semibold">{{ t('profitOps.profitChannel') }}</h3><button type="button" class="btn btn-secondary" :disabled="busy" @click="load(page)">{{ t('matureProviders.refreshList') }}</button></div>
+    <div class="flex flex-wrap items-center gap-2"><h3 class="font-semibold">{{ t('profitOps.profitChannel') }}</h3><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="load(page)">{{ t('matureProviders.refreshList') }}</BaseButton></div>
     <p v-if="loading" role="status">{{ t('matureProviders.loading') }}</p>
     <p v-else-if="loadError" role="alert">{{ t('profitOps.providerLoadFailed') }}</p>
     <template v-else-if="result">
       <p v-if="!result.items.length">{{ t('profitOps.providersEmpty') }}</p>
       <div v-for="p in result.items" :key="p.provider_id" class="space-y-2" :data-testid="`provider-link-${p.provider_id}`">
-        <div class="flex flex-wrap items-center gap-2"><span>{{ p.provider_name }} #{{ p.provider_id }} → {{ channelName(p) }}</span><button type="button" class="btn btn-secondary btn-sm" :aria-expanded="editing === p.provider_id" :disabled="busy" @click="begin(p)">{{ t('profitOps.linkChannel') }}</button></div>
+        <div class="flex flex-wrap items-center gap-2"><span>{{ p.provider_name }} #{{ p.provider_id }} → {{ channelName(p) }}</span><BaseButton type="button" class="btn-secondary btn-sm" :aria-expanded="editing === p.provider_id" :disabled="busy" @click="begin(p)">{{ t('profitOps.linkChannel') }}</BaseButton></div>
         <label class="flex flex-wrap items-center gap-2 text-sm">{{ t('channelConfig.costMode') }}
-          <select :value="p.cost_mode || 'wallet'" :disabled="busy" class="input" @change="setCostMode(p, $event)"><option value="estimate">{{ t('channelConfig.estimate') }}</option><option value="wallet">{{ t('channelConfig.wallet') }}</option></select>
+          <FormSelect :value="p.cost_mode || 'wallet'" :disabled="busy" @change="setCostMode(p, $event)"><option value="estimate">{{ t('channelConfig.estimate') }}</option><option value="wallet">{{ t('channelConfig.wallet') }}</option></FormSelect>
         </label>
         <p class="text-xs text-gray-500">{{ t('channelConfig.costHelp') }}</p>
         <ProfitChannelLink v-if="editing === p.provider_id" :provider="p" :current-channel="channelName(p)" @cancel="editing = null" @busy="writing = $event" @reread="linkResult" />
       </div>
       <div v-if="result.total > result.page_size || page > 1" class="flex flex-wrap items-center gap-3 text-sm">
-        <button type="button" class="btn btn-secondary" :disabled="busy || page <= 1" @click="load(page - 1)">{{ t('profitOps.previous') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy || page <= 1" @click="load(page - 1)">{{ t('profitOps.previous') }}</BaseButton>
         <span>{{ t('matureProviders.page') }} {{ page }} · {{ t('matureProviders.total') }}: {{ result.total }}</span>
-        <button type="button" class="btn btn-secondary" :disabled="busy || page * result.page_size >= result.total" @click="load(page + 1)">{{ t('profitOps.next') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy || page * result.page_size >= result.total" @click="load(page + 1)">{{ t('profitOps.next') }}</BaseButton>
       </div>
     </template>
     <p v-if="message" role="status" class="text-sm">{{ message }}</p>
@@ -25,6 +25,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { linkProfitChannel, listProfitProviders, type ProfitProvider, type ProfitProviderPage } from '@/api/admin/profitOperations'

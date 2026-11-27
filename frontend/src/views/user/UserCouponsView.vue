@@ -1,7 +1,7 @@
 <template>
   <AppLayout><div class="space-y-6">
-    <section class="card space-y-3 p-6"><div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('coupon.title') }}</h2><button class="btn btn-secondary" :disabled="loading" @click="load">{{ t('common.refresh') }}</button></div><p class="text-sm text-gray-500">{{ t('coupon.rules') }}</p></section>
-    <div class="flex items-center justify-between gap-3"><select v-model="status" class="input max-w-xs" :aria-label="t('coupon.status')" @change="page = 1; load()"><option value="">{{ t('coupon.all') }}</option><option v-for="s in statuses" :key="s" :value="s">{{ t('coupon.' + s) }}</option></select><span class="shrink-0 text-sm text-gray-500">{{ t('coupon.total', { count: total }) }}</span></div>
+    <section class="card space-y-3 p-6"><div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('coupon.title') }}</h2><BaseButton class="btn-secondary" :disabled="loading" @click="load">{{ t('common.refresh') }}</BaseButton></div><p class="text-sm text-gray-500">{{ t('coupon.rules') }}</p></section>
+    <div class="flex items-center justify-between gap-3"><FormSelect v-model="status" class="max-w-xs" :aria-label="t('coupon.status')" @change="page = 1; load()"><option value="">{{ t('coupon.all') }}</option><option v-for="s in statuses" :key="s" :value="s">{{ t('coupon.' + s) }}</option></FormSelect><span class="shrink-0 text-sm text-gray-500">{{ t('coupon.total', { count: total }) }}</span></div>
     <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950">{{ error }}</p>
     <p v-if="loading" class="p-10 text-center">{{ t('common.loading') }}</p>
     <div v-else class="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
@@ -22,6 +22,8 @@
   <CouponUsageHistory /></div></AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import CouponUsageHistory from '@/components/payment/CouponUsageHistory.vue'
 import { onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

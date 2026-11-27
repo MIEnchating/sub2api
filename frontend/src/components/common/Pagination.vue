@@ -6,7 +6,7 @@
       <!-- Mobile pagination -->
       <button
         @click="goToPage(page - 1)"
-        :disabled="page === 1"
+        :disabled="disabled || page <= 1"
         class="relative inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
       >
         {{ t('pagination.previous') }}
@@ -16,7 +16,7 @@
       </span>
       <button
         @click="goToPage(page + 1)"
-        :disabled="page === totalPages"
+        :disabled="disabled || page >= totalPages"
         class="relative ml-3 inline-flex items-center rounded-md border border-gray-300 bg-white px-4 py-2 text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-200 dark:hover:bg-dark-600"
       >
         {{ t('pagination.next') }}
@@ -45,6 +45,7 @@
             <Select
               :model-value="pageSize"
               :options="pageSizeSelectOptions"
+              :disabled="disabled"
               @update:model-value="handlePageSizeChange"
             />
           </div>
@@ -52,18 +53,19 @@
 
         <div v-if="showJump" class="flex items-center space-x-2">
           <span class="text-sm text-gray-700 dark:text-gray-300">{{ t('pagination.jumpTo') }}</span>
-          <input
+          <FormInput
             v-model="jumpPage"
             type="number"
             min="1"
             :max="totalPages"
-            class="input w-20 text-sm"
+            :disabled="disabled"
+            class="w-20 text-sm"
             :placeholder="t('pagination.jumpPlaceholder')"
             @keyup.enter="submitJump"
           />
-          <button type="button" class="btn btn-ghost btn-sm" @click="submitJump">
+          <BaseButton type="button" class="btn-ghost btn-sm" :disabled="disabled" @click="submitJump">
             {{ t('pagination.jumpAction') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
 
@@ -75,7 +77,7 @@
         <!-- Previous button -->
         <button
           @click="goToPage(page - 1)"
-          :disabled="page === 1"
+          :disabled="disabled || page <= 1"
           class="relative inline-flex items-center rounded-l-md border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
           :aria-label="t('pagination.previous')"
         >
@@ -87,7 +89,7 @@
           v-for="(pageNum, index) in visiblePages"
           :key="`${pageNum}-${index}`"
           @click="typeof pageNum === 'number' && goToPage(pageNum)"
-          :disabled="typeof pageNum !== 'number'"
+          :disabled="disabled || typeof pageNum !== 'number'"
           :class="[
             'relative inline-flex items-center border px-4 py-2 text-sm font-medium',
             pageNum === page
@@ -106,7 +108,7 @@
         <!-- Next button -->
         <button
           @click="goToPage(page + 1)"
-          :disabled="page === totalPages"
+          :disabled="disabled || page >= totalPages"
           class="relative inline-flex items-center rounded-r-md border border-gray-300 bg-white px-2 py-2 text-sm font-medium text-gray-500 hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400 dark:hover:bg-dark-600"
           :aria-label="t('pagination.next')"
         >
@@ -118,6 +120,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'
@@ -134,6 +138,7 @@ interface Props {
   pageSizeOptions?: number[]
   showPageSizeSelector?: boolean
   showJump?: boolean
+  disabled?: boolean
 }
 
 interface Emits {
@@ -217,13 +222,13 @@ const visiblePages = computed(() => {
 })
 
 const goToPage = (newPage: number) => {
-  if (newPage >= 1 && newPage <= totalPages.value && newPage !== props.page) {
+  if (!props.disabled && newPage >= 1 && newPage <= totalPages.value && newPage !== props.page) {
     emit('update:page', newPage)
   }
 }
 
 const handlePageSizeChange = (value: string | number | boolean | null) => {
-  if (value === null || typeof value === 'boolean') return
+  if (props.disabled || value === null || typeof value === 'boolean') return
   const newPageSize = normalizeTablePageSize(typeof value === 'string' ? parseInt(value, 10) : value)
   setPersistedPageSize(newPageSize)
   emit('update:pageSize', newPageSize)

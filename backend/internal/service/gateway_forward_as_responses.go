@@ -251,6 +251,9 @@ func (s *GatewayService) ForwardAsResponses(
 }
 
 func adaptResponsesClientToolsForAnthropic(body []byte) ([]byte, apicompat.ResponsesClientToolMapping, error) {
+	if hasCodexExecNotifications(body) {
+		return body, apicompat.ResponsesClientToolMapping{}, errors.New(codexExecNotificationConversionMessage)
+	}
 	decoder := json.NewDecoder(bytes.NewReader(body))
 	decoder.UseNumber()
 	var requestBody map[string]any

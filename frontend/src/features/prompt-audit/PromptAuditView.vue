@@ -16,17 +16,16 @@
 
       <div v-if="loadErrors.config && !draft" role="alert" class="rounded-xl border border-red-200 bg-red-50 p-5 dark:border-red-900 dark:bg-red-950/30">
         <p class="text-sm text-red-700 dark:text-red-300">{{ loadErrors.config }}</p>
-        <button type="button" class="btn btn-secondary btn-sm mt-3" @click="loadConfig">{{ t('admin.promptAudit.actions.retry') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm mt-3" @click="loadConfig">{{ t('admin.promptAudit.actions.retry') }}</BaseButton>
       </div>
 
       <div>
         <div class="mb-4" role="tablist" :aria-label="t('admin.promptAudit.title')">
           <div class="tabs inline-flex">
-            <button
+            <TabButton
               v-for="tab in pageTabs"
               :key="tab.id"
               type="button"
-              role="tab"
               class="tab"
               :class="{ 'tab-active': activeTab === tab.id }"
               :aria-selected="activeTab === tab.id"
@@ -34,7 +33,7 @@
               @click="selectTab(tab.id)"
             >
               {{ tab.label }}
-            </button>
+            </TabButton>
           </div>
         </div>
 
@@ -64,9 +63,9 @@
               class="mt-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200"
             >
               <span>{{ t('admin.promptAudit.events.passEventsDisabled') }}</span>
-              <button type="button" class="btn btn-secondary btn-sm" @click="selectTab('config')">
+              <BaseButton type="button" class="btn-secondary btn-sm" @click="selectTab('config')">
                 {{ t('admin.promptAudit.events.openConfiguration') }}
-              </button>
+              </BaseButton>
             </div>
             <EventWorkspace
               :events="events.items"
@@ -104,10 +103,10 @@
           <span class="text-sm" :class="dirty ? 'text-amber-700 dark:text-amber-300' : 'text-gray-500 dark:text-dark-400'">
             {{ dirty ? t('admin.promptAudit.saveBar.dirty') : t('admin.promptAudit.saveBar.synced') }}
           </span>
-          <button type="button" class="btn btn-secondary" :disabled="!dirty || loading.saving" @click="resetDraft">{{ t('common.reset') }}</button>
-          <button type="button" class="btn btn-primary" :disabled="!dirty || loading.saving" data-test="save-config" @click="saveConfig">
+          <BaseButton type="button" class="btn-secondary" :disabled="!dirty || loading.saving" @click="resetDraft">{{ t('common.reset') }}</BaseButton>
+          <BaseButton type="button" class="btn-primary" :disabled="!dirty || loading.saving" data-test="save-config" @click="saveConfig">
             {{ loading.saving ? t('common.saving') : t('common.save') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
     </div>
@@ -146,6 +145,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import SecurityAuditNav from '@/components/admin/security/SecurityAuditNav.vue'
 import { routeLocationKey, routerKey } from 'vue-router'
 import PenaltyPolicyPanel from '@/features/security-penalties/PenaltyPolicyPanel.vue'
@@ -218,30 +220,13 @@ const SaveToggle = defineComponent({
   emits: ['update:modelValue'],
   setup(props, { emit, attrs }) {
     return () => h('label', { class: ['flex items-center gap-2.5 text-sm', props.disabled ? 'cursor-not-allowed opacity-50' : 'cursor-pointer'] }, [
-      h('button', {
+      h(Toggle, {
         ...attrs,
-        type: 'button',
-        role: 'switch',
-        'aria-checked': props.modelValue,
         'aria-label': props.label,
+        modelValue: props.modelValue,
         disabled: props.disabled,
-        class: [
-          'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full border-2 border-transparent transition-colors duration-200 focus:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2',
-          props.modelValue ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-600',
-          props.disabled ? 'cursor-not-allowed' : 'cursor-pointer',
-        ],
-        onClick: (event: MouseEvent) => {
-          event.preventDefault()
-          if (!props.disabled) emit('update:modelValue', !props.modelValue)
-        },
-      }, [
-        h('span', {
-          class: [
-            'pointer-events-none inline-block h-5 w-5 rounded-full bg-white shadow transition-transform duration-200 ease-in-out',
-            props.modelValue ? 'translate-x-5' : 'translate-x-0',
-          ],
-        }),
-      ]),
+        'onUpdate:modelValue': (value: boolean) => emit('update:modelValue', value)
+      }),
       h('span', { class: 'select-none text-gray-700 dark:text-dark-200' }, props.label),
     ])
   },

@@ -8,50 +8,49 @@
     <form id="create-user-form" @submit.prevent="submit" class="space-y-5">
       <div>
         <label class="input-label">{{ t('admin.users.email') }}</label>
-        <input v-model="form.email" type="email" required class="input" :placeholder="t('admin.users.enterEmail')" />
+        <FormInput v-model="form.email" type="email" required :placeholder="t('admin.users.enterEmail')" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.password') }}</label>
         <div class="flex gap-2">
           <div class="relative flex-1">
-            <input v-model="form.password" type="text" required class="input pr-10" :placeholder="t('admin.users.enterPassword')" />
+            <FormInput v-model="form.password" type="text" required class="pr-10" :placeholder="t('admin.users.enterPassword')" />
           </div>
-          <button type="button" @click="generateRandomPassword" class="btn btn-secondary px-3">
+          <BaseButton type="button" @click="generateRandomPassword" class="btn-secondary px-3">
             <Icon name="refresh" size="md" />
-          </button>
+          </BaseButton>
         </div>
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.username') }}</label>
-        <input v-model="form.username" type="text" class="input" :placeholder="t('admin.users.enterUsername')" />
+        <FormInput v-model="form.username" type="text" :placeholder="t('admin.users.enterUsername')" />
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.roleLabel') }}</label>
-        <select v-model="form.role" class="input">
+        <FormSelect v-model="form.role">
           <option value="user">{{ t('admin.users.roles.user') }}</option>
           <option value="observer">{{ t('admin.users.roles.observer') }}</option>
           <option value="admin">{{ t('admin.users.roles.admin') }}</option>
-        </select>
+        </FormSelect>
       </div>
       <ObserverGroupSelector v-if="form.role === 'observer'" v-model="form.observer_group_ids" />
       <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
         <div>
           <label class="input-label">{{ t('admin.users.columns.balance') }}</label>
-          <input v-model="form.balance" type="number" step="any" class="input" />
+          <FormInput v-model="form.balance" type="number" step="any" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.users.columns.concurrency') }}</label>
-          <input v-model.number="form.concurrency" type="number" class="input" />
+          <FormInput v-model.number="form.concurrency" type="number" />
         </div>
       </div>
       <div>
         <label class="input-label">{{ t('admin.users.form.rpmLimit') }}</label>
-        <input
+        <FormInput
           v-model.number="form.rpm_limit"
           type="number"
           min="0"
           step="1"
-          class="input"
           :placeholder="t('admin.users.form.rpmLimitPlaceholder')"
         />
         <p class="input-hint">{{ t('admin.users.form.rpmLimitHint') }}</p>
@@ -59,10 +58,10 @@
     </form>
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button @click="$emit('close')" type="button" class="btn btn-secondary">{{ t('common.cancel') }}</button>
-        <button type="submit" form="create-user-form" :disabled="loading" class="btn btn-primary">
+        <BaseButton @click="$emit('close')" type="button" class="btn-secondary">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="create-user-form" :disabled="loading" class="btn-primary">
           {{ loading ? t('admin.users.creating') : t('common.create') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -72,6 +71,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'; import { adminAPI } from '@/api/admin'
 import { useAppStore } from '@/stores/app'

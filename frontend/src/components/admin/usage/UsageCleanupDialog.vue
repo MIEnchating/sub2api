@@ -19,9 +19,9 @@
           <h4 class="text-sm font-semibold text-gray-700 dark:text-gray-200">
             {{ t('admin.usage.cleanup.recentTasks') }}
           </h4>
-          <button type="button" class="btn btn-ghost btn-sm" @click="loadTasks">
+          <BaseButton type="button" class="btn-ghost btn-sm" @click="loadTasks">
             {{ t('common.refresh') }}
-          </button>
+          </BaseButton>
         </div>
 
         <div class="mt-3 space-y-2">
@@ -43,14 +43,14 @@
                     {{ statusLabel(task.status) }}
                   </span>
                   <span class="text-xs text-gray-400">#{{ task.id }}</span>
-                  <button
+                  <BaseButton
                     v-if="canCancel(task)"
                     type="button"
-                    class="btn btn-ghost btn-xs text-rose-600 hover:text-rose-700 dark:text-rose-300"
+                    class="btn-ghost btn-xs text-rose-600 hover:text-rose-700 dark:text-rose-300"
                     @click="openCancelConfirm(task)"
                   >
                     {{ t('admin.usage.cleanup.cancel') }}
-                  </button>
+                  </BaseButton>
                 </div>
                 <div class="text-xs text-gray-400">
                   {{ formatDateTime(task.created_at) }}
@@ -84,12 +84,12 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" @click="handleClose">
+        <BaseButton type="button" class="btn-secondary" @click="handleClose">
           {{ t('common.cancel') }}
-        </button>
-        <button type="button" class="btn btn-danger" :disabled="submitting" @click="openConfirm">
+        </BaseButton>
+        <BaseButton type="button" class="btn-danger" :disabled="submitting" @click="openConfirm">
           {{ submitting ? t('admin.usage.cleanup.submitting') : t('admin.usage.cleanup.submit') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
@@ -116,6 +116,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, watch, onUnmounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

@@ -12,46 +12,49 @@
         <fieldset :disabled="busy" class="space-y-5">
           <section v-if="step === 0" class="card space-y-4 p-6">
             <h2 class="text-lg font-semibold">{{ t('qqbot.simple.credentials') }}</h2>
-            <label class="block">App ID<input v-model.trim="form.app_id" class="input" required maxlength="128" data-testid="setup-app-id" /></label>
-            <label class="block">App Secret<input v-model="form.app_secret" type="password" autocomplete="new-password" class="input" :required="!form.app_secret_set" :placeholder="t(form.app_secret_set ? 'qqbot.secretStored' : 'qqbot.secretEmpty')" data-testid="setup-secret" /></label>
-            <label class="flex items-center gap-2 text-sm"><input v-model="form.sandbox" type="checkbox" />{{ t('qqbot.sandbox') }}</label>
+            <label class="block">App ID<FormInput v-model.trim="form.app_id" required maxlength="128" data-testid="setup-app-id" /></label>
+            <label class="block">App Secret<FormInput v-model="form.app_secret" type="password" autocomplete="new-password" :required="!form.app_secret_set" :placeholder="t(form.app_secret_set ? 'qqbot.secretStored' : 'qqbot.secretEmpty')" data-testid="setup-secret" /></label>
+            <label class="flex items-center gap-2 text-sm"><FormInput v-model="form.sandbox" type="checkbox" />{{ t('qqbot.sandbox') }}</label>
             <p class="text-sm text-gray-500">{{ t('qqbot.simple.callbackHelp') }}</p><code class="block break-all rounded bg-gray-50 p-3 text-sm dark:bg-dark-800">{{ webhookURL }}</code>
           </section>
           <section v-if="step === 1" class="card space-y-5 p-6">
             <h2 class="text-lg font-semibold">{{ t('qqbot.simple.groupsAI') }}</h2>
             <QQGroupPicker v-model="form.allowed_groups" :groups="knownGroups" :policies="form.group_policies" :label="t('qqbot.allowedGroups')" />
             <p class="text-sm text-gray-500">{{ t('qqbot.simple.discoverHelp') }}</p>
-            <button type="button" class="btn btn-secondary" @click="refreshGroups">{{ t('qqbot.simple.refreshGroups') }}</button>
-            <details><summary class="cursor-pointer text-sm">{{ t('qqbot.simple.manualGroups') }}</summary><textarea v-model="manualGroups" class="input mt-3" rows="3" /></details>
-            <label class="flex items-center gap-2"><input :checked="!form.chat_disabled" type="checkbox" @change="form.chat_disabled = !($event.target as HTMLInputElement).checked" />{{ t('qqbot.simple.chatCapability') }}</label>
+            <BaseButton type="button" class="btn-secondary" @click="refreshGroups">{{ t('qqbot.simple.refreshGroups') }}</BaseButton>
+            <details><summary class="cursor-pointer text-sm">{{ t('qqbot.simple.manualGroups') }}</summary><FormTextarea v-model="manualGroups" class="mt-3" rows="3" /></details>
+            <label class="flex items-center gap-2"><FormInput :checked="!form.chat_disabled" type="checkbox" @change="form.chat_disabled = !($event.target as HTMLInputElement).checked" />{{ t('qqbot.simple.chatCapability') }}</label>
             <QQBotSiteAISettings v-if="!form.chat_disabled" ref="siteAISettings" v-model="form" v-model:quota="quota" v-model:regenerate="regenerateSiteKey" />
           </section>
           <section v-if="step === 2" class="card space-y-5 p-6">
             <h2 class="text-lg font-semibold">{{ t('qqbot.simple.capabilities') }}</h2>
-            <label class="flex items-center gap-2"><input :checked="!form.chat_disabled" type="checkbox" @change="form.chat_disabled = !($event.target as HTMLInputElement).checked" />{{ t('qqbot.simple.chatCapability') }}</label>
-            <label class="flex items-center gap-2"><input v-model="form.remember_quoted_images" type="checkbox" />{{ t('qqbot.rememberQuotedImages') }}</label>
-            <label v-if="form.autonomous" class="flex items-center gap-2"><input v-model="autoChatEnabled" type="checkbox" :disabled="form.chat_disabled" />{{ t('qqbot.autonomous.title') }}</label>
+            <label class="flex items-center gap-2"><FormInput :checked="!form.chat_disabled" type="checkbox" @change="form.chat_disabled = !($event.target as HTMLInputElement).checked" />{{ t('qqbot.simple.chatCapability') }}</label>
+            <label class="flex items-center gap-2"><FormInput v-model="form.remember_quoted_images" type="checkbox" />{{ t('qqbot.rememberQuotedImages') }}</label>
+            <label v-if="form.autonomous" class="flex items-center gap-2"><FormInput v-model="autoChatEnabled" type="checkbox" :disabled="form.chat_disabled" />{{ t('qqbot.autonomous.title') }}</label>
             <p v-if="form.autonomous?.enabled" class="text-sm text-gray-500">{{ t('qqbot.autonomous.simpleHelp') }} <RouterLink to="/admin/qqbot/config?tab=autonomous" class="text-primary-600 underline">{{ t('qqbot.autonomous.workspaceTitle') }}</RouterLink></p>
-            <label v-if="form.moderation" class="flex items-center gap-2"><input v-model="form.moderation.enabled" type="checkbox" />{{ t('qqbot.moderation.title') }}</label>
-            <label v-if="form.moderation?.enabled" class="flex items-center gap-2 text-sm"><input v-model="form.moderation.inherit_groups" type="checkbox" />{{ t('qqbot.simple.inheritGroups') }}</label>
+            <label v-if="form.moderation" class="flex items-center gap-2"><FormInput v-model="form.moderation.enabled" type="checkbox" />{{ t('qqbot.moderation.title') }}</label>
+            <label v-if="form.moderation?.enabled" class="flex items-center gap-2 text-sm"><FormInput v-model="form.moderation.inherit_groups" type="checkbox" />{{ t('qqbot.simple.inheritGroups') }}</label>
             <QQGroupPicker v-if="form.moderation?.enabled && !form.moderation.inherit_groups" v-model="form.moderation.groups" :groups="form.allowed_groups" :label="t('qqbot.moderation.groups')" />
             <p class="text-sm text-gray-500">{{ t('qqbot.simple.permissions') }}</p>
-            <details><summary class="cursor-pointer text-sm">{{ t('qqbot.simple.usageLimits') }}</summary><div class="mt-3 grid gap-3 sm:grid-cols-2"><label v-for="item in limits" :key="item.key">{{ t('qqbot.' + item.label) }}<input v-model.number="form[item.key]" type="number" class="input" min="0" max="100000" step="1" required /></label></div></details>
+            <details><summary class="cursor-pointer text-sm">{{ t('qqbot.simple.usageLimits') }}</summary><div class="mt-3 grid gap-3 sm:grid-cols-2"><label v-for="item in limits" :key="item.key">{{ t('qqbot.' + item.label) }}<FormInput v-model.number="form[item.key]" type="number" min="0" max="100000" step="1" required /></label></div></details>
             <p class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800">{{ t('qqbot.simple.activitiesLater') }} <RouterLink to="/admin/qqbot/activities?tab=templates" class="text-primary-600 underline">{{ t('qqbot.simple.templates') }}</RouterLink></p>
           </section>
           <section v-if="step === 3" class="space-y-4">
             <QQBotDiagnostics :key="diagnosticRevision" @ready="ready = $event" @busy="probing = $event" />
-            <label class="flex items-start gap-2 text-sm"><input v-model="reviewed" type="checkbox" class="mt-1" />{{ t('qqbot.simple.reviewWarnings') }}</label>
-            <button v-if="!saved?.enabled" type="button" class="btn btn-primary" :disabled="!ready || probing || !reviewed" data-testid="setup-enable" @click="enable">{{ t('qqbot.simple.enable') }}</button>
+            <label class="flex items-start gap-2 text-sm"><FormInput v-model="reviewed" type="checkbox" class="mt-1" />{{ t('qqbot.simple.reviewWarnings') }}</label>
+            <BaseButton v-if="!saved?.enabled" type="button" class="btn-primary" :disabled="!ready || probing || !reviewed" data-testid="setup-enable" @click="enable">{{ t('qqbot.simple.enable') }}</BaseButton>
             <RouterLink v-else to="/admin/qqbot/overview" class="btn btn-primary">{{ t('qqbot.workspace.overview') }}</RouterLink>
           </section>
-          <footer class="flex justify-between gap-3"><button v-if="step > 0" type="button" class="btn btn-secondary" :disabled="probing" @click="step--; ready = false">{{ t('qqbot.simple.back') }}</button><span v-else /><button v-if="step < 3" type="submit" class="btn btn-primary" data-testid="setup-next">{{ t(step === 0 ? 'qqbot.simple.saveCredentials' : step === 2 ? 'qqbot.simple.saveCheck' : 'qqbot.simple.next') }}</button></footer>
+          <footer class="flex justify-between gap-3"><BaseButton v-if="step > 0" type="button" class="btn-secondary" :disabled="probing" @click="step--; ready = false">{{ t('qqbot.simple.back') }}</BaseButton><span v-else /><BaseButton v-if="step < 3" type="submit" class="btn-primary" data-testid="setup-next">{{ t(step === 0 ? 'qqbot.simple.saveCredentials' : step === 2 ? 'qqbot.simple.saveCheck' : 'qqbot.simple.next') }}</BaseButton></footer>
         </fieldset>
       </form>
     </div>
   </AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

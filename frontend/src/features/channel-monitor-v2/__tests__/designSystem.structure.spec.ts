@@ -19,10 +19,10 @@ describe('channel-monitor-v2 design system structure', () => {
     expect(src).toContain('page-header')
     expect(src).toContain('page-title')
     expect(src).toContain('class="card')
-    expect(src).toContain('btn btn-secondary')
+    expect(src).toMatch(/<BaseButton\b[^>]*class="btn-secondary/)
     expect(src).toContain('class="tab')
     expect(src).toContain('tab-active')
-    expect(src).toContain('badge badge-warning')
+    expect(src).toMatch(/<StatusBadge\b[^>]*class="badge-warning/)
     // Compact single-row toolbar
     expect(src).toContain('monitor-toolbar')
     expect(src).toContain('clearFilters')
@@ -84,17 +84,17 @@ describe('channel-monitor-v2 design system structure', () => {
     expect(src).toContain('min-h-[360px]')
   })
 
-  it('FilterMultiSelect uses rounded-xl input chrome and dropdown utility', () => {
+  it('FilterMultiSelect uses shared select styles', () => {
     const src = read('features/channel-monitor-v2/FilterMultiSelect.vue')
-    expect(src).toContain('rounded-xl')
-    expect(src).toContain('dropdown')
-    expect(src).toContain('dropdown-item')
+    expect(src).toContain('input select-control')
+    expect(src).toContain('select-surface')
+    expect(src).toContain('select-choice')
   })
 
   it('MonitorSettingsPanel uses page-header, card, btn-primary, tabs', () => {
     const src = read('features/channel-monitor-v2/MonitorSettingsPanel.vue')
     expect(src).toContain('page-header')
-    expect(src).toContain('btn btn-primary')
+    expect(src).toMatch(/<BaseButton\b[^>]*class="btn-primary/)
     expect(src).toContain('class="card')
     expect(src).toContain('tab-active')
     expect(src).toMatch(/max-h-\[min\(40vh/)

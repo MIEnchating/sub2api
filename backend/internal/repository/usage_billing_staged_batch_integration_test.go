@@ -119,39 +119,6 @@ func TestStagedBillingBatchFailureRollsBackAllEffects(t *testing.T) {
 	require.Equal(t, "99.70000000", balance)
 }
 
-func TestStagedBillingBatchAutoRechargeUsesClosingBalanceOnce(t *testing.T) {
-	ctx := context.Background()
-	repo, cmd, usage, _ := durableBillingFixture(t)
-	_, err := repo.db.ExecContext(ctx, `UPDATE users SET balance=0.25 WHERE id=$1;
-        `, cmd.UserID)
-	require.NoError(t, err)
-	_, err = repo.db.ExecContext(ctx, `INSERT INTO auto_credit_config(user_id,enabled,threshold,amount,cap) VALUES($1,true,1,2,10)`, cmd.UserID)
-	require.NoError(t, err)
-	keys := stageBillingBatchFixture(t, repo, cmd, usage, 4)
-	out, err := repo.applyStagedUsageBillingBatch(ctx, strconv.FormatInt(cmd.UserID, 10), keys)
-	require.NoError(t, err)
-	for _, r := range out[:3] {
-		require.False(t, r.Result.AutoCreditIssued)
-	}
-	require.True(t, out[3].Result.AutoCreditIssued)
-	require.InDelta(t, 1.85, *out[3].Result.NewBalance, 1e-8)
-	var count, epoch int
-	var balance, before, identity string
-	require.NoError(t, repo.db.QueryRowContext(ctx, `SELECT balance::text FROM users WHERE id=$1`, cmd.UserID).Scan(&balance))
-	require.Equal(t, "1.85000000", balance)
-	require.NoError(t, repo.db.QueryRowContext(ctx, `SELECT count(*) FROM auto_credit_ledger WHERE user_id=$1`, cmd.UserID).Scan(&count))
-	require.Equal(t, 1, count)
-	require.NoError(t, repo.db.QueryRowContext(ctx, `SELECT debit_epoch FROM auto_credit_config WHERE user_id=$1`, cmd.UserID).Scan(&epoch))
-	require.Equal(t, 1, epoch, "a recharge is evaluated once per settlement batch")
-	require.NoError(t, repo.db.QueryRowContext(ctx, `SELECT balance_before::text,trigger_identity FROM auto_credit_ledger WHERE user_id=$1`, cmd.UserID).Scan(&before, &identity))
-	require.Equal(t, "-0.15000000", before)
-	require.Equal(t, fmt.Sprintf("usage:%d:%s", cmd.APIKeyID, keys[3].RequestID), identity)
-	_, err = repo.applyStagedUsageBillingBatch(ctx, strconv.FormatInt(cmd.UserID, 10), keys)
-	require.NoError(t, err)
-	require.NoError(t, repo.db.QueryRowContext(ctx, `SELECT count(*) FROM auto_credit_ledger WHERE user_id=$1`, cmd.UserID).Scan(&count))
-	require.Equal(t, 1, count)
-}
-
 func TestStagedBillingBatchTwoProcessesSettleOnce(t *testing.T) {
 	ctx := context.Background()
 	repo, cmd, usage, _ := durableBillingFixture(t)

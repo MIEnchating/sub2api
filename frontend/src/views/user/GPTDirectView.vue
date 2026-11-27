@@ -4,7 +4,7 @@
       <div v-if="loading" class="card p-10 text-center text-gray-500" role="status">{{ t('gptDirect.loading') }}</div>
       <div v-else-if="!config" class="card space-y-4 p-8 text-center">
         <p role="alert">{{ t('gptDirect.loadFailed') }}</p>
-        <button class="btn btn-secondary" @click="load">{{ t('gptDirect.retry') }}</button>
+        <BaseButton class="btn-secondary" @click="load">{{ t('gptDirect.retry') }}</BaseButton>
       </div>
       <div v-else-if="!config.enabled" class="card p-10 text-center text-gray-500">{{ t('gptDirect.disabled') }}</div>
       <template v-else>
@@ -51,14 +51,14 @@
                 </dl>
               </div>
               <div class="flex flex-wrap gap-3">
-                <button class="btn btn-secondary" :disabled="refreshing" @click="refreshTask(false)">{{ refreshing ? t('gptDirect.working') : t('gptDirect.refresh') }}</button>
-                <button v-if="terminal" class="btn btn-primary" @click="reset">{{ t('gptDirect.another') }}</button>
+                <BaseButton class="btn-secondary" :disabled="refreshing" @click="refreshTask(false)">{{ refreshing ? t('gptDirect.working') : t('gptDirect.refresh') }}</BaseButton>
+                <BaseButton v-if="terminal" class="btn-primary" @click="reset">{{ t('gptDirect.another') }}</BaseButton>
               </div>
             </template>
             <template v-else>
               <p class="text-sm text-gray-500">{{ t('gptDirect.restoring') }}</p>
-              <button class="btn btn-secondary" :disabled="refreshing" @click="refreshTask(false)">{{ t('gptDirect.retry') }}</button>
-              <button class="btn btn-secondary ml-3" :disabled="refreshing" @click="reset">{{ t('gptDirect.back') }}</button>
+              <BaseButton class="btn-secondary" :disabled="refreshing" @click="refreshTask(false)">{{ t('gptDirect.retry') }}</BaseButton>
+              <BaseButton class="btn-secondary ml-3" :disabled="refreshing" @click="reset">{{ t('gptDirect.back') }}</BaseButton>
             </template>
           </div>
 
@@ -68,8 +68,8 @@
             </ol>
             <form v-if="step === 0" class="space-y-4" @submit.prevent="verify">
               <label class="block" for="gpt-code"><span class="input-label">{{ t('gptDirect.code') }}</span></label>
-              <input id="gpt-code" v-model="code" class="input font-mono" :placeholder="t('gptDirect.codePlaceholder')" autocomplete="off" :spellcheck="false" maxlength="80" required :disabled="busy" />
-              <button type="submit" class="btn btn-primary w-full" :disabled="busy || !code.trim()">{{ busy ? t('gptDirect.working') : t('gptDirect.verify') }}</button>
+              <FormInput id="gpt-code" v-model="code" class="font-mono" :placeholder="t('gptDirect.codePlaceholder')" autocomplete="off" :spellcheck="false" maxlength="80" required :disabled="busy" />
+              <BaseButton type="submit" class="btn-primary w-full" :disabled="busy || !code.trim()">{{ busy ? t('gptDirect.working') : t('gptDirect.verify') }}</BaseButton>
             </form>
             <form v-else-if="step === 1" class="space-y-4" @submit.prevent="checkAccount">
               <div class="rounded-lg bg-primary-50 p-3 text-sm text-primary-700 dark:bg-primary-950/30 dark:text-primary-300">{{ plan?.planName || plan?.plan }}</div>
@@ -79,11 +79,11 @@
                   {{ t('gptDirect.getSession') }} <Icon name="externalLink" size="sm" />
                 </a>
               </div>
-              <textarea id="gpt-session" v-model="session" class="input font-mono text-xs" rows="7" autocomplete="off" :spellcheck="false" maxlength="65536" required :disabled="busy" :placeholder="t('gptDirect.sessionPlaceholder')" />
+              <FormTextarea id="gpt-session" v-model="session" class="font-mono text-xs" rows="7" autocomplete="off" :spellcheck="false" maxlength="65536" required :disabled="busy" :placeholder="t('gptDirect.sessionPlaceholder')" />
               <p class="text-xs leading-5 text-gray-500">{{ t('gptDirect.sessionPrivacy') }}</p>
               <div class="flex justify-between gap-3">
-                <button type="button" class="btn btn-secondary" :disabled="busy" @click="step = 0; session = ''; error = ''">{{ t('gptDirect.back') }}</button>
-                <button type="submit" class="btn btn-primary" :disabled="busy || !session.trim()">{{ busy ? t('gptDirect.working') : t('gptDirect.checkAccount') }}</button>
+                <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="step = 0; session = ''; error = ''">{{ t('gptDirect.back') }}</BaseButton>
+                <BaseButton type="submit" class="btn-primary" :disabled="busy || !session.trim()">{{ busy ? t('gptDirect.working') : t('gptDirect.checkAccount') }}</BaseButton>
               </div>
             </form>
             <div v-else class="space-y-5">
@@ -97,12 +97,12 @@
               </dl>
               <p v-if="!subscription" class="text-sm text-amber-700 dark:text-amber-300">{{ t('gptDirect.subscriptionUnavailable') }}</p>
               <label class="flex items-start gap-3 text-sm leading-6">
-                <input v-model="accepted" data-testid="gpt-confirm" type="checkbox" class="mt-1 h-4 w-4" :disabled="busy" />
+                <FormInput v-model="accepted" data-testid="gpt-confirm" type="checkbox" class="mt-1 h-4 w-4" :disabled="busy" />
                 <span>{{ subscription ? t('gptDirect.confirmHint') : t('gptDirect.confirmUnverified') }}</span>
               </label>
               <div class="flex justify-between gap-3">
-                <button class="btn btn-secondary" :disabled="busy" @click="step = 1; accepted = false; error = ''">{{ t('gptDirect.back') }}</button>
-                <button data-testid="gpt-submit" class="btn btn-primary" :disabled="busy || !accepted" @click="redeem">{{ busy ? t('gptDirect.submitting') : t('gptDirect.confirm') }}</button>
+                <BaseButton class="btn-secondary" :disabled="busy" @click="step = 1; accepted = false; error = ''">{{ t('gptDirect.back') }}</BaseButton>
+                <BaseButton data-testid="gpt-submit" class="btn-primary" :disabled="busy || !accepted" @click="redeem">{{ busy ? t('gptDirect.submitting') : t('gptDirect.confirm') }}</BaseButton>
               </div>
             </div>
           </template>
@@ -112,8 +112,8 @@
           <h2 class="text-base font-semibold">{{ t('gptDirect.queryTitle') }}</h2>
           <p class="mt-1 text-sm text-gray-500">{{ t('gptDirect.queryHint') }}</p>
           <form class="mt-4 flex flex-col gap-3 sm:flex-row" @submit.prevent="query">
-            <input v-model="queryCode" aria-label="CDK" class="input min-w-0 flex-1 font-mono" :placeholder="t('gptDirect.codePlaceholder')" autocomplete="off" :spellcheck="false" maxlength="80" required :disabled="querying || busy" />
-            <button class="btn btn-secondary shrink-0" :disabled="querying || busy || !queryCode.trim()">{{ querying ? t('gptDirect.working') : t('gptDirect.query') }}</button>
+            <FormInput v-model="queryCode" aria-label="CDK" class="min-w-0 flex-1 font-mono" :placeholder="t('gptDirect.codePlaceholder')" autocomplete="off" :spellcheck="false" maxlength="80" required :disabled="querying || busy" />
+            <BaseButton class="btn-secondary shrink-0" :disabled="querying || busy || !queryCode.trim()">{{ querying ? t('gptDirect.working') : t('gptDirect.query') }}</BaseButton>
           </form>
           <p v-if="queryError" role="alert" class="mt-4 text-sm text-red-600">{{ queryError }}</p>
           <div v-if="queryResult" class="mt-4 space-y-2 rounded-lg bg-gray-50 p-4 text-sm dark:bg-dark-700" role="status">
@@ -135,6 +135,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

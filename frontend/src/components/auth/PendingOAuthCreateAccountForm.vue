@@ -1,18 +1,18 @@
 <template>
   <form class="space-y-3" @submit.prevent="handleSubmit">
-    <input
+    <FormInput
       v-model="email"
       :data-testid="`${testIdPrefix}-create-account-email`"
       type="email"
-      class="input w-full"
+      class="w-full"
       :placeholder="t('auth.emailPlaceholder')"
       :disabled="isSubmitting || isSendingCode"
     />
-    <input
+    <FormInput
       v-model="password"
       :data-testid="`${testIdPrefix}-create-account-password`"
       type="password"
-      class="input w-full"
+      class="w-full"
       :placeholder="t('auth.passwordPlaceholder')"
       :disabled="isSubmitting"
     />
@@ -35,20 +35,20 @@
       />
     </div>
     <div v-if="emailVerifyEnabled" class="flex gap-3">
-      <input
+      <FormInput
         v-model="verifyCode"
         :data-testid="`${testIdPrefix}-create-account-verify-code`"
         type="text"
         inputmode="numeric"
         maxlength="6"
-        class="input min-w-0 flex-1"
+        class="min-w-0 flex-1"
         placeholder="123456"
         :disabled="isSubmitting"
       />
-      <button
+      <BaseButton
         :data-testid="`${testIdPrefix}-create-account-send-code`"
         type="button"
-        class="btn btn-secondary shrink-0"
+        class="btn-secondary shrink-0"
         :disabled="isSubmitting || isSendingCode || countdown > 0 || !email.trim() || (turnstileEnabled && !turnstileToken)"
         @click="handleSendCode"
       >
@@ -59,7 +59,7 @@
               ? t('auth.resendCountdown', { countdown })
               : t('auth.sendCode')
         }}
-      </button>
+      </BaseButton>
     </div>
     <p v-if="emailVerifyEnabled && sendCodeSuccess" class="text-sm text-green-600 dark:text-green-400">
       {{ t('auth.codeSentSuccess') }}
@@ -67,36 +67,38 @@
     <p v-else-if="emailVerifyEnabled" class="text-xs text-gray-500 dark:text-dark-400">
       {{ t('auth.verificationCodeHint') }}
     </p>
-    <input
+    <FormInput
       v-if="invitationCodeEnabled"
       v-model="invitationCode"
       :data-testid="`${testIdPrefix}-create-account-invitation-code`"
       type="text"
-      class="input w-full"
+      class="w-full"
       :placeholder="t('auth.invitationCodePlaceholder')"
       :disabled="isSubmitting"
     />
-    <button
+    <BaseButton
       :data-testid="`${testIdPrefix}-create-account-submit`"
       type="button"
-      class="btn btn-primary w-full"
+      class="btn-primary w-full"
       :disabled="isSubmitting || !email.trim() || password.length < 6 || (invitationCodeEnabled && !invitationCode.trim()) || (turnstileEnabled && !turnstileToken)"
       @click="handleSubmit"
     >
       {{ isSubmitting ? t('common.processing') : t('auth.createAccount') }}
-    </button>
-    <button
+    </BaseButton>
+    <BaseButton
       type="button"
-      class="btn btn-secondary w-full"
+      class="btn-secondary w-full"
       :disabled="isSubmitting"
       @click="emitSwitchToBind"
     >
       {{ t('auth.alreadyHaveAccount') }}
-    </button>
+    </BaseButton>
   </form>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import TurnstileWidget from '@/components/CaptchaChallenge.vue'

@@ -10,12 +10,12 @@
       <div class="space-y-3 lg:col-span-5">
         <div ref="accountRoot">
           <label class="text-xs font-medium text-gray-700 dark:text-gray-300">{{ t(`${prefix}.account`) }}</label>
-          <input
+          <FormInput
             v-model="keyword"
             data-testid="manual-account-input"
             type="text"
             :placeholder="t(`${prefix}.accountPlaceholder`)"
-            class="input mt-1 w-full text-xs"
+            class="mt-1 w-full text-xs"
             autocomplete="off"
             :disabled="harvesting"
             @focus="open = true"
@@ -63,7 +63,7 @@
               class="flex cursor-pointer items-center gap-1.5 rounded-xl border px-2 py-1.5 text-xs"
               :class="selectedModels.includes(model) ? 'border-emerald-300 bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40' : 'border-gray-200 text-gray-600 dark:border-dark-700 dark:text-gray-400'"
             >
-              <input v-model="selectedModels" type="checkbox" :value="model" :disabled="harvesting" class="rounded text-primary-600" />
+              <FormInput v-model="selectedModels" type="checkbox" :value="model" :disabled="harvesting" class="rounded text-primary-600" />
               {{ model }}
             </label>
           </div>
@@ -72,52 +72,52 @@
         <div class="grid grid-cols-2 gap-2">
           <label class="text-xs text-gray-600 dark:text-gray-300">
             {{ t(`${prefix}.probeInterval`) }}
-            <input v-model.number="form.probe_interval_seconds" data-testid="manual-probe-interval" type="number" min="1" max="300" :disabled="harvesting" class="input mt-1 w-full font-mono text-xs" />
+            <FormInput v-model.number="form.probe_interval_seconds" data-testid="manual-probe-interval" type="number" min="1" max="300" :disabled="harvesting" class="mt-1 w-full font-mono text-xs" />
             <span class="mt-1 block text-[10px] text-gray-400">{{ t(`${prefix}.probeIntervalHint`) }}</span>
           </label>
           <label class="text-xs text-gray-600 dark:text-gray-300">
             {{ t(`${prefix}.rateLimitCooldown`) }}
-            <input v-model.number="form.rate_limit_cooldown_seconds" type="number" min="1" max="60" :disabled="harvesting" class="input mt-1 w-full font-mono text-xs" />
+            <FormInput v-model.number="form.rate_limit_cooldown_seconds" type="number" min="1" max="60" :disabled="harvesting" class="mt-1 w-full font-mono text-xs" />
             <span class="mt-1 block text-[10px] text-gray-400">{{ t(`${prefix}.rateLimitCooldownHint`) }}</span>
           </label>
           <label class="text-xs text-gray-600 dark:text-gray-300">
             {{ t(`${prefix}.maxAttempts`) }}
-            <input v-model.number="form.max_attempts" data-testid="manual-max-attempts" type="number" min="1" step="1" :disabled="harvesting" class="input mt-1 w-full font-mono text-xs" />
+            <FormInput v-model.number="form.max_attempts" data-testid="manual-max-attempts" type="number" min="1" step="1" :disabled="harvesting" class="mt-1 w-full font-mono text-xs" />
             <span class="mt-1 block text-[10px] text-gray-400">{{ t(`${prefix}.maxAttemptsHint`) }}</span>
           </label>
           <label class="text-xs text-gray-600 dark:text-gray-300">
             {{ t(`${prefix}.nodeSwitch`) }}
-            <select v-model="form.node_switch_rule" data-testid="manual-node-switch" :disabled="harvesting" class="input mt-1 w-full text-xs">
+            <FormSelect v-model="form.node_switch_rule" data-testid="manual-node-switch" :disabled="harvesting" class="mt-1 w-full text-xs">
               <option v-for="rule in nodeSwitchRules" :key="rule" :value="rule">{{ t(`${prefix}.nodeSwitchRules.${rule}`) }}</option>
-            </select>
+            </FormSelect>
           </label>
         </div>
 
         <label class="block text-xs text-gray-600 dark:text-gray-300">
           {{ t(`${prefix}.collectLanes`) }}
-          <input v-model.number="collectLanes" data-testid="manual-collect-lanes" type="number" min="2" step="1" :disabled="harvesting" class="input mt-1 w-full font-mono text-xs" />
+          <FormInput v-model.number="collectLanes" data-testid="manual-collect-lanes" type="number" min="2" step="1" :disabled="harvesting" class="mt-1 w-full font-mono text-xs" />
           <span class="mt-1 block text-[10px] text-gray-400">{{ t(`${prefix}.parallelHint`) }}</span>
         </label>
 
         <label class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-300">
-          <input v-model="form.stop_on_success" data-testid="manual-stop-on-success" type="checkbox" :disabled="harvesting" class="rounded text-primary-600" />
+          <FormInput v-model="form.stop_on_success" data-testid="manual-stop-on-success" type="checkbox" :disabled="harvesting" class="rounded text-primary-600" />
           {{ t(`${prefix}.stopOnSuccess`) }}
         </label>
 
         <div class="flex gap-2 border-t border-dashed border-gray-200 pt-3 dark:border-dark-700">
-          <button
+          <BaseButton
             v-if="!harvesting"
             data-testid="manual-start"
             type="button"
-            class="btn btn-primary btn-sm flex-1"
+            class="btn-primary btn-sm flex-1"
             :disabled="!selected || !selectedModels.length"
             @click="start(false)"
           >
             {{ t(`${prefix}.start`) }}
-          </button>
-          <button v-if="!harvesting" data-testid="manual-parallel-start" type="button" class="btn btn-secondary btn-sm flex-1" :disabled="!selected || !selectedModels.length" @click="start(true)">{{ t(`${prefix}.parallelStart`) }}</button>
-          <button v-else data-testid="manual-stop" type="button" class="btn btn-secondary btn-sm flex-1" @click="stop">{{ t(`${prefix}.stop`) }}</button>
-          <button data-testid="manual-clear" type="button" class="btn btn-secondary btn-sm" :disabled="harvesting" @click="logs = []">{{ t(`${prefix}.clear`) }}</button>
+          </BaseButton>
+          <BaseButton v-if="!harvesting" data-testid="manual-parallel-start" type="button" class="btn-secondary btn-sm flex-1" :disabled="!selected || !selectedModels.length" @click="start(true)">{{ t(`${prefix}.parallelStart`) }}</BaseButton>
+          <BaseButton v-else data-testid="manual-stop" type="button" class="btn-secondary btn-sm flex-1" @click="stop">{{ t(`${prefix}.stop`) }}</BaseButton>
+          <BaseButton data-testid="manual-clear" type="button" class="btn-secondary btn-sm" :disabled="harvesting" @click="logs = []">{{ t(`${prefix}.clear`) }}</BaseButton>
         </div>
       </div>
 
@@ -145,6 +145,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { streamManualCodexHarvest, type CodexHarvestFlowAccount, type ManualHarvestProgress } from '@/api/admin/accounts'

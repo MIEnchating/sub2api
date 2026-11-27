@@ -14,15 +14,15 @@
           {{ t('channelMonitorV2.settings.description') }}
         </p>
       </div>
-      <button
+      <BaseButton
         type="button"
-        class="btn btn-primary"
+        class="btn-primary"
         :disabled="saving || !dirty"
         @click="save"
       >
         <Icon name="check" size="sm" />
         {{ t('channelMonitorV2.settings.save') }}
-      </button>
+      </BaseButton>
     </header>
 
     <div
@@ -120,13 +120,13 @@
           </p>
         </div>
         <div class="flex flex-wrap items-center gap-2 border-b border-gray-100 px-5 py-3 dark:border-dark-700">
-          <select v-if="addCandidates.length" v-model="selectedCandidate" :disabled="saving" class="input min-w-[12rem] flex-1" data-testid="monitor-v2-platform-select" :aria-label="t('channelMonitorV2.settings.selectPlatform')">
+          <FormSelect v-if="addCandidates.length" v-model="selectedCandidate" :disabled="saving" class="min-w-[12rem] flex-1" data-testid="monitor-v2-platform-select" :aria-label="t('channelMonitorV2.settings.selectPlatform')">
             <option value="">{{ t('channelMonitorV2.settings.selectPlatform') }}</option>
             <option v-for="option in addCandidates" :key="option.value" :value="option.value">{{ option.label }}</option>
-          </select>
-          <input
+          </FormSelect>
+          <FormInput
             v-model="customPlatform"
-            class="input min-w-[12rem] flex-1"
+            class="min-w-[12rem] flex-1"
             type="text"
             maxlength="64"
             :disabled="saving"
@@ -135,10 +135,10 @@
             :aria-label="t('channelMonitorV2.settings.customPlatform')"
             @keydown.enter.prevent="addPlatform"
           />
-          <button type="button" class="btn btn-secondary btn-sm" data-testid="monitor-v2-add-platform" :disabled="saving || (!selectedCandidate && !customPlatform.trim())" @click="addPlatform">
+          <BaseButton type="button" class="btn-secondary btn-sm" data-testid="monitor-v2-add-platform" :disabled="saving || (!selectedCandidate && !customPlatform.trim())" @click="addPlatform">
             <Icon name="plus" size="xs" />
             {{ t('channelMonitorV2.settings.addPlatform') }}
-          </button>
+          </BaseButton>
         </div>
         <div class="divide-y divide-gray-100 dark:divide-dark-700">
           <div
@@ -156,9 +156,9 @@
                 <span v-if="isFactoryPlatform(platform.platform)"> · {{ t('channelMonitorV2.settings.factoryBadge') }}</span>
               </small>
             </div>
-            <span class="badge badge-primary justify-self-start sm:justify-self-end">
+            <StatusBadge class="badge-primary justify-self-start sm:justify-self-end">
               {{ t('channelMonitorV2.settings.badgeAllModels') }}
-            </span>
+            </StatusBadge>
             <button
               v-if="!isFactoryPlatform(platform.platform)"
               type="button"
@@ -191,14 +191,14 @@
             </p>
             <p class="mt-0.5 text-xs text-gray-500 dark:text-dark-400">{{ t('channelMonitorV2.settings.groupsOrderHint') }}</p>
           </div>
-          <button
+          <BaseButton
             v-if="draft.group_ids.length"
             type="button"
-            class="btn btn-ghost btn-sm"
+            class="btn-ghost btn-sm"
             @click="draft.group_ids = []"
           >
             {{ t('channelMonitorV2.settings.groupsAll') }}
-          </button>
+          </BaseButton>
         </div>
         <div class="max-h-[min(40vh,420px)] overflow-y-auto px-3 py-2 sm:px-4">
           <section v-for="section in groupSections" :key="section.platform" class="py-2" :data-testid="'monitor-v2-group-platform'" :data-platform="section.platform">
@@ -211,7 +211,7 @@
               :data-group-id="group.id"
             >
               <label class="flex min-w-0 flex-1 cursor-pointer items-center gap-3">
-                <input
+                <FormInput
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500/40"
                   :checked="draft.group_ids.includes(group.id)"
@@ -244,7 +244,7 @@
               :key="category"
               class="flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition hover:bg-gray-50 dark:hover:bg-dark-800/60"
             >
-              <input
+              <FormInput
                 type="checkbox"
                 class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500/40"
                 :checked="isCategoryIgnored(category)"
@@ -277,35 +277,35 @@
         <div class="grid grid-cols-1 gap-4 px-5 py-4 sm:grid-cols-2 lg:grid-cols-4">
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.minimumSample') }}</span>
-            <input v-model.number="draft.health_thresholds.minimum_sample" class="input" type="number" min="1" max="10000" />
+            <FormInput v-model.number="draft.health_thresholds.minimum_sample" type="number" min="1" max="10000" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.warningError') }}</span>
-            <input v-model.number="warningErrorPercent" class="input" type="number" min="0" max="100" step="0.1" />
+            <FormInput v-model.number="warningErrorPercent" type="number" min="0" max="100" step="0.1" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.criticalError') }}</span>
-            <input v-model.number="criticalErrorPercent" class="input" type="number" min="0" max="100" step="0.1" />
+            <FormInput v-model.number="criticalErrorPercent" type="number" min="0" max="100" step="0.1" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.targetTtft') }}</span>
-            <input v-model.number="draft.health_thresholds.target_ttft_ms" class="input" type="number" min="1" step="100" />
+            <FormInput v-model.number="draft.health_thresholds.target_ttft_ms" type="number" min="1" step="100" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.warningTtft') }}</span>
-            <input v-model.number="draft.health_thresholds.warning_ttft_ms" class="input" type="number" min="1" step="100" />
+            <FormInput v-model.number="draft.health_thresholds.warning_ttft_ms" type="number" min="1" step="100" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.criticalTtft') }}</span>
-            <input v-model.number="draft.health_thresholds.critical_ttft_ms" class="input" type="number" min="1" step="100" />
+            <FormInput v-model.number="draft.health_thresholds.critical_ttft_ms" type="number" min="1" step="100" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.warningCache') }}</span>
-            <input v-model.number="warningCachePercent" class="input" type="number" min="0" max="100" step="0.1" />
+            <FormInput v-model.number="warningCachePercent" type="number" min="0" max="100" step="0.1" />
           </label>
           <label class="block">
             <span class="input-label">{{ t('channelMonitorV2.settings.fields.criticalCache') }}</span>
-            <input v-model.number="criticalCachePercent" class="input" type="number" min="0" max="100" step="0.1" />
+            <FormInput v-model.number="criticalCachePercent" type="number" min="0" max="100" step="0.1" />
           </label>
         </div>
       </div>
@@ -331,6 +331,10 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, ref, toRaw } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

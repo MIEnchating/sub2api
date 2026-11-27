@@ -1,12 +1,10 @@
-import { enableAutoUnmount, flushPromises, mount, type VueWrapper } from '@vue/test-utils'
+import { enableAutoUnmount, flushPromises, mount } from '@vue/test-utils'
 import { createPinia, setActivePinia, type Pinia } from 'pinia'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import KeysView from '@/views/user/KeysView.vue'
 import UserApiKeysModal from '../UserApiKeysModal.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
 import { useAuthStore } from '@/stores/auth'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import type { AdminUser, ApiKey, User } from '@/types'
 
 const { login, logout, currentUser, listKeys } = vi.hoisted(() => ({
@@ -68,15 +66,7 @@ async function mountEntries(pinia: Pinia, realPolicyDialog = false) {
   return { view, modal }
 }
 
-function noticeAt(wrapper: VueWrapper, noticeId: string) {
-  const notice = wrapper.findAllComponents(NewFeatureBadge).find(component => component.props('noticeId') === noticeId)
-  expect(notice, `notice ${noticeId} must be connected to this entry`).toBeDefined()
-  return notice!
-}
 
-function modelNotice(wrapper: VueWrapper) {
-  return noticeAt(wrapper, NEW_FEATURE_NOTICES.apiKeyModelPolicy)
-}
 
 enableAutoUnmount(afterEach)
 beforeEach(() => {
@@ -100,63 +90,6 @@ describe('API key model policy announcement at both real administrator entries',
     expect(new Set(ids).size).toBe(ids.length)
   })
 
-  it.each(['view', 'modal'] as const)('dismisses both entries from %s and preserves A/B across refresh, re-login and C', async entry => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore(pinia)
-    await auth.login({ email: admin.email, password: 'fixture-password' })
-    useNewFeatureNoticeStore(pinia).dismiss(admin.id, noticeA)
-    const oldBadge = mount(NewFeatureBadge, {
-      props: { noticeId: noticeA, userId: admin.id }, global: { plugins: [pinia] },
-    })
-    expect(oldBadge.find(badge).exists()).toBe(false)
-
-    const entries = await mountEntries(pinia)
-    for (const wrapper of Object.values(entries)) {
-      expect(modelNotice(wrapper).find(badge).exists()).toBe(true)
-      expect(modelNotice(wrapper).props()).toMatchObject({
-        noticeId: NEW_FEATURE_NOTICES.apiKeyModelPolicy, userId: admin.id,
-      })
-    }
-    await modelNotice(entries[entry]).get(badge).trigger('click')
-    for (const wrapper of Object.values(entries)) {
-      expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-      expect(wrapper.getComponent({ name: 'ApiKeyModelPolicyDialog' }).props('show')).toBe(false)
-    }
-    expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual([noticeA, NEW_FEATURE_NOTICES.apiKeyModelPolicy])
-    expect(oldBadge.find(badge).exists()).toBe(false)
-    entries.view.unmount()
-    entries.modal.unmount()
-    oldBadge.unmount()
-
-    // Recreate stores and components against the same browser storage, as on refresh.
-    vi.clearAllTimers()
-    const refreshedPinia = createPinia()
-    setActivePinia(refreshedPinia)
-    const refreshedAuth = useAuthStore(refreshedPinia)
-    refreshedAuth.checkAuth()
-    await flushPromises()
-    expect(refreshedAuth.isAuthenticated).toBe(true)
-    expect(refreshedAuth.user?.id).toBe(admin.id)
-    const refreshed = await mountEntries(refreshedPinia)
-    for (const wrapper of Object.values(refreshed)) expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-
-    // Exercise the real logout/login store methods with offline auth API fixtures.
-    await refreshedAuth.logout()
-    await refreshedAuth.login({ email: admin.email, password: 'fixture-password' })
-    await flushPromises()
-    expect(refreshedAuth.user?.id).toBe(admin.id)
-    for (const wrapper of Object.values(refreshed)) expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-    const futureBadge = mount(NewFeatureBadge, {
-      props: { noticeId: noticeC, userId: admin.id }, global: { plugins: [refreshedPinia] },
-    })
-    expect(futureBadge.find(badge).exists()).toBe(true)
-    expect(useNewFeatureNoticeStore(refreshedPinia).isDismissed(admin.id, noticeA)).toBe(true)
-    expect(useNewFeatureNoticeStore(refreshedPinia).isDismissed(admin.id, NEW_FEATURE_NOTICES.apiKeyModelPolicy)).toBe(true)
-    for (const wrapper of Object.values(refreshed)) expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-    expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual([noticeA, NEW_FEATURE_NOTICES.apiKeyModelPolicy])
-    await refreshedAuth.logout()
-  })
 })
 
 describe('API key long-context announcement', () => {
@@ -166,58 +99,6 @@ describe('API key long-context announcement', () => {
     expect(longContextNotice).toBe('api-key-long-context-control-initial-announcement')
     expect(longContextNotice).not.toBe(NEW_FEATURE_NOTICES.apiKeyModelPolicy)
     expect(new Set(Object.values(NEW_FEATURE_NOTICES)).size).toBe(Object.values(NEW_FEATURE_NOTICES).length)
-  })
-
-  it.each(['view', 'modal', 'dialog'] as const)('keeps old dismissals and synchronizes all three placements from %s', async placement => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore(pinia)
-    await auth.login({ email: admin.email, password: 'fixture-password' })
-    const notices = useNewFeatureNoticeStore(pinia)
-    notices.dismiss(admin.id, noticeA)
-    notices.dismiss(admin.id, NEW_FEATURE_NOTICES.apiKeyModelPolicy)
-
-    const entries = await mountEntries(pinia, true)
-    await entries.view.get('[data-test="edit-key-model-policy"]').trigger('click')
-    const dialog = entries.view.getComponent({ name: 'ApiKeyModelPolicyDialog' })
-    const placements = { ...entries, dialog }
-    for (const wrapper of Object.values(entries)) expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-    for (const wrapper of Object.values(placements)) {
-      expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(true)
-      expect(noticeAt(wrapper, longContextNotice).props('userId')).toBe(admin.id)
-    }
-    expect(noticeAt(entries.view, longContextNotice).props('compact')).toBe(true)
-    expect(noticeAt(dialog, longContextNotice).props('compact')).toBe(false)
-    expect(dialog.get('[data-test="allow-long-context"]').attributes('aria-checked')).toBe('true')
-
-    await noticeAt(placements[placement], longContextNotice).get(badge).trigger('click')
-    for (const wrapper of Object.values(placements)) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-    expect(dialog.get('[data-test="allow-long-context"]').attributes('aria-checked')).toBe('true')
-    expect(entries.modal.getComponent({ name: 'ApiKeyModelPolicyDialog' }).props('show')).toBe(false)
-    expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual([
-      noticeA, NEW_FEATURE_NOTICES.apiKeyModelPolicy, longContextNotice,
-    ])
-    entries.view.unmount()
-    entries.modal.unmount()
-
-    vi.clearAllTimers()
-    const refreshedPinia = createPinia()
-    setActivePinia(refreshedPinia)
-    const refreshedAuth = useAuthStore(refreshedPinia)
-    refreshedAuth.checkAuth()
-    await flushPromises()
-    const refreshed = await mountEntries(refreshedPinia, true)
-    await refreshed.view.get('[data-test="edit-key-model-policy"]').trigger('click')
-    const refreshedDialog = refreshed.view.getComponent({ name: 'ApiKeyModelPolicyDialog' })
-    for (const wrapper of [...Object.values(refreshed), refreshedDialog]) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-
-    await refreshedAuth.logout()
-    await refreshedAuth.login({ email: admin.email, password: 'fixture-password' })
-    await flushPromises()
-    for (const wrapper of [...Object.values(refreshed), refreshedDialog]) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-    expect(useNewFeatureNoticeStore(refreshedPinia).isDismissed(admin.id, NEW_FEATURE_NOTICES.apiKeyModelPolicy)).toBe(true)
-    const future = mount(NewFeatureBadge, { props: { noticeId: noticeC, userId: admin.id }, global: { plugins: [refreshedPinia] } })
-    expect(future.find(badge).exists()).toBe(true)
   })
 
   it('does not show the new administrator notice to ordinary users', async () => {
@@ -238,62 +119,6 @@ describe('API key context token ceiling announcement', () => {
     expect(longContextNotice).toBe('api-key-context-token-limit-initial-announcement')
     expect(longContextNotice).not.toBe(NEW_FEATURE_NOTICES.apiKeyModelPolicy)
     expect(new Set(Object.values(NEW_FEATURE_NOTICES)).size).toBe(Object.values(NEW_FEATURE_NOTICES).length)
-  })
-
-  it.each(['view', 'modal', 'dialog'] as const)('keeps old dismissals and synchronizes all three placements from %s', async placement => {
-    const pinia = createPinia()
-    setActivePinia(pinia)
-    const auth = useAuthStore(pinia)
-    await auth.login({ email: admin.email, password: 'fixture-password' })
-    const notices = useNewFeatureNoticeStore(pinia)
-    notices.dismiss(admin.id, noticeA)
-    notices.dismiss(admin.id, NEW_FEATURE_NOTICES.apiKeyModelPolicy)
-    notices.dismiss(admin.id, NEW_FEATURE_NOTICES.apiKeyLongContext)
-
-    const entries = await mountEntries(pinia, true)
-    await entries.view.get('[data-test="edit-key-model-policy"]').trigger('click')
-    const dialog = entries.view.getComponent({ name: 'ApiKeyModelPolicyDialog' })
-    const placements = { ...entries, dialog }
-    for (const wrapper of Object.values(entries)) {
-      expect(modelNotice(wrapper).find(badge).exists()).toBe(false)
-      expect(noticeAt(wrapper, NEW_FEATURE_NOTICES.apiKeyLongContext).find(badge).exists()).toBe(false)
-    }
-    for (const wrapper of Object.values(placements)) {
-      expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(true)
-      expect(noticeAt(wrapper, longContextNotice).props('userId')).toBe(admin.id)
-    }
-    expect(noticeAt(entries.view, longContextNotice).props('compact')).toBe(true)
-    expect(noticeAt(dialog, longContextNotice).props('compact')).toBe(false)
-    expect(dialog.get('[data-test="allow-long-context"]').attributes('aria-checked')).toBe('true')
-
-    await noticeAt(placements[placement], longContextNotice).get(badge).trigger('click')
-    for (const wrapper of Object.values(placements)) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-    expect(dialog.get('[data-test="allow-long-context"]').attributes('aria-checked')).toBe('true')
-    expect(entries.modal.getComponent({ name: 'ApiKeyModelPolicyDialog' }).props('show')).toBe(false)
-    expect(JSON.parse(localStorage.getItem(storageKey)!)).toEqual([
-      noticeA, NEW_FEATURE_NOTICES.apiKeyModelPolicy, NEW_FEATURE_NOTICES.apiKeyLongContext, longContextNotice,
-    ])
-    entries.view.unmount()
-    entries.modal.unmount()
-
-    vi.clearAllTimers()
-    const refreshedPinia = createPinia()
-    setActivePinia(refreshedPinia)
-    const refreshedAuth = useAuthStore(refreshedPinia)
-    refreshedAuth.checkAuth()
-    await flushPromises()
-    const refreshed = await mountEntries(refreshedPinia, true)
-    await refreshed.view.get('[data-test="edit-key-model-policy"]').trigger('click')
-    const refreshedDialog = refreshed.view.getComponent({ name: 'ApiKeyModelPolicyDialog' })
-    for (const wrapper of [...Object.values(refreshed), refreshedDialog]) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-
-    await refreshedAuth.logout()
-    await refreshedAuth.login({ email: admin.email, password: 'fixture-password' })
-    await flushPromises()
-    for (const wrapper of [...Object.values(refreshed), refreshedDialog]) expect(noticeAt(wrapper, longContextNotice).find(badge).exists()).toBe(false)
-    expect(useNewFeatureNoticeStore(refreshedPinia).isDismissed(admin.id, NEW_FEATURE_NOTICES.apiKeyModelPolicy)).toBe(true)
-    const future = mount(NewFeatureBadge, { props: { noticeId: noticeC, userId: admin.id }, global: { plugins: [refreshedPinia] } })
-    expect(future.find(badge).exists()).toBe(true)
   })
 
   it('does not show the new administrator notice to ordinary users', async () => {

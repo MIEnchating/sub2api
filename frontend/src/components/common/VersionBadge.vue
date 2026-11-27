@@ -12,7 +12,7 @@
         ]"
         :title="versionStatus"
       >
-        <span v-if="currentVersion" class="font-medium">{{ compactVersionLabel }}</span>
+        <span v-if="currentVersion" class="font-medium">{{ installedVersionLabel }}</span>
         <span
           v-else
           class="h-3 w-12 animate-pulse rounded bg-gray-200 font-medium dark:bg-dark-600"
@@ -77,21 +77,20 @@
 
             <!-- Content -->
             <template v-else>
-              <!-- Current build and upstream baselines -->
               <div class="mb-4 text-center">
                 <p class="text-xs text-gray-500 dark:text-dark-400">
-                  {{ t('version.currentVersion') }}
+                  {{ t(isUnmanagedSource ? 'version.currentBuild' : 'version.currentVersion') }}
                 </p>
                 <div class="inline-flex items-center gap-2">
                   <span
                     v-if="currentVersion"
                     class="text-xl font-semibold text-gray-900 dark:text-white"
-                    >{{ imageVersionLabel(currentVersion) }}</span
+                    >{{ installedVersionLabel }}</span
                   >
                   <span v-else class="text-xl font-semibold text-gray-400 dark:text-dark-500">--</span>
                   <!-- Show check mark when up to date -->
                   <span
-                    v-if="versionConfirmed && !hasUpdate"
+                    v-if="versionConfirmed && !hasUpdate && !isUnmanagedSource"
                     data-testid="version-up-to-date"
                     class="flex h-5 w-5 items-center justify-center rounded-full bg-green-100 dark:bg-green-900/30"
                   >
@@ -126,7 +125,7 @@
                   :href="upstream.compare_url || upstream.html_url"
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="grid min-h-14 grid-cols-[7rem_minmax(0,1fr)] items-center gap-3 py-2.5 text-left transition-colors hover:text-primary-600 max-[420px]:grid-cols-1 max-[420px]:gap-1 dark:hover:text-primary-400"
+                  class="grid min-h-14 grid-cols-[minmax(0,1fr)_auto] items-center gap-3 py-2.5 text-left transition-colors hover:text-primary-600 max-[480px]:grid-cols-1 max-[480px]:gap-1 dark:hover:text-primary-400"
                   :title="
                     upstream.warning ||
                     (upstream.compare_url ? t('version.compareChanges') : upstream.repository)
@@ -136,11 +135,11 @@
                     <span class="block whitespace-nowrap text-xs font-medium text-gray-700 dark:text-dark-300">
                       {{ upstreamLabel(upstream.id) }}
                     </span>
-                    <span class="block truncate text-xs text-gray-400 dark:text-dark-500">
+                    <span class="block break-words text-xs text-gray-500 dark:text-dark-400">
                       {{ upstream.repository }}
                     </span>
                   </span>
-                  <span class="flex min-w-0 items-center justify-end gap-1.5 max-[420px]:flex-wrap max-[420px]:justify-start">
+                  <span class="flex min-w-0 items-center justify-end gap-1.5 max-[480px]:flex-wrap max-[480px]:justify-start">
                     <span
                       class="whitespace-nowrap font-mono text-xs font-medium"
                       :class="
@@ -742,7 +741,8 @@ import {
   getRollbackVersions,
   rollback as rollbackAPI,
   type RollbackVersionInfo,
-  type SourceUpdateJob
+  type SourceUpdateJob,
+  type UpstreamVersionInfo
 } from '@/api/admin/system'
 import { useClipboard } from '@/composables/useClipboard'
 import Icon from '@/components/icons/Icon.vue'
@@ -771,21 +771,27 @@ const loading = computed(() => appStore.versionLoading)
 const displayVersion = (value: string) => String(value || '').replace(/^v+/i, '')
 const currentVersion = computed(() => displayVersion(appStore.currentVersion || props.version || ''))
 const latestVersion = computed(() => displayVersion(appStore.latestVersion))
-const hasUpdate = computed(() => appStore.hasUpdate)
+const sourceUpdateEnabled = computed(() => appStore.sourceUpdateEnabled)
+const hostUpdateManaged = computed(() => appStore.hostUpdateManaged)
+const buildType = computed(() => appStore.buildType)
+const releaseInfo = computed(() => appStore.releaseInfo)
+const isUnmanagedSource = computed(() => appStore.versionLoaded && buildType.value === 'source' && !hostUpdateManaged.value)
+const hasUpdate = computed(() => appStore.hasUpdate && !isUnmanagedSource.value)
+const installedVersionLabel = computed(() =>
+  isUnmanagedSource.value ? t('version.sourceMode') : imageVersionLabel(currentVersion.value)
+)
 const versionWarning = computed(() => appStore.versionWarning)
 const versionConfirmed = computed(() => appStore.versionLoaded && !versionWarning.value && !loading.value)
 const versionStatus = computed(() => {
   if (loading.value) return t('version.checking')
   if (versionWarning.value) return t('version.checkFailed')
   if (!versionConfirmed.value) return t('version.notChecked')
+  if (isUnmanagedSource.value) {
+    return releaseInfo.value ? `${t('version.latestVersion')} ${imageVersionLabel(latestVersion.value)}` : ''
+  }
   return hasUpdate.value ? t('version.latestVersion') + ': ' + imageVersionLabel(latestVersion.value) : t('version.upToDate')
 })
-const sourceUpdateEnabled = computed(() => appStore.sourceUpdateEnabled)
-const hostUpdateManaged = computed(() => appStore.hostUpdateManaged)
-const releaseInfo = computed(() => appStore.releaseInfo)
 const upstreamVersions = computed(() => appStore.upstreamVersions)
-const buildType = computed(() => appStore.buildType)
-const compactVersionLabel = computed(() => normalizeVersion(currentVersion.value))
 
 function normalizeVersion(value: string): string {
   return value.trim().replace(/^v/, '')
@@ -801,10 +807,12 @@ function upstreamVersionLabel(value: string): string {
   return normalized ? `v${normalized}` : '--'
 }
 
-function upstreamLabel(id: 'official' | 'custom'): string {
-  return id === 'official'
-    ? t('version.officialUpstream')
-    : t('version.customUpstream')
+function upstreamLabel(id: UpstreamVersionInfo['id']): string {
+  return t({
+    official: 'version.officialUpstream',
+    custom: 'version.customUpstream',
+    ranxi: 'version.ranxiUpstream'
+  }[id])
 }
 
 // Update process states (local to this component)

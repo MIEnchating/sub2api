@@ -21,54 +21,54 @@
       <fieldset v-if="canManageTimers" :disabled="busy || switching || loadFailed" class="min-w-0 space-y-2">
         <legend class="mb-2 font-medium">{{ t('admin.accounts.timer.manage') }}</legend>
         <label class="block">{{ t('admin.accounts.timer.planType') }}
-          <select v-model="planType" data-test="timer-plan-type" class="input mt-1 w-full text-xs">
+          <FormSelect v-model="planType" data-test="timer-plan-type" class="mt-1 w-full text-xs">
             <option value="daily">{{ t('admin.accounts.timer.daily') }}</option>
             <option value="once">{{ t('admin.accounts.timer.once') }}</option>
-          </select>
+          </FormSelect>
         </label>
         <div v-if="form.mode === 'daily'" class="space-y-2">
           <div class="flex items-center gap-1"><span>{{ t('admin.accounts.timer.daily') }}</span><NewFeatureBadge v-if="noticeUserId != null" :notice-id="NEW_FEATURE_NOTICES.accountDailyScheduling" :user-id="noticeUserId" compact /></div>
           <div class="grid grid-cols-2 gap-2">
-            <label>{{ t('admin.accounts.timer.openTime') }}<input v-model="form.openTime" data-test="timer-open-time" type="time" step="60" class="input mt-1 w-full text-xs" /></label>
-            <label>{{ t('admin.accounts.timer.closeTime') }}<input v-model="form.closeTime" data-test="timer-close-time" type="time" step="60" class="input mt-1 w-full text-xs" /></label>
+            <label>{{ t('admin.accounts.timer.openTime') }}<FormInput v-model="form.openTime" data-test="timer-open-time" type="time" step="60" class="mt-1 w-full text-xs" /></label>
+            <label>{{ t('admin.accounts.timer.closeTime') }}<FormInput v-model="form.closeTime" data-test="timer-close-time" type="time" step="60" class="mt-1 w-full text-xs" /></label>
           </div>
           <p data-test="timer-draft-window" class="text-primary-700 dark:text-primary-300">{{ windowText(form.openTime, form.closeTime, form.timezone) }}</p>
           <p data-test="timer-mode-hint" class="text-gray-500 dark:text-dark-400">{{ t('admin.accounts.timer.dailyHint') }}</p>
         </div>
         <template v-else>
           <label class="block">{{ t('admin.accounts.timer.action') }}
-            <select v-model="action" data-test="timer-action" class="input mt-1 w-full text-xs" @change="editOneShot(action)">
+            <FormSelect v-model="action" data-test="timer-action" class="mt-1 w-full text-xs" @change="editOneShot(action)">
               <option value="open">{{ t('admin.accounts.timer.openAction') }}</option>
               <option value="close">{{ t('admin.accounts.timer.closeAction') }}</option>
-            </select>
+            </FormSelect>
           </label>
           <label class="block">{{ t('admin.accounts.timer.mode') }}
-            <select v-model="form.mode" data-test="timer-mode" class="input mt-1 w-full text-xs">
+            <FormSelect v-model="form.mode" data-test="timer-mode" class="mt-1 w-full text-xs">
               <option value="relative">{{ t('admin.accounts.timer.relative') }}</option>
               <option value="absolute">{{ t('admin.accounts.timer.absolute') }}</option>
-            </select>
+            </FormSelect>
           </label>
           <div v-if="form.mode === 'relative'" class="space-y-1">
             <div class="grid grid-cols-2 gap-2">
-              <label>{{ t('admin.accounts.timer.hours') }}<input v-model.number="form.hours" type="number" min="0" step="1" :max="Math.floor(maxMinutes / 60)" class="input mt-1 w-full text-xs" /></label>
-              <label>{{ t('admin.accounts.timer.minutes') }}<input v-model.number="form.minutes" type="number" min="0" step="1" :max="maxMinutes" class="input mt-1 w-full text-xs" /></label>
+              <label>{{ t('admin.accounts.timer.hours') }}<FormInput v-model.number="form.hours" type="number" min="0" step="1" :max="Math.floor(maxMinutes / 60)" class="mt-1 w-full text-xs" /></label>
+              <label>{{ t('admin.accounts.timer.minutes') }}<FormInput v-model.number="form.minutes" type="number" min="0" step="1" :max="maxMinutes" class="mt-1 w-full text-xs" /></label>
             </div>
             <button type="button" class="text-primary-600 underline" @click="form.hours = 8; form.minutes = 0">{{ t('admin.accounts.timer.preset') }}</button>
             <p class="text-gray-500 dark:text-dark-400">{{ t('admin.accounts.timer.relativeHint') }}</p>
           </div>
           <div v-else class="space-y-1">
-            <label class="block">{{ t('admin.accounts.timer.date') }}<input v-model="form.date" type="date" class="input mt-1 w-full text-xs" /></label>
-            <label class="block">{{ t('admin.accounts.timer.time') }}<input v-model="form.time" data-test="timer-time" type="time" step="60" class="input mt-1 w-full text-xs" /></label>
+            <label class="block">{{ t('admin.accounts.timer.date') }}<FormInput v-model="form.date" type="date" class="mt-1 w-full text-xs" /></label>
+            <label class="block">{{ t('admin.accounts.timer.time') }}<FormInput v-model="form.time" data-test="timer-time" type="time" step="60" class="mt-1 w-full text-xs" /></label>
             <p class="text-gray-500 dark:text-dark-400">{{ t('admin.accounts.timer.absoluteHint') }}</p>
           </div>
         </template>
-        <label class="block">{{ t('admin.accounts.timer.timezone') }}<input v-model.trim="form.timezone" data-test="timer-zone" :aria-label="t('admin.accounts.timer.timezone')" class="input mt-1 w-full text-xs" placeholder="Asia/Shanghai" /></label>
+        <label class="block">{{ t('admin.accounts.timer.timezone') }}<FormInput v-model.trim="form.timezone" data-test="timer-zone" :aria-label="t('admin.accounts.timer.timezone')" class="mt-1 w-full text-xs" placeholder="Asia/Shanghai" /></label>
         <div class="flex flex-wrap gap-2">
           <button type="button" class="text-primary-600 underline" @click="form.timezone = 'Asia/Shanghai'">{{ t('admin.accounts.timer.beijing') }}</button>
           <button type="button" class="text-primary-600 underline" @click="form.timezone = 'UTC'">UTC</button>
         </div>
         <p class="text-gray-500 dark:text-dark-400">{{ t('admin.accounts.timer.zoneHint') }}</p>
-        <button type="button" data-test="timer-preview" class="btn btn-secondary w-full text-xs" @click="previewTime">{{ t('admin.accounts.timer.preview') }}</button>
+        <BaseButton type="button" data-test="timer-preview" class="btn-secondary w-full text-xs" @click="previewTime">{{ t('admin.accounts.timer.preview') }}</BaseButton>
         <div v-if="preview || dailyPreview" class="space-y-2 rounded bg-primary-50 p-2 dark:bg-dark-700" aria-live="polite">
           <template v-if="dailyPreview">
             <p>{{ t('admin.accounts.timer.next') }}</p>
@@ -76,8 +76,8 @@
             <p data-test="timer-preview-close">{{ t('admin.accounts.timer.closeAction') }} · {{ previewText(dailyPreview.close) }}</p>
           </template>
           <p v-else-if="preview" data-test="timer-preview-value">{{ previewText(preview) }}</p>
-          <label v-if="form.mode === 'absolute'" class="flex items-start gap-2"><input v-model="confirmed" data-test="timer-confirm" type="checkbox" class="mt-0.5" />{{ t('admin.accounts.timer.confirm') }}</label>
-          <button type="button" data-test="timer-save" class="btn btn-primary w-full text-xs" :disabled="form.mode === 'absolute' && !confirmed" @click="save">{{ t(`admin.accounts.timer.${form.mode === 'daily' ? 'saveDaily' : 'save'}`) }}</button>
+          <label v-if="form.mode === 'absolute'" class="flex items-start gap-2"><FormInput v-model="confirmed" data-test="timer-confirm" type="checkbox" class="mt-0.5" />{{ t('admin.accounts.timer.confirm') }}</label>
+          <BaseButton type="button" data-test="timer-save" class="btn-primary w-full text-xs" :disabled="form.mode === 'absolute' && !confirmed" @click="save">{{ t(`admin.accounts.timer.${form.mode === 'daily' ? 'saveDaily' : 'save'}`) }}</BaseButton>
         </div>
       </fieldset>
       <p v-if="canManageTimers" class="text-gray-500 dark:text-dark-400">{{ t(`admin.accounts.timer.${form.mode === 'daily' ? 'dailyPolicy' : 'policy'}`, { seconds: snapshot?.poll_seconds ?? 30, grace: (snapshot?.open_grace_seconds ?? 900) / 60, days: maxMinutes / 1440 }) }}</p>
@@ -96,7 +96,7 @@
       </section>
       <section v-if="schedulable !== undefined" class="space-y-2 border-t border-gray-200 pt-2 dark:border-dark-600">
         <p class="text-gray-500 dark:text-dark-400">{{ t('admin.accounts.timer.manualOverrideHint') }}</p>
-        <button type="button" data-test="timer-immediate" class="btn btn-secondary w-full text-xs" :disabled="busy || loading || switching" @click="emit('toggle')">{{ t(`admin.accounts.timer.${schedulable ? 'immediateOff' : 'immediateOn'}`) }}</button>
+        <BaseButton type="button" data-test="timer-immediate" class="btn-secondary w-full text-xs" :disabled="busy || loading || switching" @click="emit('toggle')">{{ t(`admin.accounts.timer.${schedulable ? 'immediateOff' : 'immediateOn'}`) }}</BaseButton>
       </section>
       <details v-if="snapshot?.history.length" class="text-gray-500 dark:text-dark-400">
         <summary class="cursor-pointer">{{ t('admin.accounts.timer.history') }} · {{ t(`admin.accounts.timer.results.${snapshot.history[0]?.result}`) }}</summary>
@@ -109,6 +109,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, onUnmounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

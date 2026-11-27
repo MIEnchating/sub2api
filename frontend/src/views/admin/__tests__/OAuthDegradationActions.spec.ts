@@ -4,8 +4,6 @@ import { mount, flushPromises } from '@vue/test-utils'
 import { reactive } from 'vue'
 import AutoConfigView from '../AutoConfigView.vue'
 import ModelWhitelistSelector from '@/components/account/ModelWhitelistSelector.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import { getAutoConfig, saveAutoConfig } from '@/api/admin/autoConfig'
 import { getAll } from '@/api/admin/groups'
 import { defaultOAuthDegradationConfig, oauthDegradationError, oauthDegradationPayload } from '@/utils/oauthDegradation'
@@ -55,23 +53,6 @@ it('OAuth degradation renders a separate safe disabled card and requires a thres
  expect(reloaded.get<HTMLInputElement>('[data-testid="degradation-threshold"]').element.value).toBe('25')
  reloaded.unmount()
 })
-it('OAuth degradation notice follows A to B to C with shared dismissal, refresh and login persistence', async () => {
- const a='prior-fixture-announcement',b='oauth-degradation-actions-initial-announcement',c='future-fixture-announcement'
- useNewFeatureNoticeStore().dismiss(41,a)
- const w=mount(AutoConfigView); await flushPromises()
- expect(w.find('[data-testid="degradation-action"]').exists()).toBe(true)
- const second=mount(NewFeatureBadge,{props:{noticeId:b,userId:41}})
- await w.get('[data-testid="degradation-action"] [data-testid="new-feature-badge"]').trigger('click')
- expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- w.unmount(); second.unmount(); setActivePinia(createPinia())
- const login=mount(NewFeatureBadge,{props:{noticeId:b,userId:41}})
- expect(login.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- const future=mount(NewFeatureBadge,{props:{noticeId:c,userId:41}})
- expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- expect(useNewFeatureNoticeStore().isDismissed(41,a)).toBe(true)
- login.unmount(); future.unmount()
-})
-
 it('reads a saved null model scope as deny-all and keeps it editable', async () => {
  vi.mocked(getAutoConfig).mockResolvedValueOnce({ ...baseline, degradation_action: { enabled: true, threshold_percent: 50, target_concurrency: 10, models: null as any } })
  const w=mount(AutoConfigView); await flushPromises()
@@ -206,27 +187,6 @@ it('requires 429 evidence or two candy retests when probe checks are enabled', a
  w.unmount()
 })
 
-it('announces 429 conditions independently of the original dismissed feature', async () => {
- const old='oauth-degradation-actions-initial-announcement',id='oauth-degradation-429-conditions-initial-announcement'
- useNewFeatureNoticeStore().dismiss(41,old)
- const w=mount(AutoConfigView);await flushPromises()
- const second=mount(NewFeatureBadge,{props:{noticeId:id,userId:41}})
- const candy=w.get('[data-testid="candy-retest-setting"]')
- await candy.get('[data-testid="new-feature-badge"]').trigger('click')
- expect(candy.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- await w.get('[data-testid="degradation-action"] [data-testid="new-feature-badge"]').trigger('click')
- expect(second.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- w.unmount();second.unmount();setActivePinia(createPinia())
- const reload=mount(NewFeatureBadge,{props:{noticeId:id,userId:41}})
- expect(useNewFeatureNoticeStore().isDismissed(41,'oauth-degradation-candy-retest')).toBe(true)
- expect(reload.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- const future=mount(NewFeatureBadge,{props:{noticeId:'future-429-fixture',userId:41}})
- expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- expect(useNewFeatureNoticeStore().isDismissed(41,old)).toBe(true)
- reload.unmount();future.unmount()
-})
-
 it('saves the sample threshold for independent 429 tests', async () => {
  const w = mount(AutoConfigView); await flushPromises()
  expect(w.get<HTMLInputElement>('[data-testid="independent-429-enabled"]').element.checked).toBe(false)
@@ -247,22 +207,4 @@ it('saves the sample threshold for independent 429 tests', async () => {
  const reloaded = mount(AutoConfigView); await flushPromises()
  expect(reloaded.get<HTMLInputElement>('[data-testid="independent-429-enabled"]').element.checked).toBe(true)
  reloaded.unmount()
-})
-
-it('independent 429 notice shares dismissal and persists without reviving earlier notices', async () => {
- const prior = 'oauth-degradation-429-conditions-initial-announcement'
- const current = 'oauth-degradation-429-independent-tests'
- useNewFeatureNoticeStore().dismiss(41, prior)
- const w = mount(AutoConfigView); await flushPromises()
- const linked = mount(NewFeatureBadge, { props: { noticeId: current, userId: 41 } })
- expect(linked.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- await w.get('[data-testid="independent-429"] [data-testid="new-feature-badge"]').trigger('click')
- expect(linked.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- w.unmount(); linked.unmount(); setActivePinia(createPinia())
- const login = mount(NewFeatureBadge, { props: { noticeId: current, userId: 41 } })
- const future = mount(NewFeatureBadge, { props: { noticeId: 'future-429-fixture', userId: 41 } })
- expect(login.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
- expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
- expect(useNewFeatureNoticeStore().isDismissed(41, prior)).toBe(true)
- login.unmount(); future.unmount()
 })

@@ -6,14 +6,14 @@
         <p class="mt-1 text-sm leading-6 text-gray-500 dark:text-gray-400">{{ t('autoConfig.logs.description') }}</p>
       </div>
       <div class="flex w-full items-center gap-3 sm:w-auto">
-        <select v-model="kind" class="input min-w-0 flex-1 sm:w-40" :aria-label="t('autoConfig.logs.filter')" data-testid="history-kind">
+        <FormSelect v-model="kind" class="min-w-0 flex-1 sm:w-40" :aria-label="t('autoConfig.logs.filter')" data-testid="history-kind">
           <option value="">{{ t('autoConfig.logs.all') }}</option>
           <option v-for="value in kinds" :key="value" :value="value">{{ t('autoConfig.logs.kinds.' + value) }}</option>
-        </select>
-        <button type="button" class="btn btn-secondary shrink-0" :disabled="loading" data-testid="history-refresh" @click="load()">
+        </FormSelect>
+        <BaseButton type="button" class="btn-secondary shrink-0" :disabled="loading" data-testid="history-refresh" @click="load()">
           <Icon name="refresh" size="sm" :class="{ 'animate-spin': loading }" />
           {{ t('autoConfig.logs.refresh') }}
-        </button>
+        </BaseButton>
       </div>
     </header>
     <div v-if="error" role="alert" class="mx-5 mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl bg-red-50 p-3 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
@@ -28,7 +28,7 @@
         <p class="mt-2 text-sm text-gray-500">{{ t('autoConfig.logs.emptyHint') }}</p>
       </div>
       <div v-if="events.length" class="overflow-x-auto">
-        <table class="w-full min-w-[720px] text-left text-sm">
+        <BaseTable class="w-full min-w-[720px] text-left text-sm">
           <thead class="border-y border-gray-100 bg-gray-50 text-xs text-gray-500 dark:border-dark-700 dark:bg-dark-800 dark:text-gray-400">
             <tr><th scope="col" class="px-5 py-3 font-medium">{{ t('autoConfig.logs.time') }}</th><th scope="col" class="px-5 py-3 font-medium">{{ t('autoConfig.logs.account') }}</th><th scope="col" class="px-5 py-3 font-medium">{{ t('autoConfig.logs.event') }}</th><th scope="col" class="px-5 py-3 font-medium">{{ t('autoConfig.logs.detail') }}</th></tr>
           </thead>
@@ -57,17 +57,20 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
     <footer class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 px-5 py-4 text-xs text-gray-400 dark:border-dark-700">
       <span>{{ t('autoConfig.logs.scopeHint') }}</span>
-      <button v-if="hasMore" type="button" class="btn btn-secondary" :disabled="loading" data-testid="history-more" @click="load(true)">{{ t(loading ? 'common.loading' : 'autoConfig.logs.more') }}</button>
+      <BaseButton v-if="hasMore" type="button" class="btn-secondary" :disabled="loading" data-testid="history-more" @click="load(true)">{{ t(loading ? 'common.loading' : 'autoConfig.logs.more') }}</BaseButton>
     </footer>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

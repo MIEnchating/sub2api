@@ -13,7 +13,7 @@
             {{ t('admin.settings.payment.providerName') }}
             <span class="text-red-500">*</span>
           </label>
-          <input v-model="form.name" type="text" class="input" required />
+          <FormInput v-model="form.name" type="text" required />
         </div>
         <div>
           <label class="input-label">
@@ -73,16 +73,11 @@
       <div v-if="form.provider_key === 'bepusdt'" class="space-y-2">
         <div class="flex items-center gap-2">
           <label class="input-label mb-0">{{ t('admin.settings.payment.field_mode') }}</label>
-          <NewFeatureBadge
-            v-if="userId != null"
-            :notice-id="NEW_FEATURE_NOTICES.bepusdtPayment"
-            :user-id="userId"
-          />
         </div>
-        <select v-model="config.mode" class="input" data-testid="bepusdt-mode">
+        <FormSelect v-model="config.mode" data-testid="bepusdt-mode">
           <option value="embedded">{{ t('admin.settings.payment.bepusdtEmbedded') }}</option>
           <option value="external">{{ t('admin.settings.payment.bepusdtExternal') }}</option>
-        </select>
+        </FormSelect>
         <p class="text-xs leading-relaxed text-gray-500 dark:text-gray-400">
           {{ t(config.mode === 'embedded' ? 'admin.settings.payment.bepusdtEmbeddedHint' : 'admin.settings.payment.bepusdtHint') }}
         </p>
@@ -98,9 +93,9 @@
               {{ t('admin.settings.payment.easypayCustomMethodsHint') }}
             </p>
           </div>
-          <button type="button" class="btn btn-secondary btn-sm" @click="addEasyPayCustomMethod">
+          <BaseButton type="button" class="btn-secondary btn-sm" @click="addEasyPayCustomMethod">
             {{ t('admin.settings.payment.addCustomMethod') }}
-          </button>
+          </BaseButton>
         </div>
         <div v-if="easyPayCustomMethods.length" class="space-y-2">
           <div
@@ -110,15 +105,15 @@
           >
             <div>
               <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodType') }}</label>
-              <input v-model="method.type" type="text" class="input mt-0.5" placeholder="credit_card" />
+              <FormInput v-model="method.type" type="text" class="mt-0.5" placeholder="credit_card" />
             </div>
             <div>
               <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodUpstreamType') }}</label>
-              <input v-model="method.upstreamType" type="text" class="input mt-0.5" placeholder="credit_card" />
+              <FormInput v-model="method.upstreamType" type="text" class="mt-0.5" placeholder="credit_card" />
             </div>
             <div>
               <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.customMethodDisplayName') }}</label>
-              <input v-model="method.displayName" type="text" class="input mt-0.5" :placeholder="t('admin.settings.payment.customMethodDisplayNamePlaceholder')" />
+              <FormInput v-model="method.displayName" type="text" class="mt-0.5" :placeholder="t('admin.settings.payment.customMethodDisplayNamePlaceholder')" />
             </div>
             <button
               type="button"
@@ -178,11 +173,11 @@
               <span v-if="field.optional" class="text-xs text-gray-400">({{ t('common.optional') }})</span>
               <span v-else class="text-red-500"> *</span>
             </label>
-            <textarea
+            <FormTextarea
               v-if="field.sensitive && field.key.toLowerCase().includes('key') && field.key !== 'pkey'"
               v-model="config[field.key]"
               rows="3"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               autocomplete="new-password"
               data-1p-ignore
               data-lpignore="true"
@@ -191,10 +186,10 @@
               :placeholder="editing ? t('admin.accounts.leaveEmptyToKeep') : ''"
             />
             <div v-else-if="field.sensitive" class="relative">
-              <input
+              <FormInput
                 :type="visibleFields[field.key] ? 'text' : 'password'"
                 v-model="config[field.key]"
-                class="input pr-10"
+                class="pr-10"
                 autocomplete="new-password"
                 data-1p-ignore
                 data-lpignore="true"
@@ -217,11 +212,10 @@
               :options="field.options"
               :searchable="field.options.length > 5"
             />
-            <input
+            <FormInput
               v-else
               type="text"
               v-model="config[field.key]"
-              class="input"
               :placeholder="field.defaultValue || ''"
             />
             <p v-if="field.hintKey" class="mt-1 text-xs leading-relaxed text-gray-500 dark:text-gray-400">
@@ -235,14 +229,14 @@
           <div v-if="callbackPaths.notifyUrl">
             <label class="input-label">{{ t('admin.settings.payment.field_notifyUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
-              <input v-model="notifyBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
+              <FormInput v-model="notifyBaseUrl" type="text" class="min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
               <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.notifyUrl }}</span>
             </div>
           </div>
           <div v-if="callbackPaths.returnUrl">
             <label class="input-label">{{ t('admin.settings.payment.field_returnUrl') }} <span class="text-red-500">*</span></label>
             <div class="flex">
-              <input v-model="returnBaseUrl" type="text" class="input min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
+              <FormInput v-model="returnBaseUrl" type="text" class="min-w-0 flex-1 !rounded-r-none !border-r-0" :placeholder="defaultBaseUrl" />
               <span class="inline-flex items-center whitespace-nowrap rounded-r-lg border border-gray-300 bg-gray-50 px-3 text-xs text-gray-500 dark:border-dark-600 dark:bg-dark-700 dark:text-gray-400">{{ callbackPaths.returnUrl }}</span>
             </div>
           </div>
@@ -280,29 +274,29 @@
             <div class="grid grid-cols-3 gap-3">
               <div>
                 <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitSingleMin') }}</label>
-                <input
+                <FormInput
                   type="number"
                   :value="getLimitVal(lt.value, 'singleMin')"
                   @input="setLimitVal(lt.value, 'singleMin', ($event.target as HTMLInputElement).value)"
-                  class="input mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
+                  class="mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
                 />
               </div>
               <div>
                 <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitSingleMax') }}</label>
-                <input
+                <FormInput
                   type="number"
                   :value="getLimitVal(lt.value, 'singleMax')"
                   @input="setLimitVal(lt.value, 'singleMax', ($event.target as HTMLInputElement).value)"
-                  class="input mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
+                  class="mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
                 />
               </div>
               <div>
                 <label class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.payment.limitDaily') }}</label>
-                <input
+                <FormInput
                   type="number"
                   :value="getLimitVal(lt.value, 'dailyLimit')"
                   @input="setLimitVal(lt.value, 'dailyLimit', ($event.target as HTMLInputElement).value)"
-                  class="input mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
+                  class="mt-0.5" min="1" step="0.01" :placeholder="limitPlaceholder(lt.value)"
                 />
               </div>
             </div>
@@ -319,22 +313,22 @@
         <div class="space-y-2">
           <label class="input-label" for="provider-default-fee-mode">{{ t('admin.settings.payment.providerDefaultFee') }}</label>
           <div class="grid gap-2 sm:grid-cols-2">
-            <select id="provider-default-fee-mode" v-model="feeMode" class="input" data-testid="provider-fee-mode">
+            <FormSelect id="provider-default-fee-mode" v-model="feeMode" data-testid="provider-fee-mode">
               <option value="inherit">{{ t('admin.settings.payment.feeInheritGlobal') }}</option>
               <option value="custom">{{ t('admin.settings.payment.feeCustom') }}</option>
-            </select>
-            <input v-if="feeMode === 'custom'" v-model="feeRateInput" type="number" min="0" max="100" step="0.01" required class="input" data-testid="provider-fee-rate" :aria-label="t('admin.settings.payment.providerDefaultFee')" />
+            </FormSelect>
+            <FormInput v-if="feeMode === 'custom'" v-model="feeRateInput" type="number" min="0" max="100" step="0.01" required data-testid="provider-fee-rate" :aria-label="t('admin.settings.payment.providerDefaultFee')" />
           </div>
           <p class="text-xs text-gray-500 dark:text-gray-400" data-testid="provider-effective-fee">{{ effectiveFeeLabel }}</p>
         </div>
         <div v-for="method in feeTypes" :key="method.value" class="space-y-2 rounded-lg border border-gray-100 p-3 dark:border-dark-700">
           <label :for="`provider-method-fee-${method.value}`" class="input-label">{{ method.label }}</label>
           <div class="grid gap-2 sm:grid-cols-2">
-            <select :id="`provider-method-fee-${method.value}`" :value="methodFeeInputs[method.value] == null ? 'inherit' : 'custom'" class="input" :data-testid="`method-fee-mode-${method.value}`" @change="setMethodFeeMode(method.value, ($event.target as HTMLSelectElement).value)">
+            <FormSelect :id="`provider-method-fee-${method.value}`" :value="methodFeeInputs[method.value] == null ? 'inherit' : 'custom'" :data-testid="`method-fee-mode-${method.value}`" @change="setMethodFeeMode(method.value, ($event.target as HTMLSelectElement).value)">
               <option value="inherit">{{ t('admin.settings.payment.feeInheritProvider') }}</option>
               <option value="custom">{{ t('admin.settings.payment.feeCustom') }}</option>
-            </select>
-            <input v-if="methodFeeInputs[method.value] != null" v-model="methodFeeInputs[method.value]" type="number" min="0" max="100" step="0.01" required class="input" :data-testid="`method-fee-rate-${method.value}`" :aria-label="t('admin.settings.payment.methodFeeLabel', { method: method.label })" />
+            </FormSelect>
+            <FormInput v-if="methodFeeInputs[method.value] != null" v-model="methodFeeInputs[method.value]" type="number" min="0" max="100" step="0.01" required :data-testid="`method-fee-rate-${method.value}`" :aria-label="t('admin.settings.payment.methodFeeLabel', { method: method.label })" />
           </div>
         </div>
         <p v-if="feeValidationError" class="text-sm text-red-600 dark:text-red-400" role="alert">{{ feeValidationError }}</p>
@@ -343,16 +337,20 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" @click="emit('close')" class="btn btn-secondary">{{ t('common.cancel') }}</button>
-        <button type="submit" form="provider-form" :disabled="saving" class="btn btn-primary">
+        <BaseButton type="button" @click="emit('close')" class="btn-secondary">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="provider-form" :disabled="saving" class="btn-primary">
           {{ saving ? t('common.saving') : t('common.save') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { reactive, computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

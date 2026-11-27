@@ -56,35 +56,35 @@
                 t("keys.bulkEdit.selectedCount", { count: selectedIds.length })
               }}
             </span>
-            <button
-              class="btn btn-primary btn-sm"
+            <BaseButton
+              class="btn-primary btn-sm"
               :disabled="loading"
               data-test="bulk-edit-keys"
               @click="showBulkEditModal = true"
             >
               {{ t("keys.bulkEdit.title") }}
-            </button>
-            <button class="btn btn-secondary btn-sm" @click="selectedIds = []">
+            </BaseButton>
+            <BaseButton class="btn-secondary btn-sm" @click="selectedIds = []">
               {{ t("keys.bulkEdit.clearSelection") }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
 
       <template #actions>
         <div class="flex justify-end gap-3">
-          <button
+          <BaseButton
             @click="refreshPage"
             :disabled="loading || groupPricingLoading"
-            class="btn btn-secondary"
+            class="btn-secondary"
             :title="t('common.refresh')"
           >
             <Icon name="refresh" size="md" :class="loading || groupPricingLoading ? 'animate-spin' : ''" />
-          </button>
+          </BaseButton>
           <div class="relative" ref="columnDropdownRef">
-            <button
+            <BaseButton
               @click="showColumnDropdown = !showColumnDropdown"
-              class="btn btn-secondary px-2 md:px-3"
+              class="btn-secondary px-2 md:px-3"
               :title="t('keys.columnSettings')"
             >
               <svg
@@ -103,7 +103,7 @@
               <span class="hidden md:inline">{{
                 t("keys.columnSettings")
               }}</span>
-            </button>
+            </BaseButton>
             <div
               v-if="showColumnDropdown"
               class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
@@ -125,14 +125,14 @@
               </button>
             </div>
           </div>
-          <button
+          <BaseButton
             @click="showCreateModal = true"
-            class="btn btn-primary"
+            class="btn-primary"
             data-tour="keys-create-btn"
           >
             <Icon name="plus" size="md" class="mr-2" />
             {{ t("keys.createKey") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
 
@@ -719,11 +719,10 @@
       <form id="key-form" @submit.prevent="handleSubmit" class="space-y-5">
         <div>
           <label class="input-label">{{ t("keys.nameLabel") }}</label>
-          <input
+          <FormInput
             v-model="formData.name"
             type="text"
             required
-            class="input"
             :placeholder="t('keys.namePlaceholder')"
             data-tour="key-form-name"
           />
@@ -818,7 +817,7 @@
             <div class="max-h-48 space-y-2 overflow-y-auto">
               <label v-for="option in groupOptions.filter(item => item.value !== null && item.value !== formData.group_id && item.value !== formData.fallback_group_id)"
                 :key="String(option.value)" class="flex items-center gap-2 text-sm">
-                <input v-model="formData.group_ids" type="checkbox" :value="option.value" :disabled="!formData.group_ids.includes(Number(option.value)) && selectedFormGroupIDs().length >= 20" />
+                <FormInput v-model="formData.group_ids" type="checkbox" :value="option.value" :disabled="!formData.group_ids.includes(Number(option.value)) && selectedFormGroupIDs().length >= 20" />
                 <GroupBadge :name="option.label" :platform="option.platform"
                   :subscription-type="option.subscriptionType" :rate-multiplier="option.rate"
                   :user-rate-multiplier="option.userRate" />
@@ -925,29 +924,16 @@
             <label class="input-label mb-0">{{
               t("keys.customKeyLabel")
             }}</label>
-            <button
-              type="button"
-              @click="formData.use_custom_key = !formData.use_custom_key"
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.use_custom_key
-                  ? 'bg-primary-600'
-                  : 'bg-gray-200 dark:bg-dark-600',
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.use_custom_key ? 'translate-x-4' : 'translate-x-0',
-                ]"
-              />
-            </button>
+            <Toggle
+              compact
+              v-model="formData.use_custom_key"
+            />
           </div>
           <div v-if="formData.use_custom_key">
-            <input
+            <FormInput
               v-model="formData.custom_key"
               type="text"
-              class="input font-mono"
+              class="font-mono"
               :placeholder="t('keys.customKeyPlaceholder')"
               :class="{ 'border-red-500 dark:border-red-500': customKeyError }"
             />
@@ -969,9 +955,9 @@
 
         <div v-if="showEditModal && authStore.isAdmin" class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
           <div class="flex items-center gap-2">
-            <button type="button" class="btn btn-secondary" data-test="edit-key-model-policy" @click="showModelPolicy = true">
+            <BaseButton type="button" class="btn-secondary" data-test="edit-key-model-policy" @click="showModelPolicy = true">
               {{ t('apiKeyModelPolicy.title') }}
-            </button>
+            </BaseButton>
             <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.apiKeyModelPolicy" :user-id="authStore.user?.id" />
             <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.apiKeyLongContext" :user-id="authStore.user?.id" compact />
             <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.apiKeyContextTokenLimit" :user-id="authStore.user?.id" compact />
@@ -985,36 +971,19 @@
             <label class="input-label mb-0">{{
               t("keys.ipRestriction")
             }}</label>
-            <button
-              type="button"
-              @click="
-                formData.enable_ip_restriction = !formData.enable_ip_restriction
-              "
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_ip_restriction
-                  ? 'bg-primary-600'
-                  : 'bg-gray-200 dark:bg-dark-600',
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.enable_ip_restriction
-                    ? 'translate-x-4'
-                    : 'translate-x-0',
-                ]"
-              />
-            </button>
+            <Toggle
+              compact
+              v-model="formData.enable_ip_restriction"
+            />
           </div>
 
           <div v-if="formData.enable_ip_restriction" class="space-y-4 pt-2">
             <div>
               <label class="input-label">{{ t("keys.ipWhitelist") }}</label>
-              <textarea
+              <FormTextarea
                 v-model="formData.ip_whitelist"
                 rows="3"
-                class="input font-mono text-sm"
+                class="font-mono text-sm"
                 :placeholder="t('keys.ipWhitelistPlaceholder')"
               />
               <p class="input-hint">{{ t("keys.ipWhitelistHint") }}</p>
@@ -1022,10 +991,10 @@
 
             <div>
               <label class="input-label">{{ t("keys.ipBlacklist") }}</label>
-              <textarea
+              <FormTextarea
                 v-model="formData.ip_blacklist"
                 rows="3"
-                class="input font-mono text-sm"
+                class="font-mono text-sm"
                 :placeholder="t('keys.ipBlacklistPlaceholder')"
               />
               <p class="input-hint">{{ t("keys.ipBlacklistHint") }}</p>
@@ -1035,14 +1004,13 @@
 
         <div>
           <label for="key-concurrency-limit" class="input-label">{{ t('keys.concurrencyLimit') }}</label>
-          <input
+          <FormInput
             id="key-concurrency-limit"
             v-model.number="formData.concurrency_limit"
             type="number"
             min="0"
             step="1"
             placeholder="0"
-            class="input"
             :class="{ 'border-red-500 dark:border-red-500': concurrencyLimitError }"
             :aria-invalid="!!concurrencyLimitError"
             :aria-describedby="concurrencyLimitError ? 'key-concurrency-hint key-queue-policy key-concurrency-error' : 'key-concurrency-hint key-queue-policy'"
@@ -1061,26 +1029,6 @@
         <!-- Quota Limit Section -->
         <div class="space-y-3">
           <label class="input-label">{{ t("keys.quotaLimit") }}</label>
-          <!-- Switch commented out - always show input, 0 = unlimited
-          <div class="flex items-center justify-between">
-            <label class="input-label mb-0">{{ t('keys.quotaLimit') }}</label>
-            <button
-              type="button"
-              @click="formData.enable_quota = !formData.enable_quota"
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_quota ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.enable_quota ? 'translate-x-4' : 'translate-x-0'
-                ]"
-              />
-            </button>
-          </div>
-          -->
 
           <div class="space-y-4">
             <div>
@@ -1089,12 +1037,12 @@
                   class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                   >$</span
                 >
-                <input
+                <FormInput
                   v-model.number="formData.quota"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="t('keys.quotaAmountPlaceholder')"
                 />
               </div>
@@ -1116,14 +1064,14 @@
                     ${{ selectedKey.quota?.toFixed(2) || "0.00" }}
                   </span>
                 </div>
-                <button
+                <BaseButton
                   type="button"
                   @click="confirmResetQuota"
-                  class="btn btn-secondary text-sm"
+                  class="btn-secondary text-sm"
                   :title="t('keys.resetQuotaUsed')"
                 >
                   {{ t("keys.reset") }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
@@ -1135,25 +1083,10 @@
             <label class="input-label mb-0">{{
               t("keys.rateLimitSection")
             }}</label>
-            <button
-              type="button"
-              @click="formData.enable_rate_limit = !formData.enable_rate_limit"
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_rate_limit
-                  ? 'bg-primary-600'
-                  : 'bg-gray-200 dark:bg-dark-600',
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.enable_rate_limit
-                    ? 'translate-x-4'
-                    : 'translate-x-0',
-                ]"
-              />
-            </button>
+            <Toggle
+              compact
+              v-model="formData.enable_rate_limit"
+            />
           </div>
 
           <div v-if="formData.enable_rate_limit" class="space-y-4 pt-2">
@@ -1166,12 +1099,12 @@
                   class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                   >$</span
                 >
-                <input
+                <FormInput
                   v-model.number="formData.rate_limit_5h"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="'0'"
                 />
               </div>
@@ -1239,12 +1172,12 @@
                   class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                   >$</span
                 >
-                <input
+                <FormInput
                   v-model.number="formData.rate_limit_1d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="'0'"
                 />
               </div>
@@ -1312,12 +1245,12 @@
                   class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500"
                   >$</span
                 >
-                <input
+                <FormInput
                   v-model.number="formData.rate_limit_7d"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input pl-7"
+                  class="pl-7"
                   :placeholder="'0'"
                 />
               </div>
@@ -1387,13 +1320,13 @@
                   selectedKey.rate_limit_7d > 0)
               "
             >
-              <button
+              <BaseButton
                 type="button"
                 @click="confirmResetRateLimit"
-                class="btn btn-secondary text-sm"
+                class="btn-secondary text-sm"
               >
                 {{ t("keys.resetRateLimitUsage") }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -1402,25 +1335,10 @@
         <div class="space-y-3">
           <div class="flex items-center justify-between">
             <label class="input-label mb-0">{{ t("keys.expiration") }}</label>
-            <button
-              type="button"
-              @click="formData.enable_expiration = !formData.enable_expiration"
-              :class="[
-                'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none',
-                formData.enable_expiration
-                  ? 'bg-primary-600'
-                  : 'bg-gray-200 dark:bg-dark-600',
-              ]"
-            >
-              <span
-                :class="[
-                  'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                  formData.enable_expiration
-                    ? 'translate-x-4'
-                    : 'translate-x-0',
-                ]"
-              />
-            </button>
+            <Toggle
+              compact
+              v-model="formData.enable_expiration"
+            />
           </div>
 
           <div v-if="formData.enable_expiration" class="space-y-4 pt-2">
@@ -1461,10 +1379,9 @@
             <!-- Date picker (always show for precise adjustment) -->
             <div>
               <label class="input-label">{{ t("keys.expirationDate") }}</label>
-              <input
+              <FormInput
                 v-model="formData.expiration_date"
                 type="datetime-local"
-                class="input"
               />
               <p class="input-hint">{{ t("keys.expirationDateHint") }}</p>
             </div>
@@ -1486,14 +1403,14 @@
       </form>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeModals" type="button" class="btn btn-secondary">
+          <BaseButton @click="closeModals" type="button" class="btn-secondary">
             {{ t("common.cancel") }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             form="key-form"
             type="submit"
             :disabled="submitting"
-            class="btn btn-primary"
+            class="btn-primary"
             data-tour="key-form-submit"
           >
             <svg
@@ -1523,7 +1440,7 @@
                   ? t("common.update")
                   : t("common.create")
             }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -1608,12 +1525,12 @@
         <p class="text-sm text-amber-700 dark:text-amber-300">{{ t('keys.secretHint') }}</p>
         <code class="block break-all rounded-lg bg-gray-100 p-3 dark:bg-dark-700" data-testid="one-time-key">{{ oneTimeKey.key }}</code>
         <div class="flex flex-wrap gap-2">
-          <button class="btn btn-primary" @click="copyToClipboard(oneTimeKey.key, oneTimeKey.id)">{{ copiedKeyId === oneTimeKey.id ? t('keys.copied') : t('keys.copyToClipboard') }}</button>
-          <button class="btn btn-secondary" :disabled="oneTimeKey.group?.platform === 'openai' && publicSettingsLoading" @click="openUseKeyModal(oneTimeKey)">{{ t('keys.useKey') }}</button>
-          <button v-if="!publicSettings?.hide_ccs_import_button" class="btn btn-secondary" :disabled="publicSettingsLoading" data-testid="ccswitch-import-button" @click="importToCcswitch(oneTimeKey)">{{ t('keys.importToCcSwitch') }}</button>
-          <button v-if="isCodexQuickConfigPlatform(oneTimeKey.group?.platform)" type="button" class="btn btn-secondary" :disabled="publicSettingsLoading" data-testid="quick-config-button" @click="openCodexQuickConfigModal(oneTimeKey)">{{ t('keys.quickConfigure') }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="publicSettingsLoading" data-testid="magpie-import-button" @click="importToMagpie(oneTimeKey)">{{ t('keys.magpieImport.preview') }}</button>
-          <button class="btn btn-secondary" @click="closeOneTimeKey">{{ t('keys.secretSaved') }}</button>
+          <BaseButton class="btn-primary" @click="copyToClipboard(oneTimeKey.key, oneTimeKey.id)">{{ copiedKeyId === oneTimeKey.id ? t('keys.copied') : t('keys.copyToClipboard') }}</BaseButton>
+          <BaseButton class="btn-secondary" :disabled="oneTimeKey.group?.platform === 'openai' && publicSettingsLoading" @click="openUseKeyModal(oneTimeKey)">{{ t('keys.useKey') }}</BaseButton>
+          <BaseButton v-if="!publicSettings?.hide_ccs_import_button" class="btn-secondary" :disabled="publicSettingsLoading" data-testid="ccswitch-import-button" @click="importToCcswitch(oneTimeKey)">{{ t('keys.importToCcSwitch') }}</BaseButton>
+          <BaseButton v-if="isCodexQuickConfigPlatform(oneTimeKey.group?.platform)" type="button" class="btn-secondary" :disabled="publicSettingsLoading" data-testid="quick-config-button" @click="openCodexQuickConfigModal(oneTimeKey)">{{ t('keys.quickConfigure') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" :disabled="publicSettingsLoading" data-testid="magpie-import-button" @click="importToMagpie(oneTimeKey)">{{ t('keys.magpieImport.preview') }}</BaseButton>
+          <BaseButton class="btn-secondary" @click="closeOneTimeKey">{{ t('keys.secretSaved') }}</BaseButton>
         </div>
       </div>
     </BaseDialog>
@@ -1688,9 +1605,9 @@
       </div>
       <template #footer>
         <div class="flex justify-end">
-          <button @click="closeCcsClientSelect" class="btn btn-secondary">
+          <BaseButton @click="closeCcsClientSelect" class="btn-secondary">
             {{ t("common.cancel") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -1825,6 +1742,10 @@
 </template>
 
 <script setup lang="ts">
+import Toggle from '@/components/common/Toggle.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import UserKeyRiskNotices from '@/features/ip-audit/UserKeyRiskNotices.vue'
 import { ref, reactive, computed, watch, onMounted, onUnmounted, type ComponentPublicInstance } from 'vue'
 import { useI18n } from 'vue-i18n'

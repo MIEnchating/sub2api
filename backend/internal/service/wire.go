@@ -74,12 +74,6 @@ func ProvideEmailQueueService(emailService *EmailService) *EmailQueueService {
 	return NewEmailQueueService(emailService, 3)
 }
 
-func ProvideAutoCreditEmailWorker(repo AutoCreditEmailOutboxRepository, mail *NotificationEmailService, cfg *config.Config) *AutoCreditEmailWorker {
-	w := NewAutoCreditEmailWorker(repo, mail)
-	startBackgroundService(cfg, w)
-	return w
-}
-
 // ProvideAuthService wires the optional captcha providers into AuthService while
 // keeping NewAuthService's public constructor compatible with existing tests.
 func ProvideAuthService(
@@ -1035,7 +1029,6 @@ func ProvideAPIKeyService(
 	billingCacheService *BillingCacheService,
 	concurrencyService *ConcurrencyService,
 	authority RegionalAuthAuthority,
-	autoCredit AutoCreditRepository,
 ) (*APIKeyService, error) {
 	svc := NewAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg)
 	svc.SetRateLimitCacheInvalidator(billingCacheService)
@@ -1058,9 +1051,6 @@ func ProvideAPIKeyService(
 			svc.localAuth = reader
 		}
 	}
-	if cfg == nil || cfg.Runtime.Role != config.RuntimeRoleGateway {
-		svc.SetAutoCredit(autoCredit, billingCacheService)
-	}
 	return svc, nil
 }
 
@@ -1070,9 +1060,9 @@ func ProvideAPIKeyServiceWithGroupProtection(
 	userSubRepo UserSubscriptionRepository, userGroupRateRepo UserGroupRateRepository,
 	cache APIKeyCache, cfg *config.Config, billingCacheService *BillingCacheService,
 	concurrencyService *ConcurrencyService, authority RegionalAuthAuthority,
-	autoCredit AutoCreditRepository, protection *GroupAntiDistillationService,
+	protection *GroupAntiDistillationService,
 ) (*APIKeyService, error) {
-	svc, err := ProvideAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg, billingCacheService, concurrencyService, authority, autoCredit)
+	svc, err := ProvideAPIKeyService(apiKeyRepo, userRepo, groupRepo, userSubRepo, userGroupRateRepo, cache, cfg, billingCacheService, concurrencyService, authority)
 	if err == nil {
 		svc.groupAntiDistillation = protection
 	}
@@ -1084,7 +1074,6 @@ var ProviderSet = wire.NewSet(
 	ProvideGPTDirectService,
 	ProvideQQBotService,
 	ProvideAccountPerformanceService,
-	ProvideAutoCreditEmailWorker,
 	ProvideRequestCaptureManager,
 	// Core services
 	ProvideAuthService,
@@ -1137,6 +1126,8 @@ var ProviderSet = wire.NewSet(
 	ProvideGrokTokenProvider,
 	ProvideOpenAITokenProvider,
 	ProvideOpenAIQuotaService,
+	ProvideOpenAIQuotaRefreshWorker,
+	NewOpenAIAccountImportChecks,
 	ProvideOpenAIQuotaAutoResetService,
 	ProvideGrokQuotaService,
 	ProvideCNProviderQuotaService,
@@ -1443,8 +1434,9 @@ func ProvideAccountTokenGuardV2Service(repo AccountTokenGuardV2Repository, setti
 	return svc
 }
 
-func ProvideCRSSyncService(accounts AccountRepository, proxies ProxyRepository, oauth *OAuthService, openai *OpenAIOAuthService, gemini *GeminiOAuthService, cfg *config.Config, settings *SettingService, groups GroupRepository) *CRSSyncService {
+func ProvideCRSSyncService(accounts AccountRepository, proxies ProxyRepository, oauth *OAuthService, openai *OpenAIOAuthService, gemini *GeminiOAuthService, cfg *config.Config, settings *SettingService, groups GroupRepository, importChecks *OpenAIAccountImportChecks) *CRSSyncService {
 	svc := NewCRSSyncService(accounts, proxies, oauth, openai, gemini, cfg)
+	svc.openAIImportChecks = importChecks
 	defaults := &adminServiceImpl{settingService: settings, groupRepo: groups}
 	svc.autoConfigure = defaults.ApplyOAuthAutoConfig
 	return svc

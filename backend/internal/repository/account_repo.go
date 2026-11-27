@@ -142,6 +142,9 @@ func newAccountRepositoryWithSQL(client *dbent.Client, sqlq sqlExecutor, schedul
 }
 
 func (r *accountRepository) Create(ctx context.Context, account *service.Account) error {
+	if account != nil && len(account.ProxyIDs) > 1 {
+		return service.ErrAccountMultiProxyRetired
+	}
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.Create(ctx, account)
 	}
@@ -151,9 +154,6 @@ func (r *accountRepository) Create(ctx context.Context, account *service.Account
 			groups = append(groups, service.AccountGroup{GroupID: id, Priority: 50})
 		}
 		return r.CreateWithAccountGroups(ctx, account, groups)
-	}
-	if account != nil && len(account.ProxyIDs) > 1 {
-		return r.CreateWithAccountGroups(ctx, account, nil)
 	}
 	client := r.client
 	var tx *dbent.Tx
@@ -339,17 +339,15 @@ func createAccountRecord(ctx context.Context, client *dbent.Client, account *ser
 	account.ID = created.ID
 	account.CreatedAt = created.CreatedAt
 	account.UpdatedAt = created.UpdatedAt
-	if len(account.ProxyIDs) > 1 {
-		if err := replaceAccountProxyPool(ctx, client, account.ID, account.ProxyIDs); err != nil {
-			return err
-		}
-	}
 	return nil
 }
 
 // CreateWithAccountGroups atomically persists an account, its exact per-group priorities,
 // and the scheduler outbox event used to publish the new routing snapshot.
 func (r *accountRepository) CreateWithAccountGroups(ctx context.Context, account *service.Account, groups []service.AccountGroup) error {
+	if account != nil && len(account.ProxyIDs) > 1 {
+		return service.ErrAccountMultiProxyRetired
+	}
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.CreateWithAccountGroups(ctx, account, groups)
 	}
@@ -484,18 +482,6 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 		return nil, err
 	}
 
-	proxyPools, err := r.loadAccountProxyPools(ctx, accountIDs)
-	if err != nil {
-		return nil, err
-	}
-	poolIDs := []int64{}
-	for _, ids := range proxyPools {
-		poolIDs = append(poolIDs, ids...)
-	}
-	poolProxies, err := r.loadProxies(ctx, poolIDs)
-	if err != nil {
-		return nil, err
-	}
 	outByID := make(map[int64]*service.Account, len(entAccounts))
 	for _, entAcc := range entAccounts {
 		out := accountEntityToService(entAcc)
@@ -503,12 +489,6 @@ func (r *accountRepository) GetByIDs(ctx context.Context, ids []int64) ([]*servi
 			continue
 		}
 
-		out.ProxyIDs = proxyPools[entAcc.ID]
-		for _, id := range out.ProxyIDs {
-			if p := poolProxies[id]; p != nil {
-				out.Proxies = append(out.Proxies, p)
-			}
-		}
 		// Prefer the preloaded proxy edge when available.
 		if entAcc.Edges.Proxy != nil {
 			out.Proxy = proxyEntityToService(entAcc.Edges.Proxy)
@@ -617,6 +597,9 @@ func (r *accountRepository) ListCRSAccountIDs(ctx context.Context) (map[string]i
 }
 
 func (r *accountRepository) Update(ctx context.Context, account *service.Account) error {
+	if account != nil && len(account.ProxyIDs) > 1 {
+		return service.ErrAccountMultiProxyRetired
+	}
 	if scoped := r.accountTransactionScope(ctx); scoped != r {
 		return scoped.Update(ctx, account)
 	}
@@ -673,11 +656,6 @@ func (r *accountRepository) updateAccount(
 	)
 	if err != nil {
 		return translatePersistenceError(err, service.ErrAccountNotFound, nil)
-	}
-	if account.ProxyPoolChanged {
-		if err := replaceAccountProxyPool(ctx, client, account.ID, account.ProxyIDs); err != nil {
-			return err
-		}
 	}
 	if err := enqueueSchedulerOutbox(ctx, client, service.SchedulerOutboxEventAccountChanged, &account.ID, nil, buildSchedulerGroupPayload(account.GroupIDs)); err != nil {
 		return err
@@ -1026,6 +1004,9 @@ func lockAndMergeAccountProbeExtra(
 		extra = preserveCommittedCodexUsage(extra, currentExtra)
 	}
 	extra = service.MergeExcelBPS403Marker(extra, currentExtra)
+	if currentExtra[service.RetiredMultiProxyNeedsReviewKey] == true && !account.ProxyRetirementReviewed {
+		extra[service.RetiredMultiProxyNeedsReviewKey] = true
+	}
 	// A login may finish after the service validated this edit. Its callback also
 	// locks the account first, so recheck a submitted pending marker under this
 	// row lock before persisting it over the newly completed grant.
@@ -4025,6 +4006,9 @@ func ollamaCloudUsageSnapshotClearRequested(extra map[string]any) bool {
 }
 
 func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates service.AccountBulkUpdate) (int64, error) {
+	if updates.ProxyIDs != nil && len(*updates.ProxyIDs) > 1 {
+		return 0, service.ErrAccountMultiProxyRetired
+	}
 	if len(ids) == 0 {
 		return 0, nil
 	}
@@ -4336,7 +4320,7 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 		}
 	}
 	_, proxyModeUpdate := updates.Extra["proxy_mode"]
-	if proxyModeUpdate || (updates.ProxyIDs != nil && len(*updates.ProxyIDs) > 1) {
+	if proxyModeUpdate {
 		if err := validateLockedBulkProxyMode(ctx, exec, ids, updates.Extra, updates.ProxyIDs); err != nil {
 			return 0, err
 		}
@@ -4378,17 +4362,6 @@ func (r *accountRepository) BulkUpdate(ctx context.Context, ids []int64, updates
 	if err != nil {
 		return 0, err
 	}
-	if updates.ProxyID != nil {
-		if _, err := exec.ExecContext(ctx, `DELETE FROM account_proxies WHERE account_id IN (SELECT id FROM accounts WHERE id = ANY($1) AND parent_account_id IS NULL AND deleted_at IS NULL)`, pq.Array(ids)); err != nil {
-			return 0, err
-		}
-	}
-	if updates.ProxyIDs != nil && len(*updates.ProxyIDs) > 1 {
-		if _, err := exec.ExecContext(ctx, `INSERT INTO account_proxies(account_id,proxy_id,position) SELECT a.id,p.id,p.pos-1 FROM accounts a CROSS JOIN unnest($2::bigint[]) WITH ORDINALITY AS p(id,pos) WHERE a.id=ANY($1) AND a.parent_account_id IS NULL AND a.deleted_at IS NULL`, pq.Array(ids), pq.Array(*updates.ProxyIDs)); err != nil {
-			return 0, err
-		}
-	}
-
 	if updates.ProbeEnabled != nil {
 		expectedRows := int64(0)
 		seenIDs := make(map[int64]struct{}, len(ids))
@@ -4519,13 +4492,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		}
 	}
 
-	proxyPoolByAccount, err := r.loadAccountProxyPools(ctx, accountIDs)
-	if err != nil {
-		return nil, err
-	}
-	for _, ids := range proxyPoolByAccount {
-		proxyIDs = append(proxyIDs, ids...)
-	}
 	proxyMap, err := r.loadProxies(ctx, proxyIDs)
 	if err != nil {
 		return nil, err
@@ -4540,12 +4506,6 @@ func (r *accountRepository) accountsToService(ctx context.Context, accounts []*d
 		out := accountEntityToService(acc)
 		if out == nil {
 			continue
-		}
-		out.ProxyIDs = proxyPoolByAccount[acc.ID]
-		for _, id := range out.ProxyIDs {
-			if p := proxyMap[id]; p != nil {
-				out.Proxies = append(out.Proxies, p)
-			}
 		}
 		if acc.ProxyID != nil {
 			if proxy, ok := proxyMap[*acc.ProxyID]; ok {

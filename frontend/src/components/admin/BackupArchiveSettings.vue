@@ -3,7 +3,7 @@
     <div class="mb-3 flex items-center justify-between gap-3">
       <h4 id="backup-archive-title" class="text-sm font-medium text-gray-900 dark:text-white">{{ t('admin.backup.archive.title') }}</h4>
       <label class="inline-flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-        <input data-testid="archive-enabled" type="checkbox" :checked="modelValue.enabled" @change="update({ enabled: ($event.target as HTMLInputElement).checked })" />
+        <FormInput data-testid="archive-enabled" type="checkbox" :checked="modelValue.enabled" @change="update({ enabled: ($event.target as HTMLInputElement).checked })" />
         {{ t('admin.backup.archive.enabled') }}
       </label>
     </div>
@@ -31,11 +31,11 @@
               </div>
               <div class="grid grid-cols-4 gap-1" role="group" :aria-label="t('admin.backup.archive.dates')">
                 <label v-for="day in 31" :key="day" class="flex min-h-10 cursor-pointer items-center gap-1.5 rounded px-1 text-xs hover:bg-gray-100 dark:hover:bg-dark-700">
-                  <input type="checkbox" :value="day" :checked="modelValue.days.includes(day)" :aria-label="t('admin.backup.archive.day', { day })" @change="toggleDay(day)" />
+                  <FormInput type="checkbox" :value="day" :checked="modelValue.days.includes(day)" :aria-label="t('admin.backup.archive.day', { day })" @change="toggleDay(day)" />
                   {{ day }}
                 </label>
                 <label class="flex min-h-10 cursor-pointer items-center gap-1.5 rounded px-1 text-xs hover:bg-gray-100 dark:hover:bg-dark-700">
-                  <input type="checkbox" value="last" :checked="modelValue.include_month_end" :aria-label="t('admin.backup.archive.monthEnd')" @change="update({ include_month_end: ($event.target as HTMLInputElement).checked })" />
+                  <FormInput type="checkbox" value="last" :checked="modelValue.include_month_end" :aria-label="t('admin.backup.archive.monthEnd')" @change="update({ include_month_end: ($event.target as HTMLInputElement).checked })" />
                   {{ t('admin.backup.archive.monthEnd') }}
                 </label>
               </div>
@@ -47,11 +47,11 @@
           <span class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">{{ t('admin.backup.archive.retention') }}</span>
           <div class="flex min-h-10 flex-wrap items-center gap-3">
             <label v-if="!forever" class="flex min-w-0 flex-1 items-center gap-2">
-              <input data-testid="archive-count" :value="modelValue.retain_count" type="number" min="1" step="1" class="input w-full min-w-0" :aria-label="t('admin.backup.archive.count')" aria-describedby="backup-archive-retention-hint" @input="setCount" />
+              <FormInput data-testid="archive-count" :value="modelValue.retain_count" type="number" min="1" step="1" class="w-full min-w-0" :aria-label="t('admin.backup.archive.count')" aria-describedby="backup-archive-retention-hint" @input="setCount" />
               <span class="shrink-0 text-sm">{{ t('admin.backup.archive.copies') }}</span>
             </label>
             <label class="inline-flex min-h-10 shrink-0 items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input data-testid="archive-forever" type="checkbox" :checked="forever" @change="toggleForever" />
+              <FormInput data-testid="archive-forever" type="checkbox" :checked="forever" @change="toggleForever" />
               {{ t('admin.backup.archive.forever') }}
             </label>
           </div>
@@ -66,6 +66,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Icon from '@/components/icons/Icon.vue'

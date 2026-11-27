@@ -6,8 +6,8 @@
     </div>
     <form class="space-y-4 p-6" @submit.prevent="save">
       <fieldset :disabled="!loaded || saving" class="space-y-4">
-        <label class="flex items-center justify-between text-sm"><span>{{ t(`${prefix}.codexTicketEnabled`) }}</span><input id="codex-ticket-enabled" v-model="form.openai_codex_ticket_enabled" type="checkbox" /></label>
-        <label class="flex items-center justify-between text-sm"><span>{{ t(`${prefix}.codexTicketFailClosed`) }}</span><input id="codex-ticket-fail-closed" v-model="form.openai_codex_ticket_fail_closed" type="checkbox" /></label>
+        <label class="flex items-center justify-between text-sm"><span>{{ t(`${prefix}.codexTicketEnabled`) }}</span><FormInput id="codex-ticket-enabled" v-model="form.openai_codex_ticket_enabled" type="checkbox" /></label>
+        <label class="flex items-center justify-between text-sm"><span>{{ t(`${prefix}.codexTicketFailClosed`) }}</span><FormInput id="codex-ticket-fail-closed" v-model="form.openai_codex_ticket_fail_closed" type="checkbox" /></label>
         <p class="text-xs text-gray-500">{{ t(`${prefix}.codexTicketFailClosedDesc`) }}</p>
         <div class="space-y-2">
           <label class="input-label">{{ t(`${prefix}.codexTicketModels`) }}</label>
@@ -16,35 +16,35 @@
         </div>
         <fieldset class="space-y-3 rounded-xl border border-gray-200 p-4 dark:border-dark-600">
           <legend class="px-1 text-sm font-semibold">{{ text('自动打票范围', 'Automatic harvest scope') }}</legend>
-          <select id="codex-ticket-harvest-scope" v-model="form.openai_codex_ticket_harvest_scope.mode" class="input">
+          <FormSelect id="codex-ticket-harvest-scope" v-model="form.openai_codex_ticket_harvest_scope.mode">
             <option value="all">{{ text('全部 OpenAI 账号', 'All OpenAI accounts') }}</option>
             <option value="selected">{{ text('仅指定分组', 'Selected groups only') }}</option>
-          </select>
+          </FormSelect>
           <label class="input-label" for="codex-ticket-account-policy">{{ text('账号采集策略', 'Account harvest policy') }}</label>
-          <select id="codex-ticket-account-policy" v-model="form.openai_codex_ticket_harvest_scope.account_policy" class="input">
+          <FormSelect id="codex-ticket-account-policy" v-model="form.openai_codex_ticket_harvest_scope.account_policy">
             <option value="schedulable_only">{{ text('仅可调度账号', 'Schedulable accounts only') }}</option>
             <option value="prioritize_schedulable">{{ text('可调度优先，手动停调账号排队', 'Prioritize schedulable; queue manually disabled accounts') }}</option>
-          </select>
+          </FormSelect>
           <div v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'" class="space-y-2">
             <p v-if="groupsError" class="text-sm text-amber-600">{{ text('分组加载失败，已选范围保留。', 'Group loading failed; saved selection is preserved.') }}</p>
-            <label v-for="group in groupChoices" :key="group.id" class="flex items-center gap-2 text-sm"><input v-model="form.openai_codex_ticket_harvest_scope.group_ids" type="checkbox" :value="group.id" /><span>{{ group.name }} (#{{ group.id }})</span></label>
+            <label v-for="group in groupChoices" :key="group.id" class="flex items-center gap-2 text-sm"><FormInput v-model="form.openai_codex_ticket_harvest_scope.group_ids" type="checkbox" :value="group.id" /><span>{{ group.name }} (#{{ group.id }})</span></label>
             <p v-if="!form.openai_codex_ticket_harvest_scope.group_ids.length" class="text-xs text-amber-600">{{ text('未选择分组时停止自动打票，不会退回全部账号。', 'An empty selection pauses harvesting; it never broadens to all accounts.') }}</p>
           </div>
           <p class="text-xs text-gray-500">{{ text('账号级「不打票」只停止采集。限流、冷却、过期和配额耗尽的账号始终跳过。保存后下轮生效。', 'Skip-harvest only stops collection. Rate-limited, cooling, expired and quota-exhausted accounts are skipped. Changes apply next round.') }}</p>
         </fieldset>
-        <label class="block space-y-2 text-sm"><span>{{ text('票据刷新策略', 'Ticket refresh strategy') }}</span><select id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy" class="input"><option value="standby">{{ text('提前准备备用', 'Prepare standby') }}</option><option value="fixed">{{ text('固定主用，失效后采集', 'Keep primary until invalid') }}</option></select></label>
-        <label class="flex items-center gap-2 text-sm"><input id="codex-ticket-strict" v-model="form.openai_codex_ticket_strict_response" type="checkbox" />{{ text('严格拦截票据响应不匹配', 'Reject mismatched ticket response state') }}</label>
+        <label class="block space-y-2 text-sm"><span>{{ text('票据刷新策略', 'Ticket refresh strategy') }}</span><FormSelect id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy"><option value="standby">{{ text('提前准备备用', 'Prepare standby') }}</option><option value="fixed">{{ text('固定主用，失效后采集', 'Keep primary until invalid') }}</option></FormSelect></label>
+        <label class="flex items-center gap-2 text-sm"><FormInput id="codex-ticket-strict" v-model="form.openai_codex_ticket_strict_response" type="checkbox" />{{ text('严格拦截票据响应不匹配', 'Reject mismatched ticket response state') }}</label>
         <p class="text-xs text-gray-500">{{ text('响应头明确不匹配时拦截正文；上游可能已计费，不会自动重放。', 'Rejects the body on explicit state-header mismatch. The upstream may have charged; requests are not replayed.') }}</p>
         <div v-if="form.openai_codex_ticket_enabled" class="space-y-3">
           <label class="input-label" for="codex-ticket-proxy-mode">{{ t(`${prefix}.codexTicketHarvestProxy`) }}</label>
-          <select id="codex-ticket-proxy-mode" v-model="proxyMode" class="input">
+          <FormSelect id="codex-ticket-proxy-mode" v-model="proxyMode">
             <option value="static">{{ t(`${prefix}.codexTicketProxyModeStatic`) }}</option>
             <option value="mihomo">{{ t(`${prefix}.codexTicketProxyModeMihomo`) }}</option>
             <option value="ip_pool">{{ t(`${prefix}.codexTicketProxyModeIPPool`) }}</option>
-          </select>
+          </FormSelect>
           <MihomoProxySelector v-if="proxyMode === 'mihomo'" @ready="mihomoReady = true" />
           <template v-else-if="proxyMode === 'static'">
-            <input id="codex-ticket-harvest-proxy" v-model.trim="staticProxy" type="text" class="input font-mono" :placeholder="t(`${prefix}.codexTicketHarvestProxyPlaceholder`)" autocomplete="off" />
+            <FormInput id="codex-ticket-harvest-proxy" v-model.trim="staticProxy" type="text" class="font-mono" :placeholder="t(`${prefix}.codexTicketHarvestProxyPlaceholder`)" autocomplete="off" />
             <p v-if="staticConfigured" class="text-xs text-gray-500">{{ t(`${prefix}.codexTicketHarvestProxyConfigured`) }}</p>
             <CodexTicketProxyTest :proxy-url="staticProxy" :saved-proxy-url="savedProxy" :disabled="!loaded || saving || !staticConfigured" />
           </template>
@@ -52,7 +52,7 @@
         </div>
         <p v-if="!form.openai_codex_ticket_enabled" data-testid="codex-ticket-account-route-hint" class="text-xs text-gray-500">{{ t(`${prefix}.codexTicketAccountRouteHint`) }}</p>
         <router-link to="/admin/harvest-flow" class="inline-block text-sm text-primary-600">{{ t('admin.harvestFlow.title') }} →</router-link>
-        <div><button type="submit" class="btn btn-primary">{{ t('common.save') }}</button></div>
+        <div><BaseButton type="submit" class="btn-primary">{{ t('common.save') }}</BaseButton></div>
       </fieldset>
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     </form>
@@ -60,6 +60,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getSettings, updateSettings } from '@/api/admin/settings'

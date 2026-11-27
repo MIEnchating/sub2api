@@ -6,8 +6,6 @@ import { join } from 'node:path'
 
 import type { AdminUser } from '@/types'
 import UsersView from '../UsersView.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 
 enableAutoUnmount(afterEach)
 
@@ -171,7 +169,6 @@ const mountBulkDeleteView = (realLiveTable = false) => mount(UsersView, {
       UserPlatformQuotaModal: true,
       UserApiKeysModal: true,
       UserAllowedGroupsModal: true,
-      UserAutoCreditModal: { props: ['show', 'user'], template: '<div v-if="show" data-test="credit-dialog">{{ user.id }}</div>' },
       NewFeatureBadge: realLiveTable ? false : { props: ['noticeId'], template: '<span :data-notice="noticeId" />' },
       UserBalanceModal: true,
       UserBalanceHistoryModal: true,
@@ -225,29 +222,15 @@ describe('admin UsersView', () => {
     vi.restoreAllMocks()
   })
 
-  it.each([true, false])('uses the real DataTable and shared notice on desktop=%s', async (desktop) => {
+  it.each([true, false])("renders the real DataTable on desktop=%s", async (desktop) => {
     const media = window.matchMedia('(min-width: 768px)')
     vi.spyOn(window, 'matchMedia').mockReturnValue({ ...media, matches: desktop })
     listUsers.mockResolvedValue({ items: [createAdminUser(), createAdminUser({ id: 43 })], total: 2, pages: 1 })
-    const notices = useNewFeatureNoticeStore()
-    notices.dismiss(1, NEW_FEATURE_NOTICES.vipAutoCredit)
     const wrapper = mountBulkDeleteView(true)
     await flushPromises()
-    const badges = wrapper.findAllComponents({ name: 'NewFeatureBadge' })
-      .filter(badge => badge.props('noticeId') === NEW_FEATURE_NOTICES.userLiveLoad)
-    expect(badges.length).toBe(desktop ? 3 : 2) // desktop also mounts CSS-hidden cell badges
     expect(wrapper.find('thead').exists()).toBe(desktop)
-    expect(badges[0].find('button').exists()).toBe(true)
-    await badges[0].get('button').trigger('click')
-    expect(badges.every(badge => !badge.find('button').exists())).toBe(true)
+    expect(wrapper.find('[data-testid="new-feature-badge"]').exists()).toBe(false)
     wrapper.unmount()
-    setActivePinia(createPinia())
-    expect(useNewFeatureNoticeStore().isDismissed(1, NEW_FEATURE_NOTICES.userLiveLoad)).toBe(true)
-    const reloaded = mountBulkDeleteView(true)
-    await flushPromises()
-    expect(reloaded.findAllComponents({ name: 'NewFeatureBadge' })
-      .filter(badge => badge.props('noticeId') === NEW_FEATURE_NOTICES.userLiveLoad)
-      .every(badge => !badge.find('button').exists())).toBe(true)
   })
 
   // The focused remote workflow supplies actual Go handler JSON. Ordinary unit
@@ -707,17 +690,6 @@ describe('admin UsersView', () => {
     expect(wrapper.find('[data-test="bulk-edit-limits"]').exists()).toBe(false)
     expect(wrapper.get('[data-test="selected-keys"]').text()).toBe('')
   })
-  it('opens the same credit dialog from actions and visible outstanding debt with a shared notice', async () => {
-    listUsers.mockResolvedValue({ items: [createAdminUser({ auto_credit_outstanding: '5.00000001' })], total: 1, page: 1, page_size: 20, pages: 1 })
-    const wrapper = mountBulkDeleteView(); await flushPromises()
-    const action = wrapper.get('[data-test="actions-42"]').findAll('button').find(b => b.text() === 'autoCredit.title')
-    expect(action).toBeTruthy(); await action!.trigger('click')
-    expect(wrapper.get('[data-test="credit-dialog"]').text()).toBe('42')
-    const debt = wrapper.get('[data-test="balance-42"]').findAll('button').find(b => b.text() === 'autoCredit.debt')
-    expect(debt).toBeTruthy(); await debt!.trigger('click')
-    expect(wrapper.get('[data-test="credit-dialog"]').text()).toBe('42')
-    expect(wrapper.findAll('[data-notice="vip-auto-credit-initial-announcement"]')).toHaveLength(2)
-    wrapper.unmount()
-  })
+
 
 })

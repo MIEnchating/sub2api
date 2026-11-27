@@ -4,7 +4,7 @@
     <div class="mx-auto max-w-5xl space-y-6">
       <div class="flex flex-wrap items-center justify-between gap-3">
         <div><h1 class="text-2xl font-semibold">{{ t(groupMode ? 'qqbot.workspace.groups' : 'qqbot.basicConfig') }}</h1><p class="mt-1 text-sm text-gray-500">{{ t('qqbot.description') }}</p></div>
-        <button class="btn btn-secondary" :disabled="busy || refreshingRuntime" @click="refreshStatus">{{ t('common.refresh') }}</button>
+        <BaseButton class="btn-secondary" :disabled="busy || refreshingRuntime" @click="refreshStatus">{{ t('common.refresh') }}</BaseButton>
       </div>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-red-700 dark:bg-red-950">{{ error }}</p>
       <p v-if="notice" role="status" class="rounded-lg bg-green-50 p-4 text-green-700 dark:bg-green-950">{{ notice }}</p>
@@ -12,18 +12,17 @@
       <RouterLink v-if="!groupMode" to="/admin/qqbot/setup" class="btn btn-primary">{{ t('qqbot.simple.setup') }}</RouterLink>
       <form v-if="form" ref="settingsForm" novalidate @submit.prevent="save"><fieldset :disabled="busy" class="min-w-0 space-y-6">
         <p class="rounded-xl bg-blue-50 p-3 text-sm text-blue-800 dark:bg-blue-950 dark:text-blue-200">{{ t('qqbot.workspace.scopedSaveHelp') }}</p>
-        <div v-if="!groupMode" class="flex flex-wrap gap-2"><button v-for="category in categories" :key="category.key" type="button" class="btn" :class="activeCategory === category.key ? 'btn-primary' : 'btn-secondary'" @click="selectCategory(category.key)">{{ t(category.label) }}</button></div>
+        <div v-if="!groupMode" class="flex flex-wrap gap-2"><BaseButton v-for="category in categories" :key="category.key" type="button" :class="activeCategory === category.key ? 'btn-primary' : 'btn-secondary'" @click="selectCategory(category.key)">{{ t(category.label) }}</BaseButton></div>
         <nav
           role="tablist"
           :aria-label="t('qqbot.basicConfig')"
           class="flex flex-wrap gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-dark-700 dark:bg-dark-800"
         >
-          <button
+          <TabButton
             v-for="tab in visibleTabs"
             :id="`qqbot-settings-tab-${tab.key}`"
             :key="tab.key"
             type="button"
-            role="tab"
             :aria-selected="activeTab === tab.key"
             :aria-controls="`qqbot-settings-panel-${tab.key}`"
             :tabindex="activeTab === tab.key ? 0 : -1"
@@ -35,21 +34,21 @@
             @keydown="handleTabKeydown($event, tab.key)"
           >
             {{ t(tab.label) }}{{ isTabDirty(tab.key) ? ' •' : '' }}
-          </button>
+          </TabButton>
         </nav>
         <section v-show="activeTab === 'connection'" id="qqbot-settings-panel-connection" role="tabpanel" aria-labelledby="qqbot-settings-tab-connection" class="card space-y-4 p-6">
-          <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">{{ t('qqbot.connection') }}</h2><label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('common.enabled') }}</label></div>
+          <div class="flex items-center justify-between"><h2 class="text-lg font-semibold">{{ t('qqbot.connection') }}</h2><label class="flex items-center gap-2"><FormInput v-model="form.enabled" type="checkbox" />{{ t('common.enabled') }}</label></div>
           <p v-if="runtime && !runtime.encryption_ready" class="text-sm text-amber-700">{{ t('qqbot.encryptionRequired') }}</p>
           <div class="grid gap-4 md:grid-cols-2">
-            <label class="space-y-1">AppID<input v-model.trim="form.app_id" class="input" autocomplete="off" /></label>
-            <label class="space-y-1">AppSecret<input v-model="form.app_secret" type="password" class="input" autocomplete="new-password" :placeholder="secretHint(form.app_secret_set)" /><span class="flex gap-2 text-xs"><input v-model="form.clear_app_secret" type="checkbox" />{{ t('qqbot.clearSecret') }}</span></label>
+            <label class="space-y-1">AppID<FormInput v-model.trim="form.app_id" autocomplete="off" /></label>
+            <label class="space-y-1">AppSecret<FormInput v-model="form.app_secret" type="password" autocomplete="new-password" :placeholder="secretHint(form.app_secret_set)" /><span class="flex gap-2 text-xs"><FormInput v-model="form.clear_app_secret" type="checkbox" />{{ t('qqbot.clearSecret') }}</span></label>
           </div>
-          <label class="flex items-center gap-2"><input v-model="form.sandbox" type="checkbox" />{{ t('qqbot.sandbox') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="form.sandbox" type="checkbox" />{{ t('qqbot.sandbox') }}</label>
           <div class="rounded-lg bg-gray-50 p-3 text-sm dark:bg-dark-800"><span>{{ t('qqbot.webhook') }}</span><code class="mt-1 block break-all select-all">{{ webhookURL }}</code><p class="mt-2 text-gray-500">{{ t('qqbot.eventsHelp') }}</p></div>
         </section>
         <section v-show="activeTab === 'groups'" id="qqbot-settings-panel-groups" role="tabpanel" aria-labelledby="qqbot-settings-tab-groups" class="card space-y-4 p-6">
           <QQGroupPicker v-model="selectedGroups" :groups="knownGroups" :policies="groupPolicies" :names="groupNames" :label="t('qqbot.allowedGroups')" />
-          <details><summary class="cursor-pointer text-sm">{{ t('qqbot.workspace.manualGroups') }}</summary><textarea v-model="groupsText" rows="3" class="input mt-2 font-mono" :aria-label="t('qqbot.allowedGroups')" /></details>
+          <details><summary class="cursor-pointer text-sm">{{ t('qqbot.workspace.manualGroups') }}</summary><FormTextarea v-model="groupsText" rows="3" class="mt-2 font-mono" :aria-label="t('qqbot.allowedGroups')" /></details>
           <p class="text-xs text-gray-500">{{ t('qqbot.workspace.groupNamesHelp') }}</p>
           <p v-if="groupNamesLoading" role="status" class="text-sm text-gray-500">{{ t('qqbot.workspace.groupNamesLoading') }}</p>
           <p v-if="groupNamesStatus" role="status" class="text-sm text-amber-700 dark:text-amber-300">{{ t(`qqbot.workspace.groupNamesStatus.${groupNamesStatus}`) }}</p>
@@ -61,32 +60,32 @@
             <div v-for="group in runtime.groups" :key="group.id" class="flex flex-wrap items-center justify-between gap-2 rounded-lg border p-2 dark:border-dark-700">
               <div class="min-w-0 break-all"><p v-if="groupLabels[group.id]" class="text-sm font-medium">{{ groupLabels[group.id] }}</p><code class="text-xs text-gray-500">{{ group.id }}</code></div>
               <div class="flex shrink-0 gap-2">
-                <button type="button" class="btn btn-secondary text-xs" @click="addGroup(group.id)">{{ t('common.add') }}</button>
-                <button type="button" class="btn btn-secondary text-xs" :disabled="busy || refreshingRuntime" :aria-label="t('qqbot.deleteDiscoveredGroup', { id: group.id })" @click="deleteDiscoveredGroup(group.id)">{{ t('common.delete') }}</button>
+                <BaseButton type="button" class="btn-secondary text-xs" @click="addGroup(group.id)">{{ t('common.add') }}</BaseButton>
+                <BaseButton type="button" class="btn-secondary text-xs" :disabled="busy || refreshingRuntime" :aria-label="t('qqbot.deleteDiscoveredGroup', { id: group.id })" @click="deleteDiscoveredGroup(group.id)">{{ t('common.delete') }}</BaseButton>
               </div>
             </div>
           </div>
         </section>
         <section v-show="activeTab === 'notifications'" id="qqbot-settings-panel-notifications" role="tabpanel" aria-labelledby="qqbot-settings-tab-notifications" class="card space-y-4 p-6" :aria-label="t('qqbot.priceNotifications.title')">
           <QQBotAnnouncement v-if="baseline" :config="baseline" :names="groupNames" :disabled="busy" @queued="refreshRuntime" />
-          <fieldset v-if="form.notification_quiet_hours" class="space-y-3 rounded-lg border p-4 dark:border-dark-700"><legend>{{ t('qqbot.workspace.quietHours') }}</legend><label class="flex items-center gap-2"><input v-model="form.notification_quiet_hours.enabled" type="checkbox" />{{ t('common.enabled') }}</label><div class="grid gap-3 sm:grid-cols-2"><label>{{ t('qqbot.workspace.startHour') }}<input v-model.number="form.notification_quiet_hours.start_hour" class="input" type="number" min="0" max="23" required /></label><label>{{ t('qqbot.workspace.endHour') }}<input v-model.number="form.notification_quiet_hours.end_hour" class="input" type="number" min="0" max="23" required /></label></div><p class="text-xs text-gray-500">{{ t('qqbot.workspace.quietHoursHelp') }}</p></fieldset>
+          <fieldset v-if="form.notification_quiet_hours" class="space-y-3 rounded-lg border p-4 dark:border-dark-700"><legend>{{ t('qqbot.workspace.quietHours') }}</legend><label class="flex items-center gap-2"><FormInput v-model="form.notification_quiet_hours.enabled" type="checkbox" />{{ t('common.enabled') }}</label><div class="grid gap-3 sm:grid-cols-2"><label>{{ t('qqbot.workspace.startHour') }}<FormInput v-model.number="form.notification_quiet_hours.start_hour" type="number" min="0" max="23" required /></label><label>{{ t('qqbot.workspace.endHour') }}<FormInput v-model.number="form.notification_quiet_hours.end_hour" type="number" min="0" max="23" required /></label></div><p class="text-xs text-gray-500">{{ t('qqbot.workspace.quietHoursHelp') }}</p></fieldset>
           <h2 class="text-lg font-semibold">{{ t('qqbot.priceNotifications.title') }}</h2>
           <p class="text-sm text-gray-500">{{ t('qqbot.priceNotifications.help') }}</p>
-          <label class="flex items-center gap-2"><input v-model="priceNotifications.enabled" data-testid="price-notifications-enabled" type="checkbox" />{{ t('qqbot.priceNotifications.enabled') }}</label>
-          <label class="flex items-center gap-2"><input v-model="priceNotifications.scheduled" data-testid="price-notifications-scheduled" type="checkbox" />{{ t('qqbot.priceNotifications.scheduled') }}</label>
-          <label class="flex items-center gap-2"><input v-model="priceNotifications.mention_all" data-testid="price-notifications-mention-all" type="checkbox" />{{ t('qqbot.priceNotifications.mentionAll') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="priceNotifications.enabled" data-testid="price-notifications-enabled" type="checkbox" />{{ t('qqbot.priceNotifications.enabled') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="priceNotifications.scheduled" data-testid="price-notifications-scheduled" type="checkbox" />{{ t('qqbot.priceNotifications.scheduled') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="priceNotifications.mention_all" data-testid="price-notifications-mention-all" type="checkbox" />{{ t('qqbot.priceNotifications.mentionAll') }}</label>
           <p class="text-xs text-gray-500">{{ t('qqbot.announcement.mentionHelp') }}</p>
           <QQGroupPicker v-model="notificationGroups" :groups="allowedGroups" :policies="groupPolicies" :names="groupNames" :label="t('qqbot.priceNotifications.groups')" allow-all />
           <p class="text-xs text-gray-500">{{ t('qqbot.priceNotifications.permission') }}</p>
           <fieldset class="space-y-3 rounded-lg border p-4 dark:border-dark-700">
             <legend class="font-medium">{{ t('qqbot.health.title') }}</legend>
             <p class="text-sm text-gray-500">{{ t('qqbot.health.help') }}</p>
-            <label class="flex items-center gap-2"><input v-model="healthNotifications.enabled" data-testid="health-enabled" type="checkbox" />{{ t('qqbot.health.enabled') }}</label>
-            <label class="flex items-center gap-2"><input v-model="healthNotifications.mention_all" data-testid="health-mention-all" type="checkbox" />{{ t('qqbot.health.mentionAll') }}</label>
+            <label class="flex items-center gap-2"><FormInput v-model="healthNotifications.enabled" data-testid="health-enabled" type="checkbox" />{{ t('qqbot.health.enabled') }}</label>
+            <label class="flex items-center gap-2"><FormInput v-model="healthNotifications.mention_all" data-testid="health-mention-all" type="checkbox" />{{ t('qqbot.health.mentionAll') }}</label>
             <p class="text-xs text-gray-500">{{ t('qqbot.announcement.mentionHelp') }}</p>
             <QQGroupPicker v-model="healthGroups" :groups="allowedGroups" :policies="groupPolicies" :names="groupNames" :label="t('qqbot.health.groups')" allow-all />
             <div class="grid gap-4 md:grid-cols-2">
-              <label v-for="field in healthFields" :key="field.key" class="space-y-1">{{ t(`qqbot.health.${field.key}`) }}<input v-model.number="healthNotifications[field.key]" :data-testid="`health-${field.key}`" type="number" :min="field.min" :max="field.max" :step="field.step" required class="input" /></label>
+              <label v-for="field in healthFields" :key="field.key" class="space-y-1">{{ t(`qqbot.health.${field.key}`) }}<FormInput v-model.number="healthNotifications[field.key]" :data-testid="`health-${field.key}`" type="number" :min="field.min" :max="field.max" :step="field.step" required /></label>
             </div>
             <p class="text-xs text-gray-500">{{ t('qqbot.health.recoveryHelp') }}</p>
           </fieldset>
@@ -104,29 +103,29 @@
           <QQCommandInventory v-if="activeTab === 'commands'" />
           <div class="flex flex-wrap items-center justify-between gap-3">
             <h2 class="text-lg font-semibold">{{ t('qqbot.customCommands') }}</h2>
-            <button type="button" class="btn btn-secondary" :disabled="busy || form.custom_commands.length >= 20" @click="addCustomCommand">{{ t('qqbot.addCustomCommand') }}</button>
+            <BaseButton type="button" class="btn-secondary" :disabled="busy || form.custom_commands.length >= 20" @click="addCustomCommand">{{ t('qqbot.addCustomCommand') }}</BaseButton>
           </div>
           <p class="text-sm text-gray-500">{{ t('qqbot.customCommandsHelp') }}</p>
           <p v-if="!form.custom_commands.length" class="text-sm text-gray-500">{{ t('qqbot.noCustomCommands') }}</p>
           <fieldset v-for="(custom, index) in form.custom_commands" :key="index" :disabled="busy" class="space-y-3 rounded-lg border p-4 dark:border-dark-700">
             <legend class="px-1 text-sm font-medium">{{ t('qqbot.customCommandEntry', { index: index + 1 }) }}</legend>
             <div class="flex flex-wrap items-center justify-between gap-3">
-              <label class="flex items-center gap-2"><input v-model="custom.enabled" type="checkbox" />{{ t('common.enabled') }}</label>
-              <button type="button" class="btn btn-secondary text-sm" @click="form.custom_commands.splice(index, 1)">{{ t('common.delete') }}</button>
+              <label class="flex items-center gap-2"><FormInput v-model="custom.enabled" type="checkbox" />{{ t('common.enabled') }}</label>
+              <BaseButton type="button" class="btn-secondary text-sm" @click="form.custom_commands.splice(index, 1)">{{ t('common.delete') }}</BaseButton>
             </div>
-            <label class="block space-y-1">{{ t('qqbot.customCommandName') }}<input v-model.trim="custom.command" class="input font-mono" placeholder="a" required maxlength="33" /></label>
-            <label class="block space-y-1">{{ t('qqbot.customCommandReply') }}<textarea v-model="custom.reply" rows="4" class="input" :placeholder="t('qqbot.customReplyPlaceholder')" required /></label>
+            <label class="block space-y-1">{{ t('qqbot.customCommandName') }}<FormInput v-model.trim="custom.command" class="font-mono" placeholder="a" required maxlength="33" /></label>
+            <label class="block space-y-1">{{ t('qqbot.customCommandReply') }}<FormTextarea v-model="custom.reply" rows="4" :placeholder="t('qqbot.customReplyPlaceholder')" required /></label>
           </fieldset>
         </section>
         <section v-show="activeTab === 'chat'" id="qqbot-settings-panel-chat" role="tabpanel" aria-labelledby="qqbot-settings-tab-chat" class="card space-y-4 p-6">
           <h2 class="text-lg font-semibold">{{ t('qqbot.ai') }}</h2>
-          <label class="flex items-center gap-2"><input v-model="form.chat_disabled" type="checkbox" />{{ t('qqbot.workspace.chatDisabled') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="form.chat_disabled" type="checkbox" />{{ t('qqbot.workspace.chatDisabled') }}</label>
           <p class="text-xs text-gray-500">{{ t('qqbot.workspace.chatDisabledHelp') }}</p>
           <QQBotSiteAISettings v-if="activeTab === 'chat'" ref="siteAISettings" v-model="form" v-model:quota="siteQuota" v-model:regenerate="regenerateSiteKey" />
-          <details><summary class="cursor-pointer text-sm">{{ t('qqbot.workspace.advanced') }}</summary><label class="mt-3 block space-y-1">{{ t('qqbot.systemPrompt') }}<textarea v-model="form.system_prompt" rows="3" class="input" /></label>
+          <details><summary class="cursor-pointer text-sm">{{ t('qqbot.workspace.advanced') }}</summary><label class="mt-3 block space-y-1">{{ t('qqbot.systemPrompt') }}<FormTextarea v-model="form.system_prompt" rows="3" /></label>
           <div class="grid gap-4 md:grid-cols-2">
-            <label class="space-y-1">{{ t('qqbot.maxTokens') }}<input v-model.number="form.max_output_tokens" class="input" type="number" min="64" max="8192" /></label>
-            <label class="space-y-1">{{ t('qqbot.history') }}<input v-model.number="form.history_messages" data-testid="history-messages" aria-describedby="qq-history-help" class="input" type="number" min="0" max="100" step="1" required /></label>
+            <label class="space-y-1">{{ t('qqbot.maxTokens') }}<FormInput v-model.number="form.max_output_tokens" type="number" min="64" max="8192" /></label>
+            <label class="space-y-1">{{ t('qqbot.history') }}<FormInput v-model.number="form.history_messages" data-testid="history-messages" aria-describedby="qq-history-help" type="number" min="0" max="100" step="1" required /></label>
           </div>
           <p id="qq-history-help" class="text-xs text-gray-500">{{ t('qqbot.historyHelp') }}</p></details>
         </section>
@@ -143,28 +142,28 @@
           <QQBotGroupAdminSettings v-model="groupAdmins" :app-id="form.app_id" :group-labels="groupLabels" :groups="allowedGroups" :runtime="form.app_id === savedAppId ? runtime : null" :disabled="busy" />
         </div>
         <section v-show="activeTab === 'vision'" id="qqbot-settings-panel-vision" role="tabpanel" aria-labelledby="qqbot-settings-tab-vision" class="card space-y-4 p-6">
-          <label class="flex items-center gap-2"><input v-model="form.remember_quoted_images" type="checkbox" />{{ t('qqbot.rememberQuotedImages') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="form.remember_quoted_images" type="checkbox" />{{ t('qqbot.rememberQuotedImages') }}</label>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('qqbot.rememberQuotedImagesHelp') }}</p>
         </section>
         <section v-show="activeTab === 'limits'" id="qqbot-settings-panel-limits" role="tabpanel" aria-labelledby="qqbot-settings-tab-limits" class="card space-y-4 p-6">
-          <label class="block space-y-1">{{ t('qqbot.workspace.rewardAlert') }}<input v-model.number="form.reward_alert_daily" class="input" type="number" min="0" max="1000000" step="0.01" /></label><p class="text-xs text-gray-500">{{ t('qqbot.workspace.rewardAlertHelp') }}</p>
+          <label class="block space-y-1">{{ t('qqbot.workspace.rewardAlert') }}<FormInput v-model.number="form.reward_alert_daily" type="number" min="0" max="1000000" step="0.01" /></label><p class="text-xs text-gray-500">{{ t('qqbot.workspace.rewardAlertHelp') }}</p>
           <h2 class="text-lg font-semibold">{{ t('qqbot.limits') }}</h2><p class="text-sm text-gray-500">{{ t('qqbot.limitsHelp') }}</p>
           <div class="grid gap-4 md:grid-cols-2">
-            <label v-for="field in limitFields" :key="field.key" class="space-y-1">{{ t(`qqbot.${field.label}`) }}<input v-model.number="form[field.key]" type="number" min="0" :max="field.max" class="input" /></label>
+            <label v-for="field in limitFields" :key="field.key" class="space-y-1">{{ t(`qqbot.${field.label}`) }}<FormInput v-model.number="form[field.key]" type="number" min="0" :max="field.max" /></label>
           </div>
         </section>
         <div class="sm:sticky sm:bottom-3 z-10 flex flex-wrap items-center gap-3 rounded-xl border bg-white p-4 shadow-lg dark:border-dark-700 dark:bg-dark-900">
           <span class="text-sm">{{ t(isTabDirty(activeTab) ? 'qqbot.workspace.unsaved' : 'qqbot.workspace.saved') }}</span>
-          <button type="submit" :disabled="busy || !isTabDirty(activeTab)" class="btn btn-primary">{{ t('qqbot.workspace.saveModule', { name: t(tabs.find(tab => tab.key === activeTab)!.label) }) }}</button>
-          <button type="button" :disabled="busy" class="btn btn-secondary" @click="reloadModule">{{ t('qqbot.workspace.reloadModule') }}</button>
+          <BaseButton type="submit" :disabled="busy || !isTabDirty(activeTab)" class="btn-primary">{{ t('qqbot.workspace.saveModule', { name: t(tabs.find(tab => tab.key === activeTab)!.label) }) }}</BaseButton>
+          <BaseButton type="button" :disabled="busy" class="btn-secondary" @click="reloadModule">{{ t('qqbot.workspace.reloadModule') }}</BaseButton>
         </div>
         <details v-if="visibleProbeKinds.length" :key="activeTab" class="card p-4">
           <summary class="cursor-pointer">{{ t('qqbot.workspace.capabilityTests') }}</summary>
           <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ dirty ? t('qqbot.saveBeforeTest') : t(activeTab === 'connection' ? 'qqbot.workspace.credentialsTestHelp' : 'qqbot.testCost') }}</p>
-          <div class="mt-3 flex flex-wrap gap-2"><button v-for="kind in visibleProbeKinds" :key="kind" type="button" class="btn btn-secondary" :disabled="busy || dirty" @click="probe(kind)">{{ t(probeLabels[kind]) }}</button></div>
+          <div class="mt-3 flex flex-wrap gap-2"><BaseButton v-for="kind in visibleProbeKinds" :key="kind" type="button" class="btn-secondary" :disabled="busy || dirty" @click="probe(kind)">{{ t(probeLabels[kind]) }}</BaseButton></div>
         </details>
         <details class="card p-4"><summary class="cursor-pointer">{{ t('qqbot.workspace.changes') }}</summary><ul class="mt-3 space-y-2 break-words text-sm [overflow-wrap:anywhere]"><li v-for="change in changes" :key="change">{{ change }}</li></ul></details>
-        <details class="card p-4" @toggle="loadHistory"><summary class="cursor-pointer">{{ t('qqbot.workspace.history') }}</summary><article v-for="(item, index) in history" :key="index" class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span>{{ new Date(item.at).toLocaleString() }} · {{ t(item.section === 'knowledge' ? 'qqbot.knowledge.title' : tabs.find(tab => tab.key === item.section)?.label || item.section) }}</span><button type="button" class="btn btn-secondary" :disabled="busy" @click="restoreDraft(item)">{{ t('qqbot.workspace.restoreDraft') }}</button></article><p class="mt-2 text-xs text-gray-500">{{ t('qqbot.workspace.restoreHelp') }}</p></details>
+        <details class="card p-4" @toggle="loadHistory"><summary class="cursor-pointer">{{ t('qqbot.workspace.history') }}</summary><article v-for="(item, index) in history" :key="index" class="mt-3 flex flex-wrap items-center justify-between gap-2 border-t pt-3 text-sm"><span>{{ new Date(item.at).toLocaleString() }} · {{ t(item.section === 'knowledge' ? 'qqbot.knowledge.title' : tabs.find(tab => tab.key === item.section)?.label || item.section) }}</span><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="restoreDraft(item)">{{ t('qqbot.workspace.restoreDraft') }}</BaseButton></article><p class="mt-2 text-xs text-gray-500">{{ t('qqbot.workspace.restoreHelp') }}</p></details>
       </fieldset></form>
 
     </div>
@@ -172,6 +171,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, nextTick, onMounted, onBeforeUnmount, ref, watch } from 'vue'
 import { useQQGroupNames } from '@/composables/useQQGroupNames'

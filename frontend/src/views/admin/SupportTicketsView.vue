@@ -4,10 +4,9 @@
       <template #filters>
         <div class="flex flex-wrap items-center gap-3">
           <div class="flex-1 sm:max-w-72">
-            <input
+            <FormInput
               v-model="keyword"
               type="search"
-              class="input"
               :placeholder="t('supportTickets.filters.keywordPlaceholder')"
               :aria-label="t('supportTickets.filters.keywordPlaceholder')"
               data-testid="ticket-keyword"
@@ -23,9 +22,9 @@
             data-testid="ticket-category-filter"
           />
           <div class="flex flex-1 justify-end">
-            <button type="button" class="btn btn-secondary" :disabled="loading" :title="t('supportTickets.refresh')" :aria-label="t('supportTickets.refresh')" @click="load">
+            <BaseButton type="button" class="btn-secondary" :disabled="loading" :title="t('supportTickets.refresh')" :aria-label="t('supportTickets.refresh')" @click="load">
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -88,6 +87,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'

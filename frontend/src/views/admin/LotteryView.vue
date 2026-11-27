@@ -4,17 +4,17 @@
       <header class="flex flex-wrap items-center justify-between gap-3">
         <h1 class="text-2xl font-semibold">{{ t('lottery.adminTitle') }}</h1>
         <div class="flex gap-2">
-          <button
-            class="btn btn-secondary h-10 w-10 !p-2"
+          <BaseButton
+            class="btn-secondary h-10 w-10 !p-2"
             :title="t('lottery.refresh')"
             :aria-label="t('lottery.refresh')"
             :disabled="loading"
             @click="load"
           >
-            <Icon name="refresh" /></button
-          ><button class="btn btn-primary gap-2" @click="editPool()">
+            <Icon name="refresh" /></BaseButton
+          ><BaseButton class="btn-primary gap-2" @click="editPool()">
             <Icon name="plus" size="sm" />{{ t('lottery.addPool') }}
-          </button>
+          </BaseButton>
         </div>
       </header>
       <section class="flex items-center justify-between gap-4 border-y border-gray-200 py-4 dark:border-dark-700">
@@ -35,10 +35,9 @@
         class="flex flex-wrap gap-x-6 border-b border-gray-200 dark:border-dark-700"
         role="tablist"
       >
-        <button
+        <TabButton
           v-for="key in tabs"
           :key="key"
-          role="tab"
           :aria-selected="tab === key"
           class="border-b-2 py-3 text-sm font-medium"
           :class="
@@ -49,7 +48,7 @@
           @click="tab = key"
         >
           {{ t(`lottery.${key}`) }}
-        </button>
+        </TabButton>
       </nav>
       <template v-if="tab === 'pools'">
         <p
@@ -105,21 +104,21 @@
               </div>
             </div>
             <div class="flex shrink-0 gap-2">
-              <button class="btn btn-secondary h-10 w-10 !p-2 text-rose-600" :title="t('lottery.deletePool')" :aria-label="`${t('lottery.deletePool')}: ${pool.name}`" @click="requestDelete(pool)"><Icon name="trash" /></button>
-              <button
-                class="btn btn-secondary h-10 w-10 !p-2"
+              <BaseButton class="btn-secondary h-10 w-10 !p-2 text-rose-600" :title="t('lottery.deletePool')" :aria-label="`${t('lottery.deletePool')}: ${pool.name}`" @click="requestDelete(pool)"><Icon name="trash" /></BaseButton>
+              <BaseButton
+                class="btn-secondary h-10 w-10 !p-2"
                 :title="t('lottery.editPool')"
                 :aria-label="t('lottery.editPool')"
                 @click="editPool(pool)"
               >
-                <Icon name="edit" /></button
-              ><button class="btn btn-secondary gap-2" @click="editPrize(pool)">
+                <Icon name="edit" /></BaseButton
+              ><BaseButton class="btn-secondary gap-2" @click="editPrize(pool)">
                 <Icon name="plus" size="sm" />{{ t('lottery.addPrize') }}
-              </button>
+              </BaseButton>
             </div>
           </header>
           <div class="overflow-x-auto">
-            <table class="w-full min-w-[720px] text-left text-sm">
+            <BaseTable class="w-full min-w-[720px] text-left text-sm">
               <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800">
                 <tr>
                   <th class="px-3 py-3 font-medium">
@@ -185,20 +184,20 @@
                   </td>
                   <td class="px-3 py-3">
                     <div class="flex gap-1">
-                    <button
-                      class="btn btn-secondary h-9 w-9 !p-2"
+                    <BaseButton
+                      class="btn-secondary h-9 w-9 !p-2"
                       :title="t('lottery.editPrize')"
                       :aria-label="`${t('lottery.editPrize')}: ${prize.name}`"
                       @click="editPrize(pool, prize)"
                     >
                       <Icon name="edit" size="sm" />
-                    </button>
-                    <button class="btn btn-secondary h-9 w-9 !p-2 text-rose-600" :title="t('lottery.deletePrize')" :aria-label="`${t('lottery.deletePrize')}: ${prize.name}`" @click="requestDelete(pool, prize)"><Icon name="trash" size="sm" /></button>
+                    </BaseButton>
+                    <BaseButton class="btn-secondary h-9 w-9 !p-2 text-rose-600" :title="t('lottery.deletePrize')" :aria-label="`${t('lottery.deletePrize')}: ${prize.name}`" @click="requestDelete(pool, prize)"><Icon name="trash" size="sm" /></BaseButton>
                     </div>
                   </td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
           <p
             v-if="!pool.prizes.length"
@@ -215,29 +214,29 @@
         >
           <label class="min-w-0 sm:w-64"
             ><span class="input-label">{{ t('lottery.pools') }}</span
-            ><select v-model="filterPool" class="input mt-1">
+            ><FormSelect v-model="filterPool" class="mt-1">
               <option :value="0">{{ t('lottery.allPools') }}</option>
               <option v-for="pool in pools" :key="pool.id" :value="pool.id">
                 {{ pool.name }}
               </option>
-            </select></label
+            </FormSelect></label
           ><label class="w-36"
             ><span class="input-label">{{ t('lottery.userID') }}</span
-            ><input
+            ><FormInput
               v-model.number="filterUser"
               type="number"
               min="1"
-              class="input mt-1" /></label
-          ><button
-            class="btn btn-secondary h-10 w-10 !p-2"
+              class="mt-1" /></label
+          ><BaseButton
+            class="btn-secondary h-10 w-10 !p-2"
             :title="t('lottery.refresh')"
             :aria-label="t('lottery.refresh')"
           >
             <Icon name="search" />
-          </button>
+          </BaseButton>
         </form>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-left text-sm">
+          <BaseTable class="w-full min-w-[720px] text-left text-sm">
             <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800">
               <tr>
                 <th class="px-3 py-3 font-medium">{{ t('lottery.time') }}</th>
@@ -337,7 +336,7 @@
                 </tr></template
               >
             </tbody>
-          </table>
+          </BaseTable>
         </div>
         <p v-if="!total" class="py-8 text-center text-sm text-gray-500">
           {{ t('lottery.noRecords') }}
@@ -346,20 +345,20 @@
           v-if="total"
           class="flex items-center justify-between gap-2 text-sm"
         >
-          <button
-            class="btn btn-secondary"
+          <BaseButton
+            class="btn-secondary"
             :disabled="page <= 1"
             @click="changeHistoryPage(-1)"
           >
-            {{ t('lottery.previous') }}</button
+            {{ t('lottery.previous') }}</BaseButton
           ><span>{{ t('lottery.page', { page, total }) }}</span
-          ><button
-            class="btn btn-secondary"
+          ><BaseButton
+            class="btn-secondary"
             :disabled="page * 20 >= total"
             @click="changeHistoryPage(1)"
           >
             {{ t('lottery.next') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
       <BaseDialog
@@ -376,16 +375,16 @@
           <fieldset :disabled="saving" class="space-y-4">
             <label class="block"
               ><span class="input-label">{{ t('lottery.name') }}</span
-              ><input
+              ><FormInput
                 v-model="poolForm.name"
                 maxlength="100"
                 required
-                class="input mt-1" /></label
+                class="mt-1" /></label
             ><label class="block"
               ><span class="input-label">{{ t('lottery.mode') }}</span
-              ><select
+              ><FormSelect
                 v-model="poolForm.mode"
-                class="input mt-1"
+                class="mt-1"
                 :disabled="locked"
               >
                 <option value="single">{{ t('lottery.single') }}</option>
@@ -395,36 +394,36 @@
                 <option value="invite_visit">{{ t('lottery.invite_visit') }}</option>
                 <option value="invite_signup">{{ t('lottery.invite_signup') }}</option>
                 <option value="invite_recharge">{{ t('lottery.invite_recharge') }}</option>
-              </select></label
+              </FormSelect></label
             ><label v-if="!isInvitationPool(poolForm) || poolForm.mode === 'invite_recharge'" class="block"
               ><span class="input-label">{{ t('lottery.threshold') }}</span
-              ><input
+              ><FormInput
                 v-model.number="poolForm.threshold"
                 type="number"
                 min="0.01"
                 max="1000000000"
                 step="0.00000001"
                 required
-                class="input mt-1"
+                class="mt-1"
                 :disabled="locked"
             /></label>
             <template v-if="isInvitationPool(poolForm)">
               <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <label><span class="input-label">{{ t('lottery.rewardTo') }}</span><select v-model="inviteForm.reward_to" class="input mt-1" :disabled="locked" data-testid="invite-recipient"><option value="inviter">{{ t('lottery.inviterOnly') }}</option><option value="both">{{ t('lottery.both') }}</option></select></label>
-                <label><span class="input-label">{{ t('lottery.inviteTickets') }}</span><input v-model.number="inviteForm.tickets" type="number" min="1" max="100" step="1" required :disabled="locked" class="input mt-1" /></label>
+                <label><span class="input-label">{{ t('lottery.rewardTo') }}</span><FormSelect v-model="inviteForm.reward_to" class="mt-1" :disabled="locked" data-testid="invite-recipient"><option value="inviter">{{ t('lottery.inviterOnly') }}</option><option value="both">{{ t('lottery.both') }}</option></FormSelect></label>
+                <label><span class="input-label">{{ t('lottery.inviteTickets') }}</span><FormInput v-model.number="inviteForm.tickets" type="number" min="1" max="100" step="1" required :disabled="locked" class="mt-1" /></label>
               </div>
               <p class="text-xs leading-5 text-gray-500">{{ t('lottery.inviteOnce') }} <span v-if="poolForm.mode === 'invite_visit' && inviteForm.reward_to === 'both'">{{ t('lottery.visitRecipientNote') }}</span></p>
               <section class="space-y-4 border-t border-gray-200 pt-4 dark:border-dark-700">
                 <h3 class="text-sm font-semibold">{{ t('lottery.visitProtection') }}</h3>
                 <div class="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                  <label><span class="input-label">{{ t('lottery.ipDailyLimit') }}</span><input v-model.number="inviteForm.ip_daily_limit" type="number" min="1" max="100" step="1" required class="input mt-1" data-testid="invite-ip-limit" /></label>
-                  <label><span class="input-label">{{ t('lottery.inviterDailyLimit') }}</span><input v-model.number="inviteForm.daily_limit" type="number" min="1" max="1000" step="1" required class="input mt-1" /></label>
+                  <label><span class="input-label">{{ t('lottery.ipDailyLimit') }}</span><FormInput v-model.number="inviteForm.ip_daily_limit" type="number" min="1" max="100" step="1" required class="mt-1" data-testid="invite-ip-limit" /></label>
+                  <label><span class="input-label">{{ t('lottery.inviterDailyLimit') }}</span><FormInput v-model.number="inviteForm.daily_limit" type="number" min="1" max="1000" step="1" required class="mt-1" /></label>
                 </div>
                 <p class="text-xs leading-5 text-gray-500">{{ t('lottery.visitLimitNote') }}</p>
-                <label class="block"><span class="input-label">{{ t('lottery.blockedIPs') }}</span><textarea v-model="blockedIPs" rows="3" class="input mt-1 font-mono text-xs" placeholder="203.0.113.8&#10;198.51.100.0/24&#10;2001:db8::/32" data-testid="invite-blocked-ips"></textarea></label>
-                <label class="block"><span class="input-label">{{ t('lottery.blockedCountries') }}</span><input v-model="blockedCountries" class="input mt-1" placeholder="CN, US, JP" data-testid="invite-blocked-countries" /></label>
+                <label class="block"><span class="input-label">{{ t('lottery.blockedIPs') }}</span><FormTextarea v-model="blockedIPs" rows="3" class="mt-1 font-mono text-xs" placeholder="203.0.113.8&#10;198.51.100.0/24&#10;2001:db8::/32" data-testid="invite-blocked-ips"></FormTextarea></label>
+                <label class="block"><span class="input-label">{{ t('lottery.blockedCountries') }}</span><FormInput v-model="blockedCountries" class="mt-1" placeholder="CN, US, JP" data-testid="invite-blocked-countries" /></label>
                 <p v-if="countryLabels" class="break-words text-xs text-gray-500">{{ countryLabels }}</p>
-                <label class="flex items-start gap-2 text-sm"><input v-model="inviteForm.deny_unknown_country" type="checkbox" class="mt-1" data-testid="invite-deny-unknown" /><span>{{ t('lottery.denyUnknownCountry') }}</span></label>
+                <label class="flex items-start gap-2 text-sm"><FormInput v-model="inviteForm.deny_unknown_country" type="checkbox" class="mt-1" data-testid="invite-deny-unknown" /><span>{{ t('lottery.denyUnknownCountry') }}</span></label>
                 <p class="text-xs leading-5 text-gray-500">{{ t('lottery.countryNote') }}</p>
               </section>
             </template>
@@ -433,19 +432,19 @@
             </p>
             <label class="block"
               ><span class="input-label">{{ t('lottery.sort') }}</span
-              ><input
+              ><FormInput
                 v-model.number="poolForm.sort_order"
                 type="number"
                 step="1"
-                class="input mt-1"
+                class="mt-1"
             /></label>
             <div v-if="poolID" class="flex flex-wrap gap-5">
               <label class="flex items-center gap-2 text-sm"
-                ><input v-model="poolForm.grant_enabled" type="checkbox" />{{
+                ><FormInput v-model="poolForm.grant_enabled" type="checkbox" />{{
                   t('lottery.grantEnabled')
                 }}</label
               ><label class="flex items-center gap-2 text-sm"
-                ><input v-model="poolForm.draw_enabled" type="checkbox" />{{
+                ><FormInput v-model="poolForm.draw_enabled" type="checkbox" />{{
                   t('lottery.drawEnabled')
                 }}</label
               >
@@ -456,20 +455,20 @@
           </p>
         </form>
         <template #footer
-          ><button
-            class="btn btn-secondary"
+          ><BaseButton
+            class="btn-secondary"
             :disabled="saving"
             @click="poolDialog = false"
           >
-            {{ t('lottery.cancel') }}</button
-          ><button
-            class="btn btn-primary"
+            {{ t('lottery.cancel') }}</BaseButton
+          ><BaseButton
+            class="btn-primary"
             form="lottery-pool-form"
             type="submit"
             :disabled="saving"
           >
             {{ t('lottery.save') }}
-          </button></template
+          </BaseButton></template
         >
       </BaseDialog>
       <BaseDialog
@@ -486,33 +485,33 @@
           <fieldset :disabled="saving" class="space-y-4">
             <label class="block"
               ><span class="input-label">{{ t('lottery.name') }}</span
-              ><input
+              ><FormInput
                 v-model="prizeForm.name"
                 required
                 maxlength="100"
-                class="input mt-1" /></label
+                class="mt-1" /></label
             ><label class="block"
               ><span class="input-label">{{ t('lottery.reward') }}</span
-              ><select v-model="prizeForm.kind" class="input mt-1">
+              ><FormSelect v-model="prizeForm.kind" class="mt-1">
                 <option value="balance">{{ t('lottery.balance') }}</option>
                 <option value="subscription">
                   {{ t('lottery.subscription') }}
                 </option>
                 <option value="text">{{ t('lottery.text') }}</option>
-              </select></label
+              </FormSelect></label
             ><label v-if="prizeForm.kind === 'balance'" class="block"
               ><span class="input-label">{{ t('lottery.amount') }}</span
-              ><input
+              ><FormInput
                 v-model.number="prizeForm.amount"
                 type="number"
                 min="0.00000001"
                 max="1000000000"
                 step="0.00000001"
                 required
-                class="input mt-1" /></label
+                class="mt-1" /></label
             ><label v-else-if="prizeForm.kind === 'subscription'" class="block"
               ><span class="input-label">{{ t('lottery.plan') }}</span
-              ><select v-model="prizeForm.plan_id" required class="input mt-1">
+              ><FormSelect v-model="prizeForm.plan_id" required class="mt-1">
                 <option :value="0" disabled>{{ t('lottery.plan') }}</option>
                 <option
                   v-if="
@@ -525,7 +524,7 @@
                 </option>
                 <option v-for="plan in plans" :key="plan.id" :value="plan.id">
                   {{ plan.name }}
-                </option></select
+                </option></FormSelect
               ><span
                 v-if="
                   oldPrize?.kind === 'subscription' &&
@@ -541,50 +540,50 @@
               ></label
             ><label v-else class="block"
               ><span class="input-label">{{ t('lottery.textContent') }}</span
-              ><textarea
+              ><FormTextarea
                 v-model="prizeForm.text"
                 required
                 maxlength="4000"
                 rows="4"
-                class="input mt-1"
-              ></textarea>
+                class="mt-1"
+              ></FormTextarea>
             </label>
             <div class="grid grid-cols-2 gap-4">
               <label
                 ><span class="input-label">{{ t('lottery.weight') }}</span
-                ><input
+                ><FormInput
                   v-model.number="prizeForm.weight"
                   type="number"
                   min="1"
                   max="1000000"
                   step="1"
                   required
-                  class="input mt-1" /></label
+                  class="mt-1" /></label
               ><label
                 ><span class="input-label">{{ t('lottery.sort') }}</span
-                ><input
+                ><FormInput
                   v-model.number="prizeForm.sort_order"
                   type="number"
                   step="1"
-                  class="input mt-1"
+                  class="mt-1"
               /></label>
             </div>
             <label class="flex items-center gap-2 text-sm"
-              ><input v-model="unlimited" type="checkbox" />{{
+              ><FormInput v-model="unlimited" type="checkbox" />{{
                 t('lottery.unlimited')
               }}</label
             ><label v-if="!unlimited" class="block"
               ><span class="input-label">{{ t('lottery.stock') }}</span
-              ><input
+              ><FormInput
                 v-model.number="prizeForm.stock"
                 type="number"
                 min="0"
                 max="1000000000"
                 step="1"
                 required
-                class="input mt-1" /></label
+                class="mt-1" /></label
             ><label class="flex items-center gap-2 text-sm"
-              ><input v-model="prizeForm.enabled" type="checkbox" />{{
+              ><FormInput v-model="prizeForm.enabled" type="checkbox" />{{
                 t('lottery.enabled')
               }}</label
             >
@@ -594,20 +593,20 @@
           </p>
         </form>
         <template #footer
-          ><button
-            class="btn btn-secondary"
+          ><BaseButton
+            class="btn-secondary"
             :disabled="saving"
             @click="prizeDialog = false"
           >
-            {{ t('lottery.cancel') }}</button
-          ><button
-            class="btn btn-primary"
+            {{ t('lottery.cancel') }}</BaseButton
+          ><BaseButton
+            class="btn-primary"
             form="lottery-prize-form"
             type="submit"
             :disabled="saving"
           >
             {{ t('lottery.save') }}
-          </button></template
+          </BaseButton></template
         >
       </BaseDialog>
       <BaseDialog :show="!!deleteTarget" :title="t(deleteTarget?.prize ? 'lottery.deletePrize' : 'lottery.deletePool')" width="narrow" :show-close-button="!saving" @close="!saving && (deleteTarget = null)">
@@ -615,8 +614,8 @@
         <p class="mt-3 text-sm leading-relaxed text-gray-600 dark:text-gray-300">{{ t(deleteTarget?.prize ? 'lottery.deletePrizeNote' : 'lottery.deletePoolNote') }}</p>
         <p v-if="error" role="alert" class="mt-3 text-sm text-red-600">{{ error }}</p>
         <template #footer>
-          <button class="btn btn-secondary" :disabled="saving" @click="deleteTarget = null">{{ t('lottery.cancel') }}</button>
-          <button class="btn bg-rose-600 text-white hover:bg-rose-700" data-testid="confirm-lottery-delete" :disabled="saving" @click="confirmDelete"><Icon name="trash" size="sm" class="mr-2" />{{ t('lottery.confirmDelete') }}</button>
+          <BaseButton class="btn-secondary" :disabled="saving" @click="deleteTarget = null">{{ t('lottery.cancel') }}</BaseButton>
+          <BaseButton class="bg-rose-600 text-white hover:bg-rose-700" data-testid="confirm-lottery-delete" :disabled="saving" @click="confirmDelete"><Icon name="trash" size="sm" class="mr-2" />{{ t('lottery.confirmDelete') }}</BaseButton>
         </template>
       </BaseDialog>
     </div>
@@ -624,6 +623,12 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onMounted, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

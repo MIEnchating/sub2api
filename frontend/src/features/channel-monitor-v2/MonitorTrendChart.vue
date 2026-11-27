@@ -25,7 +25,7 @@
           <span class="h-2 w-2 rounded-full bg-sky-500"></span>{{ t('channelMonitorV2.chart.ttftLegend') }}
         </span>
         <span class="flex shrink-0 items-center gap-1"><span class="h-2 w-2 rounded-full bg-violet-500"></span>{{ t('channelMonitorV2.chart.tpsLegend') }}</span>
-        <span class="badge badge-gray shrink-0">{{ bucketLabel }}</span>
+        <StatusBadge class="badge-gray shrink-0">{{ bucketLabel }}</StatusBadge>
         <button
           type="button"
           class="inline-flex shrink-0 items-center rounded-lg border border-gray-200 bg-white px-2 py-1 text-[11px] font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50 dark:border-dark-700 dark:bg-dark-900 dark:text-gray-300 dark:hover:bg-dark-800"
@@ -59,6 +59,7 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
 import { useI18n } from 'vue-i18n'
 import { computed, ref, watch } from 'vue'
 import {

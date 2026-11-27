@@ -93,7 +93,6 @@ func provideCleanup(
 	gptDirect *service.GPTDirectService,
 	qqBot *qqbot.Service,
 	providerChannels *admin.ChannelHandler,
-	autoCreditEmail *service.AutoCreditEmailWorker,
 	cfg *config.Config,
 	requestCaptures *requestcapture.Manager,
 	entClient *ent.Client,
@@ -156,6 +155,8 @@ func provideCleanup(
 	opencodeGoUsage *service.OpenCodeGoUsageService,
 	auditLog *service.AuditLogService,
 	openAIAutoReset *service.OpenAIQuotaAutoResetService,
+	openAIQuotaRefresh *service.OpenAIQuotaRefreshWorker,
+	openAIImportChecks *service.OpenAIAccountImportChecks,
 	promptAudit *securityaudit.PromptService,
 	pluginManager *service.PluginManager,
 	cyberModeration *service.ContentModerationService,
@@ -205,7 +206,6 @@ func provideCleanup(
 				}
 				return nil
 			}},
-			{"AutoCreditEmailWorker", func() error { autoCreditEmail.Stop(); return nil }},
 			{"OpenAIReloginService", func() error {
 				if openAIRelogin != nil {
 					openAIRelogin.Stop()
@@ -216,6 +216,14 @@ func provideCleanup(
 				if pluginManager != nil {
 					pluginManager.Stop()
 				}
+				return nil
+			}},
+			{"OpenAIAccountImportChecks", func() error {
+				openAIImportChecks.Stop()
+				return nil
+			}},
+			{"OpenAIQuotaRefreshWorker", func() error {
+				openAIQuotaRefresh.Stop()
 				return nil
 			}},
 			{"OpenAIQuotaAutoResetService", func() error {

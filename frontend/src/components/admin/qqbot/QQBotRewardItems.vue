@@ -6,18 +6,18 @@
       <div class="grid items-start gap-3 sm:grid-cols-2 lg:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_minmax(0,1fr)_auto]">
         <label class="min-w-0 space-y-1 text-sm">
           <span>{{ t('qqbot.rewardEditor.type') }}</span>
-          <select :value="kind" :data-testid="prefix + '-reward-type-' + index" class="input" @change="changeKind(index, $event)">
+          <FormSelect :value="kind" :data-testid="prefix + '-reward-type-' + index" @change="changeKind(index, $event)">
             <option v-for="option in allowedTypes" :key="option" :value="option" :disabled="option !== kind && kinds.includes(option)">{{ t('qqbot.rewardEditor.types.' + option) }}</option>
-          </select>
+          </FormSelect>
         </label>
         <template v-if="kind === 'balance'">
           <label class="min-w-0 space-y-1 text-sm">
             <span>{{ t(range ? 'qqbot.minAmount' : 'qqbot.rewardEditor.amount') }}</span>
-            <input :value="reward[amountField]" :data-testid="amountTestId || prefix + '-amount'" type="number" min="0" max="1000" step="0.00000001" required class="input" @input="setNumber(amountField, $event)" />
+            <FormInput :value="reward[amountField]" :data-testid="amountTestId || prefix + '-amount'" type="number" min="0" max="1000" step="0.00000001" required @input="setNumber(amountField, $event)" />
           </label>
           <label v-if="range" class="min-w-0 space-y-1 text-sm">
             <span>{{ t('qqbot.maxAmount') }}</span>
-            <input :value="reward.max_amount" :data-testid="maxAmountTestId || prefix + '-max-amount'" type="number" min="0" max="1000" step="0.00000001" required class="input" @input="setNumber('max_amount', $event)" />
+            <FormInput :value="reward.max_amount" :data-testid="maxAmountTestId || prefix + '-max-amount'" type="number" min="0" max="1000" step="0.00000001" required @input="setNumber('max_amount', $event)" />
           </label>
           <span v-else class="hidden lg:block" />
         </template>
@@ -28,13 +28,13 @@
           </div>
           <label class="min-w-0 space-y-1 text-sm">
             <span>{{ t('qqbot.rewardEditor.couponQuantity') }}</span>
-            <input :value="reward.coupon_quantity" :data-testid="prefix + '-coupon-quantity'" type="number" min="1" max="100" step="1" required class="input" @input="setNumber('coupon_quantity', $event)" />
+            <FormInput :value="reward.coupon_quantity" :data-testid="prefix + '-coupon-quantity'" type="number" min="1" max="100" step="1" required @input="setNumber('coupon_quantity', $event)" />
           </label>
         </template>
         <template v-else>
           <label class="min-w-0 space-y-1 text-sm">
             <span>{{ t('qqbot.rewardEditor.chancesQuantity') }}</span>
-            <input :value="reward.chances" :data-testid="chancesTestId || prefix + '-chances'" type="number" min="0" max="1000" step="1" required class="input" @input="setNumber('chances', $event)" />
+            <FormInput :value="reward.chances" :data-testid="chancesTestId || prefix + '-chances'" type="number" min="0" max="1000" step="1" required @input="setNumber('chances', $event)" />
           </label>
           <span class="hidden lg:block" />
         </template>
@@ -43,12 +43,15 @@
       <p v-if="kind === 'coupon'" class="text-xs text-gray-500">{{ t('coupon.costHint') }}</p>
       <slot v-if="kind === 'balance'" name="balance-extra" />
     </div>
-    <button type="button" :data-testid="prefix + '-add-reward'" class="btn btn-secondary" :disabled="kinds.length >= allowedTypes.length" @click="add">{{ t('qqbot.rewardEditor.add') }}</button>
+    <BaseButton type="button" :data-testid="prefix + '-add-reward'" class="btn-secondary" :disabled="kinds.length >= allowedTypes.length" @click="add">{{ t('qqbot.rewardEditor.add') }}</BaseButton>
     <p v-if="kinds.length > 1" class="text-xs text-gray-500">{{ t('qqbot.rewardEditor.bundleHelp') }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import CouponTemplateSelect from './CouponTemplateSelect.vue'

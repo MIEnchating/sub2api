@@ -31,25 +31,25 @@
             accept=".s2plugin,application/zip"
             @change="handleFileSelected"
           />
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-primary"
+            class="btn-primary"
             :disabled="uploading"
             @click="fileInput?.click()"
           >
             <Icon name="upload" size="sm" />
             {{ uploading ? t("common.processing") : t("admin.plugins.upload") }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="button"
-            class="btn btn-secondary"
+            class="btn-secondary"
             :disabled="loading"
             :title="t('common.refresh')"
             @click="loadPlugins"
           >
             <Icon name="refresh" size="sm" />
             <span class="sr-only">{{ t("common.refresh") }}</span>
-          </button>
+          </BaseButton>
         </div>
       </section>
 
@@ -121,14 +121,14 @@
                 {{ plugin.description }}
               </p>
             </div>
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               @click="openConfiguration(plugin)"
             >
               <Icon name="cog" size="sm" />
               {{ t("admin.plugins.configure") }}
-            </button>
+            </BaseButton>
           </div>
 
           <div class="grid grid-cols-1 gap-x-6 gap-y-4 p-5 md:grid-cols-2">
@@ -238,29 +238,29 @@
           <div
             class="flex flex-wrap justify-end gap-2 border-t border-gray-100 px-5 py-4 dark:border-dark-700"
           >
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="busyID === plugin.id"
               @click="testPlugin(plugin)"
             >
               <Icon name="beaker" size="sm" />
               {{ t("admin.plugins.test") }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-if="hasEnabledBinding(plugin)"
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="busyID === plugin.id"
               @click="disablePlugin(plugin)"
             >
               <Icon name="ban" size="sm" />
               {{ t("admin.plugins.disable") }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-else
               type="button"
-              class="btn btn-primary btn-sm"
+              class="btn-primary btn-sm"
               :disabled="
                 busyID === plugin.id ||
                 plugin.state === 'starting' ||
@@ -270,16 +270,16 @@
             >
               <Icon name="play" size="sm" />
               {{ t("admin.plugins.enable") }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               type="button"
-              class="btn btn-danger btn-sm"
+              class="btn-danger btn-sm"
               :disabled="busyID === plugin.id || hasEnabledBinding(plugin)"
               @click="uninstallPlugin(plugin)"
             >
               <Icon name="trash" size="sm" />
               {{ t("admin.plugins.uninstall") }}
-            </button>
+            </BaseButton>
           </div>
         </article>
       </div>
@@ -333,6 +333,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onBeforeUnmount, onMounted, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import {

@@ -10,8 +10,8 @@
       <p v-else-if="busy" class="text-sm" role="status">{{ t('tokenGuardV2.totpManage.sessionExport.starting') }}</p>
       <p v-if="error" class="text-sm text-red-600" role="alert">{{ error }}</p>
       <div class="flex justify-end gap-2">
-        <button type="button" data-testid="close" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button>
-        <button type="button" data-testid="export" class="btn btn-primary" :disabled="busy || !account" @click="start">{{ t(busy ? 'tokenGuardV2.totpManage.sessionExport.exporting' : 'tokenGuardV2.totpManage.sessionExport.download') }}</button>
+        <BaseButton type="button" data-testid="close" class="btn-secondary" @click="close">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="button" data-testid="export" class="btn-primary" :disabled="busy || !account" @click="start">{{ t(busy ? 'tokenGuardV2.totpManage.sessionExport.exporting' : 'tokenGuardV2.totpManage.sessionExport.download') }}</BaseButton>
       </div>
     </div>
   </BaseDialog>
@@ -19,6 +19,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

@@ -15,8 +15,8 @@ func multiProxyIDs(ids []int64) []int64 {
 }
 
 func (s *adminServiceImpl) validateAccountProxyIDs(ctx context.Context, ids []int64) ([]int64, error) {
-	if len(ids) > 64 {
-		return nil, infraerrors.BadRequest("INVALID_PROXY_POOL", "at most 64 proxies can be selected")
+	if len(ids) > 1 {
+		return nil, ErrAccountMultiProxyRetired
 	}
 	out := make([]int64, 0, len(ids))
 	seen := make(map[int64]bool, len(ids))
@@ -41,4 +41,23 @@ func (s *adminServiceImpl) validateAccountProxyIDs(ctx context.Context, ids []in
 		out = append(out, id)
 	}
 	return out, nil
+}
+
+var ErrAccountMultiProxyRetired = infraerrors.BadRequest("ACCOUNT_MULTI_PROXY_RETIRED", "Account multi-proxy routing has been retired. Select a single proxy.")
+
+func rejectRetiredAccountProxyConfig(ids []int64, extra map[string]any) error {
+	if len(ids) > 1 {
+		return ErrAccountMultiProxyRetired
+	}
+	for _, key := range []string{OpenAIProxyModeKey, ExcelBPSProxyModeKey} {
+		if extra[key] == OpenAIProxyModeRequest {
+			return ErrAccountMultiProxyRetired
+		}
+	}
+	for _, key := range []string{OpenAIProxyIDsKey, ExcelBPSProxyIDsKey} {
+		if configured, valid := parseExcelBPSProxyIDs(extra[key]); !valid || len(configured) > 0 {
+			return ErrAccountMultiProxyRetired
+		}
+	}
+	return nil
 }

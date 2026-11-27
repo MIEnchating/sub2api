@@ -27,22 +27,22 @@
               <div>
                 <label class="input-label">{{ t('profile.totp.emailCode') }}</label>
                 <div class="flex gap-2">
-                  <input
+                  <FormInput
                     v-model="verifyForm.emailCode"
                     type="text"
                     maxlength="6"
                     inputmode="numeric"
-                    class="input flex-1"
+                    class="flex-1"
                     :placeholder="t('profile.totp.enterEmailCode')"
                   />
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary whitespace-nowrap"
+                    class="btn-secondary whitespace-nowrap"
                     :disabled="sendingCode || codeCooldown > 0"
                     @click="handleSendCode"
                   >
                     {{ codeCooldown > 0 ? `${codeCooldown}s` : (sendingCode ? t('common.sending') : t('profile.totp.sendCode')) }}
-                  </button>
+                  </BaseButton>
                 </div>
               </div>
             </div>
@@ -51,28 +51,27 @@
             <div v-else class="space-y-4">
               <div>
                 <label class="input-label">{{ t('profile.currentPassword') }}</label>
-                <input
+                <FormInput
                   v-model="verifyForm.password"
                   type="password"
                   autocomplete="current-password"
-                  class="input"
                   :placeholder="t('profile.totp.enterPassword')"
                 />
               </div>
             </div>
 
             <div class="flex justify-end gap-3 pt-4">
-              <button type="button" class="btn btn-secondary" @click="$emit('close')">
+              <BaseButton type="button" class="btn-secondary" @click="$emit('close')">
                 {{ t('common.cancel') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 type="button"
-                class="btn btn-primary"
+                class="btn-primary"
                 :disabled="!canProceedFromVerify || setupLoading"
                 @click="handleVerifyAndSetup"
               >
                 {{ setupLoading ? t('common.loading') : t('common.next') }}
-              </button>
+              </BaseButton>
             </div>
           </template>
         </div>
@@ -109,17 +108,17 @@
           </template>
 
           <div class="flex justify-end gap-3 pt-4">
-            <button type="button" class="btn btn-secondary" @click="$emit('close')">
+            <BaseButton type="button" class="btn-secondary" @click="$emit('close')">
               {{ t('common.cancel') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               type="button"
-              class="btn btn-primary"
+              class="btn-primary"
               :disabled="!setupData"
               @click="step = 2"
             >
               {{ t('common.next') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -149,16 +148,16 @@
             </div>
 
             <div class="flex justify-end gap-3">
-              <button type="button" class="btn btn-secondary" @click="step = 1">
+              <BaseButton type="button" class="btn-secondary" @click="step = 1">
                 {{ t('common.back') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 type="submit"
-                class="btn btn-primary"
+                class="btn-primary"
                 :disabled="verifying || code.join('').length !== 6"
               >
                 {{ verifying ? t('common.verifying') : t('profile.totp.verify') }}
-              </button>
+              </BaseButton>
             </div>
           </form>
         </div>
@@ -168,6 +167,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref, onMounted, onUnmounted, nextTick, watch, computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

@@ -5,7 +5,7 @@
         <h3 id="harvest-nodes-title" class="sr-only">{{ t(`${prefix}.title`) }}</h3>
         <p class="text-[11px] text-gray-500 dark:text-gray-400">{{ t(`${prefix}.resetHint`) }} · {{ page.total }}</p>
       </div>
-      <button type="button" data-testid="reset-all-nodes" class="btn btn-secondary btn-sm" :disabled="busy || page.total === 0" @click="reset(0)">{{ t(`${prefix}.resetAll`) }}</button>
+      <BaseButton type="button" data-testid="reset-all-nodes" class="btn-secondary btn-sm" :disabled="busy || page.total === 0" @click="reset(0)">{{ t(`${prefix}.resetAll`) }}</BaseButton>
     </div>
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
     <div class="max-h-[560px] space-y-2 overflow-auto pr-1">
@@ -43,15 +43,16 @@
     <div class="mt-3 flex flex-wrap items-center justify-between gap-2 text-[11px] text-gray-500">
       <p>{{ t(`${prefix}.legend`) }}</p>
       <div class="flex items-center gap-2">
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || offset === 0" @click="move(-1)">{{ t(`${prefix}.previous`) }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || offset === 0" @click="move(-1)">{{ t(`${prefix}.previous`) }}</BaseButton>
         <span>{{ Math.floor(offset / limit) + 1 }} / {{ Math.max(1, Math.ceil(page.total / limit)) }}</span>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || offset + limit >= page.total" @click="move(1)">{{ t(`${prefix}.next`) }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || offset + limit >= page.total" @click="move(1)">{{ t(`${prefix}.next`) }}</BaseButton>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCodexHarvestNodes, resetCodexHarvestNodes, type CodexHarvestNodePage } from '@/api/admin/codexHarvest'

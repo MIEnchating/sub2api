@@ -8,25 +8,25 @@
       <p class="rounded-xl bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-900/20 dark:text-amber-200">{{ t('channelMonitorV2.candy.costHint') }}</p>
       <label class="block max-w-xs">
         <span class="input-label">{{ t('channelMonitorV2.candy.historyLimit') }}</span>
-        <input :value="historyLimit" type="number" class="input" :min="CANDY_HISTORY_LIMIT_MIN" :max="CANDY_HISTORY_LIMIT_MAX" step="1" required data-testid="candy-history-limit" @input="emit('update:historyLimit', Number(($event.target as HTMLInputElement).value))" />
+        <FormInput :value="historyLimit" type="number" :min="CANDY_HISTORY_LIMIT_MIN" :max="CANDY_HISTORY_LIMIT_MAX" step="1" required data-testid="candy-history-limit" @input="emit('update:historyLimit', Number(($event.target as HTMLInputElement).value))" />
         <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.candy.historyLimitHint') }}</span>
       </label>
       <div v-for="(probe, index) in modelValue || []" :key="`${probe.group_id}-${index}`" class="rounded-2xl border border-gray-200 p-4 dark:border-dark-700">
         <div class="mb-3 flex items-center gap-3">
           <Toggle :model-value="probe.enabled" @update:model-value="patch(index, { enabled: $event })" />
           <strong class="min-w-0 flex-1 truncate text-sm text-gray-800 dark:text-gray-100">{{ groupName(probe.group_id) }}</strong>
-          <button type="button" class="btn btn-ghost btn-sm text-red-600" @click="remove(index)">{{ t('common.delete') }}</button>
+          <BaseButton type="button" class="btn-ghost btn-sm text-red-600" @click="remove(index)">{{ t('common.delete') }}</BaseButton>
         </div>
         <div class="grid gap-3 sm:grid-cols-3">
-          <label><span class="input-label">{{ t('channelMonitorV2.candy.model') }}</span><input :value="probe.model" class="input" maxlength="100" required :placeholder="t('channelMonitorV2.candy.modelHint')" @input="patch(index, { model: ($event.target as HTMLInputElement).value })" /></label>
-          <label><span class="input-label">{{ t('channelMonitorV2.candy.effort') }}</span><select :value="probe.reasoning_effort" class="input" @change="patch(index, { reasoning_effort: ($event.target as HTMLSelectElement).value })"><option v-for="effort in ['minimal', 'low', 'medium', 'high', 'xhigh']" :key="effort" :value="effort">{{ effort }}</option></select></label>
-          <label><span class="input-label">{{ t('channelMonitorV2.candy.interval') }}</span><input :value="probe.interval_minutes" type="number" class="input" min="1" max="1440" step="1" required @input="patch(index, { interval_minutes: Number(($event.target as HTMLInputElement).value) })" /></label>
+          <label><span class="input-label">{{ t('channelMonitorV2.candy.model') }}</span><FormInput :value="probe.model" maxlength="100" required :placeholder="t('channelMonitorV2.candy.modelHint')" @input="patch(index, { model: ($event.target as HTMLInputElement).value })" /></label>
+          <label><span class="input-label">{{ t('channelMonitorV2.candy.effort') }}</span><FormSelect :value="probe.reasoning_effort" @change="patch(index, { reasoning_effort: ($event.target as HTMLSelectElement).value })"><option v-for="effort in ['minimal', 'low', 'medium', 'high', 'xhigh']" :key="effort" :value="effort">{{ effort }}</option></FormSelect></label>
+          <label><span class="input-label">{{ t('channelMonitorV2.candy.interval') }}</span><FormInput :value="probe.interval_minutes" type="number" min="1" max="1440" step="1" required @input="patch(index, { interval_minutes: Number(($event.target as HTMLInputElement).value) })" /></label>
         </div>
         <p v-if="isDuplicate(index)" class="mt-2 text-xs text-red-600">{{ t('channelMonitorV2.candy.duplicateModel') }}</p>
       </div>
       <div class="flex flex-wrap items-center gap-2">
-        <select v-model.number="selectedGroup" class="input min-w-0 flex-1" data-testid="candy-group-select"><option :value="0">{{ t('channelMonitorV2.candy.selectGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform }}</option></select>
-        <button type="button" class="btn btn-secondary" :disabled="!selectedGroup || (modelValue?.length || 0) >= 64" data-testid="add-candy-probe" @click="add">{{ t('channelMonitorV2.candy.addModel') }}</button>
+        <FormSelect v-model.number="selectedGroup" class="min-w-0 flex-1" data-testid="candy-group-select"><option :value="0">{{ t('channelMonitorV2.candy.selectGroup') }}</option><option v-for="group in groups" :key="group.id" :value="group.id">{{ group.name }} · {{ group.platform }}</option></FormSelect>
+        <BaseButton type="button" class="btn-secondary" :disabled="!selectedGroup || (modelValue?.length || 0) >= 64" data-testid="add-candy-probe" @click="add">{{ t('channelMonitorV2.candy.addModel') }}</BaseButton>
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV2.candy.ruleHint') }}</p>
     </div>
@@ -34,6 +34,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

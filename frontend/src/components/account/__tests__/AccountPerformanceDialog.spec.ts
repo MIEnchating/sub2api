@@ -7,9 +7,6 @@ import Dialog from '../AccountPerformanceDialog.vue'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
 import { emptyPerformanceConfig, type AccountPerformance } from '@/types/accountPerformance'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 
 const api=vi.hoisted(()=>({getPerformance:vi.fn(),getPerformanceEvents:vi.fn(),savePerformance:vi.fn(),releasePerformance:vi.fn()}))
 vi.mock('@/api/admin',()=>({adminAPI:{accounts:api}}))
@@ -176,35 +173,6 @@ describe('Account metric rules', () => {
    ? ['4xx/5xx','2xx–5xx','历史不完整时仍按已观测样本评估','缺样本不触发','真实0%','仅运行监控任务的实例','网关实例样本不会自动汇入','全站','WebSocket','HTTP 200']
    : ['4xx/5xx','2xx–5xx','Partial history is still evaluated','Missing samples do not trigger','measured 0%','Only instances running monitoring jobs','Gateway samples are not automatically merged','across the site','WebSocket','HTTP 200'])expect(note).toContain(text)
   expect(w.get('[data-testid="upstream-threshold-samples"]').text()).toContain('—')
- })
- it('announces thresholds separately from the dismissed display feature and persists dismissal across dialog instances',async()=>{
-  const A=NEW_FEATURE_NOTICES.accountUpstreamHTTPErrorRate
-  const B=NEW_FEATURE_NOTICES.accountUpstreamHTTPErrorThreshold
-  const C='future-performance-feature-c'
-  expect(B).not.toBe(A)
-  expect(new Set(Object.values(NEW_FEATURE_NOTICES)).size).toBe(Object.values(NEW_FEATURE_NOTICES).length)
-  const pinia=createPinia()
-  const notices=useNewFeatureNoticeStore(pinia)
-  notices.dismiss(41,A)
-  const first=await open('en',41,pinia),second=await open('en',41,pinia)
-  expect(first.get('[data-metric="upstream"]').find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(second.get('[data-threshold="upstream_error"]').find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  await first.get('[data-threshold="upstream_error"] [data-testid="new-feature-badge"]').trigger('click')
-  expect(second.get('[data-threshold="upstream_error"]').find('[data-testid="new-feature-badge"]').exists()).toBe(false)
-  first.unmount();second.unmount();wrappers=[]
-  const reloadedPinia=createPinia()
-  const reopened=await open('en',41,reloadedPinia)
-  expect(reopened.find('[data-threshold="upstream_error"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-  await reopened.setProps({noticeUserId:42})
-  expect(reopened.get('[data-threshold="upstream_error"]').find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  await reopened.setProps({noticeUserId:41})
-  expect(reopened.find('[data-threshold="upstream_error"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-  const future=mount(NewFeatureBadge,{props:{noticeId:C,userId:41},global:{plugins:[reloadedPinia,createI18n({legacy:false,locale:'en',messages:{en}})]}})
-  wrappers.push(future)
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  const reloaded=useNewFeatureNoticeStore(reloadedPinia)
-  expect(reloaded.isDismissed(41,A)).toBe(true)
-  expect(reloaded.isDismissed(41,B)).toBe(true)
  })
  it('uses the pause generation for release', async () => {
   api.getPerformance.mockResolvedValue({ 7: performanceSnapshot('paused') })

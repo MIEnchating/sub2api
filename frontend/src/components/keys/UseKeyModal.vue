@@ -189,33 +189,33 @@
               <p class="mt-1 truncate font-mono text-xs text-gray-700 dark:text-gray-300">
                 {{ codexModelCatalogMode === 'remote' ? codexModelCatalogUrl : codexModelCatalogPath }}
               </p>
-              <select
+              <FormSelect
                 v-model="codexModelCatalogMode"
                 data-testid="codex-model-catalog-mode"
                 :aria-label="t('keys.useKeyModal.codexModelCatalog.mode')"
-                class="input mt-2 text-sm"
+                class="mt-2 text-sm"
               >
                 <option value="remote" :disabled="codexModelCatalogOversized">{{ t('keys.useKeyModal.codexModelCatalog.remote') }}</option>
                 <option value="file">{{ t('keys.useKeyModal.codexModelCatalog.local') }}</option>
-              </select>
+              </FormSelect>
               <p v-if="codexModelCatalogOversized" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
                 {{ t('keys.useKeyModal.codexModelCatalog.oversized') }}
               </p>
             </div>
-            <button
+            <BaseButton
               v-if="codexModelManifestState === 'ready'"
               type="button"
-              class="btn btn-primary min-h-9 flex-shrink-0 px-3 text-xs"
+              class="btn-primary min-h-9 flex-shrink-0 px-3 text-xs"
               @click="downloadCodexModelManifest"
             >
               <Icon name="download" size="sm" class="mr-1.5" />
               {{ t('keys.useKeyModal.codexModelCatalog.download') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               v-else
               type="button"
               data-testid="codex-model-catalog-fetch"
-              class="btn btn-primary min-h-9 flex-shrink-0 px-3 text-xs"
+              class="btn-primary min-h-9 flex-shrink-0 px-3 text-xs"
               :disabled="codexModelManifestState === 'loading' || !apiKey"
               @click="loadCodexModelManifest"
             >
@@ -228,7 +228,7 @@
               {{ codexModelManifestState === 'error'
                 ? t('keys.useKeyModal.codexModelCatalog.retry')
                 : t('keys.useKeyModal.codexModelCatalog.fetch') }}
-            </button>
+            </BaseButton>
           </div>
           <p
             v-if="codexModelManifestState === 'ready'"
@@ -256,18 +256,20 @@
 
     <template #footer>
       <div class="flex justify-end">
-        <button
+        <BaseButton
           @click="emit('close')"
-          class="btn btn-secondary"
+          class="btn-secondary"
         >
           {{ t('common.close') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { ref, computed, h, watch, type Component } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAs } from 'file-saver'
@@ -365,7 +367,7 @@ const defaultClientTab = computed(() => {
   if (props.claudeCodeOnly) return 'claude'
   switch (props.platform) {
     case 'openai':
-      return 'codex'
+      return 'codex-ws'
     case 'grok':
       return 'grok'
     case 'gemini':
@@ -475,8 +477,8 @@ const clientTabs = computed((): TabConfig[] => {
   switch (props.platform) {
     case 'openai': {
       const tabs: TabConfig[] = [
-        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCli'), icon: TerminalIcon },
         { id: 'codex-ws', label: t('keys.useKeyModal.cliTabs.codexCliWs'), icon: TerminalIcon },
+        { id: 'codex', label: t('keys.useKeyModal.cliTabs.codexCliHttp'), icon: TerminalIcon },
       ]
       if (props.allowMessagesDispatch) {
         tabs.push({ id: 'claude', label: t('keys.useKeyModal.cliTabs.claudeCode'), icon: TerminalIcon })

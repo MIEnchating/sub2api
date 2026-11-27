@@ -83,7 +83,7 @@ func TestApplyUsageBillingEffects_FlagsBalanceOverdraft(t *testing.T) {
 	mock.ExpectQuery(overdraftBalanceDeductSQL).
 		WithArgs(10.0, int64(42)).
 		WillReturnRows(sqlmock.NewRows([]string{"balance"}).AddRow(-5.0))
-	expectNoAutoCreditConfig(mock, "-5.00000000")
+
 	mock.ExpectCommit()
 
 	result := &service.UsageBillingApplyResult{Applied: true}
@@ -117,7 +117,7 @@ func TestApplyUsageBillingEffects_DeletedAPIKeyStillBillsBalance(t *testing.T) {
 	mock.ExpectExec(apiKeyRateLimitIncrementSQL).
 		WithArgs(10.0, int64(7)).
 		WillReturnResult(sqlmock.NewResult(0, 0))
-	expectNoAutoCreditConfig(mock, "90.00000000")
+
 	mock.ExpectCommit()
 
 	result := &service.UsageBillingApplyResult{Applied: true}
@@ -154,7 +154,7 @@ func TestApplyUsageBillingEffects_DeletedAccountStillBillsBalance(t *testing.T) 
 	mock.ExpectQuery(accountQuotaIncrementSQL).
 		WithArgs(4.0, int64(9)).
 		WillReturnRows(sqlmock.NewRows(accountQuotaStateColumns))
-	expectNoAutoCreditConfig(mock, "90.00000000")
+
 	mock.ExpectCommit()
 
 	result := &service.UsageBillingApplyResult{Applied: true}

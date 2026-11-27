@@ -15,10 +15,10 @@
                     size="md"
                     class="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                   />
-                  <input
+                  <FormInput
                     v-model.trim="filters.q"
                     type="text"
-                    class="input pl-10"
+                    class="pl-10"
                     :placeholder="t('admin.audit.filters.qPlaceholder')"
                     @keyup.enter="search"
                   />
@@ -27,17 +27,17 @@
 
               <div class="w-full sm:w-auto sm:min-w-[200px]">
                 <label class="input-label">{{ t('admin.audit.filters.actorEmail') }}</label>
-                <input v-model.trim="filters.actor_email" type="text" class="input" @keyup.enter="search" />
+                <FormInput v-model.trim="filters.actor_email" type="text" @keyup.enter="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[180px]">
                 <label class="input-label">{{ t('admin.audit.filters.action') }}</label>
-                <input v-model.trim="filters.action" type="text" class="input" @keyup.enter="search" />
+                <FormInput v-model.trim="filters.action" type="text" @keyup.enter="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[160px]">
                 <label class="input-label">{{ t('admin.audit.filters.clientIp') }}</label>
-                <input v-model.trim="filters.client_ip" type="text" class="input" @keyup.enter="search" />
+                <FormInput v-model.trim="filters.client_ip" type="text" @keyup.enter="search" />
               </div>
 
               <div class="w-full sm:w-auto sm:min-w-[140px]">
@@ -67,16 +67,16 @@
 
             <!-- Right: actions -->
             <div class="flex w-full flex-wrap items-center justify-end gap-3 sm:w-auto">
-              <button type="button" class="btn btn-primary" :disabled="loading" @click="search">
+              <BaseButton type="button" class="btn-primary" :disabled="loading" @click="search">
                 {{ t('common.search') }}
-              </button>
-              <button type="button" class="btn btn-secondary" :disabled="loading" @click="resetFilters">
+              </BaseButton>
+              <BaseButton type="button" class="btn-secondary" :disabled="loading" @click="resetFilters">
                 {{ t('common.reset') }}
-              </button>
-              <button type="button" class="btn btn-danger" @click="openClearDialog">
+              </BaseButton>
+              <BaseButton type="button" class="btn-danger" @click="openClearDialog">
                 <Icon name="trash" size="sm" class="mr-1.5" />
                 {{ t('admin.audit.clearAll') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -279,25 +279,25 @@
       <div class="space-y-4 py-2">
         <div>
           <label class="input-label">{{ t('admin.ops.customTimeRange.startTime') }}</label>
-          <input v-model="customStartTimeInput" type="datetime-local" class="input" />
+          <FormInput v-model="customStartTimeInput" type="datetime-local" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.ops.customTimeRange.endTime') }}</label>
-          <input v-model="customEndTimeInput" type="datetime-local" class="input" />
+          <FormInput v-model="customEndTimeInput" type="datetime-local" />
         </div>
       </div>
       <template #footer>
-        <button type="button" class="btn btn-secondary" @click="handleCustomTimeRangeCancel">
+        <BaseButton type="button" class="btn-secondary" @click="handleCustomTimeRangeCancel">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn-primary"
+          class="btn-primary"
           :disabled="!customStartTimeInput || !customEndTimeInput"
           @click="handleCustomTimeRangeConfirm"
         >
           {{ t('common.confirm') }}
-        </button>
+        </BaseButton>
       </template>
     </BaseDialog>
 
@@ -323,35 +323,37 @@
     >
       <div class="py-2">
         <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.audit.clearConfirm.totpHint') }}</p>
-        <input
+        <FormInput
           v-model.trim="clearTotpCode"
           type="text"
           inputmode="numeric"
           maxlength="6"
           autocomplete="one-time-code"
-          class="input mt-4 text-center text-lg tracking-[0.5em]"
+          class="mt-4 text-center text-lg tracking-[0.5em]"
           placeholder="••••••"
           @keyup.enter="submitClear"
         />
       </div>
       <template #footer>
-        <button type="button" class="btn btn-secondary" :disabled="clearing" @click="cancelClearTotp">
+        <BaseButton type="button" class="btn-secondary" :disabled="clearing" @click="cancelClearTotp">
           {{ t('common.cancel') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn-danger"
+          class="btn-danger"
           :disabled="clearing || clearTotpCode.length !== 6"
           @click="submitClear"
         >
           {{ clearing ? t('common.loading') : t('admin.audit.clearAll') }}
-        </button>
+        </BaseButton>
       </template>
     </BaseDialog>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI, type AuditLog } from '@/api/admin'

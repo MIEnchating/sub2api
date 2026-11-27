@@ -3,19 +3,19 @@
     <div class="space-y-4">
       <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('admin.accounts.bulkExport2fa.hint', { count: accountIds.length }) }}</p>
       <label class="flex items-center gap-2 text-sm">
-        <input v-model="includePassword" type="checkbox" :disabled="busy" @change="clearResult" />
+        <FormInput v-model="includePassword" type="checkbox" :disabled="busy" @change="clearResult" />
         {{ t('tokenGuardV2.totpManage.includePassword') }}
       </label>
       <p class="text-sm text-gray-500 dark:text-gray-400">{{ t(includePassword ? 'admin.accounts.bulkExport2fa.comboFormat' : 'admin.accounts.bulkExport2fa.secretFormat') }}</p>
-      <button type="button" class="btn btn-primary" data-testid="generate" :disabled="busy || !accountIds.length" @click="generate">
+      <BaseButton type="button" class="btn-primary" data-testid="generate" :disabled="busy || !accountIds.length" @click="generate">
         {{ t('admin.accounts.bulkExport2fa.generate') }}
-      </button>
+      </BaseButton>
       <p v-if="busy" role="status" class="text-sm">{{ t('admin.accounts.bulkExport2fa.progress', { done: completed, total: accountIds.length }) }}</p>
       <template v-if="finished">
         <p role="status" class="text-sm">{{ t('admin.accounts.bulkExport2fa.summary', { success: successCount, failed: failures.length }) }}</p>
         <label v-if="text" class="block text-sm">
           {{ t('admin.accounts.bulkExport2fa.backupText') }}
-          <textarea :value="text" readonly rows="10" spellcheck="false" autocomplete="off" class="input mt-2 w-full whitespace-pre font-mono" data-testid="backup-text" @focus="selectText" />
+          <FormTextarea :value="text" readonly rows="10" spellcheck="false" autocomplete="off" class="mt-2 w-full whitespace-pre font-mono" data-testid="backup-text" @focus="selectText" />
         </label>
         <div v-if="failures.length" class="max-h-40 overflow-auto text-sm text-amber-700 dark:text-amber-300" role="alert">
           <p>{{ t('admin.accounts.bulkExport2fa.failedHint') }}</p>
@@ -26,14 +26,17 @@
       </template>
     </div>
     <template #footer>
-      <button type="button" class="btn btn-secondary" @click="close">{{ t('common.close') }}</button>
-      <button type="button" class="btn btn-secondary" data-testid="copy" :disabled="!text || busy" @click="copyToClipboard(text)">{{ t('common.copy') }}</button>
-      <button type="button" class="btn btn-primary" data-testid="download" :disabled="!text || busy" @click="download">{{ t('admin.accounts.bulkExport2fa.download') }}</button>
+      <BaseButton type="button" class="btn-secondary" @click="close">{{ t('common.close') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary" data-testid="copy" :disabled="!text || busy" @click="copyToClipboard(text)">{{ t('common.copy') }}</BaseButton>
+      <BaseButton type="button" class="btn-primary" data-testid="download" :disabled="!text || busy" @click="download">{{ t('admin.accounts.bulkExport2fa.download') }}</BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

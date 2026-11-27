@@ -10,7 +10,7 @@
           provider.count === 0 ? 'cursor-not-allowed' : 'cursor-pointer'
         "
       >
-        <input
+        <FormInput
           type="radio"
           :name="name"
           :value="provider.value"
@@ -71,6 +71,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from "vue-i18n";
 import Icon from "@/components/icons/Icon.vue";
 import PlatformIcon from "@/components/common/PlatformIcon.vue";

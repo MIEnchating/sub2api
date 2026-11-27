@@ -44,31 +44,32 @@
     </div>
     <div class="flex flex-wrap justify-end gap-2">
       <template v-if="selectedIds.length > 0">
-        <button @click="$emit('delete')" class="btn btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</button>
-        <button @click="$emit('reset-status')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</button>
-        <button @click="$emit('refresh-token')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</button>
-        <button
+        <BaseButton @click="$emit('delete')" class="btn-danger btn-sm">{{ t('admin.accounts.bulkActions.delete') }}</BaseButton>
+        <BaseButton @click="$emit('reset-status')" class="btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.resetStatus') }}</BaseButton>
+        <BaseButton @click="$emit('refresh-token')" class="btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.refreshToken') }}</BaseButton>
+        <BaseButton
           @click="$emit('sync-upstream-models')"
           :title="t('admin.accounts.syncUpstreamModelsReplaceHint')"
           :disabled="syncingUpstreamModels || selectingAll"
-          class="btn btn-secondary btn-sm disabled:cursor-not-allowed disabled:opacity-60"
+          class="btn-secondary btn-sm disabled:cursor-not-allowed disabled:opacity-60"
         >
           {{ syncingUpstreamModels ? t('admin.accounts.bulkActions.syncUpstreamModelsLoading') : t('admin.accounts.bulkActions.syncUpstreamModels') }}
-        </button>
-        <button @click="$emit('probe-upstream-billing')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}</button>
-        <button @click="$emit('toggle-schedulable', true)" class="btn btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</button>
-        <button @click="$emit('toggle-schedulable', false)" class="btn btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</button>
-        <button @click="$emit('edit-selected')" class="btn btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</button>
-        <button v-if="canExport2fa" @click="$emit('export-2fa')" class="btn btn-secondary btn-sm">{{ t('admin.accounts.bulkExport2fa.title') }}</button>
+        </BaseButton>
+        <BaseButton @click="$emit('probe-upstream-billing')" class="btn-secondary btn-sm">{{ t('admin.accounts.bulkActions.probeUpstreamBilling') }}</BaseButton>
+        <BaseButton @click="$emit('toggle-schedulable', true)" class="btn-success btn-sm">{{ t('admin.accounts.bulkActions.enableScheduling') }}</BaseButton>
+        <BaseButton @click="$emit('toggle-schedulable', false)" class="btn-warning btn-sm">{{ t('admin.accounts.bulkActions.disableScheduling') }}</BaseButton>
+        <BaseButton @click="$emit('edit-selected')" class="btn-primary btn-sm">{{ t('admin.accounts.bulkActions.edit') }}</BaseButton>
+        <BaseButton v-if="canExport2fa" @click="$emit('export-2fa')" class="btn-secondary btn-sm">{{ t('admin.accounts.bulkExport2fa.title') }}</BaseButton>
       </template>
-      <button v-if="selectedIds.length === 0" @click="$emit('edit-filtered')" class="btn btn-primary btn-sm">
+      <BaseButton v-if="selectedIds.length === 0" @click="$emit('edit-filtered')" class="btn-primary btn-sm">
         {{ t('admin.accounts.bulkActions.editFiltered', { count: totalResults }) }}
-      </button>
+      </BaseButton>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useI18n } from 'vue-i18n'
 
 defineProps<{

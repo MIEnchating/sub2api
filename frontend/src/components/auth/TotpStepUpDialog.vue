@@ -53,20 +53,21 @@
           </div>
         </div>
 
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-secondary w-full"
+          class="btn-secondary w-full"
           :disabled="verifying"
           @click="handleCancel"
         >
           {{ t('common.cancel') }}
-        </button>
+        </BaseButton>
       </div>
     </div>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { ref, watch, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores'

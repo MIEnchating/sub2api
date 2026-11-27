@@ -199,6 +199,92 @@
     @apply mt-1 text-xs text-red-500;
   }
 
+  .form-choice {
+    @apply cursor-pointer accent-primary-600 disabled:cursor-not-allowed disabled:opacity-60;
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-primary-500;
+  }
+
+  :is(.select-control, select:where(.input)) {
+    @apply cursor-pointer;
+    @apply disabled:cursor-not-allowed disabled:opacity-60;
+  }
+
+  :is(.select-control, select:where(.input)):not(:is(.select-trigger-open, :open)) {
+    @apply enabled:hover:border-gray-300 dark:enabled:hover:border-dark-500;
+  }
+
+  :is(.select-control, select:where(.input)):focus,
+  :is(.select-control, select:where(.input)).select-trigger-open {
+    @apply border-primary-500 ring-2 ring-primary-500/30;
+  }
+
+  .select-surface {
+    @apply rounded-xl border border-gray-200 bg-white shadow-lg shadow-black/10;
+    @apply dark:border-dark-700 dark:bg-dark-800 dark:shadow-black/30;
+  }
+
+  .select-choice {
+    @apply cursor-pointer px-4 py-2.5 text-sm text-gray-700 transition-colors duration-150;
+    @apply hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-700;
+  }
+
+  .select-choice-selected {
+    @apply bg-primary-50 text-primary-700 dark:bg-primary-900/20 dark:text-primary-300;
+  }
+
+  @supports selector(::picker(select)) {
+    :is(.form-select, select:where(.input)):not([multiple], [size]),
+    :is(.form-select, select:where(.input)):not([multiple], [size])::picker(select) {
+      appearance: base-select;
+    }
+
+    :is(.form-select, select:where(.input)):not([multiple], [size])::picker(select) {
+      @apply select-surface max-h-80 overflow-y-auto py-1;
+      margin-block: 4px;
+      max-inline-size: calc(100dvw - 1rem);
+    }
+
+    :is(.form-select, select:where(.input))::picker-icon {
+      @apply text-gray-400 transition-transform duration-200 dark:text-dark-400;
+      content: "";
+      inline-size: 1rem;
+      block-size: 1rem;
+      align-self: center;
+      background-color: currentColor;
+      mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") center / contain no-repeat;
+    }
+
+    :is(.form-select, select:where(.input)):open {
+      @apply border-primary-500 ring-2 ring-primary-500/30;
+    }
+
+    :is(.form-select, select:where(.input)):open::picker-icon {
+      @apply rotate-180;
+    }
+
+    :is(.form-select, select:where(.input)):not([multiple], [size]) option {
+      @apply select-choice items-center gap-2;
+      white-space: normal;
+      overflow-wrap: anywhere;
+    }
+
+    :is(.form-select, select:where(.input)):not([multiple], [size]) option:checked {
+      @apply select-choice-selected;
+    }
+
+    :is(.form-select, select:where(.input)) option::checkmark {
+      @apply order-last ms-auto text-primary-500;
+    }
+
+    :is(.form-select, select:where(.input)):not([multiple], [size]) option:focus-visible {
+      @apply bg-gray-100 outline-none dark:bg-dark-700;
+    }
+
+    :is(.form-select, select:where(.input)):not([multiple], [size]) option:disabled {
+      @apply cursor-not-allowed opacity-40;
+    }
+  }
+
   /* Hide number input spinner buttons for cleaner UI */
   input[type='number']::-webkit-inner-spin-button,
   input[type='number']::-webkit-outer-spin-button {
@@ -314,6 +400,18 @@
 
   .table {
     @apply w-full text-sm;
+  }
+
+  :where(.data-table) {
+    @apply w-full text-left text-sm;
+  }
+
+  :where(.data-table > thead) {
+    @apply text-gray-600 dark:text-dark-300;
+  }
+
+  :where(.data-table > tbody) {
+    @apply text-gray-700 dark:text-gray-300;
   }
 
   .table th {
@@ -653,6 +751,16 @@
     @apply shadow-sm;
   }
 
+  :where(.tab-control) {
+    @apply shrink-0 rounded-lg px-4 py-2 text-sm font-medium text-gray-600 transition-colors dark:text-dark-400;
+    @apply hover:text-gray-900 dark:hover:text-white;
+    @apply focus-visible:outline focus-visible:outline-2 focus-visible:outline-primary-500;
+  }
+
+  :where(.tab-control[aria-selected='true']) {
+    @apply bg-white text-gray-900 shadow-sm dark:bg-dark-700 dark:text-white;
+  }
+
   /* ============ 进度条 ============ */
   .progress {
     @apply h-2 overflow-hidden rounded-full bg-gray-200 dark:bg-dark-700;
@@ -664,24 +772,46 @@
   }
 
   /* ============ 开关 ============ */
-  .switch {
-    @apply relative h-6 w-11 cursor-pointer rounded-full;
-    @apply bg-gray-300 dark:bg-dark-600;
-    @apply transition-colors duration-200;
+  .form-switch {
+    @apply relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full border-2 border-transparent;
+    @apply bg-gray-200 transition-colors duration-200 dark:bg-dark-600;
+    @apply focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 dark:focus-visible:ring-offset-dark-800;
+    @apply disabled:cursor-not-allowed disabled:opacity-50;
   }
 
-  .switch-active {
-    @apply bg-primary-500;
+  input.form-switch {
+    appearance: none;
   }
 
-  .switch-thumb {
-    @apply absolute left-0.5 top-0.5 h-5 w-5 rounded-full;
-    @apply bg-white shadow-sm;
-    @apply transition-transform duration-200;
+  .form-switch:is(:checked, [aria-checked='true']) {
+    @apply bg-primary-600;
   }
 
-  .switch-active .switch-thumb {
-    @apply translate-x-5;
+  .form-switch::after {
+    content: "";
+    @apply h-5 w-5 rounded-full bg-white shadow transition-transform duration-200;
+  }
+
+  .form-switch:is(:checked, [aria-checked='true'])::after {
+    transform: translateX(100%);
+  }
+
+  .form-switch-compact {
+    @apply h-5 w-9;
+  }
+
+  .form-switch-compact::after {
+    @apply h-4 w-4;
+  }
+
+  @media (forced-colors: active) {
+    .form-switch {
+      border-color: ButtonText;
+    }
+
+    .form-switch::after {
+      background-color: ButtonText;
+    }
   }
 
   /* ============ 代码块 ============ */

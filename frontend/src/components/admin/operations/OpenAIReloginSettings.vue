@@ -2,15 +2,15 @@
   <section id="relogin-service" class="card space-y-4 p-5">
     <h2 class="text-base font-semibold">{{ text('重登服务', 'Relogin service') }}</h2>
     <p class="text-sm text-gray-500">{{ text('供 2FA 首次登录和 Session Studio 重登使用。邮箱、密码与 2FA 密钥会发送到此地址，使用服务端出口。', 'Used by initial 2FA login and Session Studio. Email, password and 2FA secrets are sent to this endpoint through the server connection.') }}</p>
-    <button v-if="!draft" type="button" class="btn btn-secondary" :disabled="busy" @click="load">{{ text('编辑服务配置', 'Edit service configuration') }}</button>
+    <BaseButton v-if="!draft" type="button" class="btn-secondary" :disabled="busy" @click="load">{{ text('编辑服务配置', 'Edit service configuration') }}</BaseButton>
     <form v-else class="space-y-3" @submit.prevent="save">
       <label class="block text-sm">{{ text('HTTPS 重登地址', 'HTTPS relogin endpoint') }}
-        <input v-model.trim="draft.relogin_endpoint" type="url" required class="input mt-1 w-full" :disabled="busy" />
+        <FormInput v-model.trim="draft.relogin_endpoint" type="url" required class="mt-1 w-full" :disabled="busy" />
       </label>
       <label class="block text-sm">{{ text('额外请求头（JSON）', 'Additional headers (JSON)') }}
-        <textarea v-model="headers" rows="4" class="input mt-1 w-full font-mono" autocomplete="off" spellcheck="false" :disabled="busy" />
+        <FormTextarea v-model="headers" rows="4" class="mt-1 w-full font-mono" autocomplete="off" spellcheck="false" :disabled="busy" />
       </label>
-      <button type="submit" class="btn btn-primary" :disabled="busy">{{ text('保存', 'Save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="busy">{{ text('保存', 'Save') }}</BaseButton>
     </form>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="saved" role="status" class="text-sm text-green-600">{{ text('已保存', 'Saved') }}</p>
@@ -18,6 +18,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getReloginConfig, saveReloginConfig, type OpenAIReloginConfig } from '@/api/admin/openaiRelogin'

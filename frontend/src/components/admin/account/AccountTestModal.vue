@@ -123,14 +123,14 @@
           {{ imageUploadLabel }}
         </label>
         <div class="flex items-center gap-3">
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-secondary btn-sm shrink-0"
+            class="btn-secondary btn-sm shrink-0"
             :disabled="status === 'connecting'"
             @click="imageFileInput?.click()"
           >
             {{ t('admin.accounts.grok.chooseImageFile') }}
-          </button>
+          </BaseButton>
           <span class="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">
             {{
               uploadImageName
@@ -162,14 +162,14 @@
           {{ t('admin.accounts.grok.audioUploadLabel') }}
         </label>
         <div class="flex items-center gap-3">
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-secondary btn-sm shrink-0"
+            class="btn-secondary btn-sm shrink-0"
             :disabled="status === 'connecting'"
             @click="audioFileInput?.click()"
           >
             {{ t('admin.accounts.grok.chooseAudioFile') }}
-          </button>
+          </BaseButton>
           <span class="min-w-0 truncate text-xs text-gray-500 dark:text-gray-400">
             {{
               uploadAudioName
@@ -384,6 +384,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch, nextTick, onBeforeUnmount } from 'vue'
 import ExcelAuthorizationPanel from '@/components/account/ExcelAuthorizationPanel.vue'
 import AccountTestEvidence from '@/components/account/AccountTestEvidence.vue'

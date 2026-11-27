@@ -7,7 +7,7 @@
         {{ t(manual ? 'admin.accounts.pelicanTest.chooseModel' : 'admin.accounts.pelicanTest.enterModel') }}
       </button>
     </div>
-    <input v-if="manual" :id="id" class="input w-full" type="text" autocomplete="off"
+    <FormInput v-if="manual" :id="id" class="w-full" type="text" autocomplete="off"
       :value="modelValue" :disabled="disabled" :placeholder="t('admin.accounts.pelicanTest.modelPlaceholder')"
       data-testid="manual-model-input" @input="emit('update:modelValue', ($event.target as HTMLInputElement).value)" />
     <Select v-else :id="id" :model-value="modelValue" :options="options" searchable creatable
@@ -17,6 +17,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Select from '@/components/common/Select.vue'

@@ -2,12 +2,12 @@
   <section class="card space-y-4 p-6">
     <div class="flex flex-wrap items-center justify-between gap-3">
       <h2 class="text-lg font-semibold">{{ t('qqbot.bindingsTitle') }}</h2>
-      <button type="button" class="btn btn-secondary" :disabled="loading || unbinding" @click="load">{{ t('common.refresh') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="loading || unbinding" @click="load">{{ t('common.refresh') }}</BaseButton>
     </div>
     <p class="text-sm text-gray-500">{{ t('qqbot.bindingsHelp') }}</p>
     <form class="flex flex-wrap gap-2" @submit.prevent="searchBindings">
-      <input v-model="search" class="input min-w-0 flex-1" :aria-label="t('qqbot.bindingsSearch')" :placeholder="t('qqbot.bindingsSearch')" maxlength="254" />
-      <button class="btn btn-secondary" :disabled="loading || unbinding">{{ t('common.search') }}</button>
+      <FormInput v-model="search" class="min-w-0 flex-1" :aria-label="t('qqbot.bindingsSearch')" :placeholder="t('qqbot.bindingsSearch')" maxlength="254" />
+      <BaseButton class="btn-secondary" :disabled="loading || unbinding">{{ t('common.search') }}</BaseButton>
     </form>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="notice" role="status" class="text-sm text-green-700 dark:text-green-300">{{ notice }}</p>
@@ -26,7 +26,7 @@
       </article>
     </div>
     <div class="hidden overflow-x-auto md:block">
-      <table class="w-full min-w-[740px] text-left text-sm">
+      <BaseTable class="w-full min-w-[740px] text-left text-sm">
         <thead><tr><th class="pb-2 pr-4">{{ t('qqbot.websiteAccount') }}</th><th class="pb-2 pr-4">{{ t('qqbot.emailMember') }}</th><th class="pb-2 pr-4">{{ t('qqbot.group') }}</th><th class="pb-2 pr-4">{{ t('qqbot.boundAt') }}</th><th class="pb-2">{{ t('common.actions') }}</th></tr></thead>
         <tbody>
           <tr v-for="binding in data.items" :key="`${binding.app_id}:${binding.member_id}:${binding.created_at}`" class="border-t dark:border-dark-700">
@@ -34,17 +34,17 @@
             <td class="py-3 pr-4"><p class="max-w-48 break-all">{{ binding.nickname || 'QQ' }}</p><code class="block max-w-48 break-all text-xs">{{ binding.member_id }}</code></td>
             <td class="py-3 pr-4"><code class="block max-w-48 break-all text-xs">{{ binding.group_id }}</code></td>
             <td class="whitespace-nowrap py-3 pr-4 text-xs">{{ formatDate(binding.created_at) }}</td>
-            <td class="py-3"><button type="button" class="btn btn-secondary whitespace-nowrap text-red-600" :disabled="loading || unbinding" @click="selected = binding; dialogError = ''">{{ t('qqbot.unbind') }}</button></td>
+            <td class="py-3"><BaseButton type="button" class="btn-secondary whitespace-nowrap text-red-600" :disabled="loading || unbinding" @click="selected = binding; dialogError = ''">{{ t('qqbot.unbind') }}</BaseButton></td>
           </tr>
         </tbody>
-      </table>
+      </BaseTable>
     </div>
     <p v-if="!loading && !data.items.length" class="py-4 text-gray-500">{{ t('common.noData') }}</p>
     <div class="flex flex-wrap items-center justify-between gap-3 text-sm">
       <span>{{ t('qqbot.bindingPage', { total: data.total, page: data.page, pages: totalPages }) }}</span>
       <div class="flex gap-2">
-        <button type="button" class="btn btn-secondary" :disabled="loading || unbinding || data.page <= 1" @click="changePage(-1)">{{ t('qqbot.previousPage') }}</button>
-        <button type="button" class="btn btn-secondary" :disabled="loading || unbinding || data.page >= totalPages" @click="changePage(1)">{{ t('qqbot.nextPage') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="loading || unbinding || data.page <= 1" @click="changePage(-1)">{{ t('qqbot.previousPage') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary" :disabled="loading || unbinding || data.page >= totalPages" @click="changePage(1)">{{ t('qqbot.nextPage') }}</BaseButton>
       </div>
     </div>
     <BaseDialog :show="!!selected" :title="t('qqbot.unbindTitle')" width="narrow" :close-on-escape="!unbinding" :show-close-button="!unbinding" @close="closeDialog">
@@ -59,8 +59,8 @@
       </div>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button type="button" class="btn btn-secondary" :disabled="unbinding" @click="closeDialog">{{ t('common.cancel') }}</button>
-          <button type="button" class="btn btn-primary" :disabled="unbinding" @click="confirmUnbind">{{ unbinding ? t('common.loading') : t('qqbot.confirmUnbind') }}</button>
+          <BaseButton type="button" class="btn-secondary" :disabled="unbinding" @click="closeDialog">{{ t('common.cancel') }}</BaseButton>
+          <BaseButton type="button" class="btn-primary" :disabled="unbinding" @click="confirmUnbind">{{ unbinding ? t('common.loading') : t('qqbot.confirmUnbind') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -68,6 +68,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

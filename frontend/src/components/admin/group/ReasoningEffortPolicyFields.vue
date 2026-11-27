@@ -92,13 +92,12 @@
               <label :for="`${idPrefix}-${group.id}-model`" class="input-label">
                 {{ t("admin.groups.form.reasoningEffortModel") }}
               </label>
-              <input
+              <FormInput
                 :id="`${idPrefix}-${group.id}-model`"
                 :value="group.model"
                 type="text"
                 maxlength="200"
                 autocomplete="off"
-                class="input"
                 :placeholder="t('admin.groups.form.reasoningEffortModelPlaceholder')"
                 :aria-label="t('admin.groups.form.reasoningEffortModel')"
                 @input="onModelInput(group.id, $event)"
@@ -207,6 +206,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, ref } from "vue";
 import { useI18n } from "vue-i18n";
 import type { GroupPlatform } from "@/types";

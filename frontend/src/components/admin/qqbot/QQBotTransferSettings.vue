@@ -6,13 +6,13 @@
     <p v-if="dirty" class="text-sm text-amber-700">{{ t('qqbot.workspace.unsaved') }}</p>
     <form v-if="form" class="card space-y-5 p-6" @submit.prevent="save">
       <label class="flex items-center gap-2">
-        <input v-model="form.transfer_enabled" type="checkbox" />
+        <FormInput v-model="form.transfer_enabled" type="checkbox" />
         {{ t('qqbot.enableTransfer') }}
       </label>
       <div class="grid gap-4 sm:grid-cols-3">
         <label class="space-y-1">
           {{ t('qqbot.transferFeePercent') }}
-          <input
+          <FormInput
             v-model.number="form.transfer_fee_percent"
             data-testid="transfer-fee-percent"
             type="number"
@@ -20,42 +20,41 @@
             max="100"
             step="0.01"
             required
-            class="input"
           />
         </label>
         <label class="space-y-1">
           {{ t('qqbot.transferMinAmount') }}
-          <input
+          <FormInput
             v-model.number="form.transfer_min_amount"
             data-testid="transfer-min-amount"
             type="number"
             min="0"
             step="0.0001"
             required
-            class="input"
           />
         </label>
         <label class="space-y-1">
           {{ t('qqbot.transferMaxAmount') }}
-          <input
+          <FormInput
             v-model.number="form.transfer_max_amount"
             data-testid="transfer-max-amount"
             type="number"
             min="0"
             step="0.0001"
             required
-            class="input"
           />
         </label>
       </div>
       <p class="rounded-lg bg-gray-50 p-4 text-sm dark:bg-dark-800">{{ t('qqbot.transferRangeHelp') }}</p>
       <p class="text-sm text-gray-500">{{ t('qqbot.transferCommand') }}</p>
-      <button type="submit" class="btn btn-primary" :disabled="busy">{{ t('common.save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="busy">{{ t('common.save') }}</BaseButton>
     </form>
     <p v-else-if="!error">{{ t('common.loading') }}</p>
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { useQQDraft } from './useQQDraft'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

@@ -1,7 +1,7 @@
 <template>
   <BaseDialog :show="show" :title="t('channelMonitorV2.tests.galleryTitle', { group: groupName })" width="extra-wide" @close="$emit('close')">
     <template v-if="show">
-      <button v-if="selected" type="button" class="btn btn-secondary mb-4" data-testid="pelican-back" @click="selectedId = null">{{ t('channelMonitorV2.tests.backToAll') }}</button>
+      <BaseButton v-if="selected" type="button" class="btn-secondary mb-4" data-testid="pelican-back" @click="selectedId = null">{{ t('channelMonitorV2.tests.backToAll') }}</BaseButton>
       <div v-if="selected" data-testid="pelican-expanded">
         <p class="mb-3 text-sm text-gray-500">{{ accountLabel(selected.account_id) }} · {{ selected.model_id || '—' }}</p>
         <p v-if="selected.latency_ms != null && selected.latency_ms >= 0" class="mb-3 text-xs text-gray-500">{{ t('admin.tests.totalDuration', { seconds: Number((selected.latency_ms / 1000).toFixed(3)) }) }}</p>
@@ -40,6 +40,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

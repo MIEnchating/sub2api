@@ -2,30 +2,30 @@
   <section class="card space-y-3 p-4" data-test="moderation-user-summary">
     <h2 class="font-semibold">{{ t('admin.moderationUsers.listTitle') }}</h2>
     <div class="flex flex-wrap gap-2" role="tablist" :aria-label="t('admin.moderationUsers.listTitle')">
-      <button v-for="tab in tabs" :key="tab" :data-test="`filter-${tab}`" type="button" role="tab" class="btn btn-secondary" :aria-selected="filter === tab" @click="filter = tab; page = 1; load()">{{ t(`admin.moderationUsers.${tab}`) }}</button>
+      <TabButton v-for="tab in tabs" :key="tab" :data-test="`filter-${tab}`" type="button" class="btn btn-secondary" :aria-selected="filter === tab" @click="filter = tab; page = 1; load()">{{ t(`admin.moderationUsers.${tab}`) }}</TabButton>
     </div>
     <form class="flex flex-wrap items-end gap-2" @submit.prevent="page = 1; load()">
-      <label class="text-sm">UID<input v-model="uid" type="number" min="1" step="1" class="input" /></label>
-      <button type="submit" class="btn btn-secondary">{{ t('common.search') }}</button>
-      <button type="button" class="btn btn-secondary" @click="load">{{ t('common.refresh') }}</button>
+      <label class="text-sm">UID<FormInput v-model="uid" type="number" min="1" step="1" /></label>
+      <BaseButton type="submit" class="btn-secondary">{{ t('common.search') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary" @click="load">{{ t('common.refresh') }}</BaseButton>
     </form>
     <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
     <p v-else-if="busy" role="status">{{ t('common.loading') }}</p>
     <p v-else-if="items.length === 0" data-test="empty">{{ t('admin.moderationUsers.empty') }}</p>
     <div v-else class="overflow-x-auto">
-      <table class="w-full text-left text-sm">
+      <BaseTable class="w-full text-left text-sm">
         <thead><tr><th>UID</th><th>{{ t('admin.moderationUsers.exemptionTypes') }}</th><th>{{ t('admin.moderationUsers.state') }}</th><th>{{ t('admin.moderationUsers.reason') }}</th><th>{{ t('admin.moderationUsers.actor') }}</th><th>{{ t('admin.moderationUsers.time') }}</th><th></th></tr></thead>
         <tbody><tr v-for="item in items" :key="item.user_id">
           <td>{{ item.user_id }}</td><td>{{ exemptionLabels(item).join(' · ') || t('common.no') }}</td>
           <td>{{ item.status }} · {{ item.current_count }}</td><td class="max-w-xs break-words">{{ item.reason || '—' }}</td><td>{{ item.actor_id ?? '—' }}</td><td>{{ item.updated_at ? new Date(item.updated_at).toLocaleString() : '—' }}</td>
-          <td><button type="button" class="btn btn-secondary" @click="selected = item.user_id">{{ t('common.edit') }}</button></td>
+          <td><BaseButton type="button" class="btn-secondary" @click="selected = item.user_id">{{ t('common.edit') }}</BaseButton></td>
         </tr></tbody>
-      </table>
+      </BaseTable>
     </div>
     <div class="flex flex-wrap items-center gap-2">
-      <button type="button" class="btn btn-secondary" data-test="previous" :disabled="busy || page <= 1" @click="page--; load()">{{ t('pagination.previous') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-test="previous" :disabled="busy || page <= 1" @click="page--; load()">{{ t('pagination.previous') }}</BaseButton>
       <span>{{ page }} / {{ Math.max(1, Math.ceil(total / 20)) }} · {{ total }}</span>
-      <button type="button" class="btn btn-secondary" data-test="next" :disabled="busy || page * 20 >= total" @click="page++; load()">{{ t('common.next') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-test="next" :disabled="busy || page * 20 >= total" @click="page++; load()">{{ t('common.next') }}</BaseButton>
     </div>
     <BaseDialog :show="selected !== null" :title="t('admin.moderationUsers.title')" @close="selected = null">
       <ModerationUserPanel v-if="selected !== null" :key="selected" :user-id="selected" @changed="load" />
@@ -33,6 +33,10 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

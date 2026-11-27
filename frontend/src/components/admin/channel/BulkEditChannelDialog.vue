@@ -23,7 +23,7 @@
       <fieldset :disabled="saving || readingFile" class="space-y-5">
         <div>
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enableStatus" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-status-enabled" />
+            <FormInput v-model="enableStatus" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-status-enabled" />
             {{ t('admin.channels.form.status') }}
           </label>
           <Select v-if="enableStatus" v-model="status" :options="statusOptions" class="mt-2" data-testid="bulk-status" />
@@ -31,18 +31,18 @@
 
         <div>
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enableRestriction" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-restriction-enabled" />
+            <FormInput v-model="enableRestriction" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-restriction-enabled" />
             {{ t('admin.channels.form.restrictModels') }}
           </label>
           <label v-if="enableRestriction" class="mt-2 flex items-center gap-2 text-sm">
-            <input v-model="restrictModels" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-restrict-models" />
+            <FormInput v-model="restrictModels" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-restrict-models" />
             {{ t('admin.channels.form.restrictModelsHint') }}
           </label>
         </div>
 
         <div>
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enableBillingSource" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-billing-enabled" />
+            <FormInput v-model="enableBillingSource" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-billing-enabled" />
             {{ t('admin.channels.form.billingModelSource') }}
           </label>
           <Select v-if="enableBillingSource" v-model="billingSource" :options="billingOptions" class="mt-2" data-testid="bulk-billing-source" />
@@ -50,7 +50,7 @@
 
         <div class="border-t border-gray-200 pt-4 dark:border-dark-600">
           <label class="flex items-center gap-2 text-sm font-medium">
-            <input v-model="enablePricing" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-pricing-enabled" />
+            <FormInput v-model="enablePricing" type="checkbox" class="rounded border-gray-300 text-primary-600" data-testid="bulk-pricing-enabled" />
             {{ t('admin.channels.form.modelPricing') }}
           </label>
           <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.channels.bulkEdit.pricingHint') }}</p>
@@ -69,9 +69,9 @@
               <div class="flex flex-wrap items-end gap-3">
                 <div class="min-w-0 flex-1">
                   <label class="input-label" for="bulk-channel-pricing-template">{{ t('admin.channels.bulkEdit.template') }}</label>
-                  <select id="bulk-channel-pricing-template" v-model="templateId" class="input" @change="loadSourceTemplate">
+                  <FormSelect id="bulk-channel-pricing-template" v-model="templateId" @change="loadSourceTemplate">
                     <option v-for="channel in sourceChannels" :key="channel.id" :value="channel.id">{{ channel.name }}</option>
-                  </select>
+                  </FormSelect>
                 </div>
                 <label class="btn btn-secondary cursor-pointer">
                   {{ t('admin.channels.pricingTransfer.import') }}
@@ -93,9 +93,9 @@
               <p v-if="pricingPlatforms.length === 0" class="text-sm text-gray-500 dark:text-gray-400">{{ t('admin.channels.bulkEdit.noPricing') }}</p>
               <div v-for="section in pricingPlatforms" v-show="activePlatform === section.platform" :key="section.platform" class="space-y-2">
                 <div class="flex justify-end">
-                  <button type="button" class="btn btn-secondary btn-sm" data-testid="bulk-add-pricing" @click="addPricingEntry(section)">
+                  <BaseButton type="button" class="btn-secondary btn-sm" data-testid="bulk-add-pricing" @click="addPricingEntry(section)">
                     + {{ t('common.add') }}
-                  </button>
+                  </BaseButton>
                 </div>
                 <p v-if="section.entries.length === 0" class="text-xs text-amber-700 dark:text-amber-300">{{ t('admin.channels.bulkEdit.emptyPlatform') }}</p>
                 <PricingEntryCard :notice-user-id="noticeUserId"
@@ -124,22 +124,25 @@
 
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="requestClose">{{ t('common.cancel') }}</button>
-        <button
+        <BaseButton type="button" class="btn-secondary" :disabled="saving" @click="requestClose">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton
           type="submit"
           form="bulk-edit-channel-form"
-          class="btn btn-primary"
+          class="btn-primary"
           :disabled="saving || readingFile || !hasChanges || pendingTargets.length === 0"
           data-testid="bulk-channel-submit"
         >
           {{ saving ? t('common.saving') : failures.length ? t('admin.channels.bulkEdit.retryFailed') : t('admin.channels.bulkEdit.apply', { count: pendingTargets.length }) }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

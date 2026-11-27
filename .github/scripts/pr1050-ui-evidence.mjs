@@ -23,7 +23,7 @@ assertTemporary(output)
 mkdirSync(output, { recursive: true })
 const manifest = {
   base, capture_sha: head, candidate_tree: git('rev-parse', `${head}^{tree}`),
-  boundary: 'Complete git archive base/head trees; real CreateAccountModal, EditAccountModal, HeaderOverrideEditor and child components, native Tailwind theme/plugins/CSS and locales. Synthetic admin/account/credentials and a strict in-browser Axios adapter. Form-only group preview/toggle interactions and shared notice localStorage persistence. No full application navigation, login, server writes, real database, upstream discovery or paid requests. Baseline absence assertions are not business RED tests.',
+  boundary: 'Complete git archive base/head trees; real CreateAccountModal, EditAccountModal, HeaderOverrideEditor and child components, native Tailwind theme/plugins/CSS and locales. Synthetic admin/account/credentials and a strict in-browser Axios adapter. Form-only group preview/toggle interactions and absence of retired feature badges. No full application navigation, login, server writes, real database, upstream discovery or paid requests. Baseline absence assertions are not business RED tests.',
   fixture_sha256: sha256(readFileSync(join(repo, '.github/scripts/pr1050-ui-fixture.mjs'))),
   sources: {}, results: [], screenshots: [], console: [], errors: [], passed: false,
 }
@@ -188,19 +188,17 @@ try {
               assert.equal(await dialog().getByTestId('header-override-variables').count(), 0)
               result.observations.push('Original historical EditAccountModal has no group-sync switch or identity picker')
             } else {
-              assert.equal(await groupBadge().count(), 1)
-              assert.equal(await headerBadge(dialog()).count(), 1)
+              assert.equal(await groupBadge().count(), 0)
+              assert.equal(await headerBadge(dialog()).count(), 0)
               await sync('edit')
             }
             await capture('edit-group', editName)
             if (mode === 'after') {
               await capture('edit-header', dialog().getByTestId('header-override-variables'))
-              await headerBadge(dialog()).click()
               assert.equal(await headerBadge(page.getByTestId('fixture-header')).count(), 0)
-              assert.equal(await groupBadge().count(), 1, 'Header dismissal must leave group notice visible')
-              await groupBadge().click()
               assert.equal(await groupBadge().count(), 0)
-              result.observations.push('Header notice dismissal shared by real editor instances; group notice stays independent')
+              assert.equal(await groupBadge().count(), 0)
+              result.observations.push('Edit account and header controls render without feature badges')
             }
             await close()
             await open('create')
@@ -210,7 +208,7 @@ try {
               await absentGroupControls()
               result.observations.push('Original historical CreateAccountModal has no group-sync control')
             } else {
-              assert.equal(await groupBadge().count(), 0, 'Group dismissal must carry from Edit to Create')
+              assert.equal(await groupBadge().count(), 0)
               await sync('create')
             }
             await capture('create-group', createName)
@@ -218,9 +216,6 @@ try {
             const state = await snapshotState()
             assert.equal(state.previews.length, mode === 'after' ? 2 : 0)
             if (mode === 'after') {
-              const dismissed = await page.evaluate(() => JSON.parse(localStorage.getItem('sub2api:new-feature-notices:v1:1050')))
-              assert.ok(dismissed.includes('header-override-identity-variables'))
-              assert.ok(dismissed.includes('upstream-billing-group-sync'))
               await page.reload()
               await page.waitForFunction(() => window.__pr1050?.ready)
               assert.equal(await headerBadge(page.getByTestId('fixture-header')).count(), 0)
@@ -234,7 +229,7 @@ try {
               assert.equal(await groupBadge().count(), 0)
               await close()
               await snapshotState()
-              result.observations.push('Same synthetic admin after full page reload: both notice IDs remain dismissed in Edit/Create/Header entries')
+              result.observations.push('Same synthetic admin after full page reload: feature badges remain absent in Edit/Create/Header entries')
             }
             result.passed = true
           } catch (error) {

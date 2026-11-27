@@ -4,21 +4,23 @@
       <div>
         <h4 class="text-xs font-semibold text-gray-700 dark:text-gray-300">{{ t('accountOps.globalSettings') }}</h4>
         <div class="mt-3 flex flex-wrap items-center gap-x-6 gap-y-3">
-          <label class="flex items-center gap-2 text-sm"><input v-model="draft.balance_low" type="checkbox" data-testid="global-balance-low" @change="dirty = true" />{{ t('accountOps.balance_low') }}</label>
-          <label class="flex items-center gap-2 text-sm"><input v-model="draft.weekly_quota" type="checkbox" data-testid="global-weekly-quota" @change="dirty = true" />{{ t('accountOps.weekly_quota') }}</label>
+          <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.balance_low" type="checkbox" data-testid="global-balance-low" @change="dirty = true" />{{ t('accountOps.balance_low') }}</label>
+          <label class="flex items-center gap-2 text-sm"><FormInput v-model="draft.weekly_quota" type="checkbox" data-testid="global-weekly-quota" @change="dirty = true" />{{ t('accountOps.weekly_quota') }}</label>
           <label class="flex flex-wrap items-center gap-2 text-sm">
             <span>{{ t('accountOps.cooldown') }}</span>
-            <input v-model.number="draft.cooldown_minutes" type="number" min="5" max="1440" step="1" required class="input w-24 py-1.5 text-sm" data-testid="global-cooldown" @input="dirty = true" />
+            <FormInput v-model.number="draft.cooldown_minutes" type="number" min="5" max="1440" step="1" required class="w-24 py-1.5 text-sm" data-testid="global-cooldown" @input="dirty = true" />
             <span class="text-gray-500">{{ t('accountOps.minutes') }}</span>
           </label>
         </div>
       </div>
-      <button type="submit" :disabled="!dirty" class="btn btn-secondary py-1.5 text-sm">{{ t(busy ? 'common.loading' : 'accountOps.saveGlobalSettings') }}</button>
+      <BaseButton type="submit" :disabled="!dirty" class="btn-secondary py-1.5 text-sm">{{ t(busy ? 'common.loading' : 'accountOps.saveGlobalSettings') }}</BaseButton>
     </fieldset>
     <p class="mt-3 text-xs leading-5 text-gray-500">{{ t('accountOps.globalFailuresHint') }}</p>
   </form>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { saveAccountOpsNotificationSettings } from '@/api/admin/accountOps'

@@ -7,12 +7,11 @@
       class="flex gap-1 overflow-x-auto border-b border-gray-200 dark:border-dark-700"
       @keydown="handleKeydown"
     >
-      <button
+      <TabButton
         v-for="tab in tabs"
         :id="`account-platform-tab-${tab.platform || 'all'}`"
         :key="tab.platform"
         type="button"
-        role="tab"
         aria-controls="account-platform-panel"
         :aria-selected="modelValue === tab.platform"
         :tabindex="modelValue === tab.platform ? 0 : -1"
@@ -32,7 +31,7 @@
             ? 'bg-primary-100 text-primary-700 dark:bg-primary-900/40 dark:text-primary-300'
             : 'bg-gray-100 text-gray-500 dark:bg-dark-700 dark:text-gray-400'"
         >{{ tab.count }}</span>
-      </button>
+      </TabButton>
     </div>
     <p v-if="error" role="status" class="mt-2 text-xs text-amber-700 dark:text-amber-300">
       {{ t('admin.accounts.platformTabs.loadFailed') }}
@@ -44,6 +43,7 @@
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import PlatformIcon from '@/components/common/PlatformIcon.vue'

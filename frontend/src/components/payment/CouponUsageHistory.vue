@@ -3,17 +3,17 @@
     <h3 class="font-semibold">{{ t('coupon.usage') }} · {{ total }}</h3>
     <p class="text-sm text-gray-500">{{ t('coupon.usageHint') }}</p>
     <form class="flex flex-wrap gap-3" @submit.prevent="page = 1; load()">
-      <input v-model="search" :placeholder="t('coupon.usageSearch')" :aria-label="t('coupon.usageSearch')" class="input min-w-48 flex-1" />
-      <select v-model="status" :aria-label="t('coupon.status')" class="input w-auto">
+      <FormInput v-model="search" :placeholder="t('coupon.usageSearch')" :aria-label="t('coupon.usageSearch')" class="min-w-48 flex-1" />
+      <FormSelect v-model="status" :aria-label="t('coupon.status')" class="w-auto">
         <option value="">{{ t('coupon.all') }}</option>
         <option v-for="s in ['reserved', 'used', 'released', 'conflict', 'honored']" :key="s" :value="s">{{ t('coupon.' + s) }}</option>
-      </select>
-      <button class="btn btn-secondary" :disabled="loading">{{ t('common.search') }}</button>
+      </FormSelect>
+      <BaseButton class="btn-secondary" :disabled="loading">{{ t('common.search') }}</BaseButton>
     </form>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="loading" role="status" class="text-sm text-gray-500">{{ t('common.loading') }}</p>
     <div v-else class="overflow-x-auto">
-      <table class="w-full min-w-[680px] text-left text-sm">
+      <BaseTable class="w-full min-w-[680px] text-left text-sm">
         <thead><tr class="border-b dark:border-dark-700">
           <th class="p-3">{{ t('coupon.name') }}</th><th v-if="admin" class="p-3">{{ t('coupon.user') }}</th>
           <th class="p-3">{{ t('coupon.order') }}</th><th class="p-3">{{ t('coupon.status') }}</th>
@@ -26,13 +26,17 @@
           <td class="p-3">{{ r.currency }} {{ r.discount_amount.toFixed(2) }}<p v-if="r.bonus_amount">+ USD {{ r.bonus_amount.toFixed(2) }}</p></td>
           <td class="whitespace-nowrap p-3">{{ r.used_at ? new Date(r.used_at).toLocaleString() : '—' }}<p class="text-xs text-gray-500">{{ new Date(r.created_at).toLocaleString() }}</p></td>
         </tr></tbody>
-      </table>
+      </BaseTable>
       <p v-if="!rows.length" class="p-5 text-center text-gray-500">{{ t('coupon.noCoupons') }}</p>
     </div>
     <Pagination :page="page" :total="total" :page-size="20" @update:page="page = $event; load()" />
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Pagination from '@/components/common/Pagination.vue'

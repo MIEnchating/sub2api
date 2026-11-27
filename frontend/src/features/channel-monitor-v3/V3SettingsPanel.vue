@@ -31,7 +31,7 @@
               </div>
               <div>
                 <label class="input-label" for="monitor-v3-cells">{{ t('channelMonitorV3.admin.cells') }}</label>
-                <input id="monitor-v3-cells" v-model.number="draft.cells" type="number" min="30" max="120" class="input" />
+                <FormInput id="monitor-v3-cells" v-model.number="draft.cells" type="number" min="30" max="120" />
               </div>
             </div>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV3.admin.windowHint', { hours: windowHours, cells: draft.cells }) }}</p>
@@ -45,11 +45,11 @@
               <div class="mt-2 grid grid-cols-2 gap-3">
                 <div>
                   <label class="input-label" for="monitor-v3-down-rate">{{ t('channelMonitorV3.admin.downRate') }}</label>
-                  <input id="monitor-v3-down-rate" v-model.number="downPercent" type="number" min="1" max="100" step="1" class="input" />
+                  <FormInput id="monitor-v3-down-rate" v-model.number="downPercent" type="number" min="1" max="100" step="1" />
                 </div>
                 <div>
                   <label class="input-label" for="monitor-v3-degraded-rate">{{ t('channelMonitorV3.admin.degradedRate') }}</label>
-                  <input id="monitor-v3-degraded-rate" v-model.number="degradedPercent" type="number" min="1" max="100" step="1" class="input" />
+                  <FormInput id="monitor-v3-degraded-rate" v-model.number="degradedPercent" type="number" min="1" max="100" step="1" />
                 </div>
                 <div>
                   <label class="input-label">{{ t('channelMonitorV3.admin.ttft') }}</label>
@@ -57,7 +57,7 @@
                 </div>
                 <div>
                   <label class="input-label" for="monitor-v3-min">{{ t('channelMonitorV3.admin.minRequests') }}</label>
-                  <input id="monitor-v3-min" v-model.number="draft.min_requests" type="number" min="1" max="1000" class="input" />
+                  <FormInput id="monitor-v3-min" v-model.number="draft.min_requests" type="number" min="1" max="1000" />
                 </div>
               </div>
               <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV3.admin.rulesHint') }}</p>
@@ -89,13 +89,13 @@
             </div>
             <div>
               <label class="input-label" for="monitor-v3-footer">{{ t('channelMonitorV3.admin.footer') }}</label>
-              <textarea id="monitor-v3-footer" v-model="draft.footer_note" rows="2" maxlength="500" class="input" :placeholder="t('channelMonitorV3.page.defaultFooter')" />
+              <FormTextarea id="monitor-v3-footer" v-model="draft.footer_note" rows="2" maxlength="500" :placeholder="t('channelMonitorV3.page.defaultFooter')" />
             </div>
             <div class="flex items-center justify-between border-t border-gray-100 pt-4 dark:border-dark-700">
               <span class="text-xs text-gray-400">{{ dirty ? t('channelMonitorV3.admin.unsaved') : t('channelMonitorV3.admin.saved') }}</span>
-              <button type="button" class="btn btn-primary btn-sm" :disabled="!dirty || savingConfig" data-testid="monitor-v3-save-config" @click="saveConfig">
+              <BaseButton type="button" class="btn-primary btn-sm" :disabled="!dirty || savingConfig" data-testid="monitor-v3-save-config" @click="saveConfig">
                 {{ t('common.save') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -108,12 +108,12 @@
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('channelMonitorV3.admin.componentsHint') }}</p>
             </div>
             <div class="flex gap-2">
-              <button type="button" class="btn btn-secondary btn-sm" data-testid="monitor-v3-add-category" @click="openCategory(null)">
+              <BaseButton type="button" class="btn-secondary btn-sm" data-testid="monitor-v3-add-category" @click="openCategory(null)">
                 <Icon name="plus" size="xs" />{{ t('channelMonitorV3.admin.addCategory') }}
-              </button>
-              <button type="button" class="btn btn-primary btn-sm" data-testid="monitor-v3-add-component" @click="openComponent(null, null)">
+              </BaseButton>
+              <BaseButton type="button" class="btn-primary btn-sm" data-testid="monitor-v3-add-component" @click="openComponent(null, null)">
                 <Icon name="plus" size="xs" />{{ t('channelMonitorV3.admin.addComponent') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
 
@@ -225,17 +225,17 @@
       <form id="monitor-v3-category-form" class="space-y-4" @submit.prevent="saveCategory">
         <div>
           <label class="input-label" for="monitor-v3-category-name">{{ t('channelMonitorV3.admin.categoryName') }}</label>
-          <input id="monitor-v3-category-name" v-model="categoryEditor.name" class="input" maxlength="64" :placeholder="t('channelMonitorV3.admin.categoryNamePlaceholder')" data-testid="monitor-v3-category-name" />
+          <FormInput id="monitor-v3-category-name" v-model="categoryEditor.name" maxlength="64" :placeholder="t('channelMonitorV3.admin.categoryNamePlaceholder')" data-testid="monitor-v3-category-name" />
         </div>
         <div>
           <label class="input-label" for="monitor-v3-category-description">{{ t('channelMonitorV3.admin.categoryDescription') }}</label>
-          <input id="monitor-v3-category-description" v-model="categoryEditor.description" class="input" maxlength="500" :placeholder="t('channelMonitorV3.admin.categoryDescriptionPlaceholder')" />
+          <FormInput id="monitor-v3-category-description" v-model="categoryEditor.description" maxlength="500" :placeholder="t('channelMonitorV3.admin.categoryDescriptionPlaceholder')" />
         </div>
       </form>
       <template #footer>
         <div class="flex justify-end gap-2">
-          <button type="button" class="btn btn-secondary" @click="categoryEditor.show = false">{{ t('common.cancel') }}</button>
-          <button type="submit" form="monitor-v3-category-form" class="btn btn-primary" :disabled="!categoryEditor.name.trim()" data-testid="monitor-v3-category-save">{{ t('common.save') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="categoryEditor.show = false">{{ t('common.cancel') }}</BaseButton>
+          <BaseButton type="submit" form="monitor-v3-category-form" class="btn-primary" :disabled="!categoryEditor.name.trim()" data-testid="monitor-v3-category-save">{{ t('common.save') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -255,6 +255,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

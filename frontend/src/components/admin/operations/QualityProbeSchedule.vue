@@ -2,20 +2,22 @@
   <div class="space-y-2 text-sm" data-testid="quality-probe-schedule">
     <label class="block space-y-1">
       <span>{{ t('qualityOps.probeInterval') }}</span>
-      <select v-model="preset" class="input" data-testid="quality-probe-interval">
+      <FormSelect v-model="preset" data-testid="quality-probe-interval">
         <option v-for="option in presets" :key="option.cron" :value="option.cron">{{ t('qualityOps.probeEveryMinutes', { minutes: option.minutes }) }}</option>
         <option value="custom">{{ t('qualityOps.probeCustomSchedule') }}</option>
-      </select>
+      </FormSelect>
     </label>
     <label v-if="preset === 'custom'" class="block space-y-1">
       <span>{{ t('qualityOps.cron') }}</span>
-      <input v-model.trim="cron" required class="input font-mono" placeholder="*/2 * * * *" data-testid="quality-probe-cron" />
+      <FormInput v-model.trim="cron" required class="font-mono" placeholder="*/2 * * * *" data-testid="quality-probe-cron" />
     </label>
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('qualityOps.probeIntervalHint') }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 

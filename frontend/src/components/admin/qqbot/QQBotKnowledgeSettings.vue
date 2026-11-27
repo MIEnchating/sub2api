@@ -3,7 +3,7 @@
     <h2 class="text-lg font-semibold">{{ t('qqbot.knowledge.title') }}</h2>
     <p class="text-sm text-gray-500">{{ t('qqbot.knowledge.help') }}</p>
     <label class="flex items-center gap-2">
-      <input v-model="value.enabled" data-testid="knowledge-enabled" type="checkbox" />
+      <FormInput v-model="value.enabled" data-testid="knowledge-enabled" type="checkbox" />
       {{ t('qqbot.knowledge.enabled') }}
     </label>
     <label class="block space-y-2">
@@ -22,21 +22,21 @@
     </label>
     <div class="flex items-center justify-between gap-3">
       <h3 class="font-semibold">{{ t('qqbot.knowledge.entries') }}</h3>
-      <button type="button" class="btn btn-secondary" data-testid="knowledge-add" :disabled="entries.length >= 40" @click="addEntry">{{ t('qqbot.knowledge.add') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-testid="knowledge-add" :disabled="entries.length >= 40" @click="addEntry">{{ t('qqbot.knowledge.add') }}</BaseButton>
     </div>
     <p class="text-xs text-gray-500">{{ t('qqbot.knowledge.entriesHelp') }}</p>
     <article v-for="(entry, index) in entries" :key="entry.id" class="space-y-3 rounded-lg border p-4 dark:border-dark-700">
       <div class="flex flex-wrap items-center justify-between gap-3">
-        <label class="flex items-center gap-2 text-sm"><input v-model="entry.enabled" type="checkbox" :data-testid="`knowledge-entry-enabled-${index}`" />{{ t('qqbot.knowledge.entryEnabled') }}</label>
-        <button type="button" class="btn btn-secondary" :data-testid="`knowledge-remove-${index}`" @click="removeEntry(index)">{{ t('qqbot.knowledge.remove') }}</button>
+        <label class="flex items-center gap-2 text-sm"><FormInput v-model="entry.enabled" type="checkbox" :data-testid="`knowledge-entry-enabled-${index}`" />{{ t('qqbot.knowledge.entryEnabled') }}</label>
+        <BaseButton type="button" class="btn-secondary" :data-testid="`knowledge-remove-${index}`" @click="removeEntry(index)">{{ t('qqbot.knowledge.remove') }}</BaseButton>
       </div>
       <div class="grid gap-3 sm:grid-cols-2">
-        <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.entryTitle') }}</span><input v-model="entry.title" class="input" maxlength="120" :required="entry.enabled" :data-testid="`knowledge-entry-title-${index}`" /></label>
-        <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.category') }}</span><input v-model="entry.category" class="input" maxlength="60" :data-testid="`knowledge-entry-category-${index}`" /></label>
+        <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.entryTitle') }}</span><FormInput v-model="entry.title" maxlength="120" :required="entry.enabled" :data-testid="`knowledge-entry-title-${index}`" /></label>
+        <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.category') }}</span><FormInput v-model="entry.category" maxlength="60" :data-testid="`knowledge-entry-category-${index}`" /></label>
       </div>
-      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.keywords') }}</span><input :value="keywordDrafts[entry.id] ?? entry.keywords.join(', ')" class="input" :placeholder="t('qqbot.knowledge.keywordsPlaceholder')" :data-testid="`knowledge-entry-keywords-${index}`" @input="setKeywords(index, ($event.target as HTMLInputElement).value)" /></label>
-      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.entryContent') }}</span><textarea v-model="entry.content" class="input min-h-32" rows="5" :required="entry.enabled" :data-testid="`knowledge-entry-content-${index}`" /></label>
-      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.url') }}</span><input v-model="entry.url" class="input" type="url" maxlength="2048" :data-testid="`knowledge-entry-url-${index}`" /></label>
+      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.keywords') }}</span><FormInput :value="keywordDrafts[entry.id] ?? entry.keywords.join(', ')" :placeholder="t('qqbot.knowledge.keywordsPlaceholder')" :data-testid="`knowledge-entry-keywords-${index}`" @input="setKeywords(index, ($event.target as HTMLInputElement).value)" /></label>
+      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.entryContent') }}</span><FormTextarea v-model="entry.content" class="min-h-32" rows="5" :required="entry.enabled" :data-testid="`knowledge-entry-content-${index}`" /></label>
+      <label class="block space-y-1 text-sm"><span>{{ t('qqbot.knowledge.url') }}</span><FormInput v-model="entry.url" type="url" maxlength="2048" :data-testid="`knowledge-entry-url-${index}`" /></label>
       <p v-if="entry.updated_at" class="text-xs text-gray-500">{{ t('qqbot.knowledge.updatedAt') }}: {{ entry.updated_at }}</p>
     </article>
     <p id="qq-knowledge-count" data-testid="knowledge-count" class="text-xs text-gray-500">{{ t('qqbot.knowledge.count', { count: characterCount, max: maxCharacters }) }}</p>
@@ -46,6 +46,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QQSiteKnowledgeConfig } from '@/api/qqbot'

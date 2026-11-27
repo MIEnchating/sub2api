@@ -2,7 +2,7 @@
   <AppLayout>
     <QQCommunityNav />
     <div class="mx-auto max-w-6xl space-y-6">
-      <div class="flex items-center justify-between gap-3"><h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.overview') }}</h1><button class="btn btn-secondary" :disabled="loading" @click="load">{{ t('common.refresh') }}</button></div>
+      <div class="flex items-center justify-between gap-3"><h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.overview') }}</h1><BaseButton class="btn-secondary" :disabled="loading" @click="load">{{ t('common.refresh') }}</BaseButton></div>
       <section class="card flex flex-wrap items-center justify-between gap-4 border-primary-200 p-5"><div><h2 class="font-semibold">{{ t('qqbot.simple.setup') }}</h2><p class="mt-1 text-sm text-gray-500">{{ t('qqbot.simple.setupHelp') }}</p></div><div class="flex gap-2"><RouterLink to="/admin/qqbot/setup" class="btn btn-primary">{{ t('qqbot.simple.start') }}</RouterLink><RouterLink to="/admin/qqbot/records?tab=diagnostics" class="btn btn-secondary">{{ t('qqbot.simple.diagnostics') }}</RouterLink></div></section>
       <p v-if="error" role="alert" class="rounded-lg bg-red-50 p-4 text-red-700">{{ error }}</p>
       <template v-if="overview && config">
@@ -22,9 +22,9 @@
           <h2 class="text-lg font-semibold">{{ t('qqbot.workspace.diagnose') }}</h2>
           <p class="text-sm text-gray-500 dark:text-gray-400">{{ t('qqbot.workspace.diagnoseHelp') }}</p>
           <form class="grid items-end gap-3 md:grid-cols-[1fr_2fr_auto]" @submit.prevent="diagnose">
-            <select v-model="group" class="input" required :aria-label="t('qqbot.group')" data-testid="qq-diagnose-group"><option value="">{{ t('qqbot.workspace.chooseGroup') }}</option><option v-for="id in groups" :key="id" :value="id">{{ config.group_policies?.find(p => p.group_id === id)?.label || id }}</option></select>
+            <FormSelect v-model="group" required :aria-label="t('qqbot.group')" data-testid="qq-diagnose-group"><option value="">{{ t('qqbot.workspace.chooseGroup') }}</option><option v-for="id in groups" :key="id" :value="id">{{ config.group_policies?.find(p => p.group_id === id)?.label || id }}</option></FormSelect>
             <QQMemberPicker v-model="member" :group-id="group" :app-id="config.app_id" :disabled="diagnosing" @select="selectMember" />
-            <button class="btn btn-primary" :disabled="diagnosing">{{ t('qqbot.workspace.diagnoseAction') }}</button>
+            <BaseButton class="btn-primary" :disabled="diagnosing">{{ t('qqbot.workspace.diagnoseAction') }}</BaseButton>
           </form>
           <template v-if="diagnosis"><ul class="space-y-2 text-sm"><li v-for="check in diagnosis.checks" :key="check.code">{{ check.ok ? '✓' : '○' }} {{ check.message }}</li></ul><article v-for="job in diagnosis.jobs" :key="job.id" class="rounded border p-3 text-sm dark:border-dark-700"><p>{{ new Date(job.created_at).toLocaleString() }} · {{ job.kind }} · {{ job.status }}</p><p class="break-words [overflow-wrap:anywhere]">{{ job.decision_reason || job.error || job.trigger_reason }}</p></article><p v-if="!diagnosis.jobs.length" class="text-sm text-gray-500 dark:text-gray-400">{{ t('qqbot.workspace.noJobs') }}</p></template>
         </section>
@@ -33,6 +33,8 @@
   </AppLayout>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

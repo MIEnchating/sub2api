@@ -9,9 +9,9 @@
           <p class="text-xs text-gray-500" data-testid="record-count">{{ t('admin.accounts.pelicanTest.recordCount', { count: cards.length }) }}</p>
         </div>
         <div class="flex shrink-0 flex-wrap gap-2">
-          <button v-if="scopedAccount" type="button" class="btn btn-secondary" data-testid="show-all-records" @click="$emit('showAll')">{{ t('admin.accounts.pelicanTest.allAccountsHistory') }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="refreshing" @click="refresh">{{ t('common.refresh') }}</button>
-          <button type="button" class="btn btn-secondary" @click="$emit('close')">{{ t('common.close') }}</button>
+          <BaseButton v-if="scopedAccount" type="button" class="btn-secondary" data-testid="show-all-records" @click="$emit('showAll')">{{ t('admin.accounts.pelicanTest.allAccountsHistory') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" :disabled="refreshing" @click="refresh">{{ t('common.refresh') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" @click="$emit('close')">{{ t('common.close') }}</BaseButton>
         </div>
       </header>
       <p v-if="loadError" role="alert" class="mb-4 text-sm text-red-600">{{ loadError }}</p>
@@ -45,7 +45,7 @@
         </article>
       </div>
       <div v-else class="rounded-xl border border-dashed border-gray-300 bg-white py-20 text-center text-sm text-gray-500 dark:bg-dark-800">{{ t('admin.accounts.pelicanTest.noHistory') }}</div>
-      <button v-if="cards.length > visibleLimit" type="button" class="btn btn-secondary mt-4" data-testid="load-more" @click="showMore">{{ t('admin.accounts.pelicanTest.moreRecords') }}</button>
+      <BaseButton v-if="cards.length > visibleLimit" type="button" class="btn-secondary mt-4" data-testid="load-more" @click="showMore">{{ t('admin.accounts.pelicanTest.moreRecords') }}</BaseButton>
     </div>
     <div v-if="selected" class="fixed inset-0 z-[70] flex items-center justify-center bg-black/70 p-4" data-testid="record-detail" @click.self="selected = null">
       <div class="flex h-full w-full max-w-6xl flex-col overflow-hidden rounded-xl bg-white dark:bg-dark-800">
@@ -55,7 +55,7 @@
             <p>{{ sourceLabel(selected.record.source) }} · {{ selected.record.modelId || '—' }} / {{ selected.record.reasoningEffort || '—' }} · {{ duration(selected.record.durationMs) }}</p>
             <p class="text-xs text-gray-500">{{ formatDate(selected.record.startedAt) }}</p>
           </div>
-          <button type="button" class="btn btn-secondary" @click="selected = null">{{ t('common.close') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="selected = null">{{ t('common.close') }}</BaseButton>
         </header>
         <PelicanQuestionSnapshot :question="selected.record.pelicanQuestion" :actual-prompt="selected.record.actualPrompt" />
         <iframe v-if="selected.record.html" :srcdoc="selected.record.html" class="min-h-0 w-full flex-1 border-0" sandbox="allow-scripts" referrerpolicy="no-referrer" :title="selected.account.name" />
@@ -66,6 +66,7 @@
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import PelicanQuestionSnapshot from './PelicanQuestionSnapshot.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

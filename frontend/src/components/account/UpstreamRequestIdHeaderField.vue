@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import HelpTooltip from '@/components/common/HelpTooltip.vue'
@@ -67,11 +68,10 @@ const examples = computed<HeaderExample[]>(() => {
         </template>
       </HelpTooltip>
     </div>
-    <input
+    <FormInput
       v-model="model"
       data-testid="upstream-request-id-header"
       type="text"
-      class="input"
       :placeholder="t('admin.accounts.upstreamRequestIdHeaderPlaceholder')"
     />
   </div>

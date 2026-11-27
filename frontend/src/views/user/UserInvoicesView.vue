@@ -20,9 +20,9 @@
               <p class="mt-1 text-2xl font-semibold">¥{{ availableAmount.toFixed(2) }}</p>
               <p class="mt-1 text-xs">{{ t('invoice.threshold', { amount: config.min_amount.toFixed(2) }) }}</p>
             </div>
-            <button type="button" class="btn btn-secondary" :disabled="loading || submitting" @click="refresh">
+            <BaseButton type="button" class="btn-secondary" :disabled="loading || submitting" @click="refresh">
               <Icon name="refresh" :class="loading ? 'animate-spin' : ''" />{{ t('common.refresh') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
         <p v-if="!loading && !config.enabled" role="status" class="mt-4 rounded-xl bg-amber-50 p-4 text-sm text-amber-800 dark:bg-amber-900/20 dark:text-amber-300">{{ t('invoice.disabled') }}</p>
@@ -33,24 +33,24 @@
           <div><h2 class="font-semibold">{{ t('invoice.eligibleOrders') }}</h2><p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.selectionHint') }}</p></div>
           <div class="flex flex-wrap items-center gap-4">
             <div class="text-sm"><p class="text-gray-500 dark:text-gray-400">{{ t('invoice.selected', { count: selectedOrders.size }) }}</p><p class="mt-1 text-xl font-semibold text-primary-600 dark:text-primary-400">¥{{ selectedAmount.toFixed(2) }} <span class="text-sm font-normal text-gray-400">/ ¥{{ config.min_amount.toFixed(2) }}</span></p><p v-if="selectedOrders.size" data-testid="invoice-fee-preview" class="mt-1 text-gray-500 dark:text-gray-400">{{ t('invoice.feeAmount') }}: {{ selectedFee.toFixed(2) }}</p></div>
-            <button type="button" data-testid="invoice-open-form" class="btn btn-primary" :disabled="!canApply" @click="openForm"><Icon name="document" />{{ t('invoice.openForm') }}</button>
+            <BaseButton type="button" data-testid="invoice-open-form" class="btn-primary" :disabled="!canApply" @click="openForm"><Icon name="document" />{{ t('invoice.openForm') }}</BaseButton>
           </div>
         </div>
         <div class="overflow-x-auto">
-          <table class="w-full min-w-[720px] text-left text-sm">
+          <BaseTable class="w-full min-w-[720px] text-left text-sm">
             <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400"><tr>
-              <th class="w-12 px-5 py-3"><input data-testid="invoice-select-page" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="t('invoice.selectPage')" :checked="allPageSelected" :disabled="ordersLoading || submitting || !orders.length" @change="togglePage" /></th>
+              <th class="w-12 px-5 py-3"><FormInput data-testid="invoice-select-page" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="t('invoice.selectPage')" :checked="allPageSelected" :disabled="ordersLoading || submitting || !orders.length" @change="togglePage" /></th>
               <th class="px-4 py-3 font-medium">{{ t('invoice.orderId') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.paidAmount') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.completedAt') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.status') }}</th>
             </tr></thead>
             <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
               <tr v-if="ordersLoading"><td colspan="5" class="p-8 text-center text-gray-400">{{ t('common.loading') }}</td></tr>
               <tr v-else-if="!orders.length"><td colspan="5" class="p-10 text-center text-gray-400">{{ t('invoice.noOrders') }}</td></tr>
               <tr v-for="order in ordersLoading ? [] : orders" :key="order.id" class="hover:bg-gray-50/70 dark:hover:bg-dark-800/60">
-                <td class="px-5 py-4"><input :data-testid="`invoice-order-${order.id}`" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="`${t('invoice.orderId')} #${order.id}`" :checked="selectedOrders.has(order.id)" :disabled="submitting" @change="toggleOrder(order)" /></td>
+                <td class="px-5 py-4"><FormInput :data-testid="`invoice-order-${order.id}`" type="checkbox" class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500" :aria-label="`${t('invoice.orderId')} #${order.id}`" :checked="selectedOrders.has(order.id)" :disabled="submitting" @change="toggleOrder(order)" /></td>
                 <td class="px-4 py-4 font-mono">#{{ order.id }}</td><td class="px-4 py-4 font-semibold">¥{{ order.pay_amount.toFixed(2) }}</td><td class="whitespace-nowrap px-4 py-4 text-gray-500 dark:text-gray-400">{{ formatOrderDateTime(order.completed_at || '') }}</td><td class="px-4 py-4"><span class="whitespace-nowrap rounded-full bg-primary-50 px-2.5 py-1 text-xs text-primary-700 dark:bg-primary-900/20 dark:text-primary-300">{{ t('invoice.eligible') }}</span></td>
               </tr>
             </tbody>
-          </table>
+          </BaseTable>
         </div>
         <div class="flex flex-wrap items-center justify-between gap-3 border-t border-gray-100 p-4 dark:border-dark-700">
           <button type="button" class="text-sm text-gray-500 hover:text-primary-600 disabled:opacity-50" :disabled="!selectedOrders.size || submitting" @click="selectedOrders = new Map()">{{ t('invoice.clearSelection') }}</button>
@@ -60,14 +60,14 @@
 
       <section class="card overflow-hidden">
         <h2 class="border-b border-gray-100 p-5 font-semibold dark:border-dark-700">{{ t('invoice.history') }}</h2>
-        <div class="overflow-x-auto"><table class="w-full min-w-[840px] text-left text-sm">
+        <div class="overflow-x-auto"><BaseTable class="w-full min-w-[840px] text-left text-sm">
           <thead class="bg-gray-50 text-gray-500 dark:bg-dark-800 dark:text-gray-400"><tr><th class="px-5 py-3 font-medium">{{ t('invoice.requestId') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.invoiceTitle') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.amount') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.status') }}</th><th class="px-4 py-3 font-medium">{{ t('invoice.createdAt') }}</th><th class="px-4 py-3 font-medium">{{ t('common.actions') }}</th></tr></thead>
           <tbody class="divide-y divide-gray-100 dark:divide-dark-700">
             <tr v-if="historyLoading"><td colspan="6" class="p-8 text-center text-gray-400">{{ t('common.loading') }}</td></tr>
             <tr v-else-if="!requests.length"><td colspan="6" class="p-10 text-center text-gray-400">{{ t('invoice.noRequests') }}</td></tr>
             <tr v-for="request in historyLoading ? [] : requests" :key="request.id"><td class="px-5 py-4 font-mono">#{{ request.id }}</td><td class="max-w-64 break-words px-4 py-4">{{ request.title }}</td><td class="px-4 py-4 font-semibold">¥{{ request.amount.toFixed(2) }}</td><td class="px-4 py-4"><InvoiceStatusBadge :status="request.status" /></td><td class="whitespace-nowrap px-4 py-4 text-gray-500 dark:text-gray-400">{{ formatOrderDateTime(request.created_at) }}</td><td class="px-4 py-4"><div class="flex items-center gap-3 whitespace-nowrap"><button class="text-primary-600 hover:underline dark:text-primary-400" @click="selectedRequest = request">{{ t('common.view') }}</button><button v-if="request.status === 'issued'" class="inline-flex items-center gap-1 text-primary-600 disabled:opacity-50 dark:text-primary-400" :disabled="downloadingIds.has(request.id)" @click="download(request)"><Icon name="download" size="sm" />{{ t('invoice.download') }}</button></div></td></tr>
           </tbody>
-        </table></div>
+        </BaseTable></div>
         <Pagination v-if="historyPagination.total > 0" :page="historyPagination.page" :total="historyPagination.total" :page-size="historyPagination.page_size" class="p-4" @update:page="changeHistoryPage" @update:page-size="changeHistoryPageSize" />
       </section>
     </div>
@@ -83,22 +83,26 @@
         </div>
         <fieldset :disabled="submitting" class="space-y-5">
           <div><p class="input-label">{{ t('invoice.buyerType') }}</p><div class="mt-2 grid gap-3 sm:grid-cols-2">
-            <label class="flex cursor-pointer items-start gap-3 rounded-xl border p-4" :class="form.buyer_type === 'personal' ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-900/10' : 'border-gray-200 dark:border-dark-600'"><input v-model="form.buyer_type" type="radio" value="personal" name="buyer_type" class="mt-1 text-primary-600 focus:ring-primary-500" /><span><span class="font-medium">{{ t('invoice.personal') }}</span><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.personalHint') }}</span></span></label>
-            <label class="flex cursor-pointer items-start gap-3 rounded-xl border p-4" :class="form.buyer_type === 'company' ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-900/10' : 'border-gray-200 dark:border-dark-600'"><input v-model="form.buyer_type" type="radio" value="company" name="buyer_type" class="mt-1 text-primary-600 focus:ring-primary-500" /><span><span class="font-medium">{{ t('invoice.company') }}</span><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.companyHint') }}</span></span></label>
+            <label class="flex cursor-pointer items-start gap-3 rounded-xl border p-4" :class="form.buyer_type === 'personal' ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-900/10' : 'border-gray-200 dark:border-dark-600'"><FormInput v-model="form.buyer_type" type="radio" value="personal" name="buyer_type" class="mt-1 text-primary-600 focus:ring-primary-500" /><span><span class="font-medium">{{ t('invoice.personal') }}</span><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.personalHint') }}</span></span></label>
+            <label class="flex cursor-pointer items-start gap-3 rounded-xl border p-4" :class="form.buyer_type === 'company' ? 'border-primary-500 bg-primary-50/50 dark:bg-primary-900/10' : 'border-gray-200 dark:border-dark-600'"><FormInput v-model="form.buyer_type" type="radio" value="company" name="buyer_type" class="mt-1 text-primary-600 focus:ring-primary-500" /><span><span class="font-medium">{{ t('invoice.company') }}</span><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.companyHint') }}</span></span></label>
           </div></div>
-          <div class="grid gap-4 sm:grid-cols-2"><label class="block"><span class="input-label">{{ t('invoice.invoiceTitle') }}</span><input v-model="form.title" data-testid="invoice-title" class="input mt-1" maxlength="200" required :placeholder="t(form.buyer_type === 'personal' ? 'invoice.personalPlaceholder' : 'invoice.companyPlaceholder')" /></label><label class="block"><span class="input-label">{{ t('invoice.taxId') }} <span v-if="form.buyer_type === 'personal'" class="font-normal text-gray-400">({{ t('invoice.optional') }})</span></span><input v-model="form.tax_id" data-testid="invoice-tax-id" class="input mt-1" maxlength="30" pattern="[A-Za-z0-9]*" :required="form.buyer_type === 'company'" /></label></div>
-          <label class="block"><span class="input-label">{{ t('invoice.emails') }}</span><input v-model="form.emails" data-testid="invoice-emails" class="input mt-1" maxlength="2600" required :placeholder="t('invoice.emailsPlaceholder')" /><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.emailsHint') }}</span></label>
-          <label class="block"><span class="input-label">{{ t('invoice.remark') }}</span><textarea v-model="form.remark" data-testid="invoice-remark" class="input mt-1" rows="3" maxlength="2000" :placeholder="t('invoice.remarkPlaceholder')" /></label>
+          <div class="grid gap-4 sm:grid-cols-2"><label class="block"><span class="input-label">{{ t('invoice.invoiceTitle') }}</span><FormInput v-model="form.title" data-testid="invoice-title" class="mt-1" maxlength="200" required :placeholder="t(form.buyer_type === 'personal' ? 'invoice.personalPlaceholder' : 'invoice.companyPlaceholder')" /></label><label class="block"><span class="input-label">{{ t('invoice.taxId') }} <span v-if="form.buyer_type === 'personal'" class="font-normal text-gray-400">({{ t('invoice.optional') }})</span></span><FormInput v-model="form.tax_id" data-testid="invoice-tax-id" class="mt-1" maxlength="30" pattern="[A-Za-z0-9]*" :required="form.buyer_type === 'company'" /></label></div>
+          <label class="block"><span class="input-label">{{ t('invoice.emails') }}</span><FormInput v-model="form.emails" data-testid="invoice-emails" class="mt-1" maxlength="2600" required :placeholder="t('invoice.emailsPlaceholder')" /><span class="mt-1 block text-sm text-gray-500 dark:text-gray-400">{{ t('invoice.emailsHint') }}</span></label>
+          <label class="block"><span class="input-label">{{ t('invoice.remark') }}</span><FormTextarea v-model="form.remark" data-testid="invoice-remark" class="mt-1" rows="3" maxlength="2000" :placeholder="t('invoice.remarkPlaceholder')" /></label>
         </fieldset>
       </form>
-      <template #footer><div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="submitting" @click="closeForm">{{ t('common.cancel') }}</button><button type="submit" form="invoice-request-form" data-testid="invoice-submit" class="btn btn-primary" :disabled="submitting || !canApply || insufficientBalance">{{ submitting ? t('common.processing') : t('invoice.submit') }}</button></div></template>
+      <template #footer><div class="flex justify-end gap-3"><BaseButton type="button" class="btn-secondary" :disabled="submitting" @click="closeForm">{{ t('common.cancel') }}</BaseButton><BaseButton type="submit" form="invoice-request-form" data-testid="invoice-submit" class="btn-primary" :disabled="submitting || !canApply || insufficientBalance">{{ submitting ? t('common.processing') : t('invoice.submit') }}</BaseButton></div></template>
     </BaseDialog>
 
-    <BaseDialog :show="!!selectedRequest" :title="t('invoice.detail')" width="wide" @close="selectedRequest = null"><InvoiceRequestDetails v-if="selectedRequest" :request="selectedRequest" /><template #footer><div class="flex justify-end"><button v-if="selectedRequest?.status === 'issued'" class="btn btn-primary" :disabled="downloadingIds.has(selectedRequest.id)" @click="download(selectedRequest)"><Icon name="download" />{{ t('invoice.download') }}</button></div></template></BaseDialog>
+    <BaseDialog :show="!!selectedRequest" :title="t('invoice.detail')" width="wide" @close="selectedRequest = null"><InvoiceRequestDetails v-if="selectedRequest" :request="selectedRequest" /><template #footer><div class="flex justify-end"><BaseButton v-if="selectedRequest?.status === 'issued'" class="btn-primary" :disabled="downloadingIds.has(selectedRequest.id)" @click="download(selectedRequest)"><Icon name="download" />{{ t('invoice.download') }}</BaseButton></div></template></BaseDialog>
   </AppLayout>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { invoiceAPI, saveInvoicePDF } from '@/api/invoices'

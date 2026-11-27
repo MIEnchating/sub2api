@@ -30,7 +30,7 @@ func TestAccountProtectionBulkProxyRechecksLockedState(t *testing.T) {
 	mock.ExpectRollback()
 	primary := int64(10)
 	_, err = newAccountRepositoryWithSQL(client, db, nil).BulkUpdate(context.Background(), []int64{1, 2}, service.AccountBulkUpdate{
-		ProxyID: &primary, ProxyIDs: &[]int64{10, 20},
+		ProxyID: &primary, Extra: map[string]any{"proxy_mode": "random"},
 	})
 	require.ErrorIs(t, err, service.ErrProtectedProxyModeChange)
 	require.NoError(t, mock.ExpectationsWereMet())

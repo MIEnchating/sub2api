@@ -309,8 +309,6 @@ type RateLimitCacheInvalidator interface {
 
 type APIKeyService struct {
 	groupAntiDistillation     *GroupAntiDistillationService
-	autoCredit                AutoCreditRepository
-	autoCreditBilling         *BillingCacheService
 	balanceRejectionNotifier  BalanceRejectionNotifier
 	localAuth                 *RegionalAuthReader
 	regionalAuthRuntime       *regionalSchedulerRuntime

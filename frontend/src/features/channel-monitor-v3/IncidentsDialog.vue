@@ -39,9 +39,9 @@
       <div class="flex w-full items-center justify-between gap-3 text-xs text-gray-500 dark:text-gray-400">
         <span>{{ t('channelMonitorV3.incidents.total', { count: total }) }}</span>
         <div class="flex items-center gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || page <= 1" @click="load(page - 1)">{{ t('channelMonitorV3.incidents.prev') }}</button>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading || page <= 1" @click="load(page - 1)">{{ t('channelMonitorV3.incidents.prev') }}</BaseButton>
           <span class="tabular-nums">{{ page }} / {{ pages }}</span>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || page >= pages" @click="load(page + 1)">{{ t('channelMonitorV3.incidents.next') }}</button>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading || page >= pages" @click="load(page + 1)">{{ t('channelMonitorV3.incidents.next') }}</BaseButton>
         </div>
       </div>
     </template>
@@ -49,6 +49,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

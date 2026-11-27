@@ -1,6 +1,6 @@
 <template>
   <section class="card space-y-4 p-5" :aria-label="t('qqbot.simple.diagnostics')">
-    <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('qqbot.simple.diagnostics') }}</h2><button type="button" class="btn btn-secondary" :disabled="busy" @click="load">{{ t('common.refresh') }}</button></div>
+    <div class="flex flex-wrap items-center justify-between gap-3"><h2 class="text-lg font-semibold">{{ t('qqbot.simple.diagnostics') }}</h2><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="load">{{ t('common.refresh') }}</BaseButton></div>
     <p class="text-sm text-gray-500">{{ t('qqbot.simple.checksHelp') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="running" role="status" class="text-sm text-primary-600">{{ t('qqbot.simple.probing', { name: probeLabel(running) }) }}</p>
@@ -12,11 +12,12 @@
         <RouterLink v-else :to="check.action" class="text-primary-600 underline">{{ t('qqbot.simple.inspect') }}</RouterLink>
       </li>
     </ul>
-    <button type="button" class="btn btn-primary" :disabled="busy || !pending.length" @click="run(pending)">{{ t('qqbot.simple.runChecks') }}</button>
+    <BaseButton type="button" class="btn-primary" :disabled="busy || !pending.length" @click="run(pending)">{{ t('qqbot.simple.runChecks') }}</BaseButton>
     <p class="text-xs text-gray-500">{{ t('qqbot.simple.testCost') }}</p>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, onMounted, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQSetupReadiness } from '@/api/qqbot'

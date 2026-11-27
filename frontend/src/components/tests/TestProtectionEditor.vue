@@ -1,7 +1,7 @@
 <template>
   <fieldset class="space-y-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700" data-protection-editor>
     <label class="flex items-center gap-2 text-sm font-semibold text-gray-900 dark:text-white">
-      <input :checked="modelValue.enabled" type="checkbox" data-protection-enabled @change="setEnabled(($event.target as HTMLInputElement).checked)" />
+      <FormInput :checked="modelValue.enabled" type="checkbox" data-protection-enabled @change="setEnabled(($event.target as HTMLInputElement).checked)" />
       {{ t('admin.tests.protection.title') }}
     </label>
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ t(allPass ? 'admin.tests.protection.allPass.description' : combined ? 'admin.tests.protection.combined.description' : 'admin.tests.protection.description') }}</p>
@@ -9,17 +9,17 @@
       <details :open="!allPass" class="rounded-lg border border-gray-200 p-3 dark:border-dark-700" data-decision-mode>
         <summary class="cursor-pointer text-sm font-medium">{{ t('admin.tests.experience.modeAdvanced') }} · {{ t(allPass ? 'admin.tests.protection.allPass.title' : combined ? 'admin.tests.protection.combined.title' : 'admin.tests.protection.combined.perTest') }}</summary>
       <label class="input-label block">{{ t('admin.tests.protection.combined.mode') }}
-        <select :value="modelValue.mode || 'per_test'" class="input mt-1 w-full" data-protection-mode @change="setMode(($event.target as HTMLSelectElement).value as NonNullable<TestProtectionConfig['mode']>)">
+        <FormSelect :value="modelValue.mode || 'per_test'" class="mt-1 w-full" data-protection-mode @change="setMode(($event.target as HTMLSelectElement).value as NonNullable<TestProtectionConfig['mode']>)">
           <option value="all_pass">{{ t('admin.tests.protection.allPass.title') }}</option>
           <option value="per_test">{{ t('admin.tests.protection.combined.perTest') }}</option>
           <option value="combined">{{ t('admin.tests.protection.combined.title') }}</option>
-        </select>
+        </FormSelect>
       </label>
       </details>
       <div v-if="allPass" class="space-y-3" data-all-pass-policy>
         <p class="rounded-lg bg-blue-50 p-3 text-sm leading-relaxed text-blue-800 dark:bg-blue-950/30 dark:text-blue-200">{{ t('admin.tests.protection.allPass.modeHint') }}</p>
         <label class="input-label block">{{ t('admin.tests.protection.allPass.requiredConsecutivePasses') }}
-          <input :value="modelValue.required_consecutive_passes ?? 1" type="number" min="1" max="100" step="1" class="input mt-1 w-32" data-all-pass-consecutive @input="update(next => { next.required_consecutive_passes = ($event.target as HTMLInputElement).valueAsNumber })" />
+          <FormInput :value="modelValue.required_consecutive_passes ?? 1" type="number" min="1" max="100" step="1" class="mt-1 w-32" data-all-pass-consecutive @input="update(next => { next.required_consecutive_passes = ($event.target as HTMLInputElement).valueAsNumber })" />
         </label>
         <p class="text-xs text-gray-500 dark:text-gray-400" data-all-pass-consecutive-hint>{{ t('admin.tests.protection.allPass.consecutiveHint') }}</p>
         <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.allPass.newChecksHint') }}</p>
@@ -38,66 +38,66 @@
         <template v-if="allPass">
           <h4 class="text-sm font-medium text-gray-900 dark:text-white">{{ type.name }}</h4>
           <label class="input-label block">{{ t('admin.tests.protection.allPass.role') }}
-            <select :value="ruleRole(type.id)" :disabled="!type.enabled && !ruleFor(type.id)" class="input mt-1 w-full" data-rule-role @change="setRuleRole(type, ($event.target as HTMLSelectElement).value as AllPassRole)">
+            <FormSelect :value="ruleRole(type.id)" :disabled="!type.enabled && !ruleFor(type.id)" class="mt-1 w-full" data-rule-role @change="setRuleRole(type, ($event.target as HTMLSelectElement).value as AllPassRole)">
               <option value="automatic" :disabled="!type.enabled">{{ t('admin.tests.protection.allPass.automatic') }}</option>
               <option v-if="canReview(type)" value="review" :disabled="!type.enabled">{{ t('admin.tests.protection.allPass.review') }}</option>
               <option value="observe">{{ t('admin.tests.protection.allPass.observe') }}</option>
-            </select>
+            </FormSelect>
           </label>
           <p class="text-xs text-gray-500 dark:text-gray-400" data-rule-role-hint>{{ t(`admin.tests.protection.allPass.${ruleRole(type.id)}Hint`) }}</p>
         </template>
         <label v-else class="flex items-center gap-2 text-sm font-medium text-gray-900 dark:text-white">
-          <input :checked="!!ruleFor(type.id)" type="checkbox" :disabled="!type.enabled && !ruleFor(type.id)" data-rule-enabled @change="toggleRule(type, ($event.target as HTMLInputElement).checked)" />{{ type.name }}
+          <FormInput :checked="!!ruleFor(type.id)" type="checkbox" :disabled="!type.enabled && !ruleFor(type.id)" data-rule-enabled @change="toggleRule(type, ($event.target as HTMLInputElement).checked)" />{{ type.name }}
         </label>
         <p v-if="!type.enabled" class="text-xs text-amber-700 dark:text-amber-300" data-disabled-type-hint>{{ t('admin.tests.protection.disabledType') }}</p>
         <fieldset v-if="ruleFor(type.id)" :disabled="!type.enabled" class="space-y-3">
           <template v-if="!combined && !allPass">
-            <label class="input-label block">{{ t('admin.tests.protection.priority') }}<input :value="ruleFor(type.id)?.priority ?? 0" type="number" min="0" max="1000" step="1" class="input mt-1 w-32" data-rule-priority @input="patchRule(type.id, { priority: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
+            <label class="input-label block">{{ t('admin.tests.protection.priority') }}<FormInput :value="ruleFor(type.id)?.priority ?? 0" type="number" min="0" max="1000" step="1" class="mt-1 w-32" data-rule-priority @input="patchRule(type.id, { priority: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.priorityHint') }}</p>
-            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.required_pass || false" :disabled="ruleFor(type.id)?.vote?.enabled" type="checkbox" data-rule-required-pass @change="patchRule(type.id, { required_pass: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.requiredPass') }}</label>
+            <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><FormInput :checked="ruleFor(type.id)?.required_pass || false" :disabled="ruleFor(type.id)?.vote?.enabled" type="checkbox" data-rule-required-pass @change="patchRule(type.id, { required_pass: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.requiredPass') }}</label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.requiredPassHint') }}</p>
           </template>
           <p v-if="type.output_kind === 'capability'" class="text-sm text-gray-500">{{ t('admin.tests.capability.protectionHint') }}</p>
           <TestPassRateEditor v-if="!allPass && (supportsTestPassRate(type.output_kind) || ruleFor(type.id)?.pass_rate)" :model-value="ruleFor(type.id)?.pass_rate" :output-kind="type.output_kind" :schedule="schedule" @update:model-value="patchRule(type.id, { pass_rate: $event })" />
           <h4 class="text-xs font-semibold text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.conditions') }}</h4>
-          <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.pause_on_failure || !!ruleFor(type.id)?.on_fail" :disabled="!!ruleFor(type.id)?.on_fail" type="checkbox" data-rule-failure @change="patchRule(type.id, { pause_on_failure: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.pauseOnFailure') }}</label>
+          <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><FormInput :checked="ruleFor(type.id)?.pause_on_failure || !!ruleFor(type.id)?.on_fail" :disabled="!!ruleFor(type.id)?.on_fail" type="checkbox" data-rule-failure @change="patchRule(type.id, { pause_on_failure: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.pauseOnFailure') }}</label>
           <p v-if="!allPass && ruleFor(type.id)?.on_fail" class="text-xs text-gray-500 dark:text-gray-400" data-rule-failure-action-hint>{{ t(combined ? 'admin.tests.protection.combined.failureActionHint' : 'admin.tests.protection.failureActionHint') }}</p>
           <template v-if="type.output_kind === 'model_check'">
-            <label class="input-label block">{{ t('tests.modelCheck.matchMode') }}<select :value="ruleFor(type.id)?.model_match || 'exact'" class="input mt-1 w-full" data-rule-model-match @change="patchRule(type.id, { model_match: ($event.target as HTMLSelectElement).value as TestProtectionRule['model_match'] })"><option value="exact">{{ t('tests.modelCheck.exact') }}</option><option value="snapshot">{{ t('tests.modelCheck.snapshot') }}</option></select></label>
+            <label class="input-label block">{{ t('tests.modelCheck.matchMode') }}<FormSelect :value="ruleFor(type.id)?.model_match || 'exact'" class="mt-1 w-full" data-rule-model-match @change="patchRule(type.id, { model_match: ($event.target as HTMLSelectElement).value as TestProtectionRule['model_match'] })"><option value="exact">{{ t('tests.modelCheck.exact') }}</option><option value="snapshot">{{ t('tests.modelCheck.snapshot') }}</option></FormSelect></label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.modelMatchHint') }}</p>
           </template>
           <div v-if="type.output_kind === 'html'" class="space-y-2 rounded-md border border-gray-200 p-3 dark:border-dark-700" data-auto-review-condition>
-            <label class="flex items-center gap-2 text-sm"><input :checked="ruleFor(type.id)?.auto_review?.enabled || false" type="checkbox" data-auto-review-enabled @change="toggleAutoReview(type.id, ($event.target as HTMLInputElement).checked)" />{{ t('admin.tests.autoReview.enableRule') }}</label>
+            <label class="flex items-center gap-2 text-sm"><FormInput :checked="ruleFor(type.id)?.auto_review?.enabled || false" type="checkbox" data-auto-review-enabled @change="toggleAutoReview(type.id, ($event.target as HTMLInputElement).checked)" />{{ t('admin.tests.autoReview.enableRule') }}</label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.autoReview.ruleHint') }}</p>
             <a v-if="ruleFor(type.id)?.auto_review?.enabled" href="/admin/tests?tab=operations" class="text-xs font-medium text-primary-600 dark:text-primary-400">{{ t('admin.tests.autoReview.configureJudge') }}</a>
           </div>
           <div v-if="type.output_kind === 'html'" class="space-y-2 rounded-md border border-gray-200 p-3 dark:border-dark-700" data-duration-condition>
-            <label class="flex items-center gap-2 text-sm"><input :checked="hasDurationLimit(type.id)" type="checkbox" data-duration-enabled @change="setDurationLimit(type.id, ($event.target as HTMLInputElement).checked ? 60 : undefined)" />{{ t('admin.tests.protection.durationEnabled') }}</label>
-            <label v-if="hasDurationLimit(type.id)" class="input-label block">{{ t('admin.tests.protection.durationLimitSeconds') }}<input :value="durationLimit(type.id)" type="number" min="0" step="0.001" class="input ml-2 w-32" data-duration-limit @input="setDurationLimit(type.id, ($event.target as HTMLInputElement).valueAsNumber)" /></label>
+            <label class="flex items-center gap-2 text-sm"><FormInput :checked="hasDurationLimit(type.id)" type="checkbox" data-duration-enabled @change="setDurationLimit(type.id, ($event.target as HTMLInputElement).checked ? 60 : undefined)" />{{ t('admin.tests.protection.durationEnabled') }}</label>
+            <label v-if="hasDurationLimit(type.id)" class="input-label block">{{ t('admin.tests.protection.durationLimitSeconds') }}<FormInput :value="durationLimit(type.id)" type="number" min="0" step="0.001" class="ml-2 w-32" data-duration-limit @input="setDurationLimit(type.id, ($event.target as HTMLInputElement).valueAsNumber)" /></label>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.durationHint') }}</p>
           </div>
           <template v-if="!allPass || !ruleFor(type.id)?.vote?.enabled">
             <div v-for="{ threshold, index } in editableThresholds(type)" :key="index" class="flex flex-wrap items-center gap-2" data-threshold>
-              <select :value="threshold.metric" class="input w-full min-w-0 flex-none sm:w-auto sm:flex-1" :aria-label="t('admin.tests.protection.metric')" @change="patchThreshold(type.id, index, { metric: ($event.target as HTMLSelectElement).value as TestProtectionMetric })"><option v-for="metric in protectionMetrics(type.output_kind)" :key="metric" :value="metric">{{ t(`admin.tests.protection.metrics.${metric}`) }}</option></select>
-              <select :value="threshold.operator" class="input w-28" :aria-label="t('admin.tests.protection.operator')" @change="patchThreshold(type.id, index, { operator: ($event.target as HTMLSelectElement).value as 'lt' | 'gt' })"><option value="lt">{{ t('admin.tests.protection.below') }}</option><option value="gt">{{ t('admin.tests.protection.above') }}</option></select>
-              <input :value="threshold.value" type="number" step="any" :min="threshold.metric === 'output_numeric' ? undefined : 0" :max="threshold.metric.endsWith('_rate') ? 100 : undefined" class="input w-28" :aria-label="t('admin.tests.protection.threshold')" @input="patchThreshold(type.id, index, { value: ($event.target as HTMLInputElement).valueAsNumber })" />
-              <button type="button" class="btn btn-secondary btn-sm" :aria-label="t('admin.tests.protection.removeThreshold')" @click="removeThreshold(type.id, index)">{{ t('common.delete') }}</button>
+              <FormSelect :value="threshold.metric" class="w-full min-w-0 flex-none sm:w-auto sm:flex-1" :aria-label="t('admin.tests.protection.metric')" @change="patchThreshold(type.id, index, { metric: ($event.target as HTMLSelectElement).value as TestProtectionMetric })"><option v-for="metric in protectionMetrics(type.output_kind)" :key="metric" :value="metric">{{ t(`admin.tests.protection.metrics.${metric}`) }}</option></FormSelect>
+              <FormSelect :value="threshold.operator" class="w-28" :aria-label="t('admin.tests.protection.operator')" @change="patchThreshold(type.id, index, { operator: ($event.target as HTMLSelectElement).value as 'lt' | 'gt' })"><option value="lt">{{ t('admin.tests.protection.below') }}</option><option value="gt">{{ t('admin.tests.protection.above') }}</option></FormSelect>
+              <FormInput :value="threshold.value" type="number" step="any" :min="threshold.metric === 'output_numeric' ? undefined : 0" :max="threshold.metric.endsWith('_rate') ? 100 : undefined" class="w-28" :aria-label="t('admin.tests.protection.threshold')" @input="patchThreshold(type.id, index, { value: ($event.target as HTMLInputElement).valueAsNumber })" />
+              <BaseButton type="button" class="btn-secondary btn-sm" :aria-label="t('admin.tests.protection.removeThreshold')" @click="removeThreshold(type.id, index)">{{ t('common.delete') }}</BaseButton>
             </div>
             <button v-if="type.output_kind !== 'html'" type="button" class="text-xs font-medium text-primary-600 dark:text-primary-400" :disabled="(ruleFor(type.id)?.thresholds?.length || 0) >= 20" data-add-threshold @click="addThreshold(type)">+ {{ t('admin.tests.protection.addThreshold') }}</button>
           </template>
           <template v-if="!['model_check', 'capability'].includes(type.output_kind)">
-            <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.vote?.enabled || false" :disabled="ruleFor(type.id)?.auto_review?.enabled" type="checkbox" data-rule-vote @change="toggleVote(type.id, ($event.target as HTMLInputElement).checked)" />{{ t('admin.tests.protection.vote') }}</label>
+            <label v-if="!allPass" class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><FormInput :checked="ruleFor(type.id)?.vote?.enabled || false" :disabled="ruleFor(type.id)?.auto_review?.enabled" type="checkbox" data-rule-vote @change="toggleVote(type.id, ($event.target as HTMLInputElement).checked)" />{{ t('admin.tests.protection.vote') }}</label>
             <template v-if="!allPass && ruleFor(type.id)?.vote?.enabled">
-              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><input :checked="ruleFor(type.id)?.vote?.public_enabled === true" type="checkbox" data-rule-public-vote @change="patchVote(type.id, { public_enabled: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.publicVote') }}</label>
+              <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"><FormInput :checked="ruleFor(type.id)?.vote?.public_enabled === true" type="checkbox" data-rule-public-vote @change="patchVote(type.id, { public_enabled: ($event.target as HTMLInputElement).checked })" />{{ t('admin.tests.protection.publicVote') }}</label>
               <p class="text-xs text-gray-500 dark:text-gray-400" data-public-vote-hint>{{ t(ruleFor(type.id)?.vote?.public_enabled ? 'admin.tests.protection.publicVoteHint' : 'admin.tests.protection.adminOnlyHint') }}</p>
             </template>
             <div v-if="ruleFor(type.id)?.vote?.enabled && ruleFor(type.id)?.vote?.public_enabled" class="grid gap-3 sm:grid-cols-2">
-              <label class="input-label">{{ t('admin.tests.protection.rejectAbove') }}<input :value="ruleFor(type.id)?.vote?.reject_above" type="number" min="0" max="1000000" step="1" class="input mt-1 w-full" data-vote-reject @input="patchVote(type.id, { reject_above: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
-              <label class="input-label">{{ t('admin.tests.protection.passAtLeast') }}<input :value="ruleFor(type.id)?.vote?.pass_at_least" type="number" min="1" max="1000000" step="1" class="input mt-1 w-full" data-vote-pass @input="patchVote(type.id, { pass_at_least: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
+              <label class="input-label">{{ t('admin.tests.protection.rejectAbove') }}<FormInput :value="ruleFor(type.id)?.vote?.reject_above" type="number" min="0" max="1000000" step="1" class="mt-1 w-full" data-vote-reject @input="patchVote(type.id, { reject_above: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
+              <label class="input-label">{{ t('admin.tests.protection.passAtLeast') }}<FormInput :value="ruleFor(type.id)?.vote?.pass_at_least" type="number" min="1" max="1000000" step="1" class="mt-1 w-full" data-vote-pass @input="patchVote(type.id, { pass_at_least: ($event.target as HTMLInputElement).valueAsNumber })" /></label>
               <p class="text-xs text-gray-500 sm:col-span-2">{{ t('admin.tests.protection.voteHint') }}</p>
             </div>
-            <label class="input-label block">{{ t(ruleFor(type.id)?.vote?.enabled ? 'admin.tests.protection.referenceAnswer' : 'admin.tests.protection.expectedAnswer') }}<textarea :value="ruleFor(type.id)?.expected_answer || ''" rows="2" maxlength="10000" class="input mt-1 w-full" data-rule-answer @input="patchRule(type.id, { expected_answer: ($event.target as HTMLTextAreaElement).value })" /></label>
-            <label v-if="!ruleFor(type.id)?.vote?.enabled" class="input-label block">{{ t('admin.tests.protection.answerMatch') }}<select :value="ruleFor(type.id)?.answer_match || 'exact'" class="input ml-2" data-rule-answer-match @change="patchRule(type.id, { answer_match: ($event.target as HTMLSelectElement).value as TestProtectionRule['answer_match'] })"><option value="exact">{{ t('admin.tests.protection.exact') }}</option><option value="contains">{{ t('admin.tests.protection.contains') }}</option><option value="numeric">{{ t('admin.tests.protection.numeric') }}</option></select></label>
+            <label class="input-label block">{{ t(ruleFor(type.id)?.vote?.enabled ? 'admin.tests.protection.referenceAnswer' : 'admin.tests.protection.expectedAnswer') }}<FormTextarea :value="ruleFor(type.id)?.expected_answer || ''" rows="2" maxlength="10000" class="mt-1 w-full" data-rule-answer @input="patchRule(type.id, { expected_answer: ($event.target as HTMLTextAreaElement).value })" /></label>
+            <label v-if="!ruleFor(type.id)?.vote?.enabled" class="input-label block">{{ t('admin.tests.protection.answerMatch') }}<FormSelect :value="ruleFor(type.id)?.answer_match || 'exact'" class="ml-2" data-rule-answer-match @change="patchRule(type.id, { answer_match: ($event.target as HTMLSelectElement).value as TestProtectionRule['answer_match'] })"><option value="exact">{{ t('admin.tests.protection.exact') }}</option><option value="contains">{{ t('admin.tests.protection.contains') }}</option><option value="numeric">{{ t('admin.tests.protection.numeric') }}</option></FormSelect></label>
           </template>
           <p v-if="!allPass || !ruleFor(type.id)?.vote?.enabled" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.protection.conditionsHint') }}</p>
           <div v-if="!combined && !allPass" class="grid gap-3 lg:grid-cols-2">
@@ -115,6 +115,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AdminGroup, TestCombinationRule, TestOutcomeAction, TestProtectionConfig, TestProtectionMetric, TestProtectionRule, TestProtectionThreshold, TestSchedule, TestType } from '@/types'

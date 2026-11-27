@@ -6,8 +6,8 @@
         <p class="mt-2 max-w-4xl text-sm leading-6 text-gray-500">{{ t(compact ? 'aiOpsControl.compactDescription' : 'aiOpsControl.description') }}</p>
       </div>
       <div class="flex flex-wrap gap-2">
-        <button type="button" class="btn btn-secondary" :disabled="busy || halting || loading" data-testid="ai-control-refresh" @click="load">{{ t('aiOpsControl.refresh') }}</button>
-        <button v-if="!compactReadOnly" type="button" class="btn btn-danger" :disabled="halting" data-testid="ai-control-halt" @click="halt">{{ t(halting ? 'aiOpsControl.haltPending' : 'aiOpsControl.halt') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy || halting || loading" data-testid="ai-control-refresh" @click="load">{{ t('aiOpsControl.refresh') }}</BaseButton>
+        <BaseButton v-if="!compactReadOnly" type="button" class="btn-danger" :disabled="halting" data-testid="ai-control-halt" @click="halt">{{ t(halting ? 'aiOpsControl.haltPending' : 'aiOpsControl.halt') }}</BaseButton>
       </div>
     </header>
     <p v-if="!compactReadOnly" class="text-xs leading-5 text-gray-500">{{ t('aiOpsControl.haltHint') }}</p>
@@ -24,42 +24,42 @@
       <form class="space-y-5 border-t border-gray-100 p-5 dark:border-dark-700" @submit.prevent="savePolicy">
         <fieldset :disabled="busy || halting || loading || needsRefresh || !policy?.control_enabled" class="min-w-0 space-y-5">
           <div class="grid gap-4 sm:grid-cols-2">
-            <label><span class="control-label">{{ t('aiOpsControl.mode') }}</span><select v-model="draft.mode" class="input w-full" data-testid="ai-policy-mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ t(`aiOpsControl.modes.${mode}`) }}</option></select></label>
-            <label><span class="control-label">{{ t('aiOpsControl.group') }}</span><input v-model.number="draft.group_id" type="number" min="1" step="1" class="input w-full" data-testid="ai-policy-group" /></label>
+            <label><span class="control-label">{{ t('aiOpsControl.mode') }}</span><FormSelect v-model="draft.mode" class="w-full" data-testid="ai-policy-mode"><option v-for="mode in modes" :key="mode" :value="mode">{{ t(`aiOpsControl.modes.${mode}`) }}</option></FormSelect></label>
+            <label><span class="control-label">{{ t('aiOpsControl.group') }}</span><FormInput v-model.number="draft.group_id" type="number" min="1" step="1" class="w-full" data-testid="ai-policy-group" /></label>
           </div>
           <p class="text-xs leading-5 text-gray-500">{{ t('aiOpsControl.scopeHint') }}</p>
           <fieldset class="space-y-3">
             <legend class="mb-2 font-medium">{{ t('aiOpsControl.whitelist') }}</legend>
             <div v-for="(account, index) in draft.accounts" :key="index" class="grid items-end gap-3 sm:grid-cols-[8rem_minmax(0,1fr)_auto]">
-              <label><span class="control-label">{{ t('aiOpsControl.accountId') }}</span><input v-model.number="account.account_id" type="number" min="1" step="1" class="input w-full" :data-testid="`ai-policy-account-${index}`" /></label>
-              <label><span class="control-label">{{ t('aiOpsControl.domain') }}</span><input v-model.trim="account.capacity_domain" type="text" maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.:\-]{0,63}" class="input w-full" :data-testid="`ai-policy-domain-${index}`" /></label>
-              <button type="button" class="btn btn-secondary" @click="draft.accounts.splice(index, 1)">{{ t('aiOpsControl.remove') }}</button>
+              <label><span class="control-label">{{ t('aiOpsControl.accountId') }}</span><FormInput v-model.number="account.account_id" type="number" min="1" step="1" class="w-full" :data-testid="`ai-policy-account-${index}`" /></label>
+              <label><span class="control-label">{{ t('aiOpsControl.domain') }}</span><FormInput v-model.trim="account.capacity_domain" type="text" maxlength="64" pattern="[a-zA-Z0-9][a-zA-Z0-9_.:\-]{0,63}" class="w-full" :data-testid="`ai-policy-domain-${index}`" /></label>
+              <BaseButton type="button" class="btn-secondary" @click="draft.accounts.splice(index, 1)">{{ t('aiOpsControl.remove') }}</BaseButton>
             </div>
             <p v-if="!draft.accounts.length" class="text-sm text-gray-500">{{ t('aiOpsControl.allowlistEmpty') }}</p>
             <p class="text-xs leading-5 text-gray-500">{{ t('aiOpsControl.domainHint') }}</p>
-            <button type="button" class="btn btn-secondary" :disabled="draft.accounts.length >= 200" data-testid="ai-policy-add-account" @click="draft.accounts.push({ account_id: 0, capacity_domain: '' })">{{ t('aiOpsControl.addAccount') }}</button>
+            <BaseButton type="button" class="btn-secondary" :disabled="draft.accounts.length >= 200" data-testid="ai-policy-add-account" @click="draft.accounts.push({ account_id: 0, capacity_domain: '' })">{{ t('aiOpsControl.addAccount') }}</BaseButton>
           </fieldset>
           <fieldset>
             <legend class="mb-3 font-medium">{{ t('aiOpsControl.thresholds') }}</legend>
             <div class="grid gap-4 sm:grid-cols-2 xl:grid-cols-3">
-              <label v-for="field in numberFields" :key="field.key"><span class="control-label">{{ t(`aiOpsControl.fields.${field.key}`) }}</span><input v-model.number="draft[field.key]" class="input w-full" type="number" :min="field.min" :max="field.max" :step="field.step" :data-testid="`ai-policy-${field.key}`" /></label>
+              <label v-for="field in numberFields" :key="field.key"><span class="control-label">{{ t(`aiOpsControl.fields.${field.key}`) }}</span><FormInput v-model.number="draft[field.key]" class="w-full" type="number" :min="field.min" :max="field.max" :step="field.step" :data-testid="`ai-policy-${field.key}`" /></label>
             </div>
             <p class="mt-3 text-xs leading-5 text-gray-500">{{ t('aiOpsControl.thresholdHint') }}</p>
           </fieldset>
           <fieldset class="space-y-2">
             <legend class="mb-2 font-medium">{{ t('aiOpsControl.autoActions') }}</legend>
-            <div class="flex flex-wrap gap-4"><label v-for="action in autoActions" :key="action" class="flex items-center gap-2 text-sm"><input v-model="draft.auto_actions" :value="action" type="checkbox" :data-testid="`ai-policy-auto-${action}`" />{{ t(`aiOps.action.${action}`) }}</label></div>
+            <div class="flex flex-wrap gap-4"><label v-for="action in autoActions" :key="action" class="flex items-center gap-2 text-sm"><FormInput v-model="draft.auto_actions" :value="action" type="checkbox" :data-testid="`ai-policy-auto-${action}`" />{{ t(`aiOps.action.${action}`) }}</label></div>
             <p class="text-xs leading-5 text-gray-500">{{ t('aiOpsControl.autoHint') }}</p>
           </fieldset>
           <div class="space-y-2 rounded-lg bg-gray-50 p-4 dark:bg-dark-800">
-            <label class="flex items-start gap-2 text-sm"><input v-model="draft.halted" type="checkbox" class="mt-0.5" data-testid="ai-policy-halted" /><span>{{ t('aiOpsControl.releaseHalt') }}</span></label>
+            <label class="flex items-start gap-2 text-sm"><FormInput v-model="draft.halted" type="checkbox" class="mt-0.5" data-testid="ai-policy-halted" /><span>{{ t('aiOpsControl.releaseHalt') }}</span></label>
             <p class="text-xs leading-5 text-gray-500">{{ t('aiOpsControl.releaseHint') }}</p>
           </div>
           <p v-if="dirty" class="text-sm text-amber-700 dark:text-amber-300" data-testid="ai-policy-dirty">{{ t('aiOpsControl.dirty') }}</p>
           <p v-if="!validPolicy" class="text-sm text-red-600">{{ t('aiOpsControl.invalid') }}</p>
-          <label v-if="draft.mode !== 'disabled' || (policy?.halted && !draft.halted)" class="flex items-start gap-2 text-sm"><input v-model="policyConsent" type="checkbox" class="mt-0.5" data-testid="ai-policy-consent" /><span>{{ t('aiOpsControl.policyConsent') }}</span></label>
-          <label v-if="draft.mode === 'bounded_auto'" class="flex items-start gap-2 text-sm"><input v-model="autoConsent" type="checkbox" class="mt-0.5" data-testid="ai-policy-auto-consent" /><span>{{ t('aiOpsControl.autoConsent') }}</span></label>
-          <button type="submit" class="btn btn-primary" :disabled="!canSave" data-testid="ai-policy-save">{{ t('aiOpsControl.save') }}</button>
+          <label v-if="draft.mode !== 'disabled' || (policy?.halted && !draft.halted)" class="flex items-start gap-2 text-sm"><FormInput v-model="policyConsent" type="checkbox" class="mt-0.5" data-testid="ai-policy-consent" /><span>{{ t('aiOpsControl.policyConsent') }}</span></label>
+          <label v-if="draft.mode === 'bounded_auto'" class="flex items-start gap-2 text-sm"><FormInput v-model="autoConsent" type="checkbox" class="mt-0.5" data-testid="ai-policy-auto-consent" /><span>{{ t('aiOpsControl.autoConsent') }}</span></label>
+          <BaseButton type="submit" class="btn-primary" :disabled="!canSave" data-testid="ai-policy-save">{{ t('aiOpsControl.save') }}</BaseButton>
         </fieldset>
       </form>
     </details>
@@ -70,7 +70,7 @@
       <p v-if="!recommendations.length" class="text-sm text-gray-500">{{ t('aiOpsControl.noRecommendations') }}</p>
       <div v-for="item in recommendations" :key="item.index" class="flex flex-wrap items-start justify-between gap-3 rounded-lg border border-gray-200 p-4 dark:border-dark-700">
         <div class="min-w-0 flex-1"><strong class="text-sm">{{ t(`aiOps.action.${item.proposal.action}`) }} · {{ t('aiOpsControl.account', { id: item.proposal.account_id }) }}</strong><p class="mt-2 whitespace-pre-wrap break-words text-sm leading-6">{{ item.proposal.reason }}</p></div>
-        <button type="button" class="btn btn-secondary" :disabled="!canPreview" :data-testid="`ai-control-preview-${item.index}`" @click="preparePreview(item.index)">{{ t('aiOpsControl.previewButton') }}</button>
+        <BaseButton type="button" class="btn-secondary" :disabled="!canPreview" :data-testid="`ai-control-preview-${item.index}`" @click="preparePreview(item.index)">{{ t('aiOpsControl.previewButton') }}</BaseButton>
       </div>
       <article v-if="frozen" class="space-y-4 rounded-xl border border-primary-200 p-4 dark:border-primary-900" data-testid="ai-control-frozen">
         <h4 class="font-semibold">{{ t('aiOpsControl.previewTitle') }} · {{ t(`aiOps.action.${frozen.action}`) }} · {{ t('aiOpsControl.account', { id: frozen.account_id }) }}</h4>
@@ -90,10 +90,10 @@
         <details><summary class="cursor-pointer text-xs text-gray-500">{{ t('aiOpsControl.digest') }}</summary><code class="mt-2 block break-all text-xs">{{ frozen.digest }}</code></details>
         <div v-if="frozen.status !== 'ready' || frozen.blocked_reasons.length" role="alert" class="space-y-1 text-sm text-amber-700 dark:text-amber-300" data-testid="ai-control-blocked"><strong>{{ t('aiOpsControl.blocked') }}</strong><p v-for="reason in frozen.blocked_reasons" :key="reason">{{ reasonLabel(reason) }}</p><p v-if="!frozen.blocked_reasons.length">{{ frozen.status === 'cancelled' ? t('aiOpsControl.proposalCancelled') : frozen.status }}</p></div>
         <p v-if="previewExpired" role="alert" class="text-sm text-amber-700 dark:text-amber-300">{{ t('aiOpsControl.expired') }}</p>
-        <label class="flex items-start gap-2 text-sm"><input v-model="applyConsent" type="checkbox" class="mt-0.5" :disabled="!previewReady || busy || halting" data-testid="ai-control-apply-consent" /><span>{{ t('aiOpsControl.applyConsent') }}</span></label>
+        <label class="flex items-start gap-2 text-sm"><FormInput v-model="applyConsent" type="checkbox" class="mt-0.5" :disabled="!previewReady || busy || halting" data-testid="ai-control-apply-consent" /><span>{{ t('aiOpsControl.applyConsent') }}</span></label>
         <div class="flex flex-wrap gap-2">
-          <button type="button" class="btn btn-primary" :disabled="!canApply" data-testid="ai-control-apply" @click="apply">{{ t('aiOpsControl.apply') }}</button>
-          <button v-if="frozen.status === 'ready' || frozen.status === 'blocked'" type="button" class="btn btn-secondary" :disabled="!canCancel" data-testid="ai-control-cancel" @click="cancelProposal">{{ t('aiOpsControl.cancelProposal') }}</button>
+          <BaseButton type="button" class="btn-primary" :disabled="!canApply" data-testid="ai-control-apply" @click="apply">{{ t('aiOpsControl.apply') }}</BaseButton>
+          <BaseButton v-if="frozen.status === 'ready' || frozen.status === 'blocked'" type="button" class="btn-secondary" :disabled="!canCancel" data-testid="ai-control-cancel" @click="cancelProposal">{{ t('aiOpsControl.cancelProposal') }}</BaseButton>
         </div>
         <p class="text-xs text-gray-500">{{ t('aiOpsControl.cancelHint') }}</p>
       </article>
@@ -110,7 +110,7 @@
         <p class="text-sm">{{ t(action.auto ? 'aiOpsControl.automatic' : 'aiOpsControl.manual') }} · {{ changeValue(action.action, action.before_value) }} → {{ changeValue(action.action, action.after_value) }}</p>
         <dl class="grid gap-2 text-xs text-gray-500 sm:grid-cols-2"><div><dt>{{ t('aiOpsControl.created') }}</dt><dd>{{ time(action.created_at) }}</dd></div><div><dt>{{ t('aiOpsControl.updated') }}</dt><dd>{{ time(action.updated_at) }}</dd></div><div v-if="action.observe_until"><dt>{{ t('aiOpsControl.observeUntil') }}</dt><dd>{{ time(action.observe_until) }}</dd></div><div v-if="action.reason_code"><dt>{{ t('aiOpsControl.reasonCode') }}</dt><dd class="break-words">{{ reasonLabel(action.reason_code) }}</dd></div></dl>
         <p class="break-all font-mono text-xs text-gray-400">{{ action.id }}</p>
-        <button v-if="rollbackCandidate(action)" type="button" class="btn btn-secondary btn-sm" :disabled="busy || halting || loading || needsRefresh || !policy?.control_enabled" :data-testid="`ai-control-rollback-${action.id}`" @click="rollbackTarget = action; rollbackConsent = false">{{ t('aiOpsControl.rollback') }}</button>
+        <BaseButton v-if="rollbackCandidate(action)" type="button" class="btn-secondary btn-sm" :disabled="busy || halting || loading || needsRefresh || !policy?.control_enabled" :data-testid="`ai-control-rollback-${action.id}`" @click="rollbackTarget = action; rollbackConsent = false">{{ t('aiOpsControl.rollback') }}</BaseButton>
       </article>
     </section>
     </component>
@@ -120,14 +120,17 @@
         <p class="text-sm leading-6">{{ t('aiOpsControl.rollbackHint') }}</p>
         <p class="text-sm">{{ t('aiOpsControl.account', { id: rollbackTarget.account_id }) }} · {{ t(`aiOps.action.${rollbackTarget.action}`) }} · {{ changeValue(rollbackTarget.action, rollbackTarget.after_value) }} → {{ changeValue(rollbackTarget.action, rollbackTarget.before_value) }}</p>
         <p class="break-all font-mono text-xs text-gray-500">{{ rollbackTarget.id }}</p>
-        <label class="flex items-start gap-2 text-sm"><input v-model="rollbackConsent" type="checkbox" class="mt-0.5" :disabled="busy || halting" data-testid="ai-control-rollback-consent" /><span>{{ t('aiOpsControl.rollbackConsent') }}</span></label>
+        <label class="flex items-start gap-2 text-sm"><FormInput v-model="rollbackConsent" type="checkbox" class="mt-0.5" :disabled="busy || halting" data-testid="ai-control-rollback-consent" /><span>{{ t('aiOpsControl.rollbackConsent') }}</span></label>
       </div>
-      <template #footer><div class="flex justify-end gap-3"><button type="button" class="btn btn-secondary" :disabled="busy" @click="closeRollback">{{ t('aiOpsControl.cancel') }}</button><button type="button" class="btn btn-danger" :disabled="!rollbackConsent || busy || halting || needsRefresh" data-testid="ai-control-rollback-confirm" @click="rollback">{{ t('aiOpsControl.rollbackSubmit') }}</button></div></template>
+      <template #footer><div class="flex justify-end gap-3"><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="closeRollback">{{ t('aiOpsControl.cancel') }}</BaseButton><BaseButton type="button" class="btn-danger" :disabled="!rollbackConsent || busy || halting || needsRefresh" data-testid="ai-control-rollback-confirm" @click="rollback">{{ t('aiOpsControl.rollbackSubmit') }}</BaseButton></div></template>
     </BaseDialog>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

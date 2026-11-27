@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'
 
@@ -34,13 +35,13 @@ const strategies = [
       <div>
         <label class="input-label">
           {{ t('admin.accounts.quotaControl.rpmLimit.baseRpm') }}
-          <input
+          <FormInput
             v-model.number="baseRpm"
             type="number"
             min="1"
             max="1000"
             step="1"
-            class="input mt-1"
+            class="mt-1"
             :placeholder="t('admin.accounts.quotaControl.rpmLimit.baseRpmPlaceholder')"
           />
         </label>
@@ -72,12 +73,12 @@ const strategies = [
         <div v-if="strategy === 'tiered'">
           <label class="input-label">
             {{ t('admin.accounts.quotaControl.rpmLimit.stickyBuffer') }}
-            <input
+            <FormInput
               v-model.number="stickyBuffer"
               type="number"
               min="1"
               step="1"
-              class="input mt-1"
+              class="mt-1"
               :placeholder="t('admin.accounts.quotaControl.rpmLimit.stickyBufferPlaceholder')"
             />
           </label>

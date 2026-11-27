@@ -8,11 +8,12 @@
       <Toggle id="codex-ticket-feature-enabled" v-model="enabled" :disabled="!loaded || saving" />
     </div>
     <p v-if="error" role="alert" class="mt-3 text-sm text-red-600">{{ error }}</p>
-    <button type="button" class="btn btn-primary mt-4" :disabled="!loaded || saving" @click="save">{{ t('common.save') }}</button>
+    <BaseButton type="button" class="btn-primary mt-4" :disabled="!loaded || saving" @click="save">{{ t('common.save') }}</BaseButton>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

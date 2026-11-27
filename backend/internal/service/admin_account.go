@@ -20,6 +20,7 @@ import (
 	"github.com/Wei-Shaw/sub2api/internal/config"
 	infraerrors "github.com/Wei-Shaw/sub2api/internal/pkg/errors"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/logger"
+	"github.com/Wei-Shaw/sub2api/internal/pkg/openai"
 	"github.com/Wei-Shaw/sub2api/internal/pkg/pagination"
 )
 
@@ -574,6 +575,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	if input == nil {
 		return nil, ErrAccountNilInput
 	}
+	if err := rejectRetiredAccountProxyConfig(input.ProxyIDs, input.Extra); err != nil {
+		return nil, err
+	}
 	if err := ValidateGatewayAccountIdentity(input.Platform, input.Type, input.Credentials); err != nil {
 		return nil, err
 	}
@@ -735,6 +739,7 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 	}
 
 	s.queueExcelAuthorizationAfterCommit(ctx, account)
+	s.openAIImportChecks.schedule(ctx, account)
 	AfterAccountCommit(ctx, func(committed context.Context) { recordAutoConfigInitial(committed, s.accountRepo, account, groupIDs) })
 	AfterAccountCommit(ctx, func(_ context.Context) {
 		// OAuth 账号：创建后异步设置隐私。
@@ -742,6 +747,9 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 		if account.Type == AccountTypeOAuth {
 			switch account.Platform {
 			case PlatformOpenAI:
+				if account.GetCredential("oauth_client_registration") == openai.KeyPouchClientRegistration {
+					return
+				}
 				go func() {
 					defer func() {
 						if r := recover(); r != nil {
@@ -769,6 +777,13 @@ func (s *adminServiceImpl) CreateAccount(ctx context.Context, input *CreateAccou
 func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *UpdateAccountInput) (*Account, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
+	}
+	var requestedProxyIDs []int64
+	if input.ProxyIDs != nil {
+		requestedProxyIDs = *input.ProxyIDs
+	}
+	if err := rejectRetiredAccountProxyConfig(requestedProxyIDs, input.Extra); err != nil {
+		return nil, err
 	}
 	if input.ProxyIDs != nil && len(*input.ProxyIDs) == 1 && s.managedProxyID(ctx, &(*input.ProxyIDs)[0]) {
 		input.ProxyID = &(*input.ProxyIDs)[0]
@@ -1158,6 +1173,13 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 		account.ProxyPoolChanged = true
 	}
 	if input.ProxyID != nil && !account.IsCredentialShadow() {
+		if account.RequiresProxyRetirementReview() && *input.ProxyID > 0 {
+			if _, err := s.validateAccountProxyIDs(ctx, []int64{*input.ProxyID}); err != nil {
+				return nil, err
+			}
+			delete(account.Extra, RetiredMultiProxyNeedsReviewKey)
+			account.ProxyRetirementReviewed = true
+		}
 		// 0 表示清除代理（前端发送 0 而不是 null 来表达清除意图）
 		if *input.ProxyID == 0 {
 			account.ProxyID = nil
@@ -1375,6 +1397,9 @@ func (s *adminServiceImpl) UpdateAccount(ctx context.Context, id int64, input *U
 // UpdateAccountExtra 仅对 Extra JSONB 做 key 级合并，避免覆盖其它运行态键
 // （如 model_rate_limits / passive_usage_* 等）。
 func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, updates map[string]any) error {
+	if err := rejectRetiredAccountProxyConfig(nil, updates); err != nil {
+		return err
+	}
 	// Ordinary partial saves cannot write server-owned quality isolation.
 	// Dedicated quality restore/runtime paths use their own transaction/UpdateExtra.
 	updates = SanitizeExcelBPSAuthorizationExtra(updates)
@@ -1509,6 +1534,13 @@ func (s *adminServiceImpl) UpdateAccountExtra(ctx context.Context, id int64, upd
 func (s *adminServiceImpl) BulkUpdateAccounts(ctx context.Context, input *BulkUpdateAccountsInput) (*BulkUpdateAccountsResult, error) {
 	if input == nil {
 		return nil, ErrAccountNilInput
+	}
+	var requestedProxyIDs []int64
+	if input.ProxyIDs != nil {
+		requestedProxyIDs = *input.ProxyIDs
+	}
+	if err := rejectRetiredAccountProxyConfig(requestedProxyIDs, input.Extra); err != nil {
+		return nil, err
 	}
 	if err := ValidateAccountCostMultiplierExtra(input.Extra); err != nil {
 		return nil, err

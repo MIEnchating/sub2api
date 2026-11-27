@@ -8,21 +8,23 @@
         <label for="account-performance-window" class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
           {{ t('accountPerformance.settings.windowMinutes') }}
         </label>
-        <input id="account-performance-window" v-model.number="windowMinutes" type="number" min="1" max="1440" step="1" class="input w-32" :disabled="saving || loading" />
+        <FormInput id="account-performance-window" v-model.number="windowMinutes" type="number" min="1" max="1440" step="1" class="w-32" :disabled="saving || loading" />
         <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t('accountPerformance.settings.windowHint') }}</p>
       </div>
       <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('accountPerformance.settings.effectHint') }}</p>
       <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
-        <button type="button" class="btn btn-primary btn-sm" data-testid="performance-window-save" :disabled="saving || loading" @click="save">
+        <BaseButton type="button" class="btn-primary btn-sm" data-testid="performance-window-save" :disabled="saving || loading" @click="save">
           {{ saving ? t('common.saving') : t('common.save') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
-    <button v-else-if="!loading" type="button" class="btn btn-secondary btn-sm" @click="load">{{ t('common.refresh') }}</button>
+    <BaseButton v-else-if="!loading" type="button" class="btn-secondary btn-sm" @click="load">{{ t('common.refresh') }}</BaseButton>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api'

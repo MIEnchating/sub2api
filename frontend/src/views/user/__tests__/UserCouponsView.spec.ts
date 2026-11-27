@@ -8,7 +8,9 @@ describe('user coupon wallet', () => {
  it('shows immutable rules and permits using only available coupons', async () => {
   const base = { snapshot: { name: '满100减10', kind: 'fixed', min_amount: 100, value: 10, currency: 'CNY', max_discount: 0, stackable: false }, source: 'qq_growth', expires_at: '2099-12-31', order_id: null, used_at: null }
   mine.mockResolvedValue({ data: { total: 2, items: [{ ...base, id: 1, status: 'available' }, { ...base, id: 2, status: 'used', order_id: 9, order_status: 'COMPLETED' }] } })
-  const w = shallowMount(UserCouponsView, { global: { stubs: { RouterLink: true, AppLayout: { template: '<div><slot /></div>' } } } });await flushPromises()
+  const w = shallowMount(UserCouponsView, {
+   global: { stubs: { RouterLink: true, AppLayout: { template: '<div><slot /></div>' }, FormSelect: false } }
+  });await flushPromises()
   expect(w.findAll('[data-testid=coupon-card]')).toHaveLength(2)
   expect(w.findAll('router-link-stub')).toHaveLength(1)
   expect(w.text()).toContain('#9');await w.get('select').setValue('used');await flushPromises()

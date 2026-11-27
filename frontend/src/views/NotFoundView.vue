@@ -53,10 +53,10 @@
 
       <!-- Action Buttons -->
       <div class="flex flex-col justify-center gap-3 sm:flex-row">
-        <button @click="goBack" class="btn btn-secondary">
+        <BaseButton @click="goBack" class="btn-secondary">
           <Icon name="arrowLeft" size="md" class="mr-2" />
           Go Back
-        </button>
+        </BaseButton>
         <router-link to="/dashboard" class="btn btn-primary">
           <Icon name="home" size="md" class="mr-2" />
           Go to Dashboard
@@ -78,6 +78,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useI18n } from 'vue-i18n'
 import { useRouter } from 'vue-router'
 import Icon from '@/components/icons/Icon.vue'

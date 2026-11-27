@@ -46,24 +46,18 @@ describe('useOpenAIOAuth.generateAuthUrl', () => {
     await useOpenAIOAuth().validateRefreshToken('excel-rt', 5, 'app_fnr0pYvVwwFDocDumLG3H2Bp')
     expect(adminAPI.accounts.refreshOpenAIToken).toHaveBeenLastCalledWith('excel-rt', 5, '/admin/openai/refresh-token', 'app_fnr0pYvVwwFDocDumLG3H2Bp')
   })
-  it('passes the current request group at both OAuth boundaries and records the server-selected exit', async () => {
+  it('passes the selected single proxy when authorizing and exchanging the code', async () => {
     vi.mocked(adminAPI.accounts.generateAuthUrl).mockResolvedValueOnce({
-      auth_url: 'https://auth.openai.com/authorize?state=group-state', session_id: 'group-session',
-      proxy_mode: 'request', proxy_id: 22,
+      auth_url: 'https://auth.openai.com/authorize?state=test-state', session_id: 'test-session'
     })
-    vi.mocked(adminAPI.accounts.exchangeCode).mockResolvedValueOnce({ access_token: 'group-access' })
+    vi.mocked(adminAPI.accounts.exchangeCode).mockResolvedValueOnce({ access_token: 'test-access' })
     const oauth = useOpenAIOAuth()
-    await oauth.generateAuthUrl(undefined, undefined, 'codex', { mode: 'request', ids: [11, 22] })
-    expect(adminAPI.accounts.generateAuthUrl).toHaveBeenLastCalledWith('/admin/openai/generate-auth-url', {
-      proxy_mode: 'request', proxy_ids: [11, 22],
-    })
-    expect(oauth.authorizationProxyId.value).toBe(22)
-    await oauth.exchangeAuthCode('group-code', oauth.sessionId.value, oauth.oauthState.value, undefined, { mode: 'request', ids: [22, 11] })
+    await oauth.generateAuthUrl(22)
+    expect(adminAPI.accounts.generateAuthUrl).toHaveBeenLastCalledWith('/admin/openai/generate-auth-url', { proxy_id: 22 })
+    await oauth.exchangeAuthCode('test-code', oauth.sessionId.value, oauth.oauthState.value, 22)
     expect(adminAPI.accounts.exchangeCode).toHaveBeenLastCalledWith('/admin/openai/exchange-code', {
-      code: 'group-code', session_id: 'group-session', state: 'group-state', proxy_mode: 'request', proxy_ids: [22, 11],
+      code: 'test-code', session_id: 'test-session', state: 'test-state', proxy_id: 22
     })
-    oauth.resetState()
-    expect(oauth.authorizationProxyId.value).toBeNull()
   })
 })
 

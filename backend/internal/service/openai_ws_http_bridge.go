@@ -1241,6 +1241,7 @@ func (s *OpenAIGatewayService) proxyOpenAIWSHTTPBridgeTurn(
 				}
 				messages = append(messages, clientMessage)
 				for _, message := range messages {
+					s.bindWebSocketResponseForHTTP(ctx, c, account, message)
 					if err := writeClientMessage(message); err != nil {
 						if isOpenAIWSClientDisconnectError(err) {
 							clientDisconnected = true

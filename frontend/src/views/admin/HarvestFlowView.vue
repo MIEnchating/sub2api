@@ -8,13 +8,13 @@
         </div>
         <div class="flex items-center gap-3">
           <label class="inline-flex items-center gap-2 text-sm text-gray-600 dark:text-gray-300">
-            <input v-model="autoRefresh" type="checkbox" class="rounded border-gray-300 text-primary-600" />
+            <FormInput v-model="autoRefresh" type="checkbox" class="rounded border-gray-300 text-primary-600" />
             {{ t('admin.harvestFlow.autoRefresh') }}
           </label>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="loading || saving" @click="fetchFlow">
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading || saving" @click="fetchFlow">
             <Icon name="refresh" size="sm" class="mr-1" :class="{ 'animate-spin': loading || refreshing }" />
             {{ t('common.refresh') }}
-          </button>
+          </BaseButton>
         </div>
       </div>
 
@@ -144,14 +144,14 @@
                     </p>
                   </div>
                   <div class="flex shrink-0 items-center gap-2">
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm min-w-[5.5rem]"
+                      class="btn-secondary btn-sm min-w-[5.5rem]"
                       :disabled="saving"
                       @click="toggleSkipHarvest(account)"
                     >
                       {{ isHarvestSelected(account) ? t('admin.harvestFlow.skipHarvest') : t('admin.harvestFlow.enableHarvest') }}
-                    </button>
+                    </BaseButton>
                     <span class="w-8 text-right text-xs text-gray-400">{{ account.ready_count }}/{{ account.tickets?.length ?? 0 }}</span>
                   </div>
                 </div>
@@ -238,6 +238,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import HarvestCoverageCard from '@/components/admin/HarvestCoverageCard.vue'
 import HarvestAccountCoverage from '@/components/admin/HarvestAccountCoverage.vue'
 import HarvestPolicyPanel from '@/components/admin/HarvestPolicyPanel.vue'

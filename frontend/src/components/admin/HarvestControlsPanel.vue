@@ -7,9 +7,9 @@
       </div>
       <div v-if="draft" class="flex flex-wrap items-center gap-2">
         <span v-if="dirty" class="rounded-full bg-amber-50 px-2.5 py-1 text-[11px] text-amber-700 dark:bg-amber-900/30 dark:text-amber-300">{{ t(`${prefix}.unsaved`) }}</span>
-        <button data-testid="save-controls" type="submit" form="harvest-controls-form" class="btn btn-primary btn-sm" :disabled="saving || !dirty">{{ t(`${prefix}.save`) }}</button>
-        <button data-testid="restore-defaults" type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="restoreDefaults">{{ t(`${prefix}.defaults`) }}</button>
-        <button v-if="dirty" type="button" class="btn btn-secondary btn-sm" :disabled="saving" @click="discard">{{ t(`${prefix}.discard`) }}</button>
+        <BaseButton data-testid="save-controls" type="submit" form="harvest-controls-form" class="btn-primary btn-sm" :disabled="saving || !dirty">{{ t(`${prefix}.save`) }}</BaseButton>
+        <BaseButton data-testid="restore-defaults" type="button" class="btn-secondary btn-sm" :disabled="saving" @click="restoreDefaults">{{ t(`${prefix}.defaults`) }}</BaseButton>
+        <BaseButton v-if="dirty" type="button" class="btn-secondary btn-sm" :disabled="saving" @click="discard">{{ t(`${prefix}.discard`) }}</BaseButton>
       </div>
     </div>
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
@@ -18,11 +18,11 @@
       <fieldset :disabled="saving" class="space-y-4">
         <div class="rounded-xl border border-gray-100 p-4 dark:border-dark-700">
           <label class="mb-3 block text-sm">{{ t('admin.harvestFlow.edgeLabel') }}
-            <input v-model="draft.edge_ip" data-testid="edge-ip" class="input mt-2 max-w-xs" placeholder="172.64.155.209" />
+            <FormInput v-model="draft.edge_ip" data-testid="edge-ip" class="mt-2 max-w-xs" placeholder="172.64.155.209" />
           </label>
           <p class="mb-3 text-xs text-gray-500">{{ t('admin.harvestFlow.edgeHint') }}</p>
           <label class="mb-3 block text-sm">{{ t('admin.harvestFlow.transportLabel') }}
-            <select v-model="draft.transport" class="input mt-2 max-w-xs"><option value="sse">SSE</option><option value="websocket">WebSocket</option></select>
+            <FormSelect v-model="draft.transport" class="mt-2 max-w-xs"><option value="sse">SSE</option><option value="websocket">WebSocket</option></FormSelect>
           </label>
           <p class="mt-2 text-xs text-gray-500">{{ t('admin.harvestFlow.gatewayHint') }}</p>
           <p class="mt-2 text-xs text-gray-500">{{ t('admin.harvestFlow.nativeHint') }}</p>
@@ -30,7 +30,7 @@
         <div class="grid gap-3 lg:grid-cols-2">
           <div class="space-y-3 rounded-2xl border border-gray-100 p-4 dark:border-dark-700">
             <label class="flex items-start gap-3">
-              <input v-model="draft.node_memory_enabled" data-testid="memory-toggle" type="checkbox" class="mt-1 rounded text-primary-600" :disabled="!remote?.available && !draft.node_memory_enabled" />
+              <FormInput v-model="draft.node_memory_enabled" data-testid="memory-toggle" type="checkbox" class="mt-1 rounded text-primary-600" :disabled="!remote?.available && !draft.node_memory_enabled" />
               <span>
                 <span class="text-sm font-medium text-gray-900 dark:text-white">{{ t(`${prefix}.enabled`) }}</span>
                 <span class="mt-1 block text-xs text-gray-500 dark:text-gray-400">{{ t(`${prefix}.enabledHint`) }}</span>
@@ -41,9 +41,9 @@
             <div class="flex flex-wrap items-center justify-between gap-3">
               <label class="flex min-w-0 flex-wrap items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
                 {{ t(`${prefix}.speed`) }}
-                <select :value="selectedPreset" data-testid="speed-preset" class="input w-36" @change="selectPreset">
+                <FormSelect :value="selectedPreset" data-testid="speed-preset" class="w-36" @change="selectPreset">
                   <option v-for="preset in ['slow', 'standard', 'fast', 'burst', 'custom']" :key="preset" :value="preset">{{ t(`${prefix}.presets.${preset}`) }}</option>
-                </select>
+                </FormSelect>
               </label>
               <button
                 type="button"
@@ -64,7 +64,7 @@
         <div v-show="advanced" data-testid="advanced-fields" class="grid gap-3 rounded-2xl border border-gray-100 p-4 dark:border-dark-700 sm:grid-cols-2 lg:grid-cols-3">
           <label v-for="field in speedFields" :key="field.key" class="text-xs text-gray-600 dark:text-gray-300">
             {{ t(`${prefix}.fields.${field.key}`) }}
-            <input v-model.number="draft.speed[field.key]" :data-testid="field.key" type="number" :min="field.min" :max="field.max" :step="field.step" required class="input mt-1 w-full" />
+            <FormInput v-model.number="draft.speed[field.key]" :data-testid="field.key" type="number" :min="field.min" :max="field.max" :step="field.step" required class="mt-1 w-full" />
             <span class="mt-1 block text-gray-400">{{ field.min }}–{{ field.max }}</span>
           </label>
         </div>
@@ -103,6 +103,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getCodexHarvestControls, saveCodexHarvestControls, type CodexHarvestControls, type CodexHarvestControlSnapshot, type CodexHarvestRuntime, type CodexHarvestSpeed } from '@/api/admin/codexHarvest'

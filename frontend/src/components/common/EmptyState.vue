@@ -2,6 +2,7 @@
   <div class="empty-state">
     <!-- Icon -->
     <div
+      v-if="showIcon"
       class="mb-5 flex h-20 w-20 items-center justify-center rounded-2xl bg-gray-100 dark:bg-dark-800"
     >
       <slot name="icon">
@@ -29,7 +30,7 @@
     </h3>
 
     <!-- Description -->
-    <p class="empty-state-description">
+    <p v-if="description" class="empty-state-description">
       {{ description }}
     </p>
 
@@ -61,6 +62,7 @@ const { t } = useI18n()
 
 interface Props {
   icon?: Component | string
+  showIcon?: boolean
   title?: string
   description?: string
   actionText?: string
@@ -71,6 +73,7 @@ interface Props {
 
 const props = withDefaults(defineProps<Props>(), {
   description: '',
+  showIcon: true,
   actionIcon: true
 })
 

@@ -10,32 +10,35 @@
       <p v-if="status.task" role="status">{{ text('最近任务', 'Latest task') }}: {{ status.task.status }} / {{ status.task.stage }}</p>
       <p v-if="safeTaskError" class="text-red-600">{{ safeTaskError }}</p>
       <p v-if="error" role="alert" class="text-red-600">{{ error }}</p>
-      <button v-if="encryption && !encryption.configured" type="button" class="btn btn-secondary" :disabled="busy" @click="initialize">{{ text('初始化凭据加密', 'Initialize credential encryption') }}</button>
+      <BaseButton v-if="encryption && !encryption.configured" type="button" class="btn-secondary" :disabled="busy" @click="initialize">{{ text('初始化凭据加密', 'Initialize credential encryption') }}</BaseButton>
       <fieldset :disabled="busy || !loaded || !encryption?.configured || running" class="space-y-3 disabled:opacity-60">
-        <label class="block">{{ text('登录邮箱', 'Login email') }}<input v-model.trim="form.login_email" class="input mt-1" type="email" autocomplete="off" data-testid="excel-login-email" /></label>
-        <label class="block">{{ text('登录密码', 'Password') }} · {{ configuredText(status.config?.password_configured) }}<input v-model="password" class="input mt-1" type="password" autocomplete="new-password" data-testid="excel-password" :placeholder="text('留空保留已保存的密码', 'Leave blank to keep the saved password')" :disabled="clearPassword" /></label>
-        <label class="flex gap-2"><input v-model="clearPassword" type="checkbox" />{{ text('清除已保存的密码', 'Clear saved password') }}</label>
-        <label class="block">TOTP · {{ configuredText(status.config?.totp_configured) }}<input v-model="totp" class="input mt-1" type="password" autocomplete="off" data-testid="excel-totp" :placeholder="text('留空保留已保存的 TOTP 密钥', 'Leave blank to keep the saved TOTP secret')" :disabled="clearTotp" /></label>
-        <label class="flex gap-2"><input v-model="clearTotp" type="checkbox" />{{ text('清除已保存的 TOTP 密钥', 'Clear saved TOTP secret') }}</label>
+        <label class="block">{{ text('登录邮箱', 'Login email') }}<FormInput v-model.trim="form.login_email" class="mt-1" type="email" autocomplete="off" data-testid="excel-login-email" /></label>
+        <label class="block">{{ text('登录密码', 'Password') }} · {{ configuredText(status.config?.password_configured) }}<FormInput v-model="password" class="mt-1" type="password" autocomplete="new-password" data-testid="excel-password" :placeholder="text('留空保留已保存的密码', 'Leave blank to keep the saved password')" :disabled="clearPassword" /></label>
+        <label class="flex gap-2"><FormInput v-model="clearPassword" type="checkbox" />{{ text('清除已保存的密码', 'Clear saved password') }}</label>
+        <label class="block">TOTP · {{ configuredText(status.config?.totp_configured) }}<FormInput v-model="totp" class="mt-1" type="password" autocomplete="off" data-testid="excel-totp" :placeholder="text('留空保留已保存的 TOTP 密钥', 'Leave blank to keep the saved TOTP secret')" :disabled="clearTotp" /></label>
+        <label class="flex gap-2"><FormInput v-model="clearTotp" type="checkbox" />{{ text('清除已保存的 TOTP 密钥', 'Clear saved TOTP secret') }}</label>
         <label class="block">{{ text('授权代理', 'Authorization proxy') }}
-          <select v-model="form.proxy_source" class="input mt-1">
+          <FormSelect v-model="form.proxy_source" class="mt-1">
             <option value="account">{{ text('跟随账号代理', 'Use account proxy') }}</option>
             <option value="managed_proxy">{{ text('指定托管代理', 'Select managed proxy') }}</option>
             <option value="mihomo">Mihomo</option>
-          </select>
+          </FormSelect>
         </label>
-        <label v-if="form.proxy_source === 'managed_proxy'" class="block">{{ text('托管代理 ID', 'Managed proxy ID') }}<input v-model.number="form.proxy_id" class="input mt-1" type="number" min="1" step="1" /></label>
-        <button type="button" class="btn btn-secondary" data-testid="excel-save" @click="save">{{ text('保存授权材料', 'Save login credentials') }}</button>
+        <label v-if="form.proxy_source === 'managed_proxy'" class="block">{{ text('托管代理 ID', 'Managed proxy ID') }}<FormInput v-model.number="form.proxy_id" class="mt-1" type="number" min="1" step="1" /></label>
+        <BaseButton type="button" class="btn-secondary" data-testid="excel-save" @click="save">{{ text('保存授权材料', 'Save login credentials') }}</BaseButton>
       </fieldset>
       <div class="flex gap-2">
-        <button type="button" class="btn btn-primary" :disabled="busy || running || !status.config?.configured || !encryption?.configured" data-testid="excel-authorize" @click="authorize">{{ text('开始 BPS 授权', 'Authorize BPS') }}</button>
-        <button type="button" class="btn btn-secondary" :disabled="busy" @click="load">{{ text('刷新状态', 'Refresh status') }}</button>
+        <BaseButton type="button" class="btn-primary" :disabled="busy || running || !status.config?.configured || !encryption?.configured" data-testid="excel-authorize" @click="authorize">{{ text('开始 BPS 授权', 'Authorize BPS') }}</BaseButton>
+        <BaseButton type="button" class="btn-secondary" :disabled="busy" @click="load">{{ text('刷新状态', 'Refresh status') }}</BaseButton>
       </div>
     </div>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { Account } from '@/types'

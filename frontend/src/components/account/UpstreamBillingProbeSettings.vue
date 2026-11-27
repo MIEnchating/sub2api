@@ -19,12 +19,11 @@
     </div>
     <label class="block">
       <span class="input-label">{{ t('admin.accounts.upstreamBilling.rateLimit') }}</span>
-      <input
+      <FormInput
         :value="rateLimit ?? ''"
         type="number"
         min="0"
         step="any"
-        class="input"
         data-testid="upstream-billing-rate-limit"
         :placeholder="t('admin.accounts.upstreamBilling.rateLimitPlaceholder')"
         @input="updateLimit"
@@ -35,6 +34,7 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

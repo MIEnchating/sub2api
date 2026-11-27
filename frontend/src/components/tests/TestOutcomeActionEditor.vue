@@ -3,18 +3,18 @@
     <h5 class="text-sm font-semibold text-gray-900 dark:text-white">{{ title || t(`admin.tests.protection.actions.${outcome}`) }}</h5>
     <label v-if="!hideScheduling" class="input-label block">
       {{ t('admin.tests.protection.actions.scheduling') }}
-      <select :value="action.scheduling" class="input mt-1 w-full" data-action-scheduling @change="patch({ scheduling: ($event.target as HTMLSelectElement).value as TestOutcomeAction['scheduling'] })">
+      <FormSelect :value="action.scheduling" class="mt-1 w-full" data-action-scheduling @change="patch({ scheduling: ($event.target as HTMLSelectElement).value as TestOutcomeAction['scheduling'] })">
         <option value="keep">{{ t('admin.tests.protection.actions.keepScheduling') }}</option>
         <option value="pause">{{ t('admin.tests.protection.actions.pause') }}</option>
         <option value="resume">{{ resumeLabel || t('admin.tests.protection.actions.resume') }}</option>
-      </select>
+      </FormSelect>
     </label>
     <label class="input-label block">
       {{ t('admin.tests.protection.actions.groups') }}
-      <select :value="action.group_mode" class="input mt-1 w-full" data-action-group-mode @change="setGroupMode(($event.target as HTMLSelectElement).value as TestOutcomeAction['group_mode'])">
+      <FormSelect :value="action.group_mode" class="mt-1 w-full" data-action-group-mode @change="setGroupMode(($event.target as HTMLSelectElement).value as TestOutcomeAction['group_mode'])">
         <option value="keep">{{ t('admin.tests.protection.actions.keepGroups') }}</option>
         <option value="assign">{{ t('admin.tests.protection.actions.assignGroups') }}</option>
-      </select>
+      </FormSelect>
     </label>
     <template v-if="action.group_mode === 'assign'">
       <div class="space-y-2">
@@ -24,10 +24,10 @@
             <span class="truncate">{{ groupLabel(id) }}</span><span aria-hidden="true">×</span>
           </button>
         </div>
-        <input v-model="search" type="search" class="input w-full text-sm" :placeholder="t('admin.tests.protection.actions.searchGroups')" :aria-label="t('admin.tests.protection.actions.searchGroups')" data-group-search />
+        <FormInput v-model="search" type="search" class="w-full text-sm" :placeholder="t('admin.tests.protection.actions.searchGroups')" :aria-label="t('admin.tests.protection.actions.searchGroups')" data-group-search />
         <div class="max-h-40 space-y-1 overflow-y-auto rounded-md border border-gray-200 bg-white p-2 dark:border-dark-600 dark:bg-dark-900">
           <label v-for="group in filteredGroups" :key="group.id" class="flex cursor-pointer items-start gap-2 rounded px-2 py-1.5 text-sm text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-800">
-            <input type="checkbox" :checked="selectedIDs.includes(group.id)" :disabled="selectedIDs.length >= 100 && !selectedIDs.includes(group.id)" class="mt-0.5" :data-action-group="group.id" @change="setGroup(group.id, ($event.target as HTMLInputElement).checked)" />
+            <FormInput type="checkbox" :checked="selectedIDs.includes(group.id)" :disabled="selectedIDs.length >= 100 && !selectedIDs.includes(group.id)" class="mt-0.5" :data-action-group="group.id" @change="setGroup(group.id, ($event.target as HTMLInputElement).checked)" />
             <span class="min-w-0 break-words">{{ group.name }} <span class="text-xs text-gray-400">#{{ group.id }}</span></span>
           </label>
           <p v-if="!filteredGroups.length" class="px-2 py-2 text-xs text-gray-500">{{ t('common.noGroupsAvailable') }}</p>
@@ -40,6 +40,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AdminGroup, TestOutcomeAction } from '@/types'

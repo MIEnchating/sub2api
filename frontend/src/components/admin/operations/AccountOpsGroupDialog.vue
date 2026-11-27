@@ -9,7 +9,7 @@
         <div class="flex flex-wrap items-start justify-between gap-3">
           <label class="min-w-0 flex-1 space-y-1">
             <span class="text-xs font-medium text-gray-500">{{ t('accountOps.groupName') }}</span>
-            <input v-model="group.name" class="input w-full" :placeholder="group.default_name" :data-testid="`account-group-name-${group.id}`" />
+            <FormInput v-model="group.name" class="w-full" :placeholder="group.default_name" :data-testid="`account-group-name-${group.id}`" />
           </label>
           <div class="flex items-start gap-3 pt-5 text-right text-xs text-gray-500">
             <div>
@@ -35,17 +35,19 @@
           </template>
         </QualityAccountSelector>
       </div>
-      <button type="button" class="btn btn-secondary" data-testid="add-account-group" @click="addGroup">{{ t('accountOps.addAccountGroup') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-testid="add-account-group" @click="addGroup">{{ t('accountOps.addAccountGroup') }}</BaseButton>
       <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ error }}</p>
     </fieldset>
     <template #footer>
-      <button type="button" class="btn btn-secondary" data-testid="cancel-account-groups" @click="close">{{ t('common.cancel') }}</button>
-      <button type="button" class="btn btn-primary" data-testid="save-account-groups" :disabled="busy" @click="save">{{ busy ? t('common.loading') : t('accountOps.saveAccountGroups') }}</button>
+      <BaseButton type="button" class="btn-secondary" data-testid="cancel-account-groups" @click="close">{{ t('common.cancel') }}</BaseButton>
+      <BaseButton type="button" class="btn-primary" data-testid="save-account-groups" :disabled="busy" @click="save">{{ busy ? t('common.loading') : t('accountOps.saveAccountGroups') }}</BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

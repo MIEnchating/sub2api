@@ -6,13 +6,13 @@
         <label class="relative block">
           <span class="sr-only">{{ t('admin.tests.searchResultsAccount') }}</span>
           <Icon name="search" size="sm" class="pointer-events-none absolute left-3 top-3 text-gray-400" />
-          <input v-model="accountSearch" type="search" class="input w-full pl-9 text-sm" :placeholder="t('admin.tests.searchResultsAccount')" data-account-search />
+          <FormInput v-model="accountSearch" type="search" class="w-full pl-9 text-sm" :placeholder="t('admin.tests.searchResultsAccount')" data-account-search />
         </label>
         <label class="mt-3 block md:hidden">
           <span class="sr-only">{{ t('admin.tests.account') }}</span>
-          <select v-model="selectedKey" class="input w-full text-sm" data-account-select>
+          <FormSelect v-model="selectedKey" class="w-full text-sm" data-account-select>
             <option v-for="account in visibleAccounts" :key="account.key" :value="account.key">{{ account.label }} · {{ t('admin.tests.resultCount', { count: account.results.length }) }}</option>
-          </select>
+          </FormSelect>
         </label>
         <nav class="mt-3 hidden divide-y divide-gray-100 md:block dark:divide-dark-800" :aria-label="t('admin.tests.account')">
           <button v-for="account in visibleAccounts" :key="account.key" type="button" class="block w-full px-3 py-3 text-left transition-colors" :class="selectedKey === account.key ? 'bg-primary-50 text-primary-700 dark:bg-primary-950/30 dark:text-primary-300' : 'text-gray-700 hover:bg-gray-50 dark:text-gray-300 dark:hover:bg-dark-800'" :aria-current="selectedKey === account.key ? 'true' : undefined" :data-account-key="account.key" @click="selectedKey = account.key">
@@ -30,8 +30,8 @@
           <span v-if="loading" class="text-xs text-gray-500" role="status">{{ t('common.loading') }}</span>
         </header>
         <div class="mb-2 grid gap-3 sm:grid-cols-2">
-          <label class="min-w-0 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.type') }}<select v-model="typeFilter" class="input mt-1 w-full text-sm" data-type-filter><option value="">{{ t('admin.tests.allResultTypes') }}</option><option v-for="type in availableTypes" :key="type.key" :value="type.key">{{ type.name }}</option></select></label>
-          <label class="min-w-0 text-xs text-gray-500 dark:text-gray-400">{{ t('common.status') }}<select v-model="statusFilter" class="input mt-1 w-full text-sm" data-status-filter><option value="">{{ t('admin.tests.allResultStatuses') }}</option><option value="success">{{ t('admin.scheduledTests.success') }}</option><option value="failed">{{ t('admin.scheduledTests.failed') }}</option><option value="skipped">{{ t('admin.tests.skipped') }}</option><option v-if="hasModelChecks" value="unknown">{{ t('tests.modelCheck.unknown') }}</option><option value="running">{{ t('admin.scheduledTests.running') }}</option></select></label>
+          <label class="min-w-0 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.type') }}<FormSelect v-model="typeFilter" class="mt-1 w-full text-sm" data-type-filter><option value="">{{ t('admin.tests.allResultTypes') }}</option><option v-for="type in availableTypes" :key="type.key" :value="type.key">{{ type.name }}</option></FormSelect></label>
+          <label class="min-w-0 text-xs text-gray-500 dark:text-gray-400">{{ t('common.status') }}<FormSelect v-model="statusFilter" class="mt-1 w-full text-sm" data-status-filter><option value="">{{ t('admin.tests.allResultStatuses') }}</option><option value="success">{{ t('admin.scheduledTests.success') }}</option><option value="failed">{{ t('admin.scheduledTests.failed') }}</option><option value="skipped">{{ t('admin.tests.skipped') }}</option><option v-if="hasModelChecks" value="unknown">{{ t('tests.modelCheck.unknown') }}</option><option value="running">{{ t('admin.scheduledTests.running') }}</option></FormSelect></label>
         </div>
         <p v-if="!filteredResults.length" class="py-8 text-center text-sm text-gray-500">{{ t('admin.tests.noMatchingResults') }}</p>
         <div v-else class="divide-y divide-gray-200 dark:divide-dark-700">
@@ -46,8 +46,8 @@
                 </span>
               </button>
               <div class="flex shrink-0 gap-1">
-                <button v-if="result.id > 0 && result.status === 'failed' && result.account_id" type="button" class="btn btn-secondary h-8 w-8 p-0" :title="t('admin.tests.retry')" :aria-label="t('admin.tests.retry')" :disabled="retryingResultId === result.id || deletingResultId === result.id" data-retry-result @click="emit('retry', result)"><Icon name="refresh" size="sm" :class="{ 'animate-spin': retryingResultId === result.id }" /></button>
-                <button v-if="result.id > 0" type="button" class="btn btn-secondary h-8 w-8 p-0 text-red-600 dark:text-red-400" :title="t('common.delete')" :aria-label="t('common.delete')" :disabled="deletingResultId === result.id || retryingResultId === result.id" data-delete-result @click="emit('delete', result)"><Icon name="trash" size="sm" /></button>
+                <BaseButton v-if="result.id > 0 && result.status === 'failed' && result.account_id" type="button" class="btn-secondary h-8 w-8 p-0" :title="t('admin.tests.retry')" :aria-label="t('admin.tests.retry')" :disabled="retryingResultId === result.id || deletingResultId === result.id" data-retry-result @click="emit('retry', result)"><Icon name="refresh" size="sm" :class="{ 'animate-spin': retryingResultId === result.id }" /></BaseButton>
+                <BaseButton v-if="result.id > 0" type="button" class="btn-secondary h-8 w-8 p-0 text-red-600 dark:text-red-400" :title="t('common.delete')" :aria-label="t('common.delete')" :disabled="deletingResultId === result.id || retryingResultId === result.id" data-delete-result @click="emit('delete', result)"><Icon name="trash" size="sm" /></BaseButton>
               </div>
             </div>
             <p v-if="result.target_mode === 'group' && result.account_id" class="ml-6 mt-2 break-words text-xs text-gray-500 dark:text-gray-400">{{ t('admin.tests.executedByAccount') }}: {{ accountLabel(result) }}</p>
@@ -68,6 +68,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { AccountListItem, TestResult, TestType } from '@/types'

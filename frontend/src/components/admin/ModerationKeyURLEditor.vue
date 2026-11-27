@@ -4,12 +4,12 @@
     <template v-if="editing">
       <label class="block text-xs">
         {{ t('admin.riskControl.keyUrl') }}
-        <input v-model.trim="draft" type="url" class="input mt-1" :disabled="busy" @keydown.esc="cancel" />
+        <FormInput v-model.trim="draft" type="url" class="mt-1" :disabled="busy" @keydown.esc="cancel" />
       </label>
       <p class="text-xs text-gray-500">{{ t('admin.riskControl.keyUrlHint') }}</p>
       <div class="flex gap-2">
-        <button data-test="key-url-save" type="button" class="btn btn-primary btn-sm" :disabled="busy || disabled" @click="save">{{ t(busy ? 'common.saving' : 'common.save') }}</button>
-        <button data-test="key-url-cancel" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="cancel">{{ t('common.cancel') }}</button>
+        <BaseButton data-test="key-url-save" type="button" class="btn-primary btn-sm" :disabled="busy || disabled" @click="save">{{ t(busy ? 'common.saving' : 'common.save') }}</BaseButton>
+        <BaseButton data-test="key-url-cancel" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="cancel">{{ t('common.cancel') }}</BaseButton>
       </div>
     </template>
     <button v-else data-test="key-url-edit" type="button" class="text-xs font-medium text-primary-600 dark:text-primary-400" :disabled="disabled" @click="start">{{ t('admin.riskControl.editKeyUrl') }}</button>
@@ -19,6 +19,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { ContentModerationAPIKeyStatus } from '@/api/admin/riskControl'

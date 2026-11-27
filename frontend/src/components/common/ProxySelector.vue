@@ -5,7 +5,7 @@
       @click="toggle"
       :disabled="disabled"
       :class="[
-        'select-trigger',
+        'input select-control select-trigger',
         isOpen && 'select-trigger-open',
         disabled && 'select-trigger-disabled'
       ]"
@@ -23,7 +23,7 @@
     </button>
 
     <Transition name="select-dropdown">
-      <div v-if="isOpen" class="select-dropdown">
+      <div v-if="isOpen" class="select-surface select-dropdown">
         <!-- Search and Batch Test Header -->
         <div class="select-header">
           <div class="select-search">
@@ -69,7 +69,7 @@
           <!-- No Proxy option -->
           <div
             @click="selectOption(null)"
-            :class="['select-option', isSelected(null) && 'select-option-selected']"
+            :class="['select-choice select-option', isSelected(null) && 'select-choice-selected']"
           >
             <span class="select-option-label">{{ t('admin.accounts.noProxy') }}</span>
             <Icon v-if="isSelected(null)" name="check" size="sm" class="text-primary-500" />
@@ -80,7 +80,7 @@
             v-for="proxy in filteredProxies"
             :key="proxy.id"
             @click="selectOption(proxy.id)"
-            :class="['select-option', isSelected(proxy.id) && 'select-option-selected']"
+            :class="['select-choice select-option', isSelected(proxy.id) && 'select-choice-selected']"
           >
             <div class="min-w-0 flex-1">
               <div class="flex items-center gap-2">
@@ -188,10 +188,9 @@ interface ProxyTestResult {
 }
 
 interface Props {
-  modelValue: number | null | number[]
+  modelValue: number | null
   proxies: Proxy[]
   disabled?: boolean
-  multiple?: boolean
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -199,7 +198,7 @@ const props = withDefaults(defineProps<Props>(), {
 })
 
 const emit = defineEmits<{
-  'update:modelValue': [value: number | null | number[]]
+  'update:modelValue': [value: number | null]
 }>()
 
 const isOpen = ref(false)
@@ -213,15 +212,12 @@ const testingProxyIds = reactive(new Set<number>())
 const batchTesting = ref(false)
 
 const selectedProxy = computed(() => {
-  const id = Array.isArray(props.modelValue) ? props.modelValue[0] : props.modelValue
+  const id = props.modelValue
   if (id == null) return null
   return props.proxies.find((p) => p.id === id) || null
 })
 
 const selectedLabel = computed(() => {
-  if (props.multiple && Array.isArray(props.modelValue) && props.modelValue.length > 1) {
-    return t('admin.accounts.proxyPoolCount', { count: props.modelValue.length })
-  }
   if (!selectedProxy.value) {
     return t('admin.accounts.noProxy')
   }
@@ -230,7 +226,7 @@ const selectedLabel = computed(() => {
 })
 
 const selectableProxies = computed(() => props.proxies.filter(proxy => !isManagedIPv6Proxy(proxy) ||
-  proxy.managed_ipv6_state === 'reserved' || (Array.isArray(props.modelValue) ? props.modelValue.includes(proxy.id) : props.modelValue === proxy.id)))
+  proxy.managed_ipv6_state === 'reserved' || props.modelValue === proxy.id))
 const filteredProxies = computed(() => {
   if (!searchQuery.value) {
     return selectableProxies.value
@@ -263,30 +259,12 @@ watch(() => props.disabled, (disabled) => {
 const selectOption = (value: number | null) => {
   if (props.disabled) return
   if (value !== null && !selectableProxies.value.some(proxy => proxy.id === value)) return
-  if (props.multiple) {
-    const current = Array.isArray(props.modelValue) ? [...props.modelValue] : []
-    if (value === null) current.splice(0)
-    else {
-      const i = current.indexOf(value)
-      if (i >= 0) current.splice(i, 1)
-      else {
-        // Managed IPv6 is exclusive; selecting it replaces a regular pool, and vice versa.
-        const managed = props.proxies.some(proxy => proxy.id === value && isManagedIPv6Proxy(proxy))
-        if (managed || current.some(id => props.proxies.some(proxy => proxy.id === id && isManagedIPv6Proxy(proxy)))) current.splice(0)
-        current.push(value)
-      }
-    }
-    emit('update:modelValue', current)
-  } else {
-    emit('update:modelValue', value)
-    isOpen.value = false
-  }
+  emit('update:modelValue', value)
+  isOpen.value = false
   searchQuery.value = ''
 }
 
-const isSelected = (value: number | null) => props.multiple
-  ? Array.isArray(props.modelValue) && (value === null ? props.modelValue.length === 0 : props.modelValue.includes(value))
-  : props.modelValue === value
+const isSelected = (value: number | null) => props.modelValue === value
 
 const handleTestProxy = async (proxy: Proxy) => {
   if (testingProxyIds.has(proxy.id)) return
@@ -345,22 +323,6 @@ onUnmounted(() => {
 <style scoped>
 .select-trigger {
   @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
-  @apply cursor-pointer;
-}
-
-.select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
-}
-
-.select-trigger-disabled {
-  @apply cursor-not-allowed bg-gray-100 opacity-60 dark:bg-dark-900;
 }
 
 .select-value {
@@ -372,12 +334,7 @@ onUnmounted(() => {
 }
 
 .select-dropdown {
-  @apply absolute z-[100] mt-2 w-full;
-  @apply bg-white dark:bg-dark-800;
-  @apply rounded-xl;
-  @apply border border-gray-200 dark:border-dark-700;
-  @apply shadow-lg shadow-black/10 dark:shadow-black/30;
-  @apply overflow-hidden;
+  @apply absolute z-[100] mt-2 w-full overflow-hidden;
 }
 
 .select-header {
@@ -409,15 +366,6 @@ onUnmounted(() => {
 
 .select-option {
   @apply flex items-center justify-between gap-2;
-  @apply px-4 py-2.5 text-sm;
-  @apply text-gray-700 dark:text-gray-300;
-  @apply cursor-pointer transition-colors duration-150;
-  @apply hover:bg-gray-50 dark:hover:bg-dark-700;
-}
-
-.select-option-selected {
-  @apply bg-primary-50 dark:bg-primary-900/20;
-  @apply text-primary-700 dark:text-primary-300;
 }
 
 .select-option-label {

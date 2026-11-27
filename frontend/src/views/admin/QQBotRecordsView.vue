@@ -4,7 +4,7 @@
     <div class="mx-auto max-w-7xl space-y-6">
       <div class="flex flex-wrap items-start justify-between gap-3">
         <div><h1 class="text-2xl font-semibold">{{ t('qqbot.workspace.records') }}</h1><p class="mt-2 text-sm text-gray-500">{{ t('qqbot.recordsHelp') }}</p></div>
-        <div class="flex gap-2"><button v-if="recordMode !== 'activities'" class="btn btn-secondary" :disabled="appLoading" data-testid="qq-records-refresh-app" @click="loadApp">{{ t('common.refresh') }}</button><RouterLink class="btn btn-secondary" :to="{ path: '/admin/qqbot/activities', query: activitySettingsQuery }">{{ t('qqbot.activitiesTitle') }}</RouterLink></div>
+        <div class="flex gap-2"><BaseButton v-if="recordMode !== 'activities'" class="btn-secondary" :disabled="appLoading" data-testid="qq-records-refresh-app" @click="loadApp">{{ t('common.refresh') }}</BaseButton><RouterLink class="btn btn-secondary" :to="{ path: '/admin/qqbot/activities', query: activitySettingsQuery }">{{ t('qqbot.activitiesTitle') }}</RouterLink></div>
       </div>
       <div class="flex flex-wrap gap-2"><RouterLink v-for="mode in recordModes" :key="mode" :to="{ query: { tab: mode } }" class="btn" :class="recordMode === mode ? 'btn-primary' : 'btn-secondary'">{{ t(`qqbot.workspace.${mode}`) }}</RouterLink></div>
       <p v-if="appError && recordMode !== 'activities'" role="alert" class="text-red-600">{{ appError }}</p>
@@ -14,18 +14,18 @@
       <QQModerationRecords v-else-if="recordMode === 'moderation'" :app-id="appId" />
       <template v-else>
       <nav role="tablist" :aria-label="t('qqbot.recordsTitle')" class="flex gap-1 rounded-xl border border-gray-200 bg-gray-50 p-1 dark:border-dark-700 dark:bg-dark-800">
-        <button v-for="tab in tabs" :id="`records-tab-${tab.key}`" :key="tab.key" type="button" role="tab"
+        <TabButton v-for="tab in tabs" :id="`records-tab-${tab.key}`" :key="tab.key" type="button"
           :aria-selected="activeTab === tab.key" :aria-controls="`records-panel-${tab.key}`" :tabindex="activeTab === tab.key ? 0 : -1"
           class="min-h-[44px] min-w-0 flex-1 rounded-lg px-2 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500"
           :class="activeTab === tab.key ? 'bg-white text-primary-700 shadow-sm dark:bg-dark-700 dark:text-primary-300' : 'text-gray-600 hover:bg-white/60 dark:text-gray-300 dark:hover:bg-dark-700/60'"
-          @click="selectTab(tab.key)" @keydown="handleKeydown($event, tab.key)">{{ t(tab.label) }}</button>
+          @click="selectTab(tab.key)" @keydown="handleKeydown($event, tab.key)">{{ t(tab.label) }}</TabButton>
       </nav>
       <section :id="`records-panel-${activeTab}`" role="tabpanel" :aria-labelledby="`records-tab-${activeTab}`" :aria-busy="state.loading" class="card space-y-4 p-4 sm:p-6">
         <p v-if="activeTab === 'invite'" class="text-sm text-gray-500">{{ t('qqbot.inviteRecordsHelp') }}</p>
         <form class="flex flex-wrap gap-3" @submit.prevent="searchRecords">
-          <input v-model="state.search" class="input min-w-0 flex-1" :aria-label="t('qqbot.recordSearch')" :placeholder="t('qqbot.recordSearch')" maxlength="254" />
-          <button type="submit" class="btn btn-primary" :disabled="state.loading">{{ t('common.search') }}</button>
-          <button type="button" class="btn btn-secondary" :disabled="state.loading" @click="load(activeTab, state.data.page)">{{ t('common.refresh') }}</button>
+          <FormInput v-model="state.search" class="min-w-0 flex-1" :aria-label="t('qqbot.recordSearch')" :placeholder="t('qqbot.recordSearch')" maxlength="254" />
+          <BaseButton type="submit" class="btn-primary" :disabled="state.loading">{{ t('common.search') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" :disabled="state.loading" @click="load(activeTab, state.data.page)">{{ t('common.refresh') }}</BaseButton>
         </form>
         <p v-if="state.error" role="alert" class="text-sm text-red-600">{{ state.error }}</p>
         <p v-if="state.loading" role="status" class="py-6 text-sm text-gray-500">{{ t('common.loading') }}</p>
@@ -59,7 +59,7 @@
             </article>
           </div>
           <div class="hidden overflow-x-auto lg:block">
-            <table class="w-full text-left text-sm" :class="activeTab === 'invite' ? 'min-w-[1080px]' : 'min-w-[800px]'">
+            <BaseTable class="w-full text-left text-sm" :class="activeTab === 'invite' ? 'min-w-[1080px]' : 'min-w-[800px]'">
               <thead class="text-xs text-gray-500"><tr>
                 <th v-if="activeTab === 'invite'" class="w-1/5 pb-3 pr-5">{{ t('qqbot.recordInviter') }}</th>
                 <th class="w-1/5 pb-3 pr-5">{{ t(activeTab === 'invite' ? 'qqbot.recordInvitee' : 'qqbot.recordParticipant') }}</th>
@@ -86,13 +86,13 @@
                   <template v-else>{{ formatDate(record.created_at) }}</template>
                 </td>
               </tr></tbody>
-            </table>
+            </BaseTable>
           </div>
           <p v-if="!state.data.items.length" class="py-8 text-center text-sm text-gray-500">{{ t('common.noData') }}</p>
         </template>
         <div class="flex flex-wrap items-center justify-between gap-3 border-t pt-4 text-sm dark:border-dark-700">
           <span class="text-gray-500">{{ t('qqbot.recordsPage', { total: state.data.total, page: state.data.page, pages }) }}</span>
-          <div class="flex gap-2"><button type="button" class="btn btn-secondary" :disabled="state.loading || !!state.error || state.data.page <= 1" @click="load(activeTab, state.data.page - 1)">{{ t('qqbot.previousPage') }}</button><button type="button" class="btn btn-secondary" :disabled="state.loading || !!state.error || state.data.page >= pages" @click="load(activeTab, state.data.page + 1)">{{ t('qqbot.nextPage') }}</button></div>
+          <div class="flex gap-2"><BaseButton type="button" class="btn-secondary" :disabled="state.loading || !!state.error || state.data.page <= 1" @click="load(activeTab, state.data.page - 1)">{{ t('qqbot.previousPage') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="state.loading || !!state.error || state.data.page >= pages" @click="load(activeTab, state.data.page + 1)">{{ t('qqbot.nextPage') }}</BaseButton></div>
         </div>
       </section>
       </template>
@@ -101,6 +101,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import TabButton from '@/components/common/TabButton.vue'
 import QQCommunityNav from '@/components/admin/qqbot/QQCommunityNav.vue'
 import { computed, nextTick, onBeforeUnmount, reactive, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'

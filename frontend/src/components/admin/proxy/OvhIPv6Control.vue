@@ -3,20 +3,12 @@
     <div class="flex flex-wrap items-center gap-x-4 gap-y-2">
       <div class="flex items-center gap-3">
         <span class="text-sm font-medium text-gray-900 dark:text-white">{{ t('ovhIPv6.title') }}</span>
-        <button
-          type="button"
-          role="switch"
+        <Toggle
           :aria-label="t('ovhIPv6.title')"
-          :aria-checked="status?.enabled ?? false"
+          :model-value="status?.enabled ?? false"
           :disabled="toggleDisabled"
-          :class="[
-            'relative inline-flex h-6 w-11 shrink-0 items-center rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary-500 focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50',
-            status?.enabled ? 'bg-primary-600' : 'bg-gray-300 dark:bg-dark-500'
-          ]"
-          @click="toggleEnabled"
-        >
-          <span :class="['inline-block h-4 w-4 rounded-full bg-white transition-transform', status?.enabled ? 'translate-x-6' : 'translate-x-1']" />
-        </button>
+          @update:model-value="toggleEnabled"
+        />
         <span class="text-xs text-gray-500 dark:text-gray-400" aria-live="polite">{{ stateLabel }}</span>
       </div>
       <div v-if="status?.configured" class="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-gray-500 dark:text-gray-400">
@@ -24,9 +16,9 @@
         <span>{{ t('ovhIPv6.bound', { count: status.bound }) }}</span>
       </div>
       <div class="ml-auto flex items-center gap-3">
-        <button type="button" class="btn btn-secondary px-3 py-1.5 text-xs" data-testid="open-ipv6-storage" @click="showStorage = true">
+        <BaseButton type="button" class="btn-secondary px-3 py-1.5 text-xs" data-testid="open-ipv6-storage" @click="showStorage = true">
           {{ t('ovhIPv6.storage.title') }}
-        </button>
+        </BaseButton>
         <button
         type="button"
         class="rounded p-1 text-gray-500 hover:text-primary-600 disabled:opacity-50 dark:text-gray-400 dark:hover:text-primary-400"
@@ -51,7 +43,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import TotpStepUpDialog from '@/components/auth/TotpStepUpDialog.vue'
+import Toggle from '@/components/common/Toggle.vue'
 import { useStepUp, isStepUpCancelled, StepUpCancelledError } from '@/composables/useStepUp'
 import { computed, onMounted, onUnmounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'

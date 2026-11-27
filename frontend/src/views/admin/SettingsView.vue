@@ -18,10 +18,9 @@
           >
             <div class="settings-tabs">
               <template v-for="tab in settingsTabs" :key="tab.key">
-                <button
+                <TabButton
                   :id="`settings-tab-${tab.key}`"
                   type="button"
-                  role="tab"
                   :aria-selected="activeTab === tab.key"
                   :tabindex="activeTab === tab.key ? 0 : -1"
                   :class="[
@@ -37,7 +36,7 @@
                   <span class="settings-tab-label">{{
                     t(`admin.settings.tabs.${tab.key}`)
                   }}</span>
-                </button>
+                </TabButton>
                 <NewFeatureBadge
                   v-if="tab.key === 'features'"
                   :notice-id="NEW_FEATURE_NOTICES.protocolFeatureSwitches"
@@ -65,12 +64,6 @@
                 <NewFeatureBadge
                   v-if="tab.key === 'gateway'"
                   :notice-id="NEW_FEATURE_NOTICES.serverlessIPRouting"
-                  :user-id="authStore.user?.id"
-                  class="settings-tab-badge"
-                />
-                <NewFeatureBadge
-                  v-if="tab.key === 'payment'"
-                  :notice-id="NEW_FEATURE_NOTICES.bepusdtPayment"
                   :user-id="authStore.user?.id"
                   class="settings-tab-badge"
                 />
@@ -153,26 +146,26 @@
                     </code>
                   </div>
                   <div class="flex gap-2">
-                    <button
+                    <BaseButton
                       type="button"
                       @click="regenerateAdminApiKey"
                       :disabled="adminApiKeyOperating"
-                      class="btn btn-secondary btn-sm"
+                      class="btn-secondary btn-sm"
                     >
                       {{
                         adminApiKeyOperating
                           ? t("admin.settings.adminApiKey.regenerating")
                           : t("admin.settings.adminApiKey.regenerate")
                       }}
-                    </button>
-                    <button
+                    </BaseButton>
+                    <BaseButton
                       type="button"
                       @click="deleteAdminApiKey"
                       :disabled="adminApiKeyOperating"
-                      class="btn btn-secondary btn-sm text-red-600 hover:text-red-700 dark:text-red-400"
+                      class="btn-secondary btn-sm text-red-600 hover:text-red-700 dark:text-red-400"
                     >
                       {{ t("admin.settings.adminApiKey.delete") }}
-                    </button>
+                    </BaseButton>
                   </div>
                 </div>
 
@@ -192,13 +185,13 @@
                     >
                       {{ newAdminApiKey }}
                     </code>
-                    <button
+                    <BaseButton
                       type="button"
                       @click="copyNewKey"
-                      class="btn btn-primary btn-sm flex-shrink-0"
+                      class="btn-primary btn-sm flex-shrink-0"
                     >
                       {{ t("admin.settings.adminApiKey.copyKey") }}
-                    </button>
+                    </BaseButton>
                   </div>
                   <p class="text-xs text-green-600 dark:text-green-400">
                     {{ t("admin.settings.adminApiKey.usage") }}
@@ -224,8 +217,8 @@
             <div class="space-y-3 p-6">
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 {{ t('admin.settings.upstreamErrorMessage.label') }}
-                <textarea v-model="form.upstream_error_message" rows="3" maxlength="500"
-                  class="input mt-2" data-testid="upstream-error-message"
+                <FormTextarea v-model="form.upstream_error_message" rows="3" maxlength="500"
+                  class="mt-2" data-testid="upstream-error-message"
                   :placeholder="t('admin.settings.upstreamErrorMessage.placeholder')" />
               </label>
               <p class="text-xs text-gray-500 dark:text-gray-400">
@@ -241,11 +234,11 @@
             <div class="space-y-4 p-6">
               <label class="block">
                 <span class="mb-1 block text-sm text-gray-600 dark:text-gray-300">适配器 Base URL</span>
-                <input v-model="form.prism_browser_base_url" class="input w-full" placeholder="http://127.0.0.1:8319/v1" />
+                <FormInput v-model="form.prism_browser_base_url" class="w-full" placeholder="http://127.0.0.1:8319/v1" />
               </label>
               <label class="block">
                 <span class="mb-1 block text-sm text-gray-600 dark:text-gray-300">桥接 API Key（留空保持原值）</span>
-                <input v-model="form.prism_browser_api_key" type="password" autocomplete="new-password" class="input w-full" />
+                <FormInput v-model="form.prism_browser_api_key" type="password" autocomplete="new-password" class="w-full" />
               </label>
               <p v-if="form.prism_browser_enabled && !form.prism_browser_api_key_configured" class="text-sm text-amber-600">启用前必须配置至少 32 个字符的适配器密钥。</p>
             </div>
@@ -296,12 +289,12 @@
                     >
                       {{ t("admin.settings.overloadCooldown.cooldownMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="overloadCooldownForm.cooldown_minutes"
                       type="number"
                       min="1"
                       max="120"
-                      class="input w-32"
+                      class="w-32"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{
@@ -314,11 +307,11 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     @click="saveOverloadCooldownSettings"
                     :disabled="overloadCooldownSaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="overloadCooldownSaving"
@@ -345,7 +338,7 @@
                         ? t("common.saving")
                         : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -401,12 +394,12 @@
                         )
                       }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="rateLimit429CooldownForm.cooldown_seconds"
                       type="number"
                       min="1"
                       max="7200"
-                      class="input w-32"
+                      class="w-32"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{
@@ -421,11 +414,11 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     @click="saveRateLimit429CooldownSettings"
                     :disabled="rateLimit429CooldownSaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="rateLimit429CooldownSaving"
@@ -452,7 +445,7 @@
                         ? t("common.saving")
                         : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -508,9 +501,9 @@
                     >
                       {{ t("admin.settings.streamTimeout.action") }}
                     </label>
-                    <select
+                    <FormSelect
                       v-model="streamTimeoutForm.action"
-                      class="input w-64"
+                      class="w-64"
                     >
                       <option value="temp_unsched">
                         {{
@@ -523,7 +516,7 @@
                       <option value="none">
                         {{ t("admin.settings.streamTimeout.actionNone") }}
                       </option>
-                    </select>
+                    </FormSelect>
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{ t("admin.settings.streamTimeout.actionHint") }}
                     </p>
@@ -536,12 +529,12 @@
                     >
                       {{ t("admin.settings.streamTimeout.tempUnschedMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="streamTimeoutForm.temp_unsched_minutes"
                       type="number"
                       min="1"
                       max="60"
-                      class="input w-32"
+                      class="w-32"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{
@@ -557,12 +550,12 @@
                     >
                       {{ t("admin.settings.streamTimeout.thresholdCount") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="streamTimeoutForm.threshold_count"
                       type="number"
                       min="1"
                       max="10"
-                      class="input w-32"
+                      class="w-32"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{ t("admin.settings.streamTimeout.thresholdCountHint") }}
@@ -578,14 +571,14 @@
                         t("admin.settings.streamTimeout.thresholdWindowMinutes")
                       }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="
                         streamTimeoutForm.threshold_window_minutes
                       "
                       type="number"
                       min="1"
                       max="60"
-                      class="input w-32"
+                      class="w-32"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{
@@ -601,11 +594,11 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     @click="saveStreamTimeoutSettings"
                     :disabled="streamTimeoutSaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="streamTimeoutSaving"
@@ -632,7 +625,7 @@
                         ? t("common.saving")
                         : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -665,7 +658,7 @@
               </div>
               <div v-else-if="openAIResponseHeaderTimeoutLoadFailed" role="alert">
                 {{ t("admin.settings.openaiResponseHeaderTimeout.loadFailed") }}
-                <button type="button" @click="loadOpenAIResponseHeaderTimeoutSettings" class="btn btn-secondary btn-sm">{{ t("common.refresh") }}</button>
+                <BaseButton type="button" @click="loadOpenAIResponseHeaderTimeoutSettings" class="btn-secondary btn-sm">{{ t("common.refresh") }}</BaseButton>
               </div>
               <template v-else>
                 <div class="flex items-center justify-between">
@@ -679,17 +672,17 @@
                   <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {{ t("admin.settings.openaiResponseHeaderTimeout.seconds") }}
                   </label>
-                  <input data-testid="openai-header-timeout-seconds" v-model.number="openAIResponseHeaderTimeoutForm.seconds" type="number" min="1" max="600" class="input w-32" />
+                  <FormInput data-testid="openai-header-timeout-seconds" v-model.number="openAIResponseHeaderTimeoutForm.seconds" type="number" min="1" max="600" class="w-32" />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.settings.openaiResponseHeaderTimeout.secondsHint") }}</p>
                 </div>
                 <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
-                  <button data-testid="openai-header-timeout-save" type="button" @click="saveOpenAIResponseHeaderTimeoutSettings" :disabled="openAIResponseHeaderTimeoutSaving" class="btn btn-primary btn-sm">
+                  <BaseButton data-testid="openai-header-timeout-save" type="button" @click="saveOpenAIResponseHeaderTimeoutSettings" :disabled="openAIResponseHeaderTimeoutSaving" class="btn-primary btn-sm">
                     <svg v-if="openAIResponseHeaderTimeoutSaving" class="mr-1 h-4 w-4 animate-spin" fill="none" viewBox="0 0 24 24">
                       <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
                       <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                     </svg>
                     {{ openAIResponseHeaderTimeoutSaving ? t("common.saving") : t("common.save") }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -813,15 +806,15 @@
                       :key="index"
                       class="flex items-center gap-2"
                     >
-                      <input
+                      <FormInput
                         v-model="rectifierForm.apikey_signature_patterns[index]"
                         type="text"
-                        class="input input-sm flex-1"
+                        class="input-sm flex-1"
                         :placeholder="
                           t('admin.settings.rectifier.apikeyPatternPlaceholder')
                         "
                       />
-                      <button
+                      <BaseButton
                         type="button"
                         @click="
                           rectifierForm.apikey_signature_patterns.splice(
@@ -829,7 +822,7 @@
                             1,
                           )
                         "
-                        class="btn btn-ghost btn-xs text-red-500 hover:text-red-700"
+                        class="btn-ghost btn-xs text-red-500 hover:text-red-700"
                       >
                         <svg
                           class="h-4 w-4"
@@ -844,15 +837,15 @@
                             d="M6 18L18 6M6 6l12 12"
                           />
                         </svg>
-                      </button>
+                      </BaseButton>
                     </div>
-                    <button
+                    <BaseButton
                       type="button"
                       @click="rectifierForm.apikey_signature_patterns.push('')"
-                      class="btn btn-ghost btn-xs text-primary-600 dark:text-primary-400"
+                      class="btn-ghost btn-xs text-primary-600 dark:text-primary-400"
                     >
                       + {{ t("admin.settings.rectifier.addPattern") }}
-                    </button>
+                    </BaseButton>
                   </div>
                 </div>
 
@@ -860,11 +853,11 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     @click="saveRectifierSettings"
                     :disabled="rectifierSaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="rectifierSaving"
@@ -889,7 +882,7 @@
                     {{
                       rectifierSaving ? t("common.saving") : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -975,10 +968,9 @@
                     >
                       {{ t("admin.settings.betaPolicy.errorMessage") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="rule.error_message"
                       type="text"
-                      class="input"
                       :placeholder="
                         t('admin.settings.betaPolicy.errorMessagePlaceholder')
                       "
@@ -1025,10 +1017,10 @@
                       :key="index"
                       class="mb-1.5 flex items-center gap-2"
                     >
-                      <input
+                      <FormInput
                         v-model="rule.model_whitelist![index]"
                         type="text"
-                        class="input input-sm flex-1"
+                        class="input-sm flex-1"
                         :placeholder="
                           t('admin.settings.betaPolicy.modelPatternPlaceholder')
                         "
@@ -1118,10 +1110,9 @@
                     </p>
                     <!-- Fallback Error Message (only when fallback_action=block) -->
                     <div v-if="rule.fallback_action === 'block'" class="mt-2">
-                      <input
+                      <FormInput
                         v-model="rule.fallback_error_message"
                         type="text"
-                        class="input"
                         :placeholder="
                           t(
                             'admin.settings.betaPolicy.fallbackErrorMessagePlaceholder',
@@ -1139,11 +1130,11 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     @click="saveBetaPolicySettings"
                     :disabled="betaPolicySaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="betaPolicySaving"
@@ -1168,7 +1159,7 @@
                     {{
                       betaPolicySaving ? t("common.saving") : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -1358,10 +1349,9 @@
                   >
                     {{ t("admin.settings.openaiFastPolicy.errorMessage") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="rule.error_message"
                     type="text"
-                    class="input"
                     :placeholder="
                       t(
                         'admin.settings.openaiFastPolicy.errorMessagePlaceholder',
@@ -1399,10 +1389,10 @@
                     :key="patternIdx"
                     class="mb-1.5 flex items-center gap-2"
                   >
-                    <input
+                    <FormInput
                       v-model="rule.model_whitelist![patternIdx]"
                       type="text"
-                      class="input input-sm flex-1"
+                      class="input-sm flex-1"
                       :placeholder="
                         t(
                           'admin.settings.openaiFastPolicy.modelPatternPlaceholder',
@@ -1480,10 +1470,9 @@
                     }}
                   </p>
                   <div v-if="rule.fallback_action === 'block'" class="mt-2">
-                    <input
+                    <FormInput
                       v-model="rule.fallback_error_message"
                       type="text"
-                      class="input"
                       :placeholder="
                         t(
                           'admin.settings.openaiFastPolicy.fallbackErrorMessagePlaceholder',
@@ -1496,10 +1485,10 @@
 
               <!-- Add Rule Button -->
               <div>
-                <button
+                <BaseButton
                   type="button"
                   @click="addOpenAIFastPolicyRule"
-                  class="btn btn-secondary btn-sm inline-flex items-center gap-1"
+                  class="btn-secondary btn-sm inline-flex items-center gap-1"
                 >
                   <svg
                     class="h-4 w-4"
@@ -1515,7 +1504,7 @@
                     />
                   </svg>
                   {{ t("admin.settings.openaiFastPolicy.addRule") }}
-                </button>
+                </BaseButton>
                 <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
                   {{ t("admin.settings.openaiFastPolicy.saveHint") }}
                 </p>
@@ -1732,10 +1721,9 @@
                 >
                   {{ t("admin.settings.registration.frontendUrl") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.frontend_url"
                   type="url"
-                  class="input"
                   :placeholder="
                     t('admin.settings.registration.frontendUrlPlaceholder')
                   "
@@ -1932,11 +1920,11 @@
                     {{ t("admin.settings.security.auditRetentionHint") }}
                   </p>
                 </div>
-                <input
+                <FormInput
                   v-model.number="form.audit_log_retention_days"
                   type="number"
                   min="0"
-                  class="input w-28 text-right"
+                  class="w-28 text-right"
                 />
               </div>
             </div>
@@ -2100,13 +2088,13 @@
                         {{ t("admin.settings.panelRateLimit.userRpm") }}
                       </label>
                       <div class="flex items-center gap-2">
-                        <input
+                        <FormInput
                           v-model.number="panelRateLimitForm.user_rpm"
                           data-testid="panel-rate-limit-user-rpm"
                           type="number"
                           min="0"
                           max="100000"
-                          class="input w-32"
+                          class="w-32"
                         />
                         <span class="text-sm text-gray-500 dark:text-gray-400">
                           {{ t("admin.settings.panelRateLimit.perMinute") }}
@@ -2124,12 +2112,12 @@
                         {{ t("admin.settings.panelRateLimit.heavyRpm") }}
                       </label>
                       <div class="flex items-center gap-2">
-                        <input
+                        <FormInput
                           v-model.number="panelRateLimitForm.heavy_rpm"
                           type="number"
                           min="0"
                           max="100000"
-                          class="input w-32"
+                          class="w-32"
                         />
                         <span class="text-sm text-gray-500 dark:text-gray-400">
                           {{ t("admin.settings.panelRateLimit.perMinute") }}
@@ -2147,12 +2135,12 @@
                         {{ t("admin.settings.panelRateLimit.publicIpRpm") }}
                       </label>
                       <div class="flex items-center gap-2">
-                        <input
+                        <FormInput
                           v-model.number="panelRateLimitForm.public_ip_rpm"
                           type="number"
                           min="0"
                           max="100000"
-                          class="input w-32"
+                          class="w-32"
                         />
                         <span class="text-sm text-gray-500 dark:text-gray-400">
                           {{ t("admin.settings.panelRateLimit.perMinute") }}
@@ -2182,12 +2170,12 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
                     data-testid="panel-rate-limit-save"
                     @click="savePanelRateLimitSettings"
                     :disabled="panelRateLimitSaving"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                   >
                     <svg
                       v-if="panelRateLimitSaving"
@@ -2214,7 +2202,7 @@
                         ? t("common.saving")
                         : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -2317,10 +2305,10 @@
                     >
                       {{ t("admin.settings.turnstile.siteKey") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.turnstile_site_key"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       placeholder="0x4AAAAAAA..."
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2341,10 +2329,10 @@
                     >
                       {{ t("admin.settings.turnstile.secretKey") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.turnstile_secret_key"
                       type="password"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       placeholder="0x4AAAAAAA..."
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2410,11 +2398,11 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ t("admin.settings.tencentCaptcha.appId") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.tencent_captcha_app_id"
                         type="text"
                         inputmode="numeric"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="123456789"
                       />
                     </div>
@@ -2422,11 +2410,11 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ t("admin.settings.tencentCaptcha.appSecretKey") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.tencent_captcha_app_secret_key"
                         type="password"
                         autocomplete="new-password"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
                       />
                       <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2445,11 +2433,11 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ t("admin.settings.tencentCaptcha.cloudSecretId") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.tencent_captcha_cloud_secret_id"
                         type="password"
                         autocomplete="new-password"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
                       />
                       <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2460,11 +2448,11 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ t("admin.settings.tencentCaptcha.cloudSecretKey") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.tencent_captcha_cloud_secret_key"
                         type="password"
                         autocomplete="new-password"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         :placeholder="t('admin.settings.tencentCaptcha.keepExisting')"
                       />
                       <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2553,10 +2541,10 @@
                       >
                         {{ t("admin.settings.aliyunCaptcha.prefix") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.aliyun_captcha_prefix"
                         type="text"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="14xxxxx"
                       />
                       <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2570,10 +2558,10 @@
                     >
                       {{ t("admin.settings.aliyunCaptcha.sceneId") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.aliyun_captcha_scene_id"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       placeholder="1cxxxxxx"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2586,10 +2574,10 @@
                     >
                       {{ t("admin.settings.aliyunCaptcha.accessKeyId") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.aliyun_captcha_access_key_id"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       placeholder="LTAI..."
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2602,11 +2590,11 @@
                     >
                       {{ t("admin.settings.aliyunCaptcha.accessKeySecret") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.aliyun_captcha_access_key_secret"
                       type="password"
                       autocomplete="new-password"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       placeholder="••••••••"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -2660,10 +2648,10 @@
                     >
                       {{ t("admin.settings.linuxdo.clientId") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.linuxdo_connect_client_id"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.linuxdo.clientIdPlaceholder')
                       "
@@ -2679,10 +2667,10 @@
                     >
                       {{ t("admin.settings.linuxdo.clientSecret") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.linuxdo_connect_client_secret"
                       type="password"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         form.linuxdo_connect_client_secret_configured
                           ? t(
@@ -2708,10 +2696,10 @@
                     >
                       {{ t("admin.settings.linuxdo.redirectUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.linuxdo_connect_redirect_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.linuxdo.redirectUrlPlaceholder')
                       "
@@ -2719,13 +2707,13 @@
                     <div
                       class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
                     >
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary btn-sm w-fit"
+                        class="btn-secondary btn-sm w-fit"
                         @click="setAndCopyLinuxdoRedirectUrl"
                       >
                         {{ t("admin.settings.linuxdo.quickSetCopy") }}
-                      </button>
+                      </BaseButton>
                       <code
                         v-if="linuxdoRedirectUrlSuggestion"
                         class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
@@ -2808,19 +2796,19 @@
                     <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Client ID</label>
-                        <input
+                        <FormInput
                           v-model="form.github_oauth_client_id"
                           type="text"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           placeholder="GitHub OAuth Client ID"
                         />
                       </div>
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Client Secret</label>
-                        <input
+                        <FormInput
                           v-model="form.github_oauth_client_secret"
                           type="password"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             form.github_oauth_client_secret_configured
                               ? localText('密钥已配置，留空以保留当前值。', 'Secret configured. Leave empty to keep the current value.')
@@ -2834,20 +2822,20 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ localText("后端回调地址", "Backend Callback URL") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.github_oauth_redirect_url"
                         type="url"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="https://your-domain.com/api/v1/auth/oauth/github/callback"
                       />
                       <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                        <button
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm w-fit"
+                          class="btn-secondary btn-sm w-fit"
                           @click="setAndCopyEmailOAuthRedirectUrl('github')"
                         >
                           {{ localText("生成并复制", "Generate and copy") }}
-                        </button>
+                        </BaseButton>
                         <code
                           v-if="githubOAuthRedirectUrlSuggestion"
                           class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
@@ -2861,10 +2849,10 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ localText("前端回跳地址", "Frontend Callback URL") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.github_oauth_frontend_redirect_url"
                         type="text"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="/auth/oauth/callback"
                       />
                     </div>
@@ -2902,19 +2890,19 @@
                     <div class="grid grid-cols-1 gap-4 lg:grid-cols-2">
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Client ID</label>
-                        <input
+                        <FormInput
                           v-model="form.google_oauth_client_id"
                           type="text"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           placeholder="Google OAuth Client ID"
                         />
                       </div>
                       <div>
                         <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">Client Secret</label>
-                        <input
+                        <FormInput
                           v-model="form.google_oauth_client_secret"
                           type="password"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             form.google_oauth_client_secret_configured
                               ? localText('密钥已配置，留空以保留当前值。', 'Secret configured. Leave empty to keep the current value.')
@@ -2928,20 +2916,20 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ localText("后端回调地址", "Backend Callback URL") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.google_oauth_redirect_url"
                         type="url"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="https://your-domain.com/api/v1/auth/oauth/google/callback"
                       />
                       <div class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
-                        <button
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm w-fit"
+                          class="btn-secondary btn-sm w-fit"
                           @click="setAndCopyEmailOAuthRedirectUrl('google')"
                         >
                           {{ localText("生成并复制", "Generate and copy") }}
-                        </button>
+                        </BaseButton>
                         <code
                           v-if="googleOAuthRedirectUrlSuggestion"
                           class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
@@ -2955,10 +2943,10 @@
                       <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                         {{ localText("前端回跳地址", "Frontend Callback URL") }}
                       </label>
-                      <input
+                      <FormInput
                         v-model="form.google_oauth_frontend_redirect_url"
                         type="text"
-                        class="input font-mono text-sm"
+                        class="font-mono text-sm"
                         placeholder="/auth/oauth/callback"
                       />
                     </div>
@@ -3034,11 +3022,11 @@
                         >
                           {{ localText("PC AppID", "PC App ID") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_open_app_id"
                           data-testid="wechat-connect-open-app-id"
                           type="text"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             localText(
                               '微信开放平台 PC 应用 AppID',
@@ -3053,11 +3041,11 @@
                         >
                           {{ localText("PC AppSecret", "PC App Secret") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_open_app_secret"
                           data-testid="wechat-connect-open-app-secret"
                           type="password"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             form.wechat_connect_open_app_secret_configured
                               ? localText(
@@ -3107,11 +3095,11 @@
                         >
                           {{ localText("公众号 AppID", "Official Account App ID") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_mp_app_id"
                           data-testid="wechat-connect-mp-app-id"
                           type="text"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             localText(
                               '公众号 AppID',
@@ -3131,11 +3119,11 @@
                             )
                           }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_mp_app_secret"
                           data-testid="wechat-connect-mp-app-secret"
                           type="password"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             form.wechat_connect_mp_app_secret_configured
                               ? localText(
@@ -3185,11 +3173,11 @@
                         >
                           {{ localText("移动应用 AppID", "Mobile App ID") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_mobile_app_id"
                           data-testid="wechat-connect-mobile-app-id"
                           type="text"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             localText(
                               '移动应用 AppID',
@@ -3204,11 +3192,11 @@
                         >
                           {{ localText("移动应用 AppSecret", "Mobile App Secret") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.wechat_connect_mobile_app_secret"
                           data-testid="wechat-connect-mobile-app-secret"
                           type="password"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             form.wechat_connect_mobile_app_secret_configured
                               ? localText(
@@ -3254,11 +3242,11 @@
                         )
                       }}
                     </label>
-                    <input
+                    <FormInput
                       data-testid="wechat-connect-redirect-url"
                       v-model="form.wechat_connect_redirect_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="t('admin.settings.wechatConnect.redirectUrlPlaceholder')"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -3272,13 +3260,13 @@
                     <div
                       class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
                     >
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary btn-sm w-fit"
+                        class="btn-secondary btn-sm w-fit"
                         @click="setAndCopyWeChatRedirectUrl"
                       >
                         {{ t("admin.settings.wechatConnect.generateAndCopy") }}
-                      </button>
+                      </BaseButton>
                       <code
                         v-if="wechatRedirectUrlSuggestion"
                         class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
@@ -3295,11 +3283,11 @@
                   >
                     {{ t("admin.settings.wechatConnect.frontendRedirectUrlLabel") }}
                   </label>
-                  <input
+                  <FormInput
                     data-testid="wechat-connect-frontend-redirect-url"
                     v-model="form.wechat_connect_frontend_redirect_url"
                     type="text"
-                    class="input font-mono text-sm"
+                    class="font-mono text-sm"
                     :placeholder="t('admin.settings.wechatConnect.frontendRedirectUrlPlaceholder')"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -3346,10 +3334,10 @@
                     >
                       {{ t("admin.settings.dingtalk.clientId") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.dingtalk_connect_client_id"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.dingtalk.clientIdPlaceholder')
                       "
@@ -3365,10 +3353,10 @@
                     >
                       {{ t("admin.settings.dingtalk.clientSecret") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.dingtalk_connect_client_secret"
                       type="password"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         form.dingtalk_connect_client_secret_configured
                           ? t(
@@ -3394,10 +3382,10 @@
                     >
                       {{ t("admin.settings.dingtalk.redirectUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.dingtalk_connect_redirect_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.dingtalk.redirectUrlPlaceholder')
                       "
@@ -3417,7 +3405,7 @@
                     </p>
                     <div class="space-y-2">
                       <label class="flex cursor-pointer items-center gap-3">
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_corp_restriction_policy"
                           type="radio"
                           value="none"
@@ -3428,7 +3416,7 @@
                         </span>
                       </label>
                       <label class="flex cursor-pointer items-center gap-3">
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_corp_restriction_policy"
                           type="radio"
                           value="internal_only"
@@ -3478,22 +3466,22 @@
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncDisplayNameTarget") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_display_name_attr_key"
                           type="text"
                           placeholder="dingtalk_name"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                       <div class="flex items-center gap-2">
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_display_name_attr_name"
                           type="text"
                           :placeholder="localText('钉钉姓名', 'DingTalk Name')"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                     </div>
@@ -3524,22 +3512,22 @@
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncCorpEmailTarget") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_corp_email_attr_key"
                           type="text"
                           placeholder="dingtalk_email"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                       <div class="flex items-center gap-2">
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_corp_email_attr_name"
                           type="text"
                           :placeholder="localText('钉钉企业邮箱', 'DingTalk Corporate Email')"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                     </div>
@@ -3570,22 +3558,22 @@
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncDeptTarget") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_dept_attr_key"
                           type="text"
                           placeholder="dingtalk_department"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                       <div class="flex items-center gap-2">
                         <label class="text-sm text-gray-600 dark:text-gray-400 whitespace-nowrap min-w-[5rem]">
                           {{ t("admin.settings.dingtalk.syncAttrDisplayName") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="form.dingtalk_connect_sync_dept_attr_name"
                           type="text"
                           :placeholder="localText('钉钉部门', 'DingTalk Department')"
-                          class="input text-sm flex-1 max-w-xs"
+                          class="text-sm flex-1 max-w-xs"
                         />
                       </div>
                     </div>
@@ -3634,10 +3622,9 @@
                     >
                       {{ t("admin.settings.oidc.providerName") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_provider_name"
                       type="text"
-                      class="input"
                       :placeholder="
                         t('admin.settings.oidc.providerNamePlaceholder')
                       "
@@ -3650,10 +3637,10 @@
                     >
                       {{ t("admin.settings.oidc.clientId") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_client_id"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.clientIdPlaceholder')
                       "
@@ -3666,10 +3653,10 @@
                     >
                       {{ t("admin.settings.oidc.clientSecret") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_client_secret"
                       type="password"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         form.oidc_connect_client_secret_configured
                           ? t(
@@ -3695,10 +3682,10 @@
                     >
                       {{ t("admin.settings.oidc.issuerUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_issuer_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.issuerUrlPlaceholder')
                       "
@@ -3711,10 +3698,10 @@
                     >
                       {{ t("admin.settings.oidc.discoveryUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_discovery_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.discoveryUrlPlaceholder')
                       "
@@ -3727,10 +3714,10 @@
                     >
                       {{ t("admin.settings.oidc.authorizeUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_authorize_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.authorizeUrlPlaceholder')
                       "
@@ -3743,10 +3730,10 @@
                     >
                       {{ t("admin.settings.oidc.tokenUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_token_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.tokenUrlPlaceholder')
                       "
@@ -3759,10 +3746,10 @@
                     >
                       {{ t("admin.settings.oidc.userinfoUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_userinfo_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.userinfoUrlPlaceholder')
                       "
@@ -3775,10 +3762,10 @@
                     >
                       {{ t("admin.settings.oidc.jwksUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_jwks_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="t('admin.settings.oidc.jwksUrlPlaceholder')"
                     />
                   </div>
@@ -3791,10 +3778,10 @@
                     >
                       {{ t("admin.settings.oidc.scopes") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_scopes"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="t('admin.settings.oidc.scopesPlaceholder')"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -3808,10 +3795,10 @@
                     >
                       {{ t("admin.settings.oidc.redirectUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_redirect_url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.redirectUrlPlaceholder')
                       "
@@ -3819,13 +3806,13 @@
                     <div
                       class="mt-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3"
                     >
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary btn-sm w-fit"
+                        class="btn-secondary btn-sm w-fit"
                         @click="setAndCopyOIDCRedirectUrl"
                       >
                         {{ t("admin.settings.oidc.quickSetCopy") }}
-                      </button>
+                      </BaseButton>
                       <code
                         v-if="oidcRedirectUrlSuggestion"
                         class="select-all break-all rounded bg-gray-50 px-2 py-1 font-mono text-xs text-gray-600 dark:bg-dark-800 dark:text-gray-300"
@@ -3844,10 +3831,10 @@
                     >
                       {{ t("admin.settings.oidc.frontendRedirectUrl") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_frontend_redirect_url"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.frontendRedirectUrlPlaceholder')
                       "
@@ -3865,9 +3852,9 @@
                     >
                       {{ t("admin.settings.oidc.tokenAuthMethod") }}
                     </label>
-                    <select
+                    <FormSelect
                       v-model="form.oidc_connect_token_auth_method"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                     >
                       <option value="client_secret_post">
                         client_secret_post
@@ -3876,7 +3863,7 @@
                         client_secret_basic
                       </option>
                       <option value="none">none</option>
-                    </select>
+                    </FormSelect>
                   </div>
 
                   <div>
@@ -3885,12 +3872,11 @@
                     >
                       {{ t("admin.settings.oidc.clockSkewSeconds") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="form.oidc_connect_clock_skew_seconds"
                       type="number"
                       min="0"
                       max="600"
-                      class="input"
                     />
                   </div>
 
@@ -3900,10 +3886,10 @@
                     >
                       {{ t("admin.settings.oidc.allowedSigningAlgs") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_allowed_signing_algs"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.allowedSigningAlgsPlaceholder')
                       "
@@ -3961,10 +3947,10 @@
                     >
                       {{ t("admin.settings.oidc.userinfoEmailPath") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_userinfo_email_path"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.userinfoEmailPathPlaceholder')
                       "
@@ -3977,10 +3963,10 @@
                     >
                       {{ t("admin.settings.oidc.userinfoIdPath") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_userinfo_id_path"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.userinfoIdPathPlaceholder')
                       "
@@ -3993,10 +3979,10 @@
                     >
                       {{ t("admin.settings.oidc.userinfoUsernamePath") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.oidc_connect_userinfo_username_path"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.oidc.userinfoUsernamePathPlaceholder')
                       "
@@ -4031,12 +4017,11 @@
                   >
                     {{ t("admin.settings.defaults.defaultBalance") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model.number="form.default_balance"
                     type="number"
                     step="0.01"
                     min="0"
-                    class="input"
                     placeholder="0.00"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -4049,11 +4034,10 @@
                   >
                     {{ t("admin.settings.defaults.defaultConcurrency") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model.number="form.default_concurrency"
                     type="number"
                     min="1"
-                    class="input"
                     placeholder="1"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -4066,12 +4050,11 @@
                   >
                     {{ t("admin.settings.defaults.defaultUserRpmLimit") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model.number="form.default_user_rpm_limit"
                     type="number"
                     min="0"
                     step="1"
-                    class="input"
                     placeholder="0"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -4092,14 +4075,14 @@
                       }}
                     </p>
                   </div>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="addDefaultSubscription"
                     :disabled="subscriptionGroups.length === 0"
                   >
                     {{ t("admin.settings.defaults.addDefaultSubscription") }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div
@@ -4197,22 +4180,22 @@
                           t("admin.settings.defaults.subscriptionValidityDays")
                         }}
                       </label>
-                      <input
+                      <FormInput
                         v-model.number="item.validity_days"
                         type="number"
                         min="1"
                         max="36500"
-                        class="input h-[42px]"
+                        class="h-[42px]"
                       />
                     </div>
                     <div class="flex items-end">
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary default-sub-delete-btn w-full text-red-600 hover:text-red-700 dark:text-red-400"
+                        class="btn-secondary default-sub-delete-btn w-full text-red-600 hover:text-red-700 dark:text-red-400"
                         @click="removeDefaultSubscription(index)"
                       >
                         {{ t("common.delete") }}
-                      </button>
+                      </BaseButton>
                     </div>
                   </div>
                 </div>
@@ -4232,7 +4215,7 @@
                   </p>
                 </div>
                 <div class="overflow-x-auto">
-                  <table class="min-w-full text-sm">
+                  <BaseTable class="min-w-full text-sm">
                     <thead>
                       <tr class="text-left text-xs text-gray-500 dark:text-gray-400">
                         <th class="pb-2 pr-4 font-medium">{{ t("admin.settings.platformQuota.platform") }}</th>
@@ -4247,38 +4230,38 @@
                           <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                         </td>
                         <td class="pr-4 py-1">
-                          <input
+                          <FormInput
                             v-model.number="form.default_platform_quotas[p]!.daily"
                             type="number"
                             step="0.01"
                             min="0"
-                            class="input h-8 w-28 text-sm"
+                            class="h-8 w-28 text-sm"
                             :placeholder="t('admin.settings.platformQuota.placeholder')"
                           />
                         </td>
                         <td class="pr-4 py-1">
-                          <input
+                          <FormInput
                             v-model.number="form.default_platform_quotas[p]!.weekly"
                             type="number"
                             step="0.01"
                             min="0"
-                            class="input h-8 w-28 text-sm"
+                            class="h-8 w-28 text-sm"
                             :placeholder="t('admin.settings.platformQuota.placeholder')"
                           />
                         </td>
                         <td class="py-1">
-                          <input
+                          <FormInput
                             v-model.number="form.default_platform_quotas[p]!.monthly"
                             type="number"
                             step="0.01"
                             min="0"
-                            class="input h-8 w-28 text-sm"
+                            class="h-8 w-28 text-sm"
                             :placeholder="t('admin.settings.platformQuota.placeholder')"
                           />
                         </td>
                       </tr>
                     </tbody>
-                  </table>
+                  </BaseTable>
                 </div>
               </div>
               <!-- /全局平台限额矩阵 -->
@@ -4350,14 +4333,13 @@
                         >
                           {{ t("admin.settings.defaults.defaultBalance") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model.number="
                             authSourceDefaults[authSource.source].balance
                           "
                           type="number"
                           step="0.01"
                           min="0"
-                          class="input"
                           placeholder="0.00"
                         />
                       </div>
@@ -4367,13 +4349,12 @@
                         >
                           {{ t("admin.settings.defaults.defaultConcurrency") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model.number="
                             authSourceDefaults[authSource.source].concurrency
                           "
                           type="number"
                           min="1"
-                          class="input"
                           placeholder="5"
                         />
                       </div>
@@ -4413,9 +4394,9 @@
                           {{ t("admin.settings.authSourceDefaults.defaultSubscriptionsHint") }}
                         </p>
                       </div>
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary btn-sm"
+                        class="btn-secondary btn-sm"
                         @click="
                           addAuthSourceDefaultSubscription(authSource.source)
                         "
@@ -4424,7 +4405,7 @@
                         {{
                           t("admin.settings.defaults.addDefaultSubscription")
                         }}
-                      </button>
+                      </BaseButton>
                     </div>
 
                     <div
@@ -4531,18 +4512,18 @@
                               )
                             }}
                           </label>
-                          <input
+                          <FormInput
                             v-model.number="item.validity_days"
                             type="number"
                             min="1"
                             max="36500"
-                            class="input h-[42px]"
+                            class="h-[42px]"
                           />
                         </div>
                         <div class="flex items-end">
-                          <button
+                          <BaseButton
                             type="button"
-                            class="btn btn-secondary w-full text-red-600 hover:text-red-700 dark:text-red-400"
+                            class="btn-secondary w-full text-red-600 hover:text-red-700 dark:text-red-400"
                             @click="
                               removeAuthSourceDefaultSubscription(
                                 authSource.source,
@@ -4551,7 +4532,7 @@
                             "
                           >
                             {{ t("common.delete") }}
-                          </button>
+                          </BaseButton>
                         </div>
                       </div>
                     </div>
@@ -4567,7 +4548,7 @@
                         </p>
                       </div>
                       <div class="overflow-x-auto">
-                        <table class="min-w-full text-sm">
+                        <BaseTable class="min-w-full text-sm">
                           <thead>
                             <tr class="text-left text-xs text-gray-500 dark:text-gray-400">
                               <th class="pb-2 pr-4 font-medium">{{ t("admin.settings.platformQuota.platform") }}</th>
@@ -4582,38 +4563,38 @@
                                 <span class="font-mono text-xs text-gray-700 dark:text-gray-300">{{ p }}</span>
                               </td>
                               <td class="pr-4 py-1">
-                                <input
+                                <FormInput
                                   v-model.number="authSourceDefaults[authSource.source].platform_quotas[p]!.daily"
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  class="input h-8 w-28 text-sm"
+                                  class="h-8 w-28 text-sm"
                                   :placeholder="t('admin.settings.platformQuota.placeholder')"
                                 />
                               </td>
                               <td class="pr-4 py-1">
-                                <input
+                                <FormInput
                                   v-model.number="authSourceDefaults[authSource.source].platform_quotas[p]!.weekly"
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  class="input h-8 w-28 text-sm"
+                                  class="h-8 w-28 text-sm"
                                   :placeholder="t('admin.settings.platformQuota.placeholder')"
                                 />
                               </td>
                               <td class="py-1">
-                                <input
+                                <FormInput
                                   v-model.number="authSourceDefaults[authSource.source].platform_quotas[p]!.monthly"
                                   type="number"
                                   step="0.01"
                                   min="0"
-                                  class="input h-8 w-28 text-sm"
+                                  class="h-8 w-28 text-sm"
                                   :placeholder="t('admin.settings.platformQuota.placeholder')"
                                 />
                               </td>
                             </tr>
                           </tbody>
-                        </table>
+                        </BaseTable>
                       </div>
                     </div>
                     <!-- /auth source 平台限额覆盖区块 -->
@@ -4643,19 +4624,19 @@
               <div class="grid gap-4 sm:grid-cols-2">
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.upstreamErrorRetry.maxRetries') }}
-                  <input v-model.number="form.upstream_error_retry.max_retries" type="number" min="1" max="10" step="1"
-                    class="input mt-2" data-testid="upstream-error-retry-max" />
+                  <FormInput v-model.number="form.upstream_error_retry.max_retries" type="number" min="1" max="10" step="1"
+                    class="mt-2" data-testid="upstream-error-retry-max" />
                 </label>
                 <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                   {{ t('admin.settings.upstreamErrorRetry.delay') }}
-                  <input v-model.number="form.upstream_error_retry.delay_ms" type="number" min="100" max="10000" step="100"
-                    class="input mt-2" data-testid="upstream-error-retry-delay" />
+                  <FormInput v-model.number="form.upstream_error_retry.delay_ms" type="number" min="100" max="10000" step="100"
+                    class="mt-2" data-testid="upstream-error-retry-delay" />
                 </label>
               </div>
               <label class="block text-sm font-medium text-gray-700 dark:text-gray-300">
                 {{ t('admin.settings.upstreamErrorRetry.errors') }}
-                <textarea v-model="form.upstream_error_retry.errors" rows="5" maxlength="32768"
-                  class="input mt-2 font-mono text-sm" data-testid="upstream-error-retry-errors"
+                <FormTextarea v-model="form.upstream_error_retry.errors" rows="5" maxlength="32768"
+                  class="mt-2 font-mono text-sm" data-testid="upstream-error-retry-errors"
                   :placeholder="'503\nserver_is_overloaded\nservers are currently overloaded'" />
               </label>
               <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.upstreamErrorRetry.matchHint') }}</p>
@@ -4681,10 +4662,10 @@
                 >
                   {{ t("admin.settings.claudeCode.minVersion") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.min_claude_code_version"
                   type="text"
-                  class="input max-w-xs font-mono text-sm"
+                  class="max-w-xs font-mono text-sm"
                   :placeholder="
                     t('admin.settings.claudeCode.minVersionPlaceholder')
                   "
@@ -4699,10 +4680,10 @@
                 >
                   {{ t("admin.settings.claudeCode.maxVersion") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.max_claude_code_version"
                   type="text"
-                  class="input max-w-xs font-mono text-sm"
+                  class="max-w-xs font-mono text-sm"
                   :placeholder="
                     t('admin.settings.claudeCode.maxVersionPlaceholder')
                   "
@@ -4740,10 +4721,10 @@
                     >
                       {{ t("admin.settings.gatewayForwarding.minCodexVersion") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.min_codex_version"
                       type="text"
-                      class="input w-full font-mono text-sm"
+                      class="w-full font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.minCodexVersionPlaceholder',
@@ -4757,10 +4738,10 @@
                     >
                       {{ t("admin.settings.gatewayForwarding.maxCodexVersion") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="form.max_codex_version"
                       type="text"
-                      class="input w-full font-mono text-sm"
+                      class="w-full font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.maxCodexVersionPlaceholder',
@@ -4785,32 +4766,32 @@
                     :key="`codex-fp-${i}`"
                     class="mb-2 flex items-center gap-2"
                   >
-                    <select v-model="row.type" class="input w-32 text-sm">
+                    <FormSelect v-model="row.type" class="w-32 text-sm">
                       <option value="header_exact">{{ t("admin.settings.gatewayForwarding.codexFpTypeHeaderExact") }}</option>
                       <option value="header_prefix">{{ t("admin.settings.gatewayForwarding.codexFpTypeHeaderPrefix") }}</option>
                       <option value="body_path">{{ t("admin.settings.gatewayForwarding.codexFpTypeBodyPath") }}</option>
-                    </select>
-                    <input
+                    </FormSelect>
+                    <FormInput
                       v-model="row.match"
                       type="text"
-                      class="input flex-1 font-mono text-sm"
+                      class="flex-1 font-mono text-sm"
                       :placeholder="t('admin.settings.gatewayForwarding.codexFpMatchPlaceholder')"
                     />
                     <label class="flex shrink-0 items-center gap-1 text-xs text-gray-600 dark:text-gray-400">
-                      <input v-model="row.required" type="checkbox" />
+                      <FormInput v-model="row.required" type="checkbox" />
                       {{ t("admin.settings.gatewayForwarding.codexFpRequired") }}
                     </label>
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+                      class="btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
                       @click="removeCodexFingerprintRow(i)"
                     >
                       {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}
-                    </button>
+                    </BaseButton>
                   </div>
-                  <button type="button" class="btn btn-secondary btn-sm" @click="addCodexFingerprintRow">
+                  <BaseButton type="button" class="btn-secondary btn-sm" @click="addCodexFingerprintRow">
                     {{ t("admin.settings.gatewayForwarding.codexAddRow") }}
-                  </button>
+                  </BaseButton>
                   <p
                     v-if="codexFingerprintNoRequired"
                     class="mt-2 text-xs text-amber-600 dark:text-amber-500"
@@ -4855,41 +4836,41 @@
                     :key="`codex-bl-${i}`"
                     class="mb-2 flex gap-2"
                   >
-                    <input
+                    <FormInput
                       v-model="row.originator"
                       type="text"
-                      class="input w-1/3 font-mono text-sm"
+                      class="w-1/3 font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.codexOriginatorPlaceholder',
                         )
                       "
                     />
-                    <input
+                    <FormInput
                       v-model="row.uaContains"
                       type="text"
-                      class="input flex-1 font-mono text-sm"
+                      class="flex-1 font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.codexUaContainsPlaceholder',
                         )
                       "
                     />
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+                      class="btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
                       @click="removeCodexBlacklistRow(i)"
                     >
                       {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}
-                    </button>
+                    </BaseButton>
                   </div>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="addCodexBlacklistRow"
                   >
                     {{ t("admin.settings.gatewayForwarding.codexAddRow") }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div>
@@ -4906,20 +4887,20 @@
                     :key="`codex-wl-${i}`"
                     class="mb-2 flex gap-2"
                   >
-                    <input
+                    <FormInput
                       v-model="row.originator"
                       type="text"
-                      class="input w-1/3 font-mono text-sm"
+                      class="w-1/3 font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.codexOriginatorPlaceholder',
                         )
                       "
                     />
-                    <input
+                    <FormInput
                       v-model="row.uaContains"
                       type="text"
-                      class="input flex-1 font-mono text-sm"
+                      class="flex-1 font-mono text-sm"
                       :placeholder="
                         t(
                           'admin.settings.gatewayForwarding.codexUaContainsPlaceholder',
@@ -4934,7 +4915,7 @@
                         )
                       "
                     >
-                      <input
+                      <FormInput
                         v-model="row.skipEngineFingerprint"
                         type="checkbox"
                       />
@@ -4944,21 +4925,21 @@
                         )
                       }}
                     </label>
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
+                      class="btn-secondary btn-sm shrink-0 text-red-600 hover:text-red-700 dark:text-red-400"
                       @click="removeCodexWhitelistRow(i)"
                     >
                       {{ t("admin.settings.gatewayForwarding.codexRemoveRow") }}
-                    </button>
+                    </BaseButton>
                   </div>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="addCodexWhitelistRow"
                   >
                     {{ t("admin.settings.gatewayForwarding.codexAddRow") }}
-                  </button>
+                  </BaseButton>
                 </div>
             </div>
           </div>
@@ -5013,13 +4994,13 @@
                   >
                     {{ t("admin.settings.upstreamBillingProbe.intervalMinutes") }}
                   </label>
-                  <input
+                  <FormInput
                     id="upstream-billing-probe-interval"
                     v-model.number="upstreamBillingProbeForm.interval_minutes"
                     type="number"
                     min="5"
                     max="1440"
-                    class="input w-32"
+                    class="w-32"
                     data-testid="upstream-billing-probe-interval"
                     @keydown.enter.prevent="saveUpstreamBillingProbeSettings"
                   />
@@ -5031,9 +5012,9 @@
                 <div
                   class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700"
                 >
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                     :disabled="upstreamBillingProbeSaving"
                     data-testid="upstream-billing-probe-save"
                     @click="saveUpstreamBillingProbeSettings"
@@ -5043,7 +5024,7 @@
                         ? t("common.saving")
                         : t("common.save")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -5085,13 +5066,13 @@
                     <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="ollama-cloud-usage-debounce">
                       {{ t("admin.settings.ollamaCloudUsage.debounceMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       id="ollama-cloud-usage-debounce"
                       v-model.number="ollamaCloudUsageForm.debounce_minutes"
                       type="number"
                       min="1"
                       max="60"
-                      class="input w-32"
+                      class="w-32"
                       data-testid="ollama-cloud-usage-global-debounce"
                       @keydown.enter.prevent="saveOllamaCloudUsageSettings"
                     />
@@ -5103,13 +5084,13 @@
                     <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="ollama-cloud-usage-interval">
                       {{ t("admin.settings.ollamaCloudUsage.intervalMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       id="ollama-cloud-usage-interval"
                       v-model.number="ollamaCloudUsageForm.interval_minutes"
                       type="number"
                       min="15"
                       max="1440"
-                      class="input w-32"
+                      class="w-32"
                       data-testid="ollama-cloud-usage-global-interval"
                       @keydown.enter.prevent="saveOllamaCloudUsageSettings"
                     />
@@ -5119,15 +5100,15 @@
                   </div>
                 </div>
                 <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                     :disabled="ollamaCloudUsageSaving"
                     data-testid="ollama-cloud-usage-global-save"
                     @click="saveOllamaCloudUsageSettings"
                   >
                     {{ ollamaCloudUsageSaving ? t("common.saving") : t("common.save") }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -5154,13 +5135,13 @@
                       {{ t("admin.settings.gatewayRuntime.streamIdleTimeout") }}
                     </span>
                     <div class="relative mt-1">
-                      <input
+                      <FormInput
                         v-model.number="form.gateway_stream_data_interval_timeout_seconds"
                         type="number"
                         min="0"
                         max="300"
                         step="1"
-                        class="input pr-12"
+                        class="pr-12"
                       />
                       <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
                     </div>
@@ -5173,13 +5154,13 @@
                       {{ t("admin.settings.gatewayRuntime.firstOutputTimeout") }}
                     </span>
                     <div class="relative mt-1">
-                      <input
+                      <FormInput
                         v-model.number="form.openai_first_output_timeout_seconds"
                         type="number"
                         min="0"
                         max="600"
                         step="1"
-                        class="input pr-12"
+                        class="pr-12"
                       />
                       <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
                     </div>
@@ -5192,13 +5173,13 @@
                       {{ t("admin.settings.gatewayRuntime.highEffortTimeout") }}
                     </span>
                     <div class="relative mt-1">
-                      <input
+                      <FormInput
                         v-model.number="form.openai_high_effort_first_output_timeout_seconds"
                         type="number"
                         min="0"
                         max="600"
                         step="1"
-                        class="input pr-12"
+                        class="pr-12"
                       />
                       <span class="pointer-events-none absolute inset-y-0 right-3 flex items-center text-xs text-gray-400">s</span>
                     </div>
@@ -5268,13 +5249,13 @@
                     <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="opencode-go-usage-debounce">
                       {{ t("admin.settings.opencodeGoUsage.debounceMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       id="opencode-go-usage-debounce"
                       v-model.number="opencodeGoUsageForm.debounce_minutes"
                       type="number"
                       min="1"
                       max="60"
-                      class="input w-32"
+                      class="w-32"
                       data-testid="opencode-go-usage-global-debounce"
                       @keydown.enter.prevent="saveOpenCodeGoUsageSettings"
                     />
@@ -5286,13 +5267,13 @@
                     <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300" for="opencode-go-usage-interval">
                       {{ t("admin.settings.opencodeGoUsage.intervalMinutes") }}
                     </label>
-                    <input
+                    <FormInput
                       id="opencode-go-usage-interval"
                       v-model.number="opencodeGoUsageForm.interval_minutes"
                       type="number"
                       min="5"
                       max="1440"
-                      class="input w-32"
+                      class="w-32"
                       data-testid="opencode-go-usage-global-interval"
                       @keydown.enter.prevent="saveOpenCodeGoUsageSettings"
                     />
@@ -5302,15 +5283,15 @@
                   </div>
                 </div>
                 <div class="flex justify-end border-t border-gray-100 pt-4 dark:border-dark-700">
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                     :disabled="opencodeGoUsageSaving"
                     data-testid="opencode-go-usage-global-save"
                     @click="saveOpenCodeGoUsageSettings"
                   >
                     {{ opencodeGoUsageSaving ? t("common.saving") : t("common.save") }}
-                  </button>
+                  </BaseButton>
                 </div>
               </template>
             </div>
@@ -5367,10 +5348,10 @@
                       {{ t("admin.settings.gatewayRuntime.stickyTTFT") }}
                     </span>
                     <div class="relative mt-1">
-                      <input
+                      <FormInput
                         v-model.number="form.openai_sticky_escape_ttft_ms"
                         data-testid="sticky-escape-ttft"
-                        class="input pr-12"
+                        class="pr-12"
                         min="1"
                         step="1"
                         type="number"
@@ -5383,10 +5364,10 @@
                       {{ t("admin.settings.gatewayRuntime.stickyErrorRate") }}
                     </span>
                     <div class="relative mt-1">
-                      <input
+                      <FormInput
                         v-model.number="stickyEscapeErrorRatePercent"
                         data-testid="sticky-escape-error-rate"
-                        class="input pr-10"
+                        class="pr-10"
                         min="0"
                         max="100"
                         step="0.1"
@@ -5462,13 +5443,13 @@
                         %
                       </span>
                     </div>
-                    <input
+                    <FormInput
                       v-model.number="form.account_scheduling_thresholds[platform]"
                       type="number"
                       min="1"
                       max="100"
                       step="1"
-                      class="input mt-3"
+                      class="mt-3"
                       :data-testid="`account-scheduling-threshold-${platform}`"
                       placeholder="100"
                     />
@@ -5514,10 +5495,10 @@
                   </p>
                 </div>
                 <div class="relative w-full shrink-0 sm:w-32">
-                  <input
+                  <FormInput
                     id="openai-oauth-scheduling-rate-multiplier"
                     v-model.number="form.openai_oauth_scheduling_rate_multiplier"
-                    class="input pr-8"
+                    class="pr-8"
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     step="0.01"
@@ -5602,10 +5583,10 @@
                   </p>
                 </div>
                 <div class="relative w-full shrink-0 sm:w-32">
-                  <input
+                  <FormInput
                     id="openai-oauth-scheduling-rate-multiplier"
                     v-model.number="form.openai_oauth_scheduling_rate_multiplier"
-                    class="input pr-8"
+                    class="pr-8"
                     data-testid="openai-oauth-scheduling-rate-multiplier"
                     min="0"
                     step="0.01"
@@ -5643,9 +5624,9 @@
                     <span class="text-xs font-medium text-gray-600 dark:text-gray-400">
                       {{ field.label }}
                     </span>
-                    <input
+                    <FormInput
                       v-model="form[field.key]"
-                      class="input mt-1"
+                      class="mt-1"
                       inputmode="decimal"
                       :placeholder="field.placeholder"
                       type="text"
@@ -5677,11 +5658,11 @@
                   >
                     {{ t("admin.settings.gatewayForwarding.grokDefaultTextModel") }}
                   </label>
-                  <input
+                  <FormInput
                     id="grok-default-text-model"
                     v-model.trim="form.grok_default_text_model"
                     type="text"
-                    class="input mt-2 w-full"
+                    class="mt-2 w-full"
                     list="grok-default-text-model-options"
                     data-testid="grok-default-text-model"
                     placeholder="grok-4.5"
@@ -5717,10 +5698,10 @@
                   >
                     {{ t("admin.settings.gatewayForwarding.grokDefaultBaseURLMode") }}
                   </label>
-                  <select
+                  <FormSelect
                     id="grok-default-base-url-mode"
                     v-model="form.grok_default_base_url_mode"
-                    class="input mt-2 w-full"
+                    class="mt-2 w-full"
                     data-testid="grok-default-base-url-mode"
                   >
                     <option value="cli">{{ t("admin.settings.gatewayForwarding.grokBaseURLModeCLI") }}</option>
@@ -5728,7 +5709,7 @@
                     <option value="us-east-1">{{ t("admin.settings.gatewayForwarding.grokBaseURLModeUSEast1") }}</option>
                     <option value="us-west-2">{{ t("admin.settings.gatewayForwarding.grokBaseURLModeUSWest2") }}</option>
                     <option value="eu-west-1">{{ t("admin.settings.gatewayForwarding.grokBaseURLModeEUWest1") }}</option>
-                  </select>
+                  </FormSelect>
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                     {{ t("admin.settings.gatewayForwarding.grokDefaultBaseURLModeHint") }}
                   </p>
@@ -5765,10 +5746,10 @@
                 >
                   {{ t("admin.settings.gatewayForwarding.openaiTTFTMode") }}
                 </label>
-                <select
+                <FormSelect
                   id="openai-ttft-mode"
                   v-model="form.openai_ttft_mode"
-                  class="input mt-2 w-full"
+                  class="mt-2 w-full"
                   data-testid="openai-ttft-mode"
                 >
                   <option value="semantic">
@@ -5777,7 +5758,7 @@
                   <option value="visible">
                     {{ t("admin.settings.gatewayForwarding.openaiTTFTModeVisible") }}
                   </option>
-                </select>
+                </FormSelect>
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {{ t("admin.settings.gatewayForwarding.openaiTTFTModeHint") }}
                 </p>
@@ -5907,9 +5888,9 @@
                         </div>
                       </div>
                       <div class="flex items-center gap-2">
-                        <button
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm px-2"
+                          class="btn-secondary btn-sm px-2"
                           :title="
                             block.expanded
                               ? t(
@@ -5934,33 +5915,33 @@
                             :name="block.expanded ? 'eyeOff' : 'eye'"
                             size="xs"
                           />
-                        </button>
-                        <button
+                        </BaseButton>
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm px-2"
+                          class="btn-secondary btn-sm px-2"
                           :disabled="index === 0"
                           @click="moveClaudeOAuthSystemPromptBlock(index, -1)"
                         >
                           <Icon name="arrowUp" size="xs" />
-                        </button>
-                        <button
+                        </BaseButton>
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm px-2"
+                          class="btn-secondary btn-sm px-2"
                           :disabled="
                             index === claudeOAuthSystemPromptBlocks.length - 1
                           "
                           @click="moveClaudeOAuthSystemPromptBlock(index, 1)"
                         >
                           <Icon name="arrowDown" size="xs" />
-                        </button>
+                        </BaseButton>
                         <Toggle v-model="block.enabled" />
-                        <button
+                        <BaseButton
                           type="button"
-                          class="btn btn-secondary btn-sm px-2 text-red-600 hover:text-red-700 dark:text-red-400"
+                          class="btn-secondary btn-sm px-2 text-red-600 hover:text-red-700 dark:text-red-400"
                           @click="removeClaudeOAuthSystemPromptBlock(index)"
                         >
                           <Icon name="trash" size="xs" />
-                        </button>
+                        </BaseButton>
                       </div>
                     </div>
 
@@ -6008,10 +5989,10 @@
                         >
                           {{ t("admin.settings.gatewayForwarding.systemBlockText") }}
                         </label>
-                        <textarea
+                        <FormTextarea
                           v-model="block.text"
                           rows="6"
-                          class="input w-full resize-y font-mono text-xs leading-5"
+                          class="w-full resize-y font-mono text-xs leading-5"
                           @input="markClaudeOAuthSystemPromptBlockCustom(block)"
                         />
                       </div>
@@ -6045,24 +6026,24 @@
                 </div>
 
                 <div class="mt-3 flex flex-wrap gap-2">
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="addClaudeOAuthSystemPromptBlock"
                   >
                     <Icon name="plus" size="xs" />
                     {{ t("admin.settings.gatewayForwarding.addSystemBlock") }}
-                  </button>
-                  <button
+                  </BaseButton>
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="resetClaudeOAuthSystemPromptBlocks"
                   >
                     <Icon name="refresh" size="xs" />
                     {{
                       t("admin.settings.gatewayForwarding.resetSystemBlocks")
                     }}
-                  </button>
+                  </BaseButton>
                 </div>
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {{
@@ -6157,10 +6138,10 @@
                     )
                   }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.antigravity_user_agent_version"
                   type="text"
-                  class="input max-w-xs font-mono text-sm"
+                  class="max-w-xs font-mono text-sm"
                   :placeholder="
                     t(
                       'admin.settings.gatewayForwarding.antigravityUserAgentVersionPlaceholder',
@@ -6187,10 +6168,10 @@
                     )
                   }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.openai_codex_user_agent"
                   type="text"
-                  class="input w-full font-mono text-sm"
+                  class="w-full font-mono text-sm"
                   :placeholder="
                     t(
                       'admin.settings.gatewayForwarding.openaiCodexUserAgentPlaceholder',
@@ -6217,10 +6198,10 @@
                     )
                   }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.openai_codex_client_version"
                   type="text"
-                  class="input w-full font-mono text-sm"
+                  class="w-full font-mono text-sm"
                   :placeholder="
                     t(
                       'admin.settings.gatewayForwarding.openaiCodexClientVersionPlaceholder',
@@ -6276,10 +6257,10 @@
                     )
                   }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.claude_code_client_version"
                   type="text"
-                  class="input w-full font-mono text-sm"
+                  class="w-full font-mono text-sm"
                   placeholder="2.1.280"
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -6363,13 +6344,13 @@
                   >
                     {{ t("admin.settings.webSearchEmulation.providers") }}
                   </label>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="addWebSearchProvider"
                   >
                     {{ t("admin.settings.webSearchEmulation.addProvider") }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div
@@ -6476,10 +6457,10 @@
                         t("admin.settings.webSearchEmulation.apiKey")
                       }}</label>
                       <div class="relative">
-                        <input
+                        <FormInput
                           v-model="provider.api_key"
                           :type="apiKeyVisible[pIdx] ? 'text' : 'password'"
-                          class="input w-full text-sm"
+                          class="w-full text-sm"
                           :class="
                             provider.api_key || provider.api_key_configured
                               ? 'pr-16'
@@ -6583,11 +6564,11 @@
                         <label class="text-xs text-gray-500">{{
                           t("admin.settings.webSearchEmulation.quotaLimit")
                         }}</label>
-                        <input
+                        <FormInput
                           v-model="provider.quota_limit"
                           type="number"
                           min="1"
-                          class="input text-sm"
+                          class="text-sm"
                           :placeholder="'∞'"
                         />
                         <p class="mt-0.5 text-xs text-gray-400">
@@ -6602,10 +6583,10 @@
                         <label class="text-xs text-gray-500">{{
                           t("admin.settings.webSearchEmulation.subscribedAt")
                         }}</label>
-                        <input
+                        <FormInput
                           :value="formatSubscribedAt(provider.subscribed_at)"
                           type="date"
-                          class="input text-sm"
+                          class="text-sm"
                           @input="
                             provider.subscribed_at = parseSubscribedAt(
                               ($event.target as HTMLInputElement).value,
@@ -6683,13 +6664,13 @@
                           :proxies="webSearchProxies"
                         />
                       </div>
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary btn-sm whitespace-nowrap"
+                        class="btn-secondary btn-sm whitespace-nowrap"
                         @click="openTestDialog()"
                       >
                         {{ t("admin.settings.webSearchEmulation.test") }}
-                      </button>
+                      </BaseButton>
                     </div>
                   </div>
                 </div>
@@ -6712,18 +6693,18 @@
                 {{ t("admin.settings.webSearchEmulation.testResultTitle") }}
               </h3>
               <div class="flex items-center gap-2">
-                <input
+                <FormInput
                   v-model="wsTestQuery"
                   type="text"
-                  class="input flex-1 text-sm"
+                  class="flex-1 text-sm"
                   :placeholder="
                     t('admin.settings.webSearchEmulation.testDefaultQuery')
                   "
                   @keyup.enter="testWebSearchProvider()"
                 />
-                <button
+                <BaseButton
                   type="button"
-                  class="btn btn-primary btn-sm"
+                  class="btn-primary btn-sm"
                   :disabled="wsTestLoading"
                   @click="testWebSearchProvider()"
                 >
@@ -6732,7 +6713,7 @@
                       ? t("admin.settings.webSearchEmulation.testing")
                       : t("admin.settings.webSearchEmulation.test")
                   }}
-                </button>
+                </BaseButton>
               </div>
               <!-- Test results -->
               <div
@@ -6769,13 +6750,13 @@
                 </div>
               </div>
               <div class="mt-4 flex justify-end">
-                <button
+                <BaseButton
                   type="button"
-                  class="btn btn-secondary btn-sm"
+                  class="btn-secondary btn-sm"
                   @click="wsTestDialogOpen = false"
                 >
                   {{ t("common.close") }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
@@ -6802,7 +6783,7 @@
                 </p>
               </div>
               <label class="toggle">
-                <input v-model="form.allow_user_view_error_requests" type="checkbox" />
+                <FormInput v-model="form.allow_user_view_error_requests" type="checkbox" />
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -6818,7 +6799,7 @@
                 </p>
               </div>
               <label class="toggle">
-                <input v-model="form.usage_show_long_context_badge" type="checkbox" />
+                <FormInput v-model="form.usage_show_long_context_badge" type="checkbox" />
                 <span class="toggle-slider"></span>
               </label>
             </div>
@@ -6833,7 +6814,7 @@
                 </p>
               </div>
               <label class="toggle">
-                <input
+                <FormInput
                   v-model="form.usage_show_cache_rate"
                   data-testid="usage-show-cache-rate"
                   type="checkbox"
@@ -6853,7 +6834,7 @@
                 </p>
               </div>
               <label class="toggle">
-                <input
+                <FormInput
                   v-model="form.usage_show_cache_rate_to_users"
                   data-testid="usage-show-cache-rate-to-users"
                   type="checkbox"
@@ -6873,7 +6854,7 @@
                 </p>
               </div>
               <label class="toggle">
-                <input
+                <FormInput
                   v-model="form.usage_show_upstream_response_model_to_users"
                   data-testid="usage-show-upstream-response-model-to-users"
                   type="checkbox"
@@ -6923,10 +6904,9 @@
                   >
                     {{ t("admin.settings.site.siteName") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.site_name"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.settings.site.siteNamePlaceholder')"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -6939,10 +6919,9 @@
                   >
                     {{ t("admin.settings.site.siteSubtitle") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.site_subtitle"
                     type="text"
-                    class="input"
                     :placeholder="
                       t('admin.settings.site.siteSubtitlePlaceholder')
                     "
@@ -6960,10 +6939,10 @@
                 >
                   {{ t("admin.settings.site.apiBaseUrl") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.api_base_url"
                   type="text"
-                  class="input font-mono text-sm"
+                  class="font-mono text-sm"
                   :placeholder="t('admin.settings.site.apiBaseUrlPlaceholder')"
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -6986,13 +6965,13 @@
                     >
                       {{ t("admin.settings.site.tableDefaultPageSize") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model.number="form.table_default_page_size"
                       type="number"
                       min="5"
                       max="1000"
                       step="1"
-                      class="input w-40"
+                      class="w-40"
                     />
                     <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                       {{ t("admin.settings.site.tableDefaultPageSizeHint") }}
@@ -7004,10 +6983,10 @@
                     >
                       {{ t("admin.settings.site.tablePageSizeOptions") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="tablePageSizeOptionsInput"
                       type="text"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.site.tablePageSizeOptionsPlaceholder')
                       "
@@ -7073,10 +7052,10 @@
                         >
                           {{ t("admin.settings.site.customEndpoints.name") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="ep.name"
                           type="text"
-                          class="input text-sm"
+                          class="text-sm"
                           :placeholder="
                             t(
                               'admin.settings.site.customEndpoints.namePlaceholder',
@@ -7092,10 +7071,10 @@
                             t("admin.settings.site.customEndpoints.endpointUrl")
                           }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="ep.endpoint"
                           type="url"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="
                             t(
                               'admin.settings.site.customEndpoints.endpointUrlPlaceholder',
@@ -7113,10 +7092,10 @@
                             )
                           }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="ep.description"
                           type="text"
-                          class="input text-sm"
+                          class="text-sm"
                           :placeholder="
                             t(
                               'admin.settings.site.customEndpoints.descriptionPlaceholder',
@@ -7157,10 +7136,9 @@
                 >
                   {{ t("admin.settings.site.contactInfo") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.contact_info"
                   type="text"
-                  class="input"
                   :placeholder="t('admin.settings.site.contactInfoPlaceholder')"
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -7175,10 +7153,10 @@
                 >
                   {{ t("admin.settings.site.docUrl") }}
                 </label>
-                <input
+                <FormInput
                   v-model="form.doc_url"
                   type="url"
-                  class="input font-mono text-sm"
+                  class="font-mono text-sm"
                   :placeholder="t('admin.settings.site.docUrlPlaceholder')"
                 />
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
@@ -7210,12 +7188,12 @@
                 >
                   {{ t("admin.settings.site.homeContent") }}
                 </label>
-                <textarea
+                <FormTextarea
                   v-model="form.home_content"
                   rows="6"
-                  class="input font-mono text-sm"
+                  class="font-mono text-sm"
                   :placeholder="t('admin.settings.site.homeContentPlaceholder')"
-                ></textarea>
+                ></FormTextarea>
                 <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                   {{ t("admin.settings.site.homeContentHint") }}
                 </p>
@@ -7359,10 +7337,10 @@
                     >
                       {{ t("admin.settings.customMenu.nameZh") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="item.label_zh"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       maxlength="50"
                       :placeholder="t('admin.settings.customMenu.nameZhPlaceholder')"
                       data-testid="custom-menu-label-zh"
@@ -7374,10 +7352,10 @@
                     >
                       {{ t("admin.settings.customMenu.nameEn") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="item.label_en"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       maxlength="50"
                       :placeholder="t('admin.settings.customMenu.nameEnPlaceholder')"
                       data-testid="custom-menu-label-en"
@@ -7391,10 +7369,10 @@
                     >
                       {{ t("admin.settings.customMenu.fallbackName") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="item.label"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       maxlength="50"
                       :placeholder="t('admin.settings.customMenu.fallbackNamePlaceholder')"
                       data-testid="custom-menu-label-fallback"
@@ -7408,14 +7386,14 @@
                     >
                       {{ t("admin.settings.customMenu.visibility") }}
                     </label>
-                    <select v-model="item.visibility" class="input text-sm">
+                    <FormSelect v-model="item.visibility" class="text-sm">
                       <option value="user">
                         {{ t("admin.settings.customMenu.visibilityUser") }}
                       </option>
                       <option value="admin">
                         {{ t("admin.settings.customMenu.visibilityAdmin") }}
                       </option>
-                    </select>
+                    </FormSelect>
                   </div>
 
                   <!-- URL (full width) -->
@@ -7425,10 +7403,10 @@
                     >
                       {{ t("admin.settings.customMenu.url") }}
                     </label>
-                    <input
+                    <FormInput
                       v-model="item.url"
                       type="url"
-                      class="input font-mono text-sm"
+                      class="font-mono text-sm"
                       :placeholder="
                         t('admin.settings.customMenu.urlPlaceholder')
                       "
@@ -7436,7 +7414,7 @@
                   </div>
 
                   <label class="flex items-center gap-2 sm:col-span-2">
-                    <input
+                    <FormInput
                       v-model="item.hide_open_button"
                       type="checkbox"
                       data-testid="custom-menu-hide-open-button"
@@ -7566,10 +7544,9 @@
                   <label class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300">
                     {{ localText("条款更新日期", "Updated date") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.login_agreement_updated_at"
                     type="date"
-                    class="input"
                   />
                   <p class="mt-1.5 text-xs text-gray-500 dark:text-gray-400">
                     {{ localText("日期或文档内容变化后，用户需要重新同意。", "Changing the date or content requires fresh consent.") }}
@@ -7592,14 +7569,14 @@
                       }}
                     </p>
                   </div>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-primary btn-sm inline-flex items-center gap-1.5"
+                    class="btn-primary btn-sm inline-flex items-center gap-1.5"
                     @click="addLoginAgreementDocument"
                   >
                     <Icon name="plus" size="sm" />
                     {{ localText("添加文档", "Add document") }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div class="mt-4 space-y-3">
@@ -7651,10 +7628,10 @@
                         <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                           {{ localText("文档名称", "Document title") }}
                         </label>
-                        <input
+                        <FormInput
                           v-model="doc.title"
                           type="text"
-                          class="input text-sm"
+                          class="text-sm"
                           :placeholder="localText('例如：服务条款', 'Example: Terms of Service')"
                         />
                       </div>
@@ -7679,12 +7656,12 @@
                       <label class="mb-1 block text-xs font-medium text-gray-600 dark:text-gray-400">
                         {{ localText("Markdown 内容", "Markdown content") }}
                       </label>
-                        <textarea
+                        <FormTextarea
                           v-model="doc.content_md"
                           rows="8"
-                          class="input font-mono text-sm"
+                          class="font-mono text-sm"
                           :placeholder="localText('在这里填写正式 Markdown 内容。', 'Write the final Markdown content here.')"
-                        ></textarea>
+                        ></FormTextarea>
                     </div>
                   </div>
                 </div>
@@ -7726,8 +7703,8 @@
               <Toggle id="request-capture-enabled" v-model="form.request_capture_enabled" />
             </div>
             <div class="grid gap-5 md:grid-cols-2">
-              <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.quota') }}</span><input v-model.number="form.request_capture_quota_mib" class="input" type="number" min="1" step="1" required /></label>
-              <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.retention') }}</span><input v-model.number="form.request_capture_retention_days" class="input" type="number" min="1" max="30" step="1" required /></label>
+              <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.quota') }}</span><FormInput v-model.number="form.request_capture_quota_mib" type="number" min="1" step="1" required /></label>
+              <label class="space-y-1"><span class="input-label">{{ t('admin.requestCapture.retention') }}</span><FormInput v-model.number="form.request_capture_retention_days" type="number" min="1" max="30" step="1" required /></label>
             </div>
             <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.requestCapture.limitsHint') }}</p>
             <p class="text-xs text-amber-700 dark:text-amber-300">{{ t('admin.requestCapture.privacy') }}</p>
@@ -7762,11 +7739,10 @@
                 role="tablist"
                 :aria-label="t('admin.settings.features.navigation.title')"
               >
-                <button
+                <TabButton
                   v-for="section in navigationVisibilitySections"
                   :key="section.key"
                   type="button"
-                  role="tab"
                   :aria-selected="activeNavigationSectionKey === section.key"
                   :aria-controls="`navigation-panel-${section.key}`"
                   :data-testid="`navigation-scope-${section.key}`"
@@ -7785,26 +7761,26 @@
                   >
                     {{ getNavigationVisibleCount(section.items) }}/{{ section.items.length }}
                   </span>
-                </button>
+                </TabButton>
               </div>
 
               <div class="grid grid-cols-2 gap-2 sm:flex sm:justify-end">
-                <button
+                <BaseButton
                   type="button"
-                  class="btn btn-secondary btn-sm"
+                  class="btn-secondary btn-sm"
                   data-testid="navigation-show-all"
                   @click="setActiveNavigationVisibility(true)"
                 >
                   {{ t('admin.settings.features.navigation.showAll') }}
-                </button>
-                <button
+                </BaseButton>
+                <BaseButton
                   type="button"
-                  class="btn btn-secondary btn-sm"
+                  class="btn-secondary btn-sm"
                   data-testid="navigation-hide-all"
                   @click="setActiveNavigationVisibility(false)"
                 >
                   {{ t('admin.settings.features.navigation.hideAll') }}
-                </button>
+                </BaseButton>
               </div>
             </div>
 
@@ -7914,12 +7890,11 @@
                   {{ t('admin.settings.features.channelMonitor.defaultInterval') }}
                   <span class="text-red-500">*</span>
                 </label>
-                <input
+                <FormInput
                   v-model.number="form.channel_monitor_default_interval_seconds"
                   type="number"
                   min="15"
                   max="3600"
-                  class="input"
                 />
                 <p class="mt-1 text-xs text-gray-400">
                   {{ t('admin.settings.features.channelMonitor.defaultIntervalHint') }}
@@ -8059,8 +8034,8 @@
                 <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.modelPlazaCurrency" :user-id="authStore.user?.id" />
               </label>
               <p id="plaza-exchange-rate-help" class="mt-0.5 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.modelPlaza.displayExchangeRateHint') }}</p>
-              <input id="plaza-exchange-rate" v-model.number="form.model_plaza_usd_to_cny_rate" type="number" min="0.000001" step="any" required
-                aria-describedby="plaza-exchange-rate-help" class="input mt-2 max-w-xs" />
+              <FormInput id="plaza-exchange-rate" v-model.number="form.model_plaza_usd_to_cny_rate" type="number" min="0.000001" step="any" required
+                aria-describedby="plaza-exchange-rate-help" class="mt-2 max-w-xs" />
             </div>
 
             <div v-if="form.model_plaza_enabled">
@@ -8070,11 +8045,11 @@
               <p class="mb-2 mt-0.5 text-xs text-gray-500 dark:text-gray-400">
                 {{ t('admin.settings.features.modelPlaza.priceDescriptionHint') }}
               </p>
-              <textarea
+              <FormTextarea
                 v-model="form.model_plaza_description"
                 rows="6"
-                class="input font-mono text-sm"
-              ></textarea>
+                class="font-mono text-sm"
+              ></FormTextarea>
             </div>
           </div>
         </div>
@@ -8173,32 +8148,32 @@
                       :key="index"
                       class="flex items-center gap-2"
                     >
-                      <input
+                      <FormInput
                         v-model="form.support_ticket_config.categories[index]"
-                        class="input flex-1"
+                        class="flex-1"
                         :maxlength="SUPPORT_TICKET_CATEGORY_MAX"
                         :placeholder="t('admin.settings.features.supportTickets.categoryPlaceholder')"
                         :aria-label="category || t('admin.settings.features.supportTickets.categoryPlaceholder')"
                       />
-                      <button
+                      <BaseButton
                         type="button"
-                        class="btn btn-secondary px-2"
+                        class="btn-secondary px-2"
                         :aria-label="t('admin.settings.features.supportTickets.removeCategory')"
                         @click="form.support_ticket_config.categories.splice(index, 1)"
                       >
                         <Icon name="x" size="xs" class="h-4 w-4" />
-                      </button>
+                      </BaseButton>
                     </div>
                   </div>
-                  <button
+                  <BaseButton
                     v-if="form.support_ticket_config.categories.length < SUPPORT_TICKET_MAX_CATEGORIES"
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     data-testid="support-ticket-add-category"
                     @click="form.support_ticket_config.categories.push('')"
                   >
                     + {{ t('admin.settings.features.supportTickets.addCategory') }}
-                  </button>
+                  </BaseButton>
                 </div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.settings.features.supportTickets.categoriesHint', { max: SUPPORT_TICKET_MAX_CATEGORIES, length: SUPPORT_TICKET_CATEGORY_MAX }) }}
@@ -8206,10 +8181,10 @@
               </div>
               <div class="space-y-1">
                 <label for="support-ticket-max-open" class="input-label">{{ t('admin.settings.features.supportTickets.maxOpen') }}</label>
-                <input
+                <FormInput
                   id="support-ticket-max-open"
                   v-model.number="form.support_ticket_config.max_open_per_user"
-                  class="input w-40"
+                  class="w-40"
                   type="number"
                   min="1"
                   :max="SUPPORT_TICKET_MAX_OPEN_LIMIT"
@@ -8222,14 +8197,13 @@
               </div>
               <div class="space-y-1">
                 <label for="support-ticket-notice" class="input-label">{{ t('admin.settings.features.supportTickets.notice') }}</label>
-                <textarea
+                <FormTextarea
                   id="support-ticket-notice"
                   v-model="form.support_ticket_config.notice"
                   rows="3"
-                  class="input"
                   :maxlength="SUPPORT_TICKET_NOTICE_MAX"
                   :placeholder="t('admin.settings.features.supportTickets.noticePlaceholder')"
-                ></textarea>
+                ></FormTextarea>
                 <p class="text-xs text-gray-500 dark:text-gray-400">
                   {{ t('admin.settings.features.supportTickets.noticeHint', { max: SUPPORT_TICKET_NOTICE_MAX }) }}
                 </p>
@@ -8298,11 +8272,10 @@
                 {{ t('admin.settings.features.riskControl.cyberSessionBlockTTL') }}
                 <span class="text-red-500">*</span>
               </label>
-              <input
+              <FormInput
                 v-model.number="form.cyber_session_block_ttl_seconds"
                 type="number"
                 min="1"
-                class="input"
               />
             </div>
 
@@ -8366,13 +8339,13 @@
                   {{ t('admin.settings.features.affiliate.rebateRate') }}
                 </label>
                 <div class="relative">
-                  <input
+                  <FormInput
                     v-model.number="form.affiliate_rebate_rate"
                     type="number"
                     step="0.01"
                     min="0"
                     max="100"
-                    class="input pr-8"
+                    class="pr-8"
                     placeholder="20"
                   />
                   <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
@@ -8386,13 +8359,12 @@
                 <label class="input-label">
                   {{ t('admin.settings.features.affiliate.freezeHours') }}
                 </label>
-                <input
+                <FormInput
                   v-model.number="form.affiliate_rebate_freeze_hours"
                   type="number"
                   step="1"
                   min="0"
                   max="720"
-                  class="input"
                 />
                 <p class="mt-1 text-xs text-gray-400">
                   {{ t('admin.settings.features.affiliate.freezeHoursDesc') }}
@@ -8403,13 +8375,12 @@
                 <label class="input-label">
                   {{ t('admin.settings.features.affiliate.durationDays') }}
                 </label>
-                <input
+                <FormInput
                   v-model.number="form.affiliate_rebate_duration_days"
                   type="number"
                   step="1"
                   min="0"
                   max="3650"
-                  class="input"
                 />
                 <p class="mt-1 text-xs text-gray-400">
                   {{ t('admin.settings.features.affiliate.durationDaysDesc') }}
@@ -8420,12 +8391,11 @@
                 <label class="input-label">
                   {{ t('admin.settings.features.affiliate.perInviteeCap') }}
                 </label>
-                <input
+                <FormInput
                   v-model.number="form.affiliate_rebate_per_invitee_cap"
                   type="number"
                   step="0.01"
                   min="0"
-                  class="input"
                 />
                 <p class="mt-1 text-xs text-gray-400">
                   {{ t('admin.settings.features.affiliate.perInviteeCapDesc') }}
@@ -8443,39 +8413,39 @@
                       {{ t('admin.settings.features.affiliate.customUsers.description') }}
                     </p>
                   </div>
-                  <button
+                  <BaseButton
                     type="button"
-                    class="btn btn-primary btn-sm"
+                    class="btn-primary btn-sm"
                     @click="openAffiliateModal(null)"
                   >
                     + {{ t('admin.settings.features.affiliate.customUsers.addButton') }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div class="mb-3 flex items-center gap-2">
-                  <input
+                  <FormInput
                     v-model="affiliateState.search"
                     type="text"
-                    class="input flex-1"
+                    class="flex-1"
                     :placeholder="t('admin.settings.features.affiliate.customUsers.searchPlaceholder')"
                     @input="onAffiliateSearchInput"
                   />
-                  <button
+                  <BaseButton
                     v-if="affiliateState.selected.length > 0"
                     type="button"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     @click="openAffiliateBatchModal"
                   >
                     {{ t('admin.settings.features.affiliate.customUsers.batchButton', { count: affiliateState.selected.length }) }}
-                  </button>
+                  </BaseButton>
                 </div>
 
                 <div class="overflow-x-auto rounded-lg border border-gray-200 dark:border-dark-700">
-                  <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
+                  <BaseTable class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
                     <thead class="bg-gray-50 dark:bg-dark-800">
                       <tr>
                         <th class="px-3 py-2 text-left">
-                          <input
+                          <FormInput
                             type="checkbox"
                             :checked="affiliateState.entries.length > 0 && affiliateState.selected.length === affiliateState.entries.length"
                             @change="toggleAffiliateSelectAll"
@@ -8501,7 +8471,7 @@
                       </tr>
                       <tr v-for="entry in affiliateState.entries" :key="entry.user_id">
                         <td class="px-3 py-2">
-                          <input
+                          <FormInput
                             type="checkbox"
                             :checked="affiliateState.selected.includes(entry.user_id)"
                             @change="toggleAffiliateSelect(entry.user_id)"
@@ -8536,7 +8506,7 @@
                         </td>
                       </tr>
                     </tbody>
-                  </table>
+                  </BaseTable>
                 </div>
 
                 <div v-if="affiliateState.total > affiliateState.pageSize" class="mt-3 flex items-center justify-between text-sm">
@@ -8544,23 +8514,23 @@
                     {{ t('admin.settings.features.affiliate.customUsers.totalLabel', { total: affiliateState.total }) }}
                   </span>
                   <div class="flex items-center gap-2">
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm"
+                      class="btn-secondary btn-sm"
                       :disabled="affiliateState.page <= 1"
                       @click="changeAffiliatePage(affiliateState.page - 1)"
                     >
                       {{ t('pagination.previous') }}
-                    </button>
+                    </BaseButton>
                     <span class="text-gray-500">{{ affiliateState.page }} / {{ Math.max(1, Math.ceil(affiliateState.total / affiliateState.pageSize)) }}</span>
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary btn-sm"
+                      class="btn-secondary btn-sm"
                       :disabled="affiliateState.page >= Math.ceil(affiliateState.total / affiliateState.pageSize)"
                       @click="changeAffiliatePage(affiliateState.page + 1)"
                     >
                       {{ t('pagination.next') }}
-                    </button>
+                    </BaseButton>
                   </div>
                 </div>
               </div>
@@ -8601,10 +8571,9 @@
                 </div>
                 <!-- Search input + result dropdown — hidden once a selection is made -->
                 <template v-else>
-                  <input
+                  <FormInput
                     v-model="affiliateModal.userQuery"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.settings.features.affiliate.modal.userPlaceholder')"
                     @input="onAffiliateUserSearchInput"
                   />
@@ -8626,9 +8595,8 @@
               </div>
               <div v-else>
                 <label class="input-label">{{ t('admin.settings.features.affiliate.modal.userLabel') }}</label>
-                <input
+                <FormInput
                   type="text"
-                  class="input"
                   :value="affiliateModal.editingEntry ? affiliateModal.editingEntry.email : ''"
                   disabled
                 />
@@ -8636,10 +8604,10 @@
 
               <div>
                 <label class="input-label">{{ t('admin.settings.features.affiliate.modal.codeLabel') }}</label>
-                <input
+                <FormInput
                   v-model="affiliateModal.code"
                   type="text"
-                  class="input font-mono"
+                  class="font-mono"
                   :placeholder="t('admin.settings.features.affiliate.modal.codePlaceholder')"
                   maxlength="32"
                 />
@@ -8651,13 +8619,13 @@
               <div>
                 <label class="input-label">{{ t('admin.settings.features.affiliate.modal.rateLabel') }}</label>
                 <div class="relative">
-                  <input
+                  <FormInput
                     v-model="affiliateModal.rate"
                     type="number"
                     step="0.01"
                     min="0"
                     max="100"
-                    class="input pr-8"
+                    class="pr-8"
                     :placeholder="t('admin.settings.features.affiliate.modal.ratePlaceholder')"
                   />
                   <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
@@ -8677,17 +8645,17 @@
               </p>
               <span v-else></span>
               <div class="flex gap-2">
-                <button type="button" class="btn btn-secondary" @click="closeAffiliateModal">
+                <BaseButton type="button" class="btn-secondary" @click="closeAffiliateModal">
                   {{ t('common.cancel') }}
-                </button>
-                <button
+                </BaseButton>
+                <BaseButton
                   type="button"
-                  class="btn btn-primary"
+                  class="btn-primary"
                   :disabled="affiliateModal.saving || !affiliateModalCanSubmit"
                   @click="submitAffiliateModal"
                 >
                   {{ affiliateModal.saving ? t('common.saving') : t('common.save') }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
@@ -8707,13 +8675,13 @@
               {{ t('admin.settings.features.affiliate.batchModal.hint') }}
             </p>
             <div class="relative">
-              <input
+              <FormInput
                 v-model="affiliateBatchModal.rate"
                 type="number"
                 step="0.01"
                 min="0"
                 max="100"
-                class="input pr-8"
+                class="pr-8"
                 :placeholder="t('admin.settings.features.affiliate.batchModal.placeholder')"
               />
               <span class="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-gray-400">%</span>
@@ -8722,17 +8690,17 @@
               {{ t('admin.settings.features.affiliate.batchModal.clearHint') }}
             </p>
             <div class="mt-6 flex justify-end gap-2">
-              <button type="button" class="btn btn-secondary" @click="affiliateBatchModal.open = false">
+              <BaseButton type="button" class="btn-secondary" @click="affiliateBatchModal.open = false">
                 {{ t('common.cancel') }}
-              </button>
-              <button
+              </BaseButton>
+              <BaseButton
                 type="button"
-                class="btn btn-primary"
+                class="btn-primary"
                 :disabled="affiliateBatchModal.saving"
                 @click="submitAffiliateBatchModal"
               >
                 {{ affiliateBatchModal.saving ? t('common.saving') : t('common.save') }}
-              </button>
+              </BaseButton>
             </div>
           </div>
         </div>
@@ -8795,10 +8763,9 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.productNamePrefix")
                     }}</label
-                    ><input
+                    ><FormInput
                       v-model="form.payment_product_name_prefix"
                       type="text"
-                      class="input"
                       placeholder="Sub2API"
                     />
                   </div>
@@ -8806,10 +8773,9 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.productNameSuffix")
                     }}</label
-                    ><input
+                    ><FormInput
                       v-model="form.payment_product_name_suffix"
                       type="text"
-                      class="input"
                       placeholder="CNY"
                     />
                   </div>
@@ -8834,7 +8800,7 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.minAmount")
                     }}</label
-                    ><input
+                    ><FormInput
                       :value="form.payment_min_amount || ''"
                       @input="
                         form.payment_min_amount =
@@ -8845,7 +8811,6 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      class="input"
                       :placeholder="t('admin.settings.payment.noLimit')"
                     />
                   </div>
@@ -8853,7 +8818,7 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.maxAmount")
                     }}</label
-                    ><input
+                    ><FormInput
                       :value="form.payment_max_amount || ''"
                       @input="
                         form.payment_max_amount =
@@ -8864,7 +8829,6 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      class="input"
                       :placeholder="t('admin.settings.payment.noLimit')"
                     />
                   </div>
@@ -8872,7 +8836,7 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.dailyLimit")
                     }}</label
-                    ><input
+                    ><FormInput
                       :value="form.payment_daily_limit || ''"
                       @input="
                         form.payment_daily_limit =
@@ -8883,7 +8847,6 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      class="input"
                       :placeholder="t('admin.settings.payment.noLimit')"
                     />
                   </div>
@@ -8891,7 +8854,7 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.balanceRechargeMultiplier")
                     }}</label>
-                    <input
+                    <FormInput
                       :value="form.payment_balance_recharge_multiplier || ''"
                       @input="
                         form.payment_balance_recharge_multiplier =
@@ -8902,7 +8865,6 @@
                       type="number"
                       step="0.000001"
                       min="0.000001"
-                      class="input"
                     />
                     <p class="mt-0.5 text-xs text-gray-400">
                       {{
@@ -8928,7 +8890,7 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.subscriptionUsdToCnyRate")
                     }}</label>
-                    <input
+                    <FormInput
                       :value="form.payment_subscription_usd_to_cny_rate || ''"
                       @input="
                         form.payment_subscription_usd_to_cny_rate =
@@ -8939,7 +8901,6 @@
                       type="number"
                       step="0.01"
                       min="0"
-                      class="input"
                       :placeholder="
                         t(
                           'admin.settings.payment.subscriptionUsdToCnyRateDisabled',
@@ -8957,7 +8918,7 @@
                       t("admin.settings.payment.rechargeFeeRate")
                     }}</label>
                     <div class="relative">
-                      <input
+                      <FormInput
                         :value="form.payment_recharge_fee_rate ?? ''"
                         data-testid="payment-global-fee-rate"
                         @input="
@@ -8978,7 +8939,7 @@
                         step="0.01"
                         min="0"
                         max="100"
-                        class="input pr-8"
+                        class="pr-8"
                       />
                       <span
                         class="pointer-events-none absolute inset-y-0 right-0 flex items-center pr-3 text-gray-400"
@@ -9005,11 +8966,10 @@
                     <label class="input-label"
                       >{{ t("admin.settings.payment.orderTimeout") }}
                       <span class="text-red-500">*</span></label
-                    ><input
+                    ><FormInput
                       v-model.number="form.payment_order_timeout_minutes"
                       type="number"
                       min="1"
-                      class="input"
                       required
                     />
                     <p class="mt-0.5 text-xs text-gray-400">
@@ -9023,11 +8983,10 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.maxPendingOrders")
                     }}</label
-                    ><input
+                    ><FormInput
                       v-model.number="form.payment_max_pending_orders"
                       type="number"
                       min="1"
-                      class="input"
                     />
                   </div>
                   <div>
@@ -9045,28 +9004,9 @@
                       t("admin.settings.payment.cancelRateLimit")
                     }}</label>
                     <div class="flex items-center gap-2">
-                      <button
-                        type="button"
-                        :class="[
-                          'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                          form.payment_cancel_rate_limit_enabled
-                            ? 'bg-primary-500'
-                            : 'bg-gray-300 dark:bg-dark-600',
-                        ]"
-                        @click="
-                          form.payment_cancel_rate_limit_enabled =
-                            !form.payment_cancel_rate_limit_enabled
-                        "
-                      >
-                        <span
-                          :class="[
-                            'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                            form.payment_cancel_rate_limit_enabled
-                              ? 'translate-x-5'
-                              : 'translate-x-0',
-                          ]"
-                        />
-                      </button>
+                      <Toggle
+                        v-model="form.payment_cancel_rate_limit_enabled"
+                      />
                       <Select
                         v-model="form.payment_cancel_rate_limit_window_mode"
                         :options="cancelRateLimitModeOptions"
@@ -9084,12 +9024,12 @@
                           t("admin.settings.payment.cancelRateLimitEvery")
                         }}</span
                       >
-                      <input
+                      <FormInput
                         v-model.number="form.payment_cancel_rate_limit_window"
                         type="number"
                         min="1"
                         required
-                        class="input w-14 text-center"
+                        class="w-14 text-center"
                         :disabled="!form.payment_cancel_rate_limit_enabled"
                       />
                       <Select
@@ -9109,12 +9049,12 @@
                           t("admin.settings.payment.cancelRateLimitAllowMax")
                         }}</span
                       >
-                      <input
+                      <FormInput
                         v-model.number="form.payment_cancel_rate_limit_max"
                         type="number"
                         min="1"
                         required
-                        class="input w-14 text-center"
+                        class="w-14 text-center"
                         :disabled="!form.payment_cancel_rate_limit_enabled"
                       />
                       <span
@@ -9135,28 +9075,9 @@
                       t("admin.settings.payment.alipayForceQRCode")
                     }}</label>
                     <div class="flex items-center gap-2">
-                      <button
-                        type="button"
-                        :class="[
-                          'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                          form.payment_alipay_force_qrcode
-                            ? 'bg-primary-500'
-                            : 'bg-gray-300 dark:bg-dark-600',
-                        ]"
-                        @click="
-                          form.payment_alipay_force_qrcode =
-                            !form.payment_alipay_force_qrcode
-                        "
-                      >
-                        <span
-                          :class="[
-                            'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                            form.payment_alipay_force_qrcode
-                              ? 'translate-x-5'
-                              : 'translate-x-0',
-                          ]"
-                        />
-                      </button>
+                      <Toggle
+                        v-model="form.payment_alipay_force_qrcode"
+                      />
                       <span class="text-sm text-gray-500 dark:text-gray-400">{{
                         t("admin.settings.payment.alipayForceQRCodeHint")
                       }}</span>
@@ -9167,28 +9088,9 @@
                       t("admin.settings.payment.alipayMobilePrecreateDeepLink")
                     }}</label>
                     <div class="flex items-center gap-2">
-                      <button
-                        type="button"
-                        :class="[
-                          'relative inline-flex h-6 w-11 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-                          form.payment_alipay_mobile_precreate_deep_link
-                            ? 'bg-primary-500'
-                            : 'bg-gray-300 dark:bg-dark-600',
-                        ]"
-                        @click="
-                          form.payment_alipay_mobile_precreate_deep_link =
-                            !form.payment_alipay_mobile_precreate_deep_link
-                        "
-                      >
-                        <span
-                          :class="[
-                            'pointer-events-none inline-block h-5 w-5 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                            form.payment_alipay_mobile_precreate_deep_link
-                              ? 'translate-x-5'
-                              : 'translate-x-0',
-                          ]"
-                        />
-                      </button>
+                      <Toggle
+                        v-model="form.payment_alipay_mobile_precreate_deep_link"
+                      />
                       <span class="text-sm text-gray-500 dark:text-gray-400">{{
                         t("admin.settings.payment.alipayMobilePrecreateDeepLinkHint")
                       }}</span>
@@ -9219,11 +9121,6 @@
                       >
                         {{ pt.label }}
                       </button>
-                      <NewFeatureBadge
-                        v-if="pt.value === 'bepusdt'"
-                        :notice-id="NEW_FEATURE_NOTICES.bepusdtPayment"
-                        :user-id="authStore.user?.id"
-                      />
                     </div>
                   </div>
                   <p class="mt-2 text-xs text-gray-400 dark:text-gray-500">
@@ -9270,14 +9167,13 @@
                     <label class="input-label">{{
                       t("admin.settings.payment.helpText")
                     }}</label>
-                    <textarea
+                    <FormTextarea
                       v-model="form.payment_help_text"
                       rows="3"
-                      class="input"
                       :placeholder="
                         t('admin.settings.payment.helpTextPlaceholder')
                       "
-                    ></textarea>
+                    ></FormTextarea>
                   </div>
                 </div>
               </template>
@@ -9295,7 +9191,6 @@
           <!-- Provider Management -->
           <BEpusdtManager
             v-if="form.payment_enabled && form.payment_enabled_types.includes('bepusdt')"
-            :user-id="authStore.user?.id"
           />
           <PaymentProviderList
             v-if="form.payment_enabled"
@@ -9352,11 +9247,11 @@
                   {{ t("admin.settings.smtp.description") }}
                 </p>
               </div>
-              <button
+              <BaseButton
                 type="button"
                 @click="testSmtpConnection"
                 :disabled="testingSmtp || loadFailed"
-                class="btn btn-secondary btn-sm"
+                class="btn-secondary btn-sm"
               >
                 <svg
                   v-if="testingSmtp"
@@ -9383,7 +9278,7 @@
                     ? t("admin.settings.smtp.testing")
                     : t("admin.settings.smtp.testConnection")
                 }}
-              </button>
+              </BaseButton>
             </div>
             <div class="space-y-6 p-6">
               <div class="grid grid-cols-1 gap-6 md:grid-cols-2">
@@ -9393,10 +9288,9 @@
                   >
                     {{ t("admin.settings.smtp.host") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.smtp_host"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.settings.smtp.hostPlaceholder')"
                   />
                 </div>
@@ -9406,12 +9300,11 @@
                   >
                     {{ t("admin.settings.smtp.port") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model.number="form.smtp_port"
                     type="number"
                     min="1"
                     max="65535"
-                    class="input"
                     :placeholder="t('admin.settings.smtp.portPlaceholder')"
                   />
                 </div>
@@ -9421,10 +9314,9 @@
                   >
                     {{ t("admin.settings.smtp.username") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.smtp_username"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.settings.smtp.usernamePlaceholder')"
                   />
                 </div>
@@ -9434,10 +9326,9 @@
                   >
                     {{ t("admin.settings.smtp.password") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.smtp_password"
                     type="password"
-                    class="input"
                     autocomplete="new-password"
                     autocapitalize="off"
                     spellcheck="false"
@@ -9463,10 +9354,9 @@
                   >
                     {{ t("admin.settings.smtp.fromEmail") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.smtp_from_email"
                     type="email"
-                    class="input"
                     :placeholder="t('admin.settings.smtp.fromEmailPlaceholder')"
                   />
                 </div>
@@ -9476,10 +9366,9 @@
                   >
                     {{ t("admin.settings.smtp.fromName") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="form.smtp_from_name"
                     type="text"
-                    class="input"
                     :placeholder="t('admin.settings.smtp.fromNamePlaceholder')"
                   />
                 </div>
@@ -9522,22 +9411,21 @@
                   >
                     {{ t("admin.settings.testEmail.recipientEmail") }}
                   </label>
-                  <input
+                  <FormInput
                     v-model="testEmailAddress"
                     type="email"
-                    class="input"
                     :placeholder="
                       t('admin.settings.testEmail.recipientEmailPlaceholder')
                     "
                   />
                 </div>
-                <button
+                <BaseButton
                   type="button"
                   @click="sendTestEmail"
                   :disabled="
                     sendingTestEmail || !testEmailAddress || loadFailed
                   "
-                  class="btn btn-secondary"
+                  class="btn-secondary"
                 >
                   <svg
                     v-if="sendingTestEmail"
@@ -9564,7 +9452,7 @@
                       ? t("admin.settings.testEmail.sending")
                       : t("admin.settings.testEmail.sendTestEmail")
                   }}
-                </button>
+                </BaseButton>
               </div>
             </div>
           </div>
@@ -9630,12 +9518,12 @@
                     class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400"
                     >$</span
                   >
-                  <input
+                  <FormInput
                     v-model.number="form.balance_low_notify_threshold"
                     type="number"
                     min="0"
                     step="0.01"
-                    class="input pl-7"
+                    class="pl-7"
                   />
                 </div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -9647,10 +9535,9 @@
                   class="mb-2 block text-sm font-medium text-gray-700 dark:text-gray-300"
                   >{{ t("admin.settings.balanceNotify.rechargeUrl") }}</label
                 >
-                <input
+                <FormInput
                   v-model="form.balance_low_notify_recharge_url"
                   type="url"
-                  class="input"
                   :placeholder="currentOrigin"
                 />
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -9695,7 +9582,7 @@
                     <label
                       class="relative inline-flex items-center cursor-pointer shrink-0"
                     >
-                      <input
+                      <FormInput
                         type="checkbox"
                         :checked="!entry.disabled"
                         @change="entry.disabled = !entry.disabled"
@@ -9705,29 +9592,29 @@
                         class="w-9 h-5 bg-gray-200 peer-focus:outline-none rounded-full peer dark:bg-gray-600 peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all dark:after:border-gray-500 peer-checked:bg-primary-600"
                       ></div>
                     </label>
-                    <input
+                    <FormInput
                       v-model="entry.email"
                       type="email"
-                      class="input flex-1"
+                      class="flex-1"
                       :placeholder="
                         t('admin.settings.quotaNotify.emailPlaceholder')
                       "
                     />
-                    <button
+                    <BaseButton
                       @click="form.account_quota_notify_emails.splice(index, 1)"
-                      class="btn btn-secondary px-2"
+                      class="btn-secondary px-2"
                       type="button"
                     >
                       <Icon name="x" size="xs" class="h-4 w-4" />
-                    </button>
+                    </BaseButton>
                   </div>
-                  <button
+                  <BaseButton
                     @click="addQuotaNotifyEmail"
-                    class="btn btn-secondary btn-sm"
+                    class="btn-secondary btn-sm"
                     type="button"
                   >
                     + {{ t("admin.settings.quotaNotify.addEmail") }}
-                  </button>
+                  </BaseButton>
                 </div>
                 <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                   {{ t("admin.settings.quotaNotify.emailsHint") }}
@@ -9750,10 +9637,10 @@
         <!-- Save dock — sticky so long tabs never require scrolling to the end -->
         <div v-show="activeTab !== 'backup' && activeTab !== 'gptDirect'" class="settings-save-dock">
           <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.settingsSaveDock" :user-id="authStore.user?.id" />
-          <button
+          <BaseButton
             type="submit"
             :disabled="saving || loadFailed"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             <svg
               v-if="saving"
@@ -9780,7 +9667,7 @@
                 ? t("admin.settings.saving")
                 : t("admin.settings.saveSettings")
             }}
-          </button>
+          </BaseButton>
         </div>
       </form>
 
@@ -9826,6 +9713,12 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import TabButton from '@/components/common/TabButton.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import ExcelBPSProtocolSettings from '@/components/admin/settings/ExcelBPSProtocolSettings.vue'
 import CodexTicketFeatureSettings from '@/components/admin/settings/CodexTicketFeatureSettings.vue'
 import { FeatureFlags, resolveFeatureFlag } from '@/utils/featureFlags'
@@ -9839,7 +9732,7 @@ import { ref, reactive, computed, onMounted, watch } from "vue";
 import { listPlatformIds } from "@/constants/platformCatalog";
 import { useI18n } from "vue-i18n";
 import { useSettingsNavigation } from "@/composables/useSettingsNavigation";
-import type { SettingsTab } from "@/utils/settingsSearch";
+import type { SettingsTab } from "@/utils/settingsLocation";
 import { adminAPI } from "@/api";
 import {
   appendAuthSourceDefaultsToUpdateRequest,

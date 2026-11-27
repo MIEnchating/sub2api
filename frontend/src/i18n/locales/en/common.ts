@@ -34,13 +34,6 @@ export default {
     confirm: 'Confirm',
     reset: 'Reset',
     search: 'Search',
-    featureSearch: {
-      title: 'Find a feature',
-      placeholder: 'Search features or keywords…',
-      resultCount: '{count} available features',
-      noResults: 'No matching features. Try another name or keyword.',
-      hint: '↑ ↓ Select · Enter Open · Esc Close'
-    },
     newFeature: 'New feature',
     dismissNewFeature: 'Hide this new feature notice',
     filter: 'Filter',

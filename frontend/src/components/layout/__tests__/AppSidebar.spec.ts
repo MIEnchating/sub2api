@@ -150,3 +150,10 @@ describe('AppSidebar new feature notices', () => {
     expect(componentSource).toContain('<NewFeatureBadge')
   })
 })
+
+describe('AppSidebar feature search removal', () => {
+  it('does not render or import the admin feature search', () => {
+    expect(componentSource).not.toContain('FeatureSearch')
+    expect(componentSource).not.toContain('searchNavItems')
+  })
+})

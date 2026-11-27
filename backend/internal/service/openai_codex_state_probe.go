@@ -351,12 +351,15 @@ func fireOpenAICodexStateShotRequest(ctx context.Context, headers http.Header, m
 	return fireOpenAICodexPromptShotRequest(ctx, headers, model, turnState, cookie, "Reply with OK.", "Reply with OK.", send)
 }
 
-func fireOpenAICodexPromptShotRequest(ctx context.Context, headers http.Header, model, turnState, cookie, instructions, prompt string, send func(*http.Request) (*http.Response, error)) (openAICodexStateShot, error) {
+func fireOpenAICodexPromptShotRequest(ctx context.Context, headers http.Header, model, turnState, cookie, instructions, prompt string, send func(*http.Request) (*http.Response, error), reasoningEffort ...string) (openAICodexStateShot, error) {
 	var out openAICodexStateShot
 	ctx = context.WithValue(ctx, openAICodexStateProbeContextKey{}, true)
 	shotCtx, cancel := context.WithTimeout(ctx, openAICodexStateProbeShotTimeout)
 	defer cancel()
 	body := []byte(`{"model":` + jsonString(model) + `,"instructions":` + jsonString(instructions) + `,"input":[{"type":"message","role":"user","content":[{"type":"input_text","text":` + jsonString(prompt) + `}]}],"stream":true,"store":false,"parallel_tool_calls":true,"include":["reasoning.encrypted_content"]}`)
+	if len(reasoningEffort) > 0 {
+		body = append(body[:len(body)-1], []byte(`,"reasoning":{"effort":`+jsonString(reasoningEffort[0])+`}}`)...)
+	}
 	req, err := http.NewRequestWithContext(shotCtx, http.MethodPost, chatgptCodexURL, bytes.NewReader(body))
 	if err != nil {
 		return out, err

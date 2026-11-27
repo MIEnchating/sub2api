@@ -4,8 +4,8 @@
     <p class="input-hint">{{ t('openaiAuth.hint') }}</p>
     <p class="input-hint">{{ t('openaiAuth.sharedLimits') }}</p>
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh">{{ t('openaiAuth.refresh') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" data-testid="use-legacy" @click="legacy">{{ t('openaiAuth.useLegacy') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refresh">{{ t('openaiAuth.refresh') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" data-testid="use-legacy" @click="legacy">{{ t('openaiAuth.useLegacy') }}</BaseButton>
     </div>
     <ul class="space-y-3">
       <li v-for="connection in connections" :key="connection.id" class="rounded border border-gray-200 p-3 dark:border-dark-600" :data-connection-id="connection.id">
@@ -33,47 +33,47 @@
         </details>
         <p v-if="connection.legacy" class="input-hint">{{ t('openaiAuth.legacyHint') }}</p>
         <div v-else class="mt-2 flex flex-wrap gap-2">
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || connection.status !== 'active' || !connection.capabilities.length || (!!connection.refresh_state && connection.refresh_state !== 'idle')" data-testid="select-connection" @click="mutate(connection, 'select')">{{ t('openaiAuth.select') }}</button>
-          <button v-if="connection.status === 'active' && connection.refresh_state && connection.refresh_state !== 'idle'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'recover')">{{ t('openaiAuth.recoverRefresh') }}</button>
-          <button v-if="connection.kind !== 'api_key'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="authorize(connection)">{{ t('openaiAuth.authorize') }}</button>
-          <button v-else type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="rotation = connection">{{ t('openaiAuth.rotate') }}</button>
-          <button v-if="connection.status === 'active'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'disable')">{{ t('openaiAuth.disable') }}</button>
-          <button v-if="connection.status === 'disabled'" type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'enable')">{{ t('openaiAuth.enable') }}</button>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || connection.status === 'unlinked'" @click="revocation = connection">{{ t('openaiAuth.unlink') }}</button>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || connection.status !== 'active' || !connection.capabilities.length || (!!connection.refresh_state && connection.refresh_state !== 'idle')" data-testid="select-connection" @click="mutate(connection, 'select')">{{ t('openaiAuth.select') }}</BaseButton>
+          <BaseButton v-if="connection.status === 'active' && connection.refresh_state && connection.refresh_state !== 'idle'" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'recover')">{{ t('openaiAuth.recoverRefresh') }}</BaseButton>
+          <BaseButton v-if="connection.kind !== 'api_key'" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="authorize(connection)">{{ t('openaiAuth.authorize') }}</BaseButton>
+          <BaseButton v-else type="button" class="btn-secondary btn-sm" :disabled="busy" @click="rotation = connection">{{ t('openaiAuth.rotate') }}</BaseButton>
+          <BaseButton v-if="connection.status === 'active'" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'disable')">{{ t('openaiAuth.disable') }}</BaseButton>
+          <BaseButton v-if="connection.status === 'disabled'" type="button" class="btn-secondary btn-sm" :disabled="busy" @click="mutate(connection, 'enable')">{{ t('openaiAuth.enable') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || connection.status === 'unlinked'" @click="revocation = connection">{{ t('openaiAuth.unlink') }}</BaseButton>
         </div>
       </li>
     </ul>
     <div class="space-y-2" data-testid="add-connection-fields">
       <label :for="`connection-kind-${accountId}`" class="input-label">{{ t('openaiAuth.kind') }}</label>
-      <select :id="`connection-kind-${accountId}`" v-model="kind" class="input" :disabled="busy">
+      <FormSelect :id="`connection-kind-${accountId}`" v-model="kind" :disabled="busy">
         <option value="codex">Codex</option><option value="bps">BPS</option><option value="siwc">SIWC</option>
-      </select>
+      </FormSelect>
       <label :for="`connection-label-${accountId}`" class="input-label">{{ t('openaiAuth.label') }}</label>
-      <input :id="`connection-label-${accountId}`" v-model="label" class="input" maxlength="120" autocomplete="off" :disabled="busy" data-testid="connection-label" />
+      <FormInput :id="`connection-label-${accountId}`" v-model="label" maxlength="120" autocomplete="off" :disabled="busy" data-testid="connection-label" />
       <p v-if="kind === 'siwc'" class="input-hint">{{ t('openaiAuth.siwcApproval') }}</p>
-      <button type="button" class="btn btn-secondary btn-sm" @click="add" :disabled="busy || !label.trim()" data-testid="add-connection">{{ t('openaiAuth.add') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" @click="add" :disabled="busy || !label.trim()" data-testid="add-connection">{{ t('openaiAuth.add') }}</BaseButton>
     </div>
     <div v-if="authorization" class="space-y-2" data-testid="connection-authorization">
       <p>{{ t('openaiAuth.authorizing', { label: authorization.label }) }}</p>
       <template v-if="!authorization.submitted">
         <a :href="authorization.auth_url" target="_blank" rel="noopener noreferrer" class="btn btn-secondary btn-sm">{{ t('openaiAuth.open') }}</a>
         <label :for="`connection-callback-${accountId}`" class="input-label">{{ t('openaiAuth.callback') }}</label>
-        <input :id="`connection-callback-${accountId}`" v-model="callback" class="input" autocomplete="off" spellcheck="false" :disabled="busy" />
-        <button type="button" class="btn btn-secondary btn-sm" @click="complete" :disabled="busy || !callback.trim()">{{ t('openaiAuth.complete') }}</button>
+        <FormInput :id="`connection-callback-${accountId}`" v-model="callback" autocomplete="off" spellcheck="false" :disabled="busy" />
+        <BaseButton type="button" class="btn-secondary btn-sm" @click="complete" :disabled="busy || !callback.trim()">{{ t('openaiAuth.complete') }}</BaseButton>
       </template>
       <p v-else role="status" data-testid="authorization-result">{{ t(busy ? 'openaiAuth.authorizationChecking' : 'openaiAuth.authorizationUnconfirmed') }}</p>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="checkAuthorization" data-testid="check-authorization">{{ t('openaiAuth.checkAuthorization') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="clearSecrets">{{ t('openaiAuth.cancel') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="checkAuthorization" data-testid="check-authorization">{{ t('openaiAuth.checkAuthorization') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="clearSecrets">{{ t('openaiAuth.cancel') }}</BaseButton>
     </div>
     <div v-if="rotation" class="space-y-2">
       <label :for="`connection-rotate-${accountId}`" class="input-label">{{ t('openaiAuth.rotateLabel', { label: rotation.label }) }}</label>
-      <input :id="`connection-rotate-${accountId}`" v-model="rotationKey" type="password" class="input" autocomplete="new-password" />
-      <button type="button" class="btn btn-secondary btn-sm" @click="rotate" :disabled="busy || !rotationKey.trim()">{{ t('openaiAuth.rotate') }}</button>
+      <FormInput :id="`connection-rotate-${accountId}`" v-model="rotationKey" type="password" autocomplete="new-password" />
+      <BaseButton type="button" class="btn-secondary btn-sm" @click="rotate" :disabled="busy || !rotationKey.trim()">{{ t('openaiAuth.rotate') }}</BaseButton>
     </div>
     <div v-if="revocation" class="space-y-2" role="alert">
       <p>{{ t('openaiAuth.unlinkConfirm', { label: revocation.label }) }}</p>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="unlink">{{ t('openaiAuth.confirm') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="revocation = null">{{ t('openaiAuth.cancel') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="unlink">{{ t('openaiAuth.confirm') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="revocation = null">{{ t('openaiAuth.cancel') }}</BaseButton>
     </div>
     <p v-if="notice" role="status" class="text-sm">{{ notice }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
@@ -81,6 +81,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { authorizeConnection, completeConnection, connectionAuthorizationStatus, createAuthConnection, listAuthConnections, revokeConnection, rotateConnectionAPIKey, updateAuthConnection, useLegacyConnections, type OAuthConnectionKind, type OpenAIAuthConnection } from '@/api/admin/openaiAuthConnections'

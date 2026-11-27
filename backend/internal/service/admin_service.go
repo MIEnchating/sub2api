@@ -781,6 +781,7 @@ var ErrRPMStatusUnavailable = infraerrors.New(http.StatusNotImplemented, "RPM_ST
 
 // adminServiceImpl implements AdminService
 type adminServiceImpl struct {
+	openAIImportChecks     *OpenAIAccountImportChecks
 	managedIPv6Concurrency *ConcurrencyService
 	excelOAuthReauth       *OpenAIOAuthReauthService
 	mihomoProxyMu          sync.Mutex

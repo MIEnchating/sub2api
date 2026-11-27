@@ -1,10 +1,6 @@
 import { mount } from '@vue/test-utils'
 import { createI18n } from 'vue-i18n'
 import { describe, expect, it } from 'vitest'
-import { createPinia } from 'pinia'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import zh from '@/i18n/locales/zh'
 import Cell from '../AccountPerformanceCell.vue'
 import en from '@/i18n/locales/en'
@@ -89,29 +85,6 @@ describe('average request cache rate', () => {
   await w.setProps({ unavailable: true })
   expect(w.get('[data-metric="cache"]').text()).toContain(locale === 'zh' ? '暂不可用' : 'Unavailable')
   w.unmount()
- })
- it('keeps A dismissed, shares B dismissal across entries and reloads, and permits a future C', async () => {
-  localStorage.clear()
-  const A = NEW_FEATURE_NOTICES.accountUpstreamHTTPErrorRate
-  const B = NEW_FEATURE_NOTICES.accountAverageCache
-  const pinia = createPinia()
-  useNewFeatureNoticeStore(pinia).dismiss(41, A)
-  const open = (store = pinia) => mount(Cell, { props: { noticeUserId: 41 }, global: { plugins: [store, createI18n({legacy:false,locale:'en',messages:{en}})] } })
-  const first = open(), second = open()
-  const badge = '[data-metric="cache"] [data-testid="new-feature-badge"]'
-  expect(first.find('[data-metric="upstream"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-  expect(first.find(badge).exists()).toBe(true)
-  await first.get(badge).trigger('click')
-  expect(second.find(badge).exists()).toBe(false)
-  first.unmount(); second.unmount()
-  const reloaded = createPinia()
-  const third = open(reloaded)
-  expect(third.find(badge).exists()).toBe(false)
-  const future = mount(NewFeatureBadge, { props: { noticeId: 'future-cache-feature-c', userId: 41 }, global: { plugins: [reloaded, createI18n({legacy:false,locale:'en',messages:{en}})] } })
-  expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-  expect(useNewFeatureNoticeStore(reloaded).isDismissed(41, A)).toBe(true)
-  expect(useNewFeatureNoticeStore(reloaded).isDismissed(41, B)).toBe(true)
-  third.unmount(); future.unmount(); localStorage.clear()
  })
 })
 

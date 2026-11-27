@@ -68,7 +68,6 @@ try {
   await page.getByRole('tooltip').filter({ hasText: '最近60分钟有效请求缓存命中率的算术平均' }).waitFor()
   await capture('formula.png')
   await page.keyboard.press('Escape')
-  await page.locator('[data-metric="cache"] [data-testid="new-feature-badge"]').first().click()
   if (await page.locator('[data-metric="cache"] [data-testid="new-feature-badge"]').count()) throw Error('Notice dismissal not shared')
   await page.reload()
   await page.locator('[data-metric="cache"]').first().waitFor()

@@ -14,12 +14,12 @@
         <div class="mt-5">
           <label for="mcp-endpoint" class="input-label">{{ t('mcp.endpoint') }}</label>
           <div class="flex flex-col gap-2 sm:flex-row">
-            <input id="mcp-endpoint" :value="endpoint" :placeholder="connectionLoading ? t('mcp.connectionLoading') : ''" class="input min-w-0 flex-1 font-mono text-sm" readonly />
-            <button data-testid="copy-endpoint" class="btn btn-secondary shrink-0" type="button" :disabled="!endpoint || connectionLoading" @click="copyToClipboard(endpoint)">{{ t('mcp.copyEndpoint') }}</button>
+            <FormInput id="mcp-endpoint" :value="endpoint" :placeholder="connectionLoading ? t('mcp.connectionLoading') : ''" class="min-w-0 flex-1 font-mono text-sm" readonly />
+            <BaseButton data-testid="copy-endpoint" class="btn-secondary shrink-0" type="button" :disabled="!endpoint || connectionLoading" @click="copyToClipboard(endpoint)">{{ t('mcp.copyEndpoint') }}</BaseButton>
           </div>
           <div v-if="connectionError" class="mt-3 flex flex-wrap items-center gap-3">
             <p role="alert" class="text-sm text-red-600 dark:text-red-400">{{ connectionError }}</p>
-            <button data-testid="retry-connection" class="btn btn-secondary btn-sm" type="button" :disabled="connectionLoading" @click="loadConnection">{{ t('common.refresh') }}</button>
+            <BaseButton data-testid="retry-connection" class="btn-secondary btn-sm" type="button" :disabled="connectionLoading" @click="loadConnection">{{ t('common.refresh') }}</BaseButton>
           </div>
           <ol class="mt-5 list-decimal space-y-2 pl-5 text-sm text-gray-600 dark:text-gray-300">
             <li>{{ t('mcp.connectStep1') }}</li>
@@ -36,7 +36,7 @@
             <h2 id="mcp-grants-title" class="text-lg font-semibold text-gray-900 dark:text-white">{{ t('mcp.grantsTitle') }}</h2>
             <p class="mt-1 text-sm text-gray-500 dark:text-gray-400">{{ t('mcp.grantsDescription') }}</p>
           </div>
-          <button data-testid="refresh-grants" type="button" class="btn btn-secondary" :disabled="loading || revoking" @click="loadGrants">{{ t('common.refresh') }}</button>
+          <BaseButton data-testid="refresh-grants" type="button" class="btn-secondary" :disabled="loading || revoking" @click="loadGrants">{{ t('common.refresh') }}</BaseButton>
         </div>
         <div class="p-5 sm:p-6" :aria-busy="loading">
           <p v-if="loadError" role="alert" class="text-sm text-red-600 dark:text-red-400">{{ loadError }}</p>
@@ -58,7 +58,7 @@
                   <span>{{ grant.last_used_at ? t('mcp.lastUsedAt', { date: formatDate(grant.last_used_at) }) : t('mcp.neverUsed') }}</span>
                 </div>
               </div>
-              <button v-if="!grant.revoked_at" type="button" class="btn btn-ghost btn-sm shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20" :aria-label="`${t('mcp.revoke')} ${grant.client_name}`" @click="revokeTarget = grant">{{ t('mcp.revoke') }}</button>
+              <BaseButton v-if="!grant.revoked_at" type="button" class="btn-ghost btn-sm shrink-0 text-red-600 hover:bg-red-50 dark:text-red-400 dark:hover:bg-red-950/20" :aria-label="`${t('mcp.revoke')} ${grant.client_name}`" @click="revokeTarget = grant">{{ t('mcp.revoke') }}</BaseButton>
             </li>
           </ul>
         </div>
@@ -70,8 +70,8 @@
       <p v-if="revokeError" role="alert" class="mt-3 text-sm text-red-600 dark:text-red-400">{{ revokeError }}</p>
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button type="button" class="btn btn-secondary" :disabled="revoking" @click="closeRevoke">{{ t('common.cancel') }}</button>
-          <button data-testid="confirm-revoke" type="button" class="btn btn-danger" :disabled="revoking || loading" @click="revokeGrant">{{ revoking ? t('common.processing') : t('mcp.revoke') }}</button>
+          <BaseButton type="button" class="btn-secondary" :disabled="revoking" @click="closeRevoke">{{ t('common.cancel') }}</BaseButton>
+          <BaseButton data-testid="confirm-revoke" type="button" class="btn-danger" :disabled="revoking || loading" @click="revokeGrant">{{ revoking ? t('common.processing') : t('mcp.revoke') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -79,6 +79,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { mcpAPI, type MCPGrant } from '@/api/mcp'

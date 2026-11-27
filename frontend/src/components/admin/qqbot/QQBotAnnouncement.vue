@@ -7,19 +7,22 @@
     <QQGroupPicker v-model="groups" :groups="availableGroups" :policies="config.group_policies" :names="names" :label="t('qqbot.announcement.groups')" />
     <p v-if="!availableGroups.length" class="text-sm text-gray-500">{{ t('qqbot.announcement.noGroups') }}</p>
     <label class="block space-y-1 text-sm">{{ t('qqbot.announcement.text') }}
-      <textarea v-model="text" rows="5" class="input" data-testid="qq-announcement-text" :placeholder="t('qqbot.announcement.placeholder')" />
+      <FormTextarea v-model="text" rows="5" data-testid="qq-announcement-text" :placeholder="t('qqbot.announcement.placeholder')" />
       <span class="text-xs" :class="length > 1600 ? 'text-red-600' : 'text-gray-500'">{{ t('qqbot.announcement.length', { count: length }) }}</span>
     </label>
-    <label class="flex items-center gap-2 text-sm"><input v-model="mentionAll" type="checkbox" data-testid="qq-announcement-mention-all" />{{ t('qqbot.announcement.mentionAll') }}</label>
+    <label class="flex items-center gap-2 text-sm"><FormInput v-model="mentionAll" type="checkbox" data-testid="qq-announcement-mention-all" />{{ t('qqbot.announcement.mentionAll') }}</label>
     <p class="text-xs text-gray-500">{{ t('qqbot.announcement.mentionHelp') }}</p>
     <p class="text-xs text-gray-500">{{ t('qqbot.announcement.permission') }}</p>
-    <button type="button" class="btn btn-primary" data-testid="qq-announcement-send" :disabled="!canSend" @click="send">{{ t(busy ? 'qqbot.announcement.sending' : 'qqbot.announcement.send') }}</button>
+    <BaseButton type="button" class="btn-primary" data-testid="qq-announcement-send" :disabled="!canSend" @click="send">{{ t(busy ? 'qqbot.announcement.sending' : 'qqbot.announcement.send') }}</BaseButton>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="notice" role="status" class="text-sm text-green-700 dark:text-green-300">{{ notice }}</p>
     <p v-if="notice" class="text-xs text-gray-500">{{ t('qqbot.announcement.recordsHelp') }}</p>
   </fieldset>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQAnnouncementRequest, type QQBotConfig } from '@/api/qqbot'

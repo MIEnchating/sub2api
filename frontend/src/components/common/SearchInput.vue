@@ -3,16 +3,17 @@
     <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-3">
       <Icon name="search" size="md" class="text-gray-400" />
     </div>
-    <input
+    <FormInput
       v-model="searchValue"
       type="text"
-      class="input pl-10"
+      class="pl-10"
       :placeholder="placeholder"
     />
   </div>
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { computed } from 'vue'
 import { useDebounceFn } from '@vueuse/core'
 import Icon from '@/components/icons/Icon.vue'

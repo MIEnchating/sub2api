@@ -17,6 +17,15 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+type balanceGroupRepository struct {
+	service.GroupRepository
+	groups map[int64]*service.Group
+}
+
+func (r balanceGroupRepository) GetByIDLite(_ context.Context, id int64) (*service.Group, error) {
+	return r.groups[id], nil
+}
+
 type balanceGroupRouter struct {
 	available bool
 	calls     int
@@ -68,7 +77,7 @@ func TestMultiGroupInsufficientBalanceResponse(t *testing.T) {
 				}
 			}
 			key := &service.APIKey{ID: 7, UserID: 8, Status: service.StatusActive, GroupID: &id, GroupIDs: []int64{1, 2}, Group: groups[1], User: &service.User{ID: 8, Status: service.StatusActive, Balance: tc.balance}}
-			svc := service.NewAPIKeyService(nil, nil, creditFallbackGroups{groups: groups}, nil, nil, nil, cfg)
+			svc := service.NewAPIKeyService(nil, nil, balanceGroupRepository{groups: groups}, nil, nil, nil, cfg)
 			probe := &balanceGroupRouter{available: tc.available}
 			svc.SetGroupRouter(probe)
 			r := gin.New()

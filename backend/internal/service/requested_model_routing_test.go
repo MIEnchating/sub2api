@@ -9,13 +9,12 @@ import (
 
 func TestRetiredPassiveProtectionCannotRestrictAccount(t *testing.T) {
 	account := activeRoutingTestAccount(1, 43, 7)
-	account.ProxyIDs = []int64{11, 22}
 	account.Extra["passive_quality"] = []any{
 		map[string]any{"scope": "account", "phase": "paused"},
 		map[string]any{"scope": "model", "model": "public-model", "phase": "limited", "concurrency_limit": float64(1), "priority_penalty": float64(100)},
 	}
 	require.True(t, account.IsSchedulable(), "legacy metadata cannot retain a removed passive hold")
-	require.Equal(t, 16, account.TotalConcurrency())
+	require.Equal(t, account.Concurrency, account.TotalConcurrency())
 	require.False(t, shouldClearStickySessionWithContext(context.Background(), &account, "public-model"))
 	require.False(t, activeIntelligenceHold(context.Background(), &account, &account.GroupIDs[0], "public-model"))
 	require.Equal(t, 7, account.Priority)

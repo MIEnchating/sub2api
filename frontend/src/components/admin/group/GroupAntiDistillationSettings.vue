@@ -16,9 +16,9 @@
     <p v-if="loading" class="mt-3 text-sm text-gray-500" role="status">{{ t('common.loading') }}</p>
     <div v-if="loadFailed" class="mt-3">
       <p class="text-sm text-red-600 dark:text-red-400" role="alert">{{ t('admin.groups.antiDistillation.loadFailed') }}</p>
-      <button type="button" class="btn btn-secondary mt-2" data-testid="anti-distillation-retry" @click="load">
+      <BaseButton type="button" class="btn-secondary mt-2" data-testid="anti-distillation-retry" @click="load">
         {{ t('admin.groups.antiDistillation.retry') }}
-      </button>
+      </BaseButton>
     </div>
 
     <fieldset :disabled="loading || saving || !loaded" class="mt-4 space-y-3">
@@ -36,13 +36,12 @@
       </div>
       <div v-if="enabled">
         <label :for="`${fieldId}-minutes`" class="input-label">{{ t('admin.groups.antiDistillation.pauseMinutes') }}</label>
-        <input
+        <FormInput
           :id="`${fieldId}-minutes`"
           v-model="pauseMinutes"
           type="text"
           inputmode="numeric"
           :disabled="loading || saving || !loaded"
-          class="input"
           :aria-invalid="!validMinutes"
           :aria-describedby="`${fieldId}-minutes-hint`"
           data-testid="anti-distillation-minutes"
@@ -58,19 +57,21 @@
     <p class="mt-3 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.antiDistillation.scopeHint') }}</p>
     <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.antiDistillation.saveHint') }}</p>
     <p v-if="saveFailed" class="mt-2 text-sm text-red-600 dark:text-red-400" role="alert">{{ t('admin.groups.antiDistillation.saveFailed') }}</p>
-    <button
+    <BaseButton
       type="button"
-      class="btn btn-secondary mt-3"
+      class="btn-secondary mt-3"
       :disabled="loading || saving || !loaded || (enabled && !validMinutes)"
       data-testid="anti-distillation-save"
       @click="save"
     >
       {{ saving ? t('common.saving') : t('admin.groups.antiDistillation.save') }}
-    </button>
+    </BaseButton>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

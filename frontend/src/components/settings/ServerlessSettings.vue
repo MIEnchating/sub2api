@@ -9,20 +9,20 @@
       <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
       <p v-if="notice" role="status" class="text-sm text-green-600">{{ notice }}</p>
       <div class="flex flex-wrap items-center gap-4">
-        <label class="flex items-center gap-2"><input v-model="draft.enabled" type="checkbox" :disabled="busy || !loaded" data-testid="serverless-enabled" />{{ text('开启地区分流', 'Enable region routing') }}</label>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh(false)">{{ text('刷新状态', 'Refresh status') }}</button>
-        <button type="button" class="btn btn-primary btn-sm" :disabled="busy || !loaded" @click="save">{{ text('保存 Serverless 配置', 'Save Serverless configuration') }}</button>
+        <label class="flex items-center gap-2"><FormInput v-model="draft.enabled" type="checkbox" :disabled="busy || !loaded" data-testid="serverless-enabled" />{{ text('开启地区分流', 'Enable region routing') }}</label>
+        <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refresh(false)">{{ text('刷新状态', 'Refresh status') }}</BaseButton>
+        <BaseButton type="button" class="btn-primary btn-sm" :disabled="busy || !loaded" @click="save">{{ text('保存 Serverless 配置', 'Save Serverless configuration') }}</BaseButton>
       </div>
       <div class="space-y-3 rounded-lg border border-gray-200 p-3 text-sm dark:border-dark-700">
         <label class="flex flex-wrap items-center gap-3">{{ text('绑定范围', 'Binding scope') }}
           <NewFeatureBadge v-if="userId != null" :notice-id="NEW_FEATURE_NOTICES.serverlessIPRouting" :user-id="userId" />
-          <select v-model="draft.affinity_scope" class="input w-auto" :disabled="busy || !loaded" data-testid="serverless-affinity-scope">
+          <FormSelect v-model="draft.affinity_scope" class="w-auto" :disabled="busy || !loaded" data-testid="serverless-affinity-scope">
             <option value="api_key">{{ text('API Key（默认）', 'API Key (default)') }}</option>
             <option value="api_key_ip">{{ text('API Key ＋ 客户端 IP', 'API Key + client IP') }}</option>
-          </select>
+          </FormSelect>
         </label>
         <p class="text-xs text-gray-500">{{ text('同一 Key 需要按使用者地区分流时，选择 Key ＋ IP。每个绑定最后使用后保留 24 小时。切换范围会使用独立绑定；IP 改变可能更换 Pod，不能用于依赖节点内状态的会话。', 'Choose Key + IP when one key is used from multiple regions. Each binding lasts 24 hours after last use. Changing scope uses separate bindings; changing IP may select another Pod, so do not use this for sessions with node-local state.') }}</p>
-        <label class="flex items-center gap-2"><input v-model="draft.fallback_to_primary" type="checkbox" :disabled="busy || !loaded" data-testid="serverless-primary-fallback" />{{ text('已绑定 Pod 不可用时回主站', 'Use primary when a bound Pod is unavailable') }}</label>
+        <label class="flex items-center gap-2"><FormInput v-model="draft.fallback_to_primary" type="checkbox" :disabled="busy || !loaded" data-testid="serverless-primary-fallback" />{{ text('已绑定 Pod 不可用时回主站', 'Use primary when a bound Pod is unavailable') }}</label>
         <p class="text-xs text-gray-500">{{ text('默认关闭，失联时保留绑定并返回错误。开启后仅在转发前探测失败或实例失联时将绑定改为主站；不会重试已发送请求或已开始的流。回主站后保持绑定，不自动切回。', 'Off by default: preserve the binding and return an error. When enabled, move the binding to the primary only if the instance is missing or its probe fails before forwarding. Sent requests and started streams are never retried. A fallback binding stays on the primary without automatic failback.') }}</p>
       </div>
       <p class="rounded-lg bg-amber-50 p-3 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-300">{{ text('停用分流或 Pod 只阻止新绑定；已有绑定继续使用原 Pod。首次启用或更改绑定范围前，先结束存量 BPS/WS 会话。', 'Disabling routing or a Pod stops new bindings; existing bindings remain. Finish existing BPS/WS conversations before first enabling routing or changing binding scope.') }}</p>
@@ -38,39 +38,39 @@
           </div>
           <p class="mt-1 break-all text-xs text-gray-500">{{ pod.endpoint }} · {{ new Date(pod.at * 1000).toLocaleString() }}</p>
           <div class="mt-2 flex flex-wrap items-center gap-2">
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || approved(pod)" @click="approve(pod)">{{ approved(pod) ? text('地址已确认', 'Endpoint approved') : text('确认此地址', 'Approve endpoint') }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !approved(pod)" @click="probe(pod.id)">{{ text('检查连接', 'Check connection') }}</button>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || approved(pod)" @click="approve(pod)">{{ approved(pod) ? text('地址已确认', 'Endpoint approved') : text('确认此地址', 'Approve endpoint') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !approved(pod)" @click="probe(pod.id)">{{ text('检查连接', 'Check connection') }}</BaseButton>
             <span v-if="probes[pod.id] !== undefined" class="text-xs">{{ probes[pod.id] ? text('检查时可达', 'Reachable at last check') : text('检查未通过', 'Check failed') }}</span>
           </div>
         </div>
         <div v-for="policy in draft.pods" :key="policy.id" class="flex flex-wrap items-center gap-3 text-sm">
-          <label class="flex items-center gap-2"><input v-model="policy.enabled" type="checkbox" :disabled="busy" />{{ policy.id }} · {{ text('接收新绑定', 'Accept new bindings') }}</label>
+          <label class="flex items-center gap-2"><FormInput v-model="policy.enabled" type="checkbox" :disabled="busy" />{{ policy.id }} · {{ text('接收新绑定', 'Accept new bindings') }}</label>
           <code class="break-all text-xs text-gray-500">{{ policy.endpoint }}</code>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="removePod(policy.id)">{{ text('移除规则引用', 'Remove policy') }}</button>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="removePod(policy.id)">{{ text('移除规则引用', 'Remove policy') }}</BaseButton>
         </div>
       </section>
 
       <section class="space-y-3">
         <div class="flex items-center justify-between"><h3 class="font-medium">{{ text('地区 → Pod 池', 'Region → Pod pool') }}</h3>
-          <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !loaded" @click="addRegion">{{ text('添加地区', 'Add region') }}</button>
+          <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !loaded" @click="addRegion">{{ text('添加地区', 'Add region') }}</BaseButton>
         </div>
         <div v-for="(region, index) in draft.regions" :key="index" class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-700">
           <div class="flex flex-wrap items-center gap-3">
-            <label class="text-sm">{{ text('国家代码', 'Country code') }}<input v-model="region.country" maxlength="2" class="input ml-2 w-24" placeholder="US" :disabled="busy" /></label>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="draft.regions.splice(index, 1)">{{ text('删除地区', 'Remove region') }}</button>
+            <label class="text-sm">{{ text('国家代码', 'Country code') }}<FormInput v-model="region.country" maxlength="2" class="ml-2 w-24" placeholder="US" :disabled="busy" /></label>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="draft.regions.splice(index, 1)">{{ text('删除地区', 'Remove region') }}</BaseButton>
           </div>
           <div class="flex flex-wrap gap-4">
-            <label v-for="pod in draft.pods" :key="pod.id" class="flex items-center gap-2 text-sm"><input v-model="region.pod_ids" :value="pod.id" type="checkbox" :disabled="busy" />{{ pod.id }}</label>
+            <label v-for="pod in draft.pods" :key="pod.id" class="flex items-center gap-2 text-sm"><FormInput v-model="region.pod_ids" :value="pod.id" type="checkbox" :disabled="busy" />{{ pod.id }}</label>
           </div>
         </div>
       </section>
 
       <section>
         <h3 class="mb-2 font-medium">{{ text('今日分流（UTC）', 'Routing today (UTC)') }}</h3>
-        <div class="overflow-x-auto"><table class="w-full text-left text-sm">
+        <div class="overflow-x-auto"><BaseTable class="w-full text-left text-sm">
           <thead><tr><th>Pod</th><th>{{ text('地区', 'Region') }}</th><th>{{ text('原因', 'Reason') }}</th><th>{{ text('请求', 'Requests') }}</th><th>{{ text('HTTP 错误', 'HTTP errors') }}</th></tr></thead>
           <tbody><tr v-for="row in statRows" :key="row.key"><td>{{ row.pod }}</td><td>{{ row.country }}</td><td>{{ reasonLabel(row.reason) }}</td><td>{{ row.requests }}</td><td>{{ row.errors }}</td></tr></tbody>
-        </table></div>
+        </BaseTable></div>
         <p class="mt-2 text-xs text-gray-500">{{ text('统计为入口完成的 HTTP/WS 请求；流已开始后的业务错误不一定反映在 HTTP 状态中。', 'Counts cover completed ingress HTTP/WS requests. Errors after streaming starts may not appear in the HTTP status.') }}</p>
       </section>
       <details class="text-sm">
@@ -87,6 +87,10 @@ RUNTIME_SERVERLESS_ENDPOINT=https://pod.example.com</pre>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { apiClient } from '@/api/client'

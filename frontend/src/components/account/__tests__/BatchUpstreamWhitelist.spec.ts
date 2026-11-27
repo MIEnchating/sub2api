@@ -2,8 +2,6 @@ import { afterEach, beforeEach, describe, expect, it } from 'vitest'
 import { flushPromises, mount } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import type { AxiosAdapter } from 'axios'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import BulkEditAccountModal from '../BulkEditAccountModal.vue'
 import { apiClient } from '@/api/client'
 import { useAuthStore } from '@/stores/auth'
@@ -181,24 +179,4 @@ describe('batch upstream whitelist', () => {
     expect(calls).toEqual([])
   })
 
-  it('announces B independently and remembers dismissal when the same admin returns', async () => {
-    const old = NEW_FEATURE_NOTICES.accountAutoRefreshUpstreamModels
-    const id = 'account-batch-upstream-whitelist-v1'
-    const key = 'sub2api:new-feature-notices:v1:17'
-    localStorage.setItem(key, JSON.stringify([old]))
-    const w = fixture([41], async n => applied(n))
-    const badge = w.findComponent(NewFeatureBadge)
-    expect(badge.exists(), 'batch sync needs its own dismissible announcement').toBe(true)
-    expect(badge.props('noticeId')).toBe(id)
-    await badge.get('button').trigger('click')
-    expect(JSON.parse(localStorage.getItem(key)!)).toEqual([old,id])
-    const reopened = fixture([41], async n => applied(n))
-    expect(reopened.getComponent(NewFeatureBadge).find('button').exists()).toBe(false)
-    const pinia = createPinia()
-    for (const [noticeId,visible] of [[old,false],[id,false],['future-C',true]] as const) {
-      const b = mount(NewFeatureBadge,{props:{noticeId,userId:17},global:{plugins:[pinia,i18n]}})
-      expect(b.find('button').exists()).toBe(visible)
-      b.unmount()
-    }
-  })
 })

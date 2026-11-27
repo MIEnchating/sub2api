@@ -1,7 +1,5 @@
 import { createPinia } from 'pinia'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import type { Account, NewAPIUpstreamConfig, NewAPIUpstreamPreview } from '@/types'
@@ -134,29 +132,6 @@ describe('New API shared authorization dialog', () => {
     await flushPromises()
     expect(wrapper.find('[data-testid="new-api-cost-preview-7"]').exists()).toBe(false)
     expect(wrapper.text()).toContain('admin.accounts.upstreamBilling.newAPI.costUnavailable')
-  })
-
-  it('announces cost conversion independently and shares persistent dismissals', async () => {
-    localStorage.clear()
-    const pinia = createPinia()
-    const store = useNewFeatureNoticeStore(pinia)
-    store.dismiss(42, 'previous-feature')
-    const wrapper = await open({}, pinia, true)
-    const badge = wrapper.getComponent(NewFeatureBadge)
-    expect(badge.props('noticeId')).toBe(NEW_FEATURE_NOTICES.newAPICostConversion)
-    expect(badge.find('button').exists()).toBe(true)
-    const sibling = mount(NewFeatureBadge, { props: { userId: 42, noticeId: NEW_FEATURE_NOTICES.newAPICostConversion }, global: { plugins: [pinia] } })
-    wrappers.push(sibling)
-    await sibling.get('button').trigger('click')
-    expect(badge.find('button').exists()).toBe(false)
-    expect(sibling.find('button').exists()).toBe(false)
-    const reloaded = await open({}, createPinia(), true)
-    expect(reloaded.getComponent(NewFeatureBadge).find('button').exists()).toBe(false)
-    const persisted = useNewFeatureNoticeStore(createPinia())
-    expect(persisted.isDismissed(42, 'previous-feature')).toBe(true)
-    expect(persisted.isDismissed(42, 'future-feature')).toBe(false)
-    expect(persisted.isDismissed(43, NEW_FEATURE_NOTICES.newAPICostConversion)).toBe(false)
-    localStorage.clear()
   })
 
   it('requires a non-whitespace access token for a new upstream user', async () => {

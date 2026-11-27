@@ -57,6 +57,7 @@ type AdminHandlers struct {
 
 // Handlers contains all HTTP handlers
 type Handlers struct {
+	KeyPouchImport   *KeyPouchImportHandler
 	GPTDirect        *GPTDirectHandler
 	QQBot            *QQBotHandler
 	Lottery          *LotteryHandler

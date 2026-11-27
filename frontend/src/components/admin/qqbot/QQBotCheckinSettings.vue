@@ -5,7 +5,7 @@
     <p v-if="notice" role="status" class="rounded-lg bg-green-50 p-4 text-green-700 dark:bg-green-950">{{ notice }}</p>
     <p v-if="dirty" class="text-sm text-amber-700">{{ t('qqbot.workspace.unsaved') }}</p>
     <form v-if="form" class="card space-y-5 p-6" @submit.prevent="save">
-      <label class="flex items-center gap-2"><input v-model="form.enabled" type="checkbox" />{{ t('qqbot.enableCheckin') }}</label>
+      <label class="flex items-center gap-2"><FormInput v-model="form.enabled" type="checkbox" />{{ t('qqbot.enableCheckin') }}</label>
       <QQBotRewardItems :model-value="form" prefix="checkin" :allowed-types="['balance', 'coupon']" amount-field="min_amount" range amount-test-id="min-amount" max-amount-test-id="max-amount" @remove="resetDistribution">
         <template #balance-extra>
           <QQBotCheckinDistribution v-if="form.reward_distribution" v-model="form.reward_distribution" :disabled="busy" />
@@ -14,33 +14,33 @@
       <div class="space-y-3 rounded-lg border p-4 dark:border-dark-700">
         <h2 class="font-medium">{{ t('qqbot.rechargeEligibility') }}</h2>
         <p class="text-sm text-gray-500">{{ t('qqbot.rechargeEligibilityHelp') }}</p>
-        <label class="block space-y-1">{{ t('qqbot.rechargeWindowDays') }}<input v-model.number="form.recharge_window_days" data-testid="recharge-window-days" type="number" min="1" max="3650" step="1" required class="input" /></label>
+        <label class="block space-y-1">{{ t('qqbot.rechargeWindowDays') }}<FormInput v-model.number="form.recharge_window_days" data-testid="recharge-window-days" type="number" min="1" max="3650" step="1" required /></label>
         <div class="grid gap-4 sm:grid-cols-2">
-          <label class="space-y-1">{{ t('qqbot.minimumLifetimeRecharge') }}<input v-model.number="form.min_recharge_total" data-testid="min-recharge-total" type="number" min="0" max="1000000000" step="0.01" required class="input" /></label>
-          <label class="space-y-1">{{ t('qqbot.minimumRecentRecharge', { days: form.recharge_window_days }) }}<input v-model.number="form.min_recharge_30d" data-testid="min-recharge-30d" type="number" min="0" max="1000000000" step="0.01" required class="input" /></label>
+          <label class="space-y-1">{{ t('qqbot.minimumLifetimeRecharge') }}<FormInput v-model.number="form.min_recharge_total" data-testid="min-recharge-total" type="number" min="0" max="1000000000" step="0.01" required /></label>
+          <label class="space-y-1">{{ t('qqbot.minimumRecentRecharge', { days: form.recharge_window_days }) }}<FormInput v-model.number="form.min_recharge_30d" data-testid="min-recharge-30d" type="number" min="0" max="1000000000" step="0.01" required /></label>
         </div>
       </div>
       <fieldset class="min-w-0 space-y-4 rounded-xl border border-primary-200 p-4 dark:border-primary-900" :disabled="busy" data-testid="checkin-milestones">
         <legend class="px-1 font-semibold">{{ t('qqbot.milestones.title') }}</legend>
         <p class="text-sm text-gray-500">{{ t('qqbot.milestones.help') }}</p>
         <div class="flex flex-wrap gap-2">
-          <button v-for="days in [7, 30]" :key="days" type="button" class="btn btn-secondary" :data-testid="'milestone-preset-' + days" :disabled="form.milestones.length >= maxMilestones" @click="addMilestone(days)">{{ t('qqbot.milestones.preset', { days }) }}</button>
+          <BaseButton v-for="days in [7, 30]" :key="days" type="button" class="btn-secondary" :data-testid="'milestone-preset-' + days" :disabled="form.milestones.length >= maxMilestones" @click="addMilestone(days)">{{ t('qqbot.milestones.preset', { days }) }}</BaseButton>
         </div>
         <article v-for="(milestone, index) in form.milestones" :key="milestone.id" class="space-y-4 rounded-lg border bg-white p-4 dark:border-dark-700 dark:bg-dark-800" data-testid="checkin-milestone">
           <div class="flex items-center justify-between gap-3">
-            <label class="flex items-center gap-2 text-sm"><input v-model="milestone.enabled" type="checkbox" :data-testid="'milestone-enabled-' + index" />{{ t('qqbot.milestones.enabled') }}</label>
+            <label class="flex items-center gap-2 text-sm"><FormInput v-model="milestone.enabled" type="checkbox" :data-testid="'milestone-enabled-' + index" />{{ t('qqbot.milestones.enabled') }}</label>
             <button type="button" class="text-sm text-red-600" :data-testid="'milestone-remove-' + index" :aria-label="t('qqbot.milestones.remove', { number: index + 1 })" @click="form.milestones.splice(index, 1)">{{ t('common.delete') }}</button>
           </div>
           <div class="grid gap-4 sm:grid-cols-3">
-            <label class="space-y-1">{{ t('qqbot.milestones.name') }}<input v-model="milestone.name" :data-testid="'milestone-name-' + index" maxlength="40" required class="input" /></label>
-            <label class="space-y-1">{{ t('qqbot.milestones.kind') }}<select v-model="milestone.kind" class="input" :disabled="persistedMilestoneIDs.has(milestone.id) && milestone.repeat" @change="milestone.repeat = false" :data-testid="'milestone-kind-' + index"><option value="checkin_total">{{ t('qqbot.growth.kinds.checkin_total') }}</option><option value="checkin_streak">{{ t('qqbot.growth.kinds.checkin_streak') }}</option></select></label>
-            <label class="space-y-1">{{ t('qqbot.milestones.days') }}<input v-model.number="milestone.days" :data-testid="'milestone-days-' + index" type="number" min="1" max="3650" step="1" required class="input" /></label>
+            <label class="space-y-1">{{ t('qqbot.milestones.name') }}<FormInput v-model="milestone.name" :data-testid="'milestone-name-' + index" maxlength="40" required /></label>
+            <label class="space-y-1">{{ t('qqbot.milestones.kind') }}<FormSelect v-model="milestone.kind" :disabled="persistedMilestoneIDs.has(milestone.id) && milestone.repeat" @change="milestone.repeat = false" :data-testid="'milestone-kind-' + index"><option value="checkin_total">{{ t('qqbot.growth.kinds.checkin_total') }}</option><option value="checkin_streak">{{ t('qqbot.growth.kinds.checkin_streak') }}</option></FormSelect></label>
+            <label class="space-y-1">{{ t('qqbot.milestones.days') }}<FormInput v-model.number="milestone.days" :data-testid="'milestone-days-' + index" type="number" min="1" max="3650" step="1" required /></label>
           </div>
-          <label v-if="milestone.kind === 'checkin_total'" class="flex items-center gap-2 text-sm"><input v-model="milestone.repeat" type="checkbox" :disabled="persistedMilestoneIDs.has(milestone.id)" :title="persistedMilestoneIDs.has(milestone.id) ? t('qqbot.milestones.repeatLocked') : undefined" :data-testid="'milestone-repeat-' + index" />{{ t('qqbot.milestones.repeat') }}</label>
+          <label v-if="milestone.kind === 'checkin_total'" class="flex items-center gap-2 text-sm"><FormInput v-model="milestone.repeat" type="checkbox" :disabled="persistedMilestoneIDs.has(milestone.id)" :title="persistedMilestoneIDs.has(milestone.id) ? t('qqbot.milestones.repeatLocked') : undefined" :data-testid="'milestone-repeat-' + index" />{{ t('qqbot.milestones.repeat') }}</label>
           <QQBotGrowthRewardFields v-model="milestone.reward" prefix="milestone" :index="index" :allowed-types="milestone.reward.type === 'balance' || milestone.reward.type === 'chances' ? ['chances', 'balance', 'coupon'] : undefined" />
         </article>
         <p v-if="!form.milestones.length" class="rounded-lg border border-dashed p-4 text-sm text-gray-500 dark:border-dark-700">{{ t('qqbot.milestones.empty') }}</p>
-        <button type="button" class="btn btn-secondary" data-testid="add-checkin-milestone" :disabled="form.milestones.length >= maxMilestones" @click="addMilestone(7)">{{ t('qqbot.milestones.add') }}</button>
+        <BaseButton type="button" class="btn-secondary" data-testid="add-checkin-milestone" :disabled="form.milestones.length >= maxMilestones" @click="addMilestone(7)">{{ t('qqbot.milestones.add') }}</BaseButton>
         <p class="text-sm text-gray-500">{{ t('qqbot.milestones.identityHelp') }}</p>
         <p class="text-xs text-gray-500">{{ t('qqbot.milestones.repeatLocked') }}</p>
       </fieldset>
@@ -48,18 +48,21 @@
         <legend class="font-medium">{{ t('qqbot.growth.streakTitle') }}</legend>
         <p class="text-sm text-gray-500">{{ t('qqbot.growth.streakHelp') }}</p>
         <div class="grid gap-4 sm:grid-cols-2">
-          <label class="block space-y-1">{{ t('qqbot.growth.streakDays') }}<input v-model.number="form.streak_days" data-testid="streak-days" type="number" min="1" max="3650" step="1" required class="input" /></label>
+          <label class="block space-y-1">{{ t('qqbot.growth.streakDays') }}<FormInput v-model.number="form.streak_days" data-testid="streak-days" type="number" min="1" max="3650" step="1" required /></label>
         </div>
         <QQBotGrowthRewardFields v-model="form.streak_reward" prefix="streak" />
       </fieldset>
       <p class="rounded-lg bg-gray-50 p-4 text-sm dark:bg-dark-800">{{ t('qqbot.checkinRangeHelp') }}</p>
       <p class="text-sm text-gray-500">{{ t('qqbot.checkinCommand') }}</p>
-      <button type="submit" class="btn btn-primary" :disabled="busy">{{ t('common.save') }}</button>
+      <BaseButton type="submit" class="btn-primary" :disabled="busy">{{ t('common.save') }}</BaseButton>
     </form>
     <p v-else-if="!error">{{ t('common.loading') }}</p>
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import QQBotCheckinDistribution from './QQBotCheckinDistribution.vue'
 import QQBotRewardItems from './QQBotRewardItems.vue'
 import { useQQDraft } from './useQQDraft'

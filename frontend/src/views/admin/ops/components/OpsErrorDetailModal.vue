@@ -267,19 +267,20 @@
       </div>
     </div>
     <template v-if="backToList" #footer>
-      <button
+      <BaseButton
         type="button"
-        class="btn btn-secondary"
+        class="btn-secondary"
         data-testid="error-detail-back-to-list"
         @click="goBack"
       >
         {{ t('admin.ops.errorDetail.backToList') }}
-      </button>
+      </BaseButton>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { balanceErrorSource } from '../utils/balanceError'
 import { computed, ref, watch, inject } from 'vue'
 import { observerUsageAPI } from '@/api/observerUsage'

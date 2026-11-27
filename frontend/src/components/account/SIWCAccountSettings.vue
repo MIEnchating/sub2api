@@ -1,19 +1,19 @@
 <template>
   <section class="space-y-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600" data-testid="siwc-settings">
     <label class="input-label" :for="`siwc-protocol-${accountId}`">{{ t('siwc.protocol') }}</label>
-    <select :id="`siwc-protocol-${accountId}`" class="input" :value="enabled ? 'siwc' : 'codex'"
+    <FormSelect :id="`siwc-protocol-${accountId}`" :value="enabled ? 'siwc' : 'codex'"
       :disabled="busy" data-testid="siwc-protocol"
       @change="emit('update:enabled', ($event.target as HTMLSelectElement).value === 'siwc')">
       <option value="codex">{{ t('siwc.codex') }}</option>
       <option value="siwc" :disabled="!loaded || !status?.bound">{{ t('siwc.siwc') }}</option>
-    </select>
+    </FormSelect>
     <p class="input-hint">{{ t('siwc.protocolHint') }}</p>
     <p class="input-hint">{{ t('siwc.proxyHint') }}</p>
     <p role="status" class="text-sm" data-testid="siwc-status">{{ t(status?.bound ? 'siwc.bound' : 'siwc.unbound') }}</p>
     <div class="flex flex-wrap gap-2">
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || activeTask" data-testid="siwc-auto" @click="automatic">{{ t('siwc.automatic') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || activeTask" data-testid="siwc-browser" @click="browser">{{ t('siwc.browser') }}</button>
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy" @click="refresh">{{ t('siwc.refresh') }}</button>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || activeTask" data-testid="siwc-auto" @click="automatic">{{ t('siwc.automatic') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || activeTask" data-testid="siwc-browser" @click="browser">{{ t('siwc.browser') }}</BaseButton>
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy" @click="refresh">{{ t('siwc.refresh') }}</BaseButton>
     </div>
     <p class="input-hint">{{ t('siwc.loginHint') }}</p>
     <p v-if="activeTask" class="text-sm" data-testid="siwc-task">{{ t('siwc.running') }}</p>
@@ -21,22 +21,26 @@
     <div v-if="authorization" class="space-y-2" data-testid="siwc-browser-flow">
       <div class="flex flex-wrap gap-2">
         <a class="btn btn-primary btn-sm" :href="authorization.auth_url" target="_blank" rel="noopener noreferrer" data-testid="siwc-open">{{ t('siwc.continue') }}</a>
-        <button type="button" class="btn btn-secondary btn-sm" data-testid="siwc-copy" @click="copyAuthorization">{{ t('siwc.copyLink') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" data-testid="siwc-copy" @click="copyAuthorization">{{ t('siwc.copyLink') }}</BaseButton>
       </div>
       <label :for="`siwc-auth-url-${accountId}`" class="input-label">{{ t('siwc.authLink') }}</label>
-      <textarea :id="`siwc-auth-url-${accountId}`" class="input w-full break-all font-mono text-xs" :value="authorization.auth_url"
+      <FormTextarea :id="`siwc-auth-url-${accountId}`" class="w-full break-all font-mono text-xs" :value="authorization.auth_url"
         readonly rows="4" spellcheck="false" data-testid="siwc-auth-url" @focus="($event.target as HTMLTextAreaElement).select()" />
       <p class="input-hint">{{ t('siwc.authLinkHint') }}</p>
       <p class="input-hint">{{ t('siwc.callbackHint') }}</p>
       <label :for="`siwc-callback-${accountId}`" class="input-label">{{ t('siwc.callback') }}</label>
-      <input :id="`siwc-callback-${accountId}`" v-model="callback" class="input" autocomplete="off" spellcheck="false" data-testid="siwc-callback" />
-      <button type="button" class="btn btn-secondary btn-sm" :disabled="busy || !callback.trim()" data-testid="siwc-complete" @click="complete">{{ t('siwc.complete') }}</button>
+      <FormInput :id="`siwc-callback-${accountId}`" v-model="callback" autocomplete="off" spellcheck="false" data-testid="siwc-callback" />
+      <BaseButton type="button" class="btn-secondary btn-sm" :disabled="busy || !callback.trim()" data-testid="siwc-complete" @click="complete">{{ t('siwc.complete') }}</BaseButton>
     </div>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClipboard } from '@/composables/useClipboard'

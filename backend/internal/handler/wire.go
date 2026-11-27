@@ -66,11 +66,9 @@ func ProvideAdminHandlers(
 	openAIGateway *service.OpenAIGatewayService,
 	claudeResetCredits *service.ClaudeResetCreditService,
 	codexHarvest *service.CodexHarvestService,
-	autoCredit service.AutoCreditRepository,
 ) *AdminHandlers {
 	accountHandler.SetCodexHarvestService(codexHarvest)
 	accountHandler.SetOpenAIGatewayService(openAIGateway)
-	userHandler.SetAutoCredit(autoCredit)
 	accountHandler.SetUpstreamBillingProbeService(upstreamBillingProbe)
 	accountHandler.SetOllamaCloudUsageService(ollamaCloudUsage)
 	accountHandler.SetCodexTicketSettings(settingService)
@@ -254,12 +252,14 @@ func ProvideHandlers(
 	modelPlazaHandler *ModelPlazaHandler,
 	asyncImageHandler *AsyncImageHandler,
 	batchImageHandler *BatchImageHandler,
+	keyPouchImportHandler *KeyPouchImportHandler,
 
 	_ *service.IdempotencyCoordinator,
 	_ *service.IdempotencyCleanupService,
 	_ *service.OpenAIQuotaAutoResetService,
 ) *Handlers {
 	return &Handlers{
+		KeyPouchImport:   keyPouchImportHandler,
 		GPTDirect:        gptDirectHandler,
 		QQBot:            qqBotHandler,
 		Lottery:          lotteryHandler,
@@ -310,6 +310,7 @@ func ProvideUserHandler(
 
 // ProviderSet is the Wire provider set for all handlers
 var ProviderSet = wire.NewSet(
+	NewKeyPouchImportHandler,
 	NewQQBotHandler,
 	// Top-level handlers
 	NewLotteryHandler,

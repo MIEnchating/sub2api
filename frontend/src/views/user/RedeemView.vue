@@ -33,14 +33,14 @@
                 <div class="pointer-events-none absolute inset-y-0 left-0 flex items-center pl-4">
                   <Icon name="gift" size="md" class="text-gray-400 dark:text-dark-500" />
                 </div>
-                <input
+                <FormInput
                   id="code"
                   v-model="redeemCode"
                   type="text"
                   required
                   :placeholder="t('redeem.redeemCodePlaceholder')"
                   :disabled="submitting"
-                  class="input py-3 pl-12 text-lg"
+                  class="py-3 pl-12 text-lg"
                 />
               </div>
               <p class="input-hint">
@@ -48,10 +48,10 @@
               </p>
             </div>
 
-            <button
+            <BaseButton
               type="submit"
               :disabled="!redeemCode || submitting"
-              class="btn btn-primary w-full py-3"
+              class="btn-primary w-full py-3"
             >
               <svg
                 v-if="submitting"
@@ -75,7 +75,7 @@
               </svg>
               <Icon v-else name="checkCircle" size="md" class="mr-2" />
               {{ submitting ? t('redeem.redeeming') : t('redeem.redeemButton') }}
-            </button>
+            </BaseButton>
           </form>
         </div>
       </div>
@@ -328,39 +328,32 @@
           </div>
 
           <!-- Empty State -->
-          <div v-else class="empty-state py-8">
-            <div
-              class="mb-4 flex h-16 w-16 items-center justify-center rounded-2xl bg-gray-100 dark:bg-dark-800"
-            >
-              <Icon name="clock" size="xl" class="text-gray-400 dark:text-dark-500" />
-            </div>
-            <p class="text-sm text-gray-500 dark:text-dark-400">
-              {{ t('redeem.historyWillAppear') }}
-            </p>
-          </div>
+          <EmptyState v-else class="py-8" :title="t('redeem.historyWillAppear')">
+            <template #icon><Icon name="clock" size="xl" class="empty-state-icon" /></template>
+          </EmptyState>
           <div class="mt-4 flex flex-wrap items-center justify-between gap-3 text-sm">
             <span>{{ t('common.total') }}: {{ historyTotal }} {{ t('pagination.results') }}</span>
             <label>
               {{ t('pagination.perPage') }}
-              <select
+              <FormSelect
                 v-model="historyPageSize"
-                class="input w-20"
+                class="w-20"
                 :disabled="loadingHistory || submitting"
                 @change="fetchHistory(1)"
               >
                 <option v-for="size in [20, 50, 100]" :key="size" :value="size">{{ size }}</option>
-              </select>
+              </FormSelect>
             </label>
-            <button
-              class="btn btn-secondary"
+            <BaseButton
+              class="btn-secondary"
               :disabled="loadingHistory || submitting || historyPage <= 1"
               @click="fetchHistory(historyPage - 1)"
-            >{{ t('pagination.previous') }}</button>
-            <button
-              class="btn btn-secondary"
+            >{{ t('pagination.previous') }}</BaseButton>
+            <BaseButton
+              class="btn-secondary"
               :disabled="loadingHistory || submitting || historyPage * historyPageSize >= historyTotal"
               @click="fetchHistory(historyPage + 1)"
-            >{{ t('pagination.next') }}</button>
+            >{{ t('pagination.next') }}</BaseButton>
           </div>
         </div>
       </div>
@@ -369,6 +362,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import EmptyState from '@/components/common/EmptyState.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { ref, computed, onMounted } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

@@ -33,10 +33,12 @@ func RegisterAuthRoutes(
 		limits := middleware.NewRateLimiter(redisClient)
 		binding := v1.Group("/qqbot/email-binding")
 		binding.Use(limits.LimitWithOptions("qqbot-email-binding", 20, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}))
+		binding.Use(gin.HandlerFunc(auditLog))
 		binding.POST("/preview", h.QQBot.PreviewEmailBinding)
 		binding.POST("/confirm", h.QQBot.ConfirmEmailBinding)
 		transfer := v1.Group("/qqbot/transfer")
 		transfer.Use(limits.LimitWithOptions("qqbot-transfer", 10, time.Minute, middleware.RateLimitOptions{FailureMode: middleware.RateLimitFailClose}))
+		transfer.Use(gin.HandlerFunc(auditLog))
 		transfer.POST("/preview", h.QQBot.PreviewTransfer)
 		transfer.POST("/confirm", h.QQBot.ConfirmTransfer)
 	}

@@ -18,7 +18,9 @@ const users: SimpleUser[] = [
 let wrapper: VueWrapper
 
 async function mountView() {
-  wrapper = shallowMount(AdminCouponsView, { global: { stubs: { AppLayout: { template: '<div><slot /></div>' } } } })
+  wrapper = shallowMount(AdminCouponsView, {
+    global: { stubs: { AppLayout: { template: '<div><slot /></div>' }, FormSelect: false } }
+  })
   await flushPromises()
   await wrapper.findAll('form')[0]!.get('select').setValue('1')
   return wrapper.findAll('form')[0]!

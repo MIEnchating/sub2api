@@ -1,15 +1,15 @@
 <template>
   <section class="mb-4 space-y-2 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
     <div class="flex flex-wrap items-center gap-2">
-      <button type="button" class="btn btn-secondary" data-testid="batch-upstream-start"
+      <BaseButton type="button" class="btn-secondary" data-testid="batch-upstream-start"
         :disabled="disabled || busy || !valid || rows.length > 0" @click="emit('run', false)">
         {{ t('admin.accounts.batchUpstream.start') }}
-      </button>
+      </BaseButton>
       <NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.batchUpstreamWhitelist" :user-id="userId" />
-      <button v-if="busy && rows.some(row => row.state === 'pending')" type="button" class="btn btn-secondary"
-        data-testid="batch-upstream-stop" @click="emit('stop')">{{ t('admin.accounts.batchUpstream.stop') }}</button>
-      <button v-if="!busy && rows.some(row => row.state === 'failed')" type="button" class="btn btn-secondary"
-        :disabled="disabled" data-testid="batch-upstream-retry" @click="emit('run', true)">{{ t('admin.accounts.batchUpstream.retry') }}</button>
+      <BaseButton v-if="busy && rows.some(row => row.state === 'pending')" type="button" class="btn-secondary"
+        data-testid="batch-upstream-stop" @click="emit('stop')">{{ t('admin.accounts.batchUpstream.stop') }}</BaseButton>
+      <BaseButton v-if="!busy && rows.some(row => row.state === 'failed')" type="button" class="btn-secondary"
+        :disabled="disabled" data-testid="batch-upstream-retry" @click="emit('run', true)">{{ t('admin.accounts.batchUpstream.retry') }}</BaseButton>
     </div>
     <p class="text-xs text-gray-600 dark:text-gray-400">{{ t('admin.accounts.batchUpstream.hint') }}</p>
     <p v-if="busy && !rows.length" class="text-sm" role="status">{{ t('admin.accounts.batchUpstream.draining') }}</p>
@@ -22,6 +22,7 @@
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useI18n } from 'vue-i18n'
 import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
 import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'

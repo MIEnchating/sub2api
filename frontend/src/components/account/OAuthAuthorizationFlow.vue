@@ -16,7 +16,7 @@
           </label>
           <div class="flex flex-wrap gap-4">
             <label v-if="showManualOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="manual"
@@ -27,7 +27,7 @@
               }}</span>
             </label>
             <label v-if="showCookieOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="cookie"
@@ -38,7 +38,7 @@
               }}</span>
             </label>
             <label v-if="showRefreshTokenOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="refresh_token"
@@ -49,7 +49,7 @@
               }}</span>
             </label>
             <label v-if="showSsoOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="sso_cookie"
@@ -60,7 +60,7 @@
               }}</span>
             </label>
             <label v-if="emailPasswordOptionEnabled" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="email_password"
@@ -71,7 +71,7 @@
               }}</span>
             </label>
             <label v-if="showMobileRefreshTokenOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="mobile_refresh_token"
@@ -82,7 +82,7 @@
               }}</span>
             </label>
             <label v-if="showSessionTokenOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="session_token"
@@ -93,7 +93,7 @@
               }}</span>
             </label>
             <label v-if="showAccessTokenOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="access_token"
@@ -104,7 +104,7 @@
               }}</span>
             </label>
             <label v-if="showCodexSessionImportOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="codex_session"
@@ -115,7 +115,7 @@
               }}</span>
             </label>
             <label v-if="showAgentIdentityOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="agent_identity"
@@ -126,7 +126,7 @@
               }}</span>
             </label>
             <label v-if="showCodexPatOption" class="flex cursor-pointer items-center gap-2">
-              <input
+              <FormInput
                 v-model="inputMethod"
                 type="radio"
                 value="codex_pat"
@@ -162,12 +162,12 @@
                   {{ t('admin.accounts.oauth.keysCount', { count: parsedRefreshTokenCount }) }}
                 </span>
               </label>
-              <textarea
+              <FormTextarea
                 v-model="refreshTokenInput"
                 rows="3"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="t(getOAuthKey('refreshTokenPlaceholder'))"
-              ></textarea>
+              ></FormTextarea>
               <p
                 v-if="parsedRefreshTokenCount > 1"
                 class="mt-1 text-xs text-blue-600 dark:text-blue-400"
@@ -187,9 +187,9 @@
             </div>
 
             <!-- Validate Button -->
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !refreshTokenInput.trim()"
               @click="handleValidateRefreshToken"
             >
@@ -219,7 +219,7 @@
                   ? t(getOAuthKey('validating'))
                   : t(getOAuthKey('validateAndCreate'))
               }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -245,13 +245,13 @@
                   {{ t('admin.accounts.oauth.keysCount', { count: parsedSSOCount }) }}
                 </span>
               </label>
-              <textarea
+              <FormTextarea
                 v-model="ssoCookieInput"
                 rows="5"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="t(getOAuthKey('ssoCookiePlaceholder'))"
                 spellcheck="false"
-              ></textarea>
+              ></FormTextarea>
               <p class="mt-1 text-xs text-blue-600 dark:text-blue-400">
                 {{ t(getOAuthKey('ssoCookieHint')) }}
               </p>
@@ -266,9 +266,9 @@
               </p>
             </div>
 
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !ssoCookieInput.trim()"
               @click="handleImportSSO"
             >
@@ -294,7 +294,7 @@
               </svg>
               <Icon v-else name="sparkles" size="sm" class="mr-2" />
               {{ loading ? t(getOAuthKey('convertingSSO')) : t(getOAuthKey('convertSSOAndCreate')) }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -319,14 +319,14 @@
                   {{ t('admin.accounts.oauth.keysCount', { count: parsedEmailPasswordCount }) }}
                 </span>
               </label>
-              <textarea
+              <FormTextarea
                 v-model="emailPasswordInput"
                 rows="4"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="t(getOAuthKey('emailPasswordPlaceholder'))"
                 spellcheck="false"
                 autocomplete="off"
-              ></textarea>
+              ></FormTextarea>
               <p class="mt-1 text-xs text-blue-600 dark:text-blue-400">
                 {{ t(getOAuthKey('emailPasswordHint')) }}
               </p>
@@ -339,9 +339,9 @@
                 {{ error }}
               </p>
             </div>
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !emailPasswordInput.trim()"
               @click="handleAuthorizePassword"
             >
@@ -367,7 +367,7 @@
               </svg>
               <Icon v-else name="sparkles" size="sm" class="mr-2" />
               {{ loading ? t(getOAuthKey('validating')) : t(getOAuthKey('validateAndCreate')) }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -393,13 +393,13 @@
                   {{ t('admin.accounts.oauth.keysCount', { count: parsedCodexSessionCount }) }}
                 </span>
               </label>
-              <textarea
+              <FormTextarea
                 v-model="codexSessionInput"
                 rows="8"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="t(isAgentIdentityInput ? 'admin.accounts.oauth.openai.agentIdentityPlaceholder' : 'admin.accounts.oauth.openai.codexSessionPlaceholder')"
                 spellcheck="false"
-              ></textarea>
+              ></FormTextarea>
               <p class="mt-1 text-xs text-blue-600 dark:text-blue-400">
                 {{ t(isAgentIdentityInput ? 'admin.accounts.oauth.openai.agentIdentityHint' : 'admin.accounts.oauth.openai.codexSessionHint') }}
               </p>
@@ -414,9 +414,9 @@
               </p>
             </div>
 
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !codexSessionInput.trim()"
               @click="handleImportCodexSession"
             >
@@ -446,7 +446,7 @@
                   ? t('admin.accounts.oauth.openai.validating')
                   : t('admin.accounts.oauth.openai.codexSessionImportAndCreate')
               }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -466,13 +466,13 @@
                 <Icon name="key" size="sm" class="text-blue-500" />
                 {{ t('admin.accounts.oauth.openai.codexPatInputLabel') }}
               </label>
-              <textarea
+              <FormTextarea
                 v-model="codexPATInput"
                 rows="3"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="t('admin.accounts.oauth.openai.codexPatPlaceholder')"
                 spellcheck="false"
-              ></textarea>
+              ></FormTextarea>
               <p class="mt-1 text-xs text-blue-600 dark:text-blue-400">
                 {{ t('admin.accounts.oauth.openai.codexPatHint') }}
               </p>
@@ -487,9 +487,9 @@
               </p>
             </div>
 
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !codexPATInput.trim()"
               @click="handleImportCodexPAT"
             >
@@ -519,7 +519,7 @@
                   ? t('admin.accounts.oauth.openai.validating')
                   : t('admin.accounts.oauth.openai.codexPatImportAndCreate')
               }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -566,16 +566,16 @@
                   </svg>
                 </button>
               </label>
-              <textarea
+              <FormTextarea
                 v-model="sessionKeyInput"
                 rows="3"
-                class="input w-full resize-y font-mono text-sm"
+                class="w-full resize-y font-mono text-sm"
                 :placeholder="
                   allowMultiple
                     ? t('admin.accounts.oauth.sessionKeyPlaceholder')
                     : t('admin.accounts.oauth.sessionKeyPlaceholderSingle')
                 "
-              ></textarea>
+              ></FormTextarea>
               <p
                 v-if="parsedKeyCount > 1 && allowMultiple"
                 class="mt-1 text-xs text-blue-600 dark:text-blue-400"
@@ -619,9 +619,9 @@
             </div>
 
             <!-- Auth Button -->
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-primary w-full"
+              class="btn-primary w-full"
               :disabled="loading || !sessionKeyInput.trim()"
               @click="handleCookieAuth"
             >
@@ -651,7 +651,7 @@
                   ? t('admin.accounts.oauth.authorizing')
                   : t('admin.accounts.oauth.startAutoAuth')
               }}
-            </button>
+            </BaseButton>
           </div>
         </div>
 
@@ -691,21 +691,21 @@
                       {{ t('admin.accounts.oauth.gemini.howToGetProjectId') }}
                     </a>
                   </label>
-                  <input
+                  <FormInput
                     v-model="projectId"
                     type="text"
-                    class="input w-full font-mono text-sm"
+                    class="w-full font-mono text-sm"
                     :placeholder="t('admin.accounts.oauth.gemini.projectIdPlaceholder')"
                   />
                   <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
                     {{ t('admin.accounts.oauth.gemini.projectIdHint') }}
                   </p>
                 </div>
-                <button
+                <BaseButton
                   v-if="!authUrl"
                   type="button"
                   :disabled="loading"
-                  class="btn btn-primary text-sm"
+                  class="btn-primary text-sm"
                   @click="handleGenerateUrl"
                 >
                   <svg
@@ -730,18 +730,18 @@
                   </svg>
                   <Icon v-else name="link" size="sm" class="mr-2" />
                   {{ loading ? t('admin.accounts.oauth.generating') : oauthGenerateAuthUrl }}
-                </button>
+                </BaseButton>
                 <div v-else class="space-y-3">
                   <div class="flex items-center gap-2">
-                    <input
+                    <FormInput
                       :value="authUrl"
                       readonly
                       type="text"
-                      class="input flex-1 bg-gray-50 font-mono text-xs dark:bg-gray-700"
+                      class="flex-1 bg-gray-50 font-mono text-xs dark:bg-gray-700"
                     />
-                    <button
+                    <BaseButton
                       type="button"
-                      class="btn btn-secondary p-2"
+                      class="btn-secondary p-2"
                       title="Copy URL"
                       @click="handleCopyUrl"
                     >
@@ -766,7 +766,7 @@
                         class="text-green-500"
                         :stroke-width="2"
                       />
-                    </button>
+                    </BaseButton>
                   </div>
                   <button
                     type="button"
@@ -845,12 +845,12 @@
                     <Icon name="key" size="sm" class="mr-1 inline text-blue-500" />
                     {{ oauthAuthCode }}
                   </label>
-                  <textarea
+                  <FormTextarea
                     v-model="authCodeInput"
                     rows="3"
-                    class="input w-full resize-none font-mono text-sm"
+                    class="w-full resize-none font-mono text-sm"
                     :placeholder="oauthAuthCodePlaceholder"
-                  ></textarea>
+                  ></FormTextarea>
                   <p class="mt-2 text-xs text-gray-500 dark:text-gray-400">
                     <Icon name="infoCircle" size="xs" class="mr-1 inline" />
                     {{ oauthAuthCodeHint }}
@@ -895,6 +895,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, computed, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useClipboard } from '@/composables/useClipboard'

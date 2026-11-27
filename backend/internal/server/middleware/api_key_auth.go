@@ -112,11 +112,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 		// ── 2. 验证 Key 存在 ─────────────────────────────────────────
 
-		lookup := apiKeyService.GetByKey
-		if c.GetBool("auto_credit.attempted") {
-			lookup = apiKeyService.GetByKeyUncached
-		}
-		apiKey, err := lookup(c.Request.Context(), apiKeyString)
+		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
 		if err != nil {
 			abortAPIKeyLookupError(c, err, apiKeyService)
 			return
@@ -159,23 +155,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 			}
 		}
 
-		recoverBalance := func() bool {
-			if !c.GetBool("auto_credit.attempted") {
-				c.Set("auto_credit.attempted", true)
-				recovered, err := apiKeyService.RecoverAutoCreditAdmission(c.Request.Context(), apiKey)
-				if err != nil {
-					AbortWithError(c, http.StatusServiceUnavailable, "AUTO_CREDIT_UNAVAILABLE", "Credit authorization unavailable")
-					return true
-				}
-				if recovered {
-					authenticate(c)
-					return true
-				}
-			}
-			apiKeyService.NotifyBalanceRejected(apiKey.User)
-			return false
-		}
-		admitLoadedAPIKey(c, apiKey, apiKeyService, subscriptionService, cfg, recoverBalance, func() {
+		admitLoadedAPIKey(c, apiKey, apiKeyService, subscriptionService, cfg, true, func() {
 			authDone()
 			nextWithAPIKeyAdmissionOwner(c, apiKeyService, apiKeyString, ip.GetSecurityClientIP(c, cfg.TrustForwardedIPForAPIKeyACL()), apiKey, false)
 		})
@@ -185,7 +165,7 @@ func apiKeyAuthWithSubscription(apiKeyService *service.APIKeyService, subscripti
 
 // admitLoadedAPIKey applies billing and publishes the context after identity
 // and group admission. Both gateway and owner-authenticated panel tests use it.
-func admitLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config, recoverBalance func() bool, next func()) {
+func admitLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyService *service.APIKeyService, subscriptionService *service.SubscriptionService, cfg *config.Config, notifyBalanceRejection bool, next func()) {
 	ctx := context.WithValue(c.Request.Context(), ctxkey.UserID, apiKey.User.ID)
 	// 请求头覆写变量（{{user_id}} 等）的取值来源：只在此处由已认证的 Key 建立。
 	ctx = service.WithHeaderOverrideRequestScope(ctx, apiKey.User.ID, apiKey.ID, apiKey.GroupID)
@@ -296,11 +276,9 @@ func admitLoadedAPIKey(c *gin.Context, apiKey *service.APIKey, apiKeyService *se
 		} else {
 			// 非订阅模式 或 订阅模式但 subscriptionService 未注入：回退到余额检查
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
-				if recoverBalance != nil && recoverBalance() {
-					return
-				}
 				message := "Insufficient account balance"
-				if recoverBalance != nil {
+				if notifyBalanceRejection {
+					apiKeyService.NotifyBalanceRejected(apiKey.User)
 					message = service.InsufficientUserBalanceMessage
 				}
 				AbortWithError(c, http.StatusForbidden, "INSUFFICIENT_BALANCE", message)

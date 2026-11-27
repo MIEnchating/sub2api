@@ -13,8 +13,8 @@
           {{ t('admin.settings.features.smartOpsSidebar.count', { visible: visibleCount, total: SMART_OPS_MENU_ITEMS.length }) }}
         </p>
         <div class="flex gap-2">
-          <button type="button" class="btn btn-secondary" @click="showAll">{{ t('admin.settings.features.smartOpsSidebar.showAll') }}</button>
-          <button type="button" class="btn btn-secondary" @click="hideAll">{{ t('admin.settings.features.smartOpsSidebar.hideAll') }}</button>
+          <BaseButton type="button" class="btn-secondary" @click="showAll">{{ t('admin.settings.features.smartOpsSidebar.showAll') }}</BaseButton>
+          <BaseButton type="button" class="btn-secondary" @click="hideAll">{{ t('admin.settings.features.smartOpsSidebar.hideAll') }}</BaseButton>
         </div>
       </div>
       <div class="grid gap-x-8 gap-y-5 md:grid-cols-2">
@@ -29,6 +29,7 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

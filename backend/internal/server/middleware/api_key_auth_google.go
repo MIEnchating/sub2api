@@ -65,11 +65,7 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			return
 		}
 
-		lookup := apiKeyService.GetByKey
-		if c.GetBool("auto_credit.attempted") {
-			lookup = apiKeyService.GetByKeyUncached
-		}
-		apiKey, err := lookup(c.Request.Context(), apiKeyString)
+		apiKey, err := apiKeyService.GetByKey(c.Request.Context(), apiKeyString)
 		if err != nil {
 			if errors.Is(err, service.ErrUserNotFound) {
 				abortWithGoogleError(c, 401, "User associated with API key not found")
@@ -233,18 +229,6 @@ func APIKeyAuthWithSubscriptionGoogle(apiKeyService *service.APIKeyService, subs
 			c.Set(string(ContextKeySubscription), subscription)
 		} else {
 			if apiKeyBalanceBelowAuthThreshold(apiKey.User.Balance, cfg) {
-				if !c.GetBool("auto_credit.attempted") {
-					c.Set("auto_credit.attempted", true)
-					recovered, recoveryErr := apiKeyService.RecoverAutoCreditAdmission(c.Request.Context(), apiKey)
-					if recoveryErr != nil {
-						abortWithGoogleError(c, 503, "Credit authorization unavailable")
-						return
-					}
-					if recovered {
-						authenticate(c)
-						return
-					}
-				}
 				apiKeyService.NotifyBalanceRejected(apiKey.User)
 				abortWithGoogleError(c, 403, service.InsufficientUserBalanceMessage)
 				return

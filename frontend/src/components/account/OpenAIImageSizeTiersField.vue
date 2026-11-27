@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
 import { useI18n } from 'vue-i18n'
 import { OPENAI_IMAGE_SIZE_TIERS, normalizeOpenAIImageSizeTiers, type OpenAIImageSizeTier } from './openaiImageSizeTiers'
 
@@ -36,7 +37,7 @@ const testId = (tier: OpenAIImageSizeTier) => `${props.testIdPrefix ?? 'openai-i
         :class="disabled ? 'cursor-not-allowed' : 'cursor-pointer'"
         :title="isLastSelected(tier) ? t('admin.accounts.openai.imageSizeTiersAtLeastOne') : undefined"
       >
-        <input
+        <FormInput
           type="checkbox"
           class="rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-500"
           :data-testid="testId(tier)"

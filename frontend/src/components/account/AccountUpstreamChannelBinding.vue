@@ -1,17 +1,19 @@
 <template>
   <section class="space-y-3 rounded-lg border p-3 dark:border-dark-600" data-testid="account-channel-binding">
-    <button type="button" class="btn btn-secondary" :disabled="!valid || busy" data-testid="open-channel-bindings" @click="load(false)">{{ t('upstreamEntities.accountChannel') }} · {{ accountIds.length }} · {{ t('upstreamEntities.load') }}</button>
+    <BaseButton type="button" class="btn-secondary" :disabled="!valid || busy" data-testid="open-channel-bindings" @click="load(false)">{{ t('upstreamEntities.accountChannel') }} · {{ accountIds.length }} · {{ t('upstreamEntities.load') }}</BaseButton>
     <p class="text-xs text-gray-500">{{ t('upstreamEntities.history') }} {{ t('upstreamEntities.bounded') }}</p>
     <template v-if="opened">
       <UpstreamChannelSelector v-model="target" :disabled="busy" allow-keep :selected="bindings.find(b => b.channel_id === target)?.channel" @update:model-value="confirmed = false" />
       <ul class="max-h-48 overflow-auto text-sm"><li v-for="b in bindings" :key="b.account_id">#{{ b.account_id }} {{ b.account_name }} → {{ b.channel ? `${b.channel.name} · ${b.channel.code}` : t('upstreamEntities.unbound') }}</li></ul>
-      <label class="flex items-start gap-2 text-sm"><input v-model="confirmed" type="checkbox" data-testid="confirm-channel-binding" :disabled="busy" />{{ t('upstreamEntities.confirmBinding') }} {{ bindings.length }} {{ t('upstreamEntities.accountsUnit') }} #{{ target }}</label>
-      <div class="flex flex-wrap gap-2"><button type="button" class="btn btn-primary" data-testid="save-channel-binding" :disabled="busy || !confirmed || target < 0 || needsRead || bindings.length !== accountIds.length" @click="save">{{ t('upstreamEntities.save') }}</button><button type="button" class="btn btn-secondary" :disabled="busy" @click="cancel">{{ t('upstreamEntities.cancel') }}</button><button type="button" class="btn btn-secondary" :disabled="busy" data-testid="reload-channel-bindings" @click="load(true)">{{ t('upstreamEntities.readLatest') }}</button></div>
+      <label class="flex items-start gap-2 text-sm"><FormInput v-model="confirmed" type="checkbox" data-testid="confirm-channel-binding" :disabled="busy" />{{ t('upstreamEntities.confirmBinding') }} {{ bindings.length }} {{ t('upstreamEntities.accountsUnit') }} #{{ target }}</label>
+      <div class="flex flex-wrap gap-2"><BaseButton type="button" class="btn-primary" data-testid="save-channel-binding" :disabled="busy || !confirmed || target < 0 || needsRead || bindings.length !== accountIds.length" @click="save">{{ t('upstreamEntities.save') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="busy" @click="cancel">{{ t('upstreamEntities.cancel') }}</BaseButton><BaseButton type="button" class="btn-secondary" :disabled="busy" data-testid="reload-channel-bindings" @click="load(true)">{{ t('upstreamEntities.readLatest') }}</BaseButton></div>
     </template>
     <p v-if="error" role="alert" class="text-red-600" data-testid="binding-error">{{ error }}</p><p v-if="saved" role="status">{{ t('upstreamEntities.saved') }}</p>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { bindChannelAccounts, readChannelBindings, type ChannelBinding } from '@/api/admin/upstreamChannels'

@@ -7,7 +7,7 @@
     <button
       ref="triggerRef"
       type="button"
-      class="select-trigger flex cursor-pointer list-none items-center justify-between gap-1.5 text-left"
+      class="input select-control select-trigger flex items-center justify-between gap-1.5 text-left"
       :class="[
         isOpen ? 'select-trigger-open' : '',
         compact ? 'h-8 rounded-lg !px-2 !py-1 text-xs' : 'h-[42px]',
@@ -33,7 +33,7 @@
         <div
           v-if="isOpen"
           ref="dropdownRef"
-          class="select-dropdown-portal dropdown filter-dropdown"
+          class="select-surface select-dropdown-portal filter-dropdown"
           :class="[instanceId]"
           :style="dropdownStyle"
           role="listbox"
@@ -43,7 +43,7 @@
         >
           <button
             type="button"
-            class="dropdown-item select-option select-option-group flex w-full items-center justify-between border-b border-gray-100 px-4 py-2 text-left text-sm font-semibold text-gray-700 hover:bg-gray-100 dark:border-dark-700 dark:text-gray-300 dark:hover:bg-dark-700"
+            class="select-choice select-option select-option-group flex w-full items-center justify-between border-b border-gray-100 text-left font-semibold dark:border-dark-700"
             @click="clear"
           >
             <span>{{ allLabel }}</span>
@@ -55,8 +55,8 @@
             :key="option.value"
             type="button"
             role="option"
-            class="dropdown-item select-option flex w-full items-center justify-between gap-3 px-4 py-2 text-left text-sm text-gray-700 hover:bg-gray-100 dark:text-gray-300 dark:hover:bg-dark-700"
-            :class="modelValue.includes(option.value) ? 'select-option-selected' : ''"
+            class="select-choice select-option flex w-full items-center justify-between gap-3 text-left"
+            :class="modelValue.includes(option.value) ? 'select-choice-selected' : ''"
             :aria-selected="modelValue.includes(option.value)"
             @click="toggle(option.value)"
           >
@@ -231,32 +231,9 @@ onBeforeUnmount(() => {
 </script>
 
 <style scoped>
-.select-trigger {
-  @apply flex w-full items-center justify-between gap-2;
-  @apply rounded-xl px-4 py-2.5 text-sm;
-  @apply bg-white dark:bg-dark-800;
-  @apply border border-gray-200 dark:border-dark-600;
-  @apply text-gray-900 dark:text-gray-100;
-  @apply transition-all duration-200;
-  @apply focus:border-primary-500 focus:outline-none focus:ring-2 focus:ring-primary-500/30;
-  @apply hover:border-gray-300 dark:hover:border-dark-500;
-  @apply cursor-pointer;
-}
-
-.select-trigger-open {
-  @apply border-primary-500 ring-2 ring-primary-500/30;
-}
-
-.filter-menu summary::-webkit-details-marker {
-  display: none;
-}
-
 .filter-dropdown {
-  @apply w-max min-w-[200px] max-h-[min(50vh,360px)] overflow-y-auto rounded-xl border border-gray-200 bg-white shadow-lg dark:border-dark-600 dark:bg-dark-800;
-}
-
-.dropdown-item {
-  @apply cursor-pointer;
+  @apply w-max min-w-[200px] max-h-[min(50vh,360px)] overflow-y-auto;
+  pointer-events: auto !important;
 }
 
 .checkbox {

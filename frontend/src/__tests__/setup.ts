@@ -91,7 +91,13 @@ globalThis.ResizeObserver = MockResizeObserver as unknown as typeof ResizeObserv
 
 // Vue Test Utils 全局配置
 config.global.stubs = {
-  // 可以在这里添加全局 stub
+  // Preserve native DOM semantics for controls, including under shallowMount.
+  BaseButton: false,
+  BaseTable: false,
+  FormInput: false,
+  FormTextarea: false,
+  StatusBadge: false,
+  TabButton: false
 }
 
 // 设置全局测试超时

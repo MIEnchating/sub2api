@@ -4,12 +4,12 @@
       <fieldset :disabled="busy" class="space-y-4">
         <label class="block space-y-2 text-sm" for="account-ops-email-name">
           <span>{{ t('accountOps.channelName') }}</span>
-          <input id="account-ops-email-name" v-model.trim="name" type="text" maxlength="80" autocomplete="off" :placeholder="t('accountOps.channelNamePlaceholder')" class="input w-full" />
+          <FormInput id="account-ops-email-name" v-model.trim="name" type="text" maxlength="80" autocomplete="off" :placeholder="t('accountOps.channelNamePlaceholder')" class="w-full" />
           <span class="block text-xs text-gray-500">{{ t('accountOps.channelNameHint') }}</span>
         </label>
         <label class="block space-y-2 text-sm" for="account-ops-email">
           <span>{{ t('accountOps.recipient') }} <NewFeatureBadge v-if="userId != null" :notice-id="NEW_FEATURE_NOTICES.accountOpsMultipleEmails" :user-id="userId" /></span>
-          <textarea id="account-ops-email" v-model.trim="recipient" rows="4" maxlength="5120" required autocomplete="off" spellcheck="false" placeholder="ops@example.com&#10;oncall@example.com" class="input w-full" />
+          <FormTextarea id="account-ops-email" v-model.trim="recipient" rows="4" maxlength="5120" required autocomplete="off" spellcheck="false" placeholder="ops@example.com&#10;oncall@example.com" class="w-full" />
         </label>
         <p class="text-xs leading-5 text-gray-500">{{ t('accountOps.recipientHint') }}</p>
         <div v-if="recipient" class="flex items-center justify-between gap-2 text-xs text-gray-500">
@@ -19,12 +19,15 @@
       </fieldset>
     </form>
     <template #footer>
-      <button type="button" class="btn btn-secondary" @click="close">{{ t('common.cancel') }}</button>
-      <button type="submit" form="account-ops-email-form" :disabled="busy" class="btn btn-primary">{{ t(busy ? 'common.loading' : 'accountOps.saveChannel') }}</button>
+      <BaseButton type="button" class="btn-secondary" @click="close">{{ t('common.cancel') }}</BaseButton>
+      <BaseButton type="submit" form="account-ops-email-form" :disabled="busy" class="btn-primary">{{ t(busy ? 'common.loading' : 'accountOps.saveChannel') }}</BaseButton>
     </template>
   </BaseDialog>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { onBeforeUnmount, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import BaseDialog from '@/components/common/BaseDialog.vue'

@@ -3,11 +3,11 @@
     <TablePageLayout>
       <template #actions>
         <div class="flex flex-wrap gap-2" role="group" :aria-label="t('admin.proxies.managementSections')">
-          <button v-for="tab in managementTabs" :key="tab.key" type="button"
-            class="btn" :class="activeManagementTab === tab.key ? 'btn-primary' : 'btn-secondary'"
+          <BaseButton v-for="tab in managementTabs" :key="tab.key" type="button"
+            :class="activeManagementTab === tab.key ? 'btn-primary' : 'btn-secondary'"
             :aria-pressed="activeManagementTab === tab.key" @click="selectManagementTab(tab.key)">
             {{ t(tab.label) }}
-          </button>
+          </BaseButton>
         </div>
       </template>
       <template v-if="activeManagementTab === 'proxies'" #filters>
@@ -19,11 +19,11 @@
               size="md"
               class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
             />
-            <input
+            <FormInput
               v-model="searchQuery"
               type="text"
               :placeholder="t('admin.proxies.searchProxies')"
-              class="input pl-10"
+              class="pl-10"
               @input="handleSearch"
             />
           </div>
@@ -47,51 +47,51 @@
 
           <!-- Right: All action buttons -->
           <div class="flex flex-1 flex-wrap items-center justify-end gap-2">
-            <button
+            <BaseButton
               @click="loadProxies"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('common.refresh')"
             >
               <Icon name="refresh" size="md" :class="loading ? 'animate-spin' : ''" />
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               @click="handleBatchTest"
               :disabled="batchTesting || loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('admin.proxies.testConnection')"
             >
               <Icon name="play" size="md" class="mr-2" />
               {{ t('admin.proxies.testConnection') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               @click="handleBatchQualityCheck"
               :disabled="batchQualityChecking || loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('admin.proxies.batchQualityCheck')"
             >
               <Icon name="shield" size="md" class="mr-2" :class="batchQualityChecking ? 'animate-pulse' : ''" />
               {{ t('admin.proxies.batchQualityCheck') }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               @click="openBatchDelete"
               :disabled="selectedCount === 0"
-              class="btn btn-danger"
+              class="btn-danger"
               :title="t('admin.proxies.batchDeleteAction')"
             >
               <Icon name="trash" size="md" class="mr-2" />
               {{ t('admin.proxies.batchDeleteAction') }}
-            </button>
-            <button @click="showImportData = true" class="btn btn-secondary">
+            </BaseButton>
+            <BaseButton @click="showImportData = true" class="btn-secondary">
               {{ t('admin.proxies.dataImport') }}
-            </button>
-            <button @click="showExportDataDialog = true" class="btn btn-secondary">
+            </BaseButton>
+            <BaseButton @click="showExportDataDialog = true" class="btn-secondary">
               {{ selectedCount > 0 ? t('admin.proxies.dataExportSelected') : t('admin.proxies.dataExport') }}
-            </button>
-            <button @click="showCreateModal = true" class="btn btn-primary">
+            </BaseButton>
+            <BaseButton @click="showCreateModal = true" class="btn-primary">
               <Icon name="plus" size="md" class="mr-2" />
               {{ t('admin.proxies.createProxy') }}
-            </button>
+            </BaseButton>
           </div>
         </div>
         <OvhIPv6Control ref="ovhIPv6Control" @changed="loadProxies" />
@@ -113,7 +113,7 @@
           @sort="handleSort"
         >
           <template #header-select>
-            <input
+            <FormInput
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="allVisibleSelected"
@@ -123,7 +123,7 @@
           </template>
 
           <template #cell-select="{ row }">
-            <input
+            <FormInput
               type="checkbox"
               class="h-4 w-4 cursor-pointer rounded border-gray-300 text-primary-600 focus:ring-primary-500"
               :checked="selectedProxyIds.has(row.id)"
@@ -134,8 +134,8 @@
 
           <template #cell-name="{ value, row }">
             <span class="font-medium text-gray-900 dark:text-white">{{ value }}</span>
-            <span v-if="isManagedIPv6Proxy(row)" class="badge badge-primary ml-2" :title="t('ovhIPv6.managedHint')">{{ t(row.managed_ipv6 || row.username?.startsWith('ovh6_') ? 'ovhIPv6.source' : 'ovhIPv6.legacySource') }}</span>
-            <span v-if="row.mihomo_node_id" class="badge badge-primary ml-2">Mihomo</span>
+            <StatusBadge v-if="isManagedIPv6Proxy(row)" class="badge-primary ml-2" :title="t('ovhIPv6.managedHint')">{{ t(row.managed_ipv6 || row.username?.startsWith('ovh6_') ? 'ovhIPv6.source' : 'ovhIPv6.legacySource') }}</StatusBadge>
+            <StatusBadge v-if="row.mihomo_node_id" class="badge-primary ml-2">Mihomo</StatusBadge>
           </template>
 
           <template #cell-protocol="{ value }">
@@ -239,13 +239,13 @@
 
           <template #cell-latency="{ row }">
             <div class="flex flex-col gap-1">
-              <span
+              <StatusBadge
                 v-if="row.latency_status === 'failed'"
-                class="badge badge-danger"
+                class="badge-danger"
                 :title="row.latency_message || undefined"
               >
                 {{ t('admin.proxies.latencyFailed') }}
-              </span>
+              </StatusBadge>
               <span
                 v-else-if="typeof row.latency_ms === 'number'"
                 :class="['badge', row.latency_ms < 200 ? 'badge-success' : 'badge-warning']"
@@ -259,9 +259,9 @@
                 :title="row.quality_summary || undefined"
               >
                 <span>{{ t('admin.proxies.qualityInline', { grade: row.quality_grade || '-', score: row.quality_score ?? '-' }) }}</span>
-                <span class="badge" :class="proxyQualityOverallClass(row.quality_status)">
+                <StatusBadge :class="proxyQualityOverallClass(row.quality_status)">
                   {{ t(proxyQualityOverallLabelKey(row.quality_status)) }}
-                </span>
+                </StatusBadge>
               </div>
             </div>
           </template>
@@ -459,11 +459,10 @@
       >
         <div>
           <label class="input-label">{{ t('admin.proxies.name') }}</label>
-          <input
+          <FormInput
             v-model="createForm.name"
             type="text"
             required
-            class="input"
             :placeholder="t('admin.proxies.enterProxyName')"
           />
         </div>
@@ -474,43 +473,40 @@
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="input-label">{{ t('admin.proxies.host') }}</label>
-            <input
+            <FormInput
               v-model="createForm.host"
               type="text"
               required
               :placeholder="t('admin.proxies.form.hostPlaceholder')"
-              class="input"
             />
           </div>
           <div>
             <label class="input-label">{{ t('admin.proxies.port') }}</label>
-            <input
+            <FormInput
               v-model.number="createForm.port"
               type="number"
               required
               min="1"
               max="65535"
               :placeholder="t('admin.proxies.form.portPlaceholder')"
-              class="input"
             />
           </div>
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.username') }}</label>
-          <input
+          <FormInput
             v-model="createForm.username"
             type="text"
-            class="input"
             :placeholder="t('admin.proxies.optionalAuth')"
           />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.password') }}</label>
           <div class="relative">
-            <input
+            <FormInput
               v-model="createForm.password"
               :type="createPasswordVisible ? 'text' : 'password'"
-              class="input pr-10"
+              class="pr-10"
               :placeholder="t('admin.proxies.optionalAuth')"
             />
             <button
@@ -525,25 +521,25 @@
         <div>
           <label class="input-label">{{ t('admin.proxies.expiresAt') }}</label>
           <div class="mb-2 flex flex-wrap gap-2">
-            <button
+            <BaseButton
               v-for="d in EXPIRY_PRESETS"
               :key="d"
               type="button"
-              class="btn btn-sm"
+              class="btn-sm"
               :class="createForm.expires_at === addDaysToBase('', d) ? 'btn-primary' : 'btn-secondary'"
               @click="createExpiresDays = d"
             >
               {{ t('admin.proxies.nDays', { days: d }) }}
-            </button>
+            </BaseButton>
           </div>
-          <input
+          <FormInput
             v-model.number="createExpiresDays"
             type="number"
             min="0"
-            class="input mb-2"
+            class="mb-2"
             :placeholder="t('admin.proxies.expiryDaysPlaceholder')"
           />
-          <input v-model="createForm.expires_at" type="date" max="9999-12-31" class="input" />
+          <FormInput v-model="createForm.expires_at" type="date" max="9999-12-31" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
@@ -565,13 +561,13 @@
       <div v-else-if="createMode === 'batch'" class="space-y-5">
         <div>
           <label class="input-label">{{ t('admin.proxies.batchInput') }}</label>
-          <textarea
+          <FormTextarea
             v-model="batchInput"
             rows="10"
-            class="input font-mono text-sm"
+            class="font-mono text-sm"
             :placeholder="t('admin.proxies.batchInputPlaceholder')"
             @input="parseBatchInput"
-          ></textarea>
+          ></FormTextarea>
           <p class="input-hint mt-2">
             {{ t('admin.proxies.batchInputHint') }}
           </p>
@@ -622,21 +618,21 @@
 
       <form v-if="createMode === 'ovh_ipv6'" id="allocate-ovh-ipv6-form" class="space-y-4" @submit.prevent="allocateIPv6">
         <p class="text-sm text-gray-600 dark:text-gray-300">{{ t('ovhIPv6.addSingleHint') }}</p>
-        <label class="block"><span class="input-label">{{ t('ovhIPv6.optionalName') }}</span><input v-model="allocateIPv6Name" type="text" maxlength="100" :disabled="submitting" class="input" /></label>
+        <label class="block"><span class="input-label">{{ t('ovhIPv6.optionalName') }}</span><FormInput v-model="allocateIPv6Name" type="text" maxlength="100" :disabled="submitting" /></label>
         <p v-if="allocateIPv6Error" role="alert" class="text-sm text-red-600">{{ allocateIPv6Error }}</p>
       </form>
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeCreateModal" type="button" class="btn btn-secondary">
+          <BaseButton @click="closeCreateModal" type="button" class="btn-secondary">
             {{ t('common.cancel') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             v-if="createMode === 'standard'"
             type="submit"
             form="create-proxy-form"
             :disabled="submitting"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             <svg
               v-if="submitting"
@@ -659,13 +655,13 @@
               ></path>
             </svg>
             {{ submitting ? t('admin.proxies.creating') : t('common.create') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             v-else-if="createMode === 'batch'"
             @click="handleBatchCreate"
             type="button"
             :disabled="submitting || batchParseResult.valid === 0"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             <svg
               v-if="submitting"
@@ -692,8 +688,8 @@
                 ? t('admin.proxies.importing')
                 : t('admin.proxies.importProxies', { count: batchParseResult.valid })
             }}
-          </button>
-          <button v-else type="submit" form="allocate-ovh-ipv6-form" class="btn btn-primary" :disabled="submitting" data-testid="allocate-ovh-ipv6">{{ t(submitting ? 'admin.proxies.creating' : 'ovhIPv6.addSingle') }}</button>
+          </BaseButton>
+          <BaseButton v-else type="submit" form="allocate-ovh-ipv6-form" class="btn-primary" :disabled="submitting" data-testid="allocate-ovh-ipv6">{{ t(submitting ? 'admin.proxies.creating' : 'ovhIPv6.addSingle') }}</BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -713,7 +709,7 @@
       >
         <div>
           <label class="input-label">{{ t('admin.proxies.name') }}</label>
-          <input v-model="editForm.name" type="text" required class="input" />
+          <FormInput v-model="editForm.name" type="text" required />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.protocol') }}</label>
@@ -722,33 +718,32 @@
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="input-label">{{ t('admin.proxies.host') }}</label>
-            <input v-model="editForm.host" type="text" required class="input" :disabled="!!editingProxy?.mihomo_node_id" />
+            <FormInput v-model="editForm.host" type="text" required :disabled="!!editingProxy?.mihomo_node_id" />
           </div>
           <div>
             <label class="input-label">{{ t('admin.proxies.port') }}</label>
-            <input
+            <FormInput
               v-model.number="editForm.port"
               type="number"
               required
               min="1"
               max="65535"
-              class="input"
               :disabled="!!editingProxy?.mihomo_node_id"
             />
           </div>
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.username') }}</label>
-          <input v-model="editForm.username" type="text" class="input" :disabled="!!editingProxy?.mihomo_node_id" />
+          <FormInput v-model="editForm.username" type="text" :disabled="!!editingProxy?.mihomo_node_id" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.password') }}</label>
           <div class="relative">
-            <input
+            <FormInput
               v-model="editForm.password"
               :type="editPasswordVisible ? 'text' : 'password'"
               :placeholder="t('admin.proxies.leaveEmptyToKeep')"
-              class="input pr-10"
+              class="pr-10"
               :disabled="!!editingProxy?.mihomo_node_id"
               @input="editPasswordDirty = true"
             />
@@ -769,25 +764,25 @@
         <div>
           <label class="input-label">{{ t('admin.proxies.expiresAt') }}</label>
           <div class="mb-2 flex flex-wrap gap-2">
-            <button
+            <BaseButton
               v-for="d in EXPIRY_PRESETS"
               :key="d"
               type="button"
-              class="btn btn-sm"
+              class="btn-sm"
               :class="editForm.expires_at === addDaysToBase(editBaseDate, d) ? 'btn-primary' : 'btn-secondary'"
               @click="editExpiresDays = d"
             >
               {{ t('admin.proxies.nDays', { days: d }) }}
-            </button>
+            </BaseButton>
           </div>
-          <input
+          <FormInput
             v-model.number="editExpiresDays"
             type="number"
             min="0"
-            class="input mb-2"
+            class="mb-2"
             :placeholder="t('admin.proxies.expiryDaysPlaceholder')"
           />
-          <input v-model="editForm.expires_at" type="date" max="9999-12-31" class="input" />
+          <FormInput v-model="editForm.expires_at" type="date" max="9999-12-31" />
         </div>
         <div>
           <label class="input-label">{{ t('admin.proxies.fallbackMode') }}</label>
@@ -807,15 +802,15 @@
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeEditModal" type="button" class="btn btn-secondary">
+          <BaseButton @click="closeEditModal" type="button" class="btn-secondary">
             {{ t('common.cancel') }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             v-if="editingProxy"
             type="submit"
             form="edit-proxy-form"
             :disabled="submitting"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             <svg
               v-if="submitting"
@@ -838,7 +833,7 @@
               ></path>
             </svg>
             {{ submitting ? t('admin.proxies.updating') : t('common.update') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -904,7 +899,7 @@
         {{ t('admin.proxies.accountsEmpty') }}
       </div>
       <div v-else class="max-h-80 overflow-auto">
-        <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
+        <BaseTable class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-700">
           <thead class="bg-gray-50 text-xs uppercase text-gray-500 dark:bg-dark-800 dark:text-dark-400">
             <tr>
               <th class="px-4 py-2 text-left">{{ t('admin.proxies.accountName') }}</th>
@@ -923,13 +918,13 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
       <template #footer>
         <div class="flex justify-end">
-          <button @click="closeAccountsModal" class="btn btn-secondary">
+          <BaseButton @click="closeAccountsModal" class="btn-secondary">
             {{ t('common.close') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -938,6 +933,11 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { useRoute, useRouter } from 'vue-router'
 import MihomoSettings from './settings/MihomoSettings.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from 'vue'

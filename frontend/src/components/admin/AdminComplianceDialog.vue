@@ -74,29 +74,30 @@
 
     <template #footer>
       <div class="flex flex-col gap-3 sm:flex-row sm:justify-end">
-        <button
+        <BaseButton
           type="button"
-          class="btn btn-secondary"
+          class="btn-secondary"
           :disabled="complianceStore.submitting"
           @click="logout"
         >
           {{ t('adminCompliance.logout') }}
-        </button>
-        <button
+        </BaseButton>
+        <BaseButton
           type="button"
-          class="btn btn-primary"
+          class="btn-primary"
           :disabled="!canSubmit || complianceStore.submitting"
           @click="submit"
         >
           <span v-if="complianceStore.submitting">{{ t('common.submitting') }}</span>
           <span v-else>{{ t('adminCompliance.accept') }}</span>
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { computed, ref, watch } from 'vue'
 import { marked } from 'marked'
 import DOMPurify from 'dompurify'

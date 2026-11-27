@@ -61,18 +61,16 @@ app.use(pinia);app.use(i18n);app.mount('#app');
   await page.goto('http://127.0.0.1:4298/', { waitUntil: 'networkidle' })
   const cards = page.getByTestId('qwen-cache-settings')
   await cards.first().waitFor()
-  if (await cards.getByTestId('new-feature-badge').count() !== 2) throw Error('New announcement missing after old announcement was dismissed')
+  if (await cards.getByTestId('new-feature-badge').count()) throw Error('Retired feature badge is visible')
   await page.screenshot({ path: path.join(output, 'defaults-synthetic.png'), fullPage: true })
   await cards.first().getByTestId('qwen-session-cache').check()
   await cards.first().getByTestId('qwen-strict-affinity').check()
   await cards.first().getByTestId('qwen-token-plan-url').click()
   if (await page.getByTestId('chosen-endpoint').innerText() !== 'https://token-plan.maas.qianwenaiapi.com/compatible-mode/v1') throw Error('Token Plan preset mismatch')
   await page.screenshot({ path: path.join(output, 'enabled-synthetic.png'), fullPage: true })
-  await cards.first().getByTestId('new-feature-badge').click()
-  await page.waitForFunction(() => !document.querySelector('[data-testid="qwen-cache-settings"] [data-testid="new-feature-badge"]'))
   await page.reload({ waitUntil: 'networkidle' })
   if (await cards.getByTestId('new-feature-badge').count()) throw Error('Dismissal did not survive reload')
-  if (await page.locator('[data-preview="future"] [data-testid="new-feature-badge"]').count() !== 1) throw Error('Future announcement was incorrectly dismissed')
+  if (await page.locator('[data-preview="future"] [data-testid="new-feature-badge"]').count()) throw Error('Retired feature badge is visible')
   await page.goto('http://127.0.0.1:4298/?lang=en', { waitUntil: 'networkidle' })
   await page.evaluate(() => document.documentElement.classList.add('dark'))
   await page.setViewportSize({ width: 390, height: 844 })
@@ -80,7 +78,7 @@ app.use(pinia);app.use(i18n);app.mount('#app');
   if (errors.length) throw Error(errors.join('\n'))
   await writeFile(path.join(output, 'manifest.json'), JSON.stringify({
     sha: execFileSync('git', ['rev-parse', 'HEAD'], { cwd: repo, encoding: 'utf8' }).trim(),
-    errors, announcementChecks: ['old dismissed/new visible', 'shared dismissal', 'reload persistence', 'future ID visible'],
+    errors, announcementChecks: ['feature badges absent before and after reload'],
     boundary: 'Actual QwenCacheSettings and NewFeatureBadge with project styles; synthetic state. Not a full account page, API save or production test.'
   }, null, 2))
 } finally {

@@ -214,7 +214,7 @@ run_validation_checks() {
   VALIDATION_RESULT="第 $pass 轮全量验证进行中"
   log "starting complete validation pass $pass"
   record_check '候选差异空白检查' git -C "$WORKTREE" diff HEAD --check
-  record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE"
+  record_check '上游功能排除检查' python3 "$WORKTREE/.github/check-upstream-exclusions.py" "$WORKTREE" --primary upstream/main
   if [[ -n "${SUB2API_MIGRATION_BASE:-}" ]]; then
     record_check '已发布 SQL 迁移原文检查' git -C "$WORKTREE" diff --exit-code --no-renames \
       --diff-filter=DMT "$SUB2API_MIGRATION_BASE" -- 'backend/migrations/*.sql'

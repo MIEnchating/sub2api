@@ -1,24 +1,24 @@
 <template>
   <div class="border-t pt-4" data-testid="minimax-h3-video-pricing">
     <label class="flex items-center gap-2 font-medium text-gray-700 dark:text-gray-300">
-      <input type="checkbox" class="rounded" :checked="enabled" @change="toggle" />
+      <FormInput type="checkbox" class="rounded" :checked="enabled" @change="toggle" />
       {{ t('admin.groups.videoPricing.h3Enable') }}
     </label>
     <div v-if="enabled" class="mt-3 space-y-3">
       <label class="block">
         <span class="input-label">{{ t('admin.groups.videoPricing.h3Mode') }}</span>
-        <select class="input" :value="mode" @change="changeMode">
+        <FormSelect :value="mode" @change="changeMode">
           <option value="per_second">{{ t('admin.groups.videoPricing.h3PerSecond') }}</option>
           <option value="per_request">{{ t('admin.groups.videoPricing.h3PerRequest') }}</option>
-        </select>
+        </FormSelect>
       </label>
       <label v-if="mode === 'per_request'" class="block">
         <span class="input-label">{{ t('admin.groups.videoPricing.h3Seconds') }}</span>
-        <input type="number" class="input" min="1" max="15" step="1" required :value="seconds" @input="changeSeconds" />
+        <FormInput type="number" min="1" max="15" step="1" required :value="seconds" @input="changeSeconds" />
       </label>
       <label class="block">
         <span class="input-label">{{ t(mode === 'per_second' ? 'admin.groups.videoPricing.h3SecondPrice' : 'admin.groups.videoPricing.h3RequestPrice') }}</span>
-        <input type="number" class="input" min="0" step="any" required :value="price ?? ''" @input="changePrice" />
+        <FormInput type="number" min="0" step="any" required :value="price ?? ''" @input="changePrice" />
       </label>
       <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.videoPricing.h3Hint') }}</p>
       <p v-if="mode === 'per_request'" class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.groups.videoPricing.h3DurationHint') }}</p>
@@ -31,6 +31,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { VideoModelPricesForm } from './groupsVideoModelPricing'

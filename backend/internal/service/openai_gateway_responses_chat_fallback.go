@@ -31,6 +31,10 @@ func (s *OpenAIGatewayService) forwardResponsesViaRawChatCompletions(
 	body []byte,
 	startTime time.Time,
 ) (*OpenAIForwardResult, error) {
+	if hasCodexExecNotifications(body) {
+		writeOpenAIResponsesFallbackError(c, http.StatusBadRequest, "unsupported_parameter", codexExecNotificationConversionMessage)
+		return nil, errors.New(codexExecNotificationConversionMessage)
+	}
 
 	// DeepSeek 原生 /responses 不认识 compaction_trigger：remote compaction v2 会得到
 	// reasoning+message 而非 compaction item，Codex 判 fatal。这里改写成普通总结回合

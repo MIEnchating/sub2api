@@ -6,7 +6,7 @@
     </div>
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
     <p v-if="loading" class="text-sm text-gray-500">{{ localText('加载中…', 'Loading…') }}</p>
-    <button v-else-if="!form" type="button" class="btn btn-secondary" @click="load">{{ localText('重试', 'Retry') }}</button>
+    <BaseButton v-else-if="!form" type="button" class="btn-secondary" @click="load">{{ localText('重试', 'Retry') }}</BaseButton>
     <form v-else class="space-y-4" @submit.prevent="save">
       <fieldset class="space-y-4" :disabled="saving">
         <div class="flex items-center justify-between gap-4 rounded-lg border border-gray-200 p-4 dark:border-dark-600">
@@ -33,7 +33,7 @@
 
           <div class="mt-3 grid gap-3 sm:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 id="codex-ticket-model-astra"
                 type="checkbox"
                 :checked="form.openai_codex_ticket_models.includes('gpt-6-astra')"
@@ -42,7 +42,7 @@
               <span>Astra (gpt-6-astra)</span>
             </label>
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 id="codex-ticket-model-sol"
                 type="checkbox"
                 :checked="form.openai_codex_ticket_models.includes('gpt-5.6-sol')"
@@ -53,42 +53,45 @@
           </div>
           <fieldset class="mt-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <legend class="px-1 text-sm font-semibold">{{ localText('自动打票范围', 'Automatic harvest scope') }}</legend>
-            <select id="codex-ticket-harvest-scope" v-model="form.openai_codex_ticket_harvest_scope.mode" class="input" @change="changeHarvestScope">
+            <FormSelect id="codex-ticket-harvest-scope" v-model="form.openai_codex_ticket_harvest_scope.mode" @change="changeHarvestScope">
               <option v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'" value="selected" disabled>{{ localText('旧分组范围（请选择账号范围）', 'Legacy group scope (choose an account scope)') }}</option>
               <option value="all">{{ localText('全部 OAuth 账号', 'All OAuth accounts') }}</option>
               <option value="selected_accounts">{{ localText('指定 OAuth 账号', 'Selected OAuth accounts') }}</option>
-            </select>
+            </FormSelect>
             <p v-if="form.openai_codex_ticket_harvest_scope.mode === 'selected'" class="mt-2 text-xs text-amber-600">{{ localText('当前仍使用旧分组范围。切换并保存后，改为按 OAuth 账号打票。', 'The saved group scope remains active until you choose and save an OAuth account scope.') }}</p>
             <p v-else-if="form.openai_codex_ticket_harvest_scope.mode === 'all'" class="mt-2 text-xs text-gray-500">{{ localText('默认给全部 OAuth 账号打票，手动设为「不打票」的账号除外。新增 OAuth 账号自动纳入。', 'Harvest all OAuth accounts except those manually set to Skip harvest. New OAuth accounts are included by default.') }}</p>
             <p v-else-if="form.openai_codex_ticket_harvest_scope.mode === 'selected_accounts'" class="mt-2 text-xs text-gray-500">{{ localText('只给下方「门票账号」中明确开启打票的 OAuth 账号打票。不按分组筛选；未选择账号时不自动打票。', 'Only harvest OAuth accounts explicitly enabled in Ticket accounts below, regardless of groups. No accounts selected means no automatic harvesting.') }}</p>
             <p class="mt-2 text-xs text-gray-500">{{ localText('只控制给哪些账号自动打票。票据有效后的加组、恢复模型或恢复账号调度，仍由原来的「号池调度」设置控制。', 'Controls which accounts are harvested. The existing pool scheduling settings still control group membership, model restoration and account scheduling after ticket validation.') }}</p>
           </fieldset>
           <label class="mt-3 block text-sm" for="codex-ticket-strategy">{{ localText('票据刷新策略', 'Ticket refresh strategy') }}</label>
-          <select id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy" class="input mt-2">
+          <FormSelect id="codex-ticket-strategy" v-model="form.openai_codex_ticket_strategy" class="mt-2">
             <option value="standby">{{ localText('提前准备备用（默认）', 'Prepare standby (default)') }}</option>
             <option value="fixed">{{ localText('固定主用，失效后再采集', 'Keep primary until invalid') }}</option>
-          </select>
+          </FormSelect>
           <div class="mt-3 rounded-lg border border-gray-200 p-3 dark:border-dark-600">
             <label class="flex items-center gap-2 text-sm" for="codex-ticket-candy-observation">
-              <input id="codex-ticket-candy-observation" type="checkbox" v-model="form.openai_codex_ticket_candy_observation" />
+              <FormInput id="codex-ticket-candy-observation" type="checkbox" v-model="form.openai_codex_ticket_candy_observation" />
               <span>{{ localText('启用糖果测试验证使用后的票据', 'Enable candy tests to observe tickets after use') }}</span>
               <span class="rounded bg-amber-100 px-1.5 py-0.5 text-xs text-amber-800 dark:bg-amber-900/30 dark:text-amber-300">Beta</span>
             </label>
             <p class="mt-1 text-xs text-gray-500">{{ localText('默认关闭。SSE Astra 票据用于真实请求后，异步发送一发糖果题并记录结果，额外消耗上游额度。结果不影响调度、票据或账号状态。', 'Off by default. After an SSE Astra ticket serves a real request, asynchronously send one candy question and record the result, using additional upstream quota. Results do not change scheduling, tickets, or account state.') }}</p>
           </div>
-          <label class="mt-3 flex items-center gap-2 text-sm"><input id="codex-ticket-strict" type="checkbox" v-model="form.openai_codex_ticket_strict_response" />{{ localText('严格拦截票据响应不匹配（默认关闭）', 'Reject mismatched ticket responses (off by default)') }}</label>
+          <label class="mt-3 flex items-center gap-2 text-sm"><FormInput id="codex-ticket-strict" type="checkbox" v-model="form.openai_codex_ticket_strict_response" />{{ localText('严格拦截票据响应不匹配（默认关闭）', 'Reject mismatched ticket responses (off by default)') }}</label>
           <p class="mt-1 text-xs text-gray-500">{{ localText('仅在 HTTP 响应头明确不匹配时拦截正文；当前请求可能已计费，不会自动重放。关闭时只更新后续票据调度。', 'Rejects the body when HTTP response state headers mismatch. The upstream may have charged; the request is not replayed. When off, only future ticket scheduling changes.') }}</p>
           <p class="mt-1 text-xs text-gray-500">{{ localText('切换策略保留有效主备票据和冷却。固定主用可能在失效后短暂等待新票。', 'Switching preserves valid tickets and cooldowns. Fixed primary may briefly wait for a new ticket after expiry.') }}</p>
 
         </div>
       </fieldset>
-      <button type="submit" data-testid="save-harvest-policy" class="btn btn-primary btn-sm" :disabled="saving">{{ localText('保存打票策略', 'Save harvest policy') }}</button>
+      <BaseButton type="submit" data-testid="save-harvest-policy" class="btn-primary btn-sm" :disabled="saving">{{ localText('保存打票策略', 'Save harvest policy') }}</BaseButton>
     </form>
     <HarvestPoolSchedulingPanel />
   </section>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import Toggle from '@/components/common/Toggle.vue'

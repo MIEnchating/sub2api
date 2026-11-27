@@ -3,9 +3,6 @@ import { flushPromises, mount, type VueWrapper } from '@vue/test-utils'
 import { createPinia } from 'pinia'
 import { createI18n } from 'vue-i18n'
 import Control from '../SchedulableTimerControl.vue'
-import NewFeatureBadge from '@/components/common/NewFeatureBadge.vue'
-import { NEW_FEATURE_NOTICES } from '@/constants/newFeatureNotices'
-import { useNewFeatureNoticeStore } from '@/stores/newFeatureNotices'
 import type { SchedulableTimer, TimerSnapshot } from '@/api/admin/schedulableTimers'
 import en from '@/i18n/locales/en'
 import zh from '@/i18n/locales/zh'
@@ -196,43 +193,4 @@ describe('daily schedulable timers', () => {
     expect(wrapper.find('input[type="date"]').exists()).toBe(true)
   })
 
-  it('keeps old notices dismissed, shares the daily notice across entries and persists dismissal for the same admin', async () => {
-    const A = NEW_FEATURE_NOTICES.protocolFeatureSwitches
-    const B = NEW_FEATURE_NOTICES.accountDailyScheduling
-    const C = 'future-distinct-scheduling-feature-c'
-    expect(A).not.toBe(B)
-    expect(new Set(Object.values(NEW_FEATURE_NOTICES)).size).toBe(Object.values(NEW_FEATURE_NOTICES).length)
-    const pinia = createPinia()
-    const notices = useNewFeatureNoticeStore(pinia)
-    notices.dismiss(41, A)
-    const first = await render('en', 41, pinia)
-    const second = await render('en', 41, pinia)
-    expect(first.findAll('[data-testid="new-feature-badge"]')).toHaveLength(1)
-    await first.get('[data-test="timer-manage"]').trigger('click')
-    await flushPromises()
-    expect(first.findAll('[data-testid="new-feature-badge"]')).toHaveLength(2)
-    await first.get('[data-testid="new-feature-badge"]').trigger('click')
-    expect(first.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0)
-    expect(second.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0)
-    expect(notices.isDismissed(41, A)).toBe(true)
-    first.unmount()
-    second.unmount()
-    wrappers = []
-    const reloadedPinia = createPinia()
-    const reopened = await render('en', 41, reloadedPinia)
-    expect(reopened.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0)
-    await reopened.setProps({ noticeUserId: 42 })
-    expect(reopened.findAll('[data-testid="new-feature-badge"]')).toHaveLength(1)
-    await reopened.setProps({ noticeUserId: 41 })
-    expect(reopened.findAll('[data-testid="new-feature-badge"]')).toHaveLength(0)
-    const future = mount(NewFeatureBadge, {
-      props: { noticeId: C, userId: 41 },
-      global: { plugins: [reloadedPinia, createI18n({ legacy: false, locale: 'en', messages: { en } })] }
-    })
-    wrappers.push(future)
-    expect(future.find('[data-testid="new-feature-badge"]').exists()).toBe(true)
-    const reloaded = useNewFeatureNoticeStore(reloadedPinia)
-    expect(reloaded.isDismissed(41, A)).toBe(true)
-    expect(reloaded.isDismissed(41, B)).toBe(true)
-  })
 })

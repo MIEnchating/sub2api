@@ -109,6 +109,9 @@ func (s *OpenAIGatewayService) beginOpenAIRequestProxy(ctx context.Context, c *g
 	if c != nil {
 		c.Set(openAIRequestProxyOpsKey, (*openAIRequestProxyRoute)(nil))
 	}
+	if account.RequiresProxyRetirementReview() {
+		return ctx, noop, writeOpenAIRequestProxyError(c, "openai_proxy_unavailable", "Select an outbound proxy before resuming this account")
+	}
 	if account == nil || !account.OpenAIRequestProxyEnabled() {
 		return ctx, noop, nil
 	}

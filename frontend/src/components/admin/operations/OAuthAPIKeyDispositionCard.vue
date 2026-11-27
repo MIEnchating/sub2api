@@ -2,22 +2,22 @@
   <section class="min-w-0 space-y-5 rounded-2xl border border-gray-200 bg-white p-5 shadow-sm dark:border-dark-700 dark:bg-dark-900" data-testid="apikey-disposition">
     <header class="flex flex-wrap items-center justify-between gap-3">
       <div class="flex flex-wrap items-center gap-2"><h2 class="text-lg font-semibold">{{ t('autoConfig.apikeyDisposition.title') }}</h2><NewFeatureBadge :notice-id="NEW_FEATURE_NOTICES.oauthAPIKeyDisposition" :user-id="userId" /></div>
-      <label class="flex items-center gap-2 text-sm"><input v-model="model.enabled" data-testid="apikey-disposition-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label>
+      <label class="flex items-center gap-2 text-sm"><FormInput v-model="model.enabled" data-testid="apikey-disposition-enabled" type="checkbox" role="switch" />{{ t('autoConfig.enable') }}</label>
     </header>
     <p class="text-sm leading-6 text-gray-500">{{ t('autoConfig.apikeyDisposition.hint') }}</p>
     <p v-if="!initialEnabled" class="text-sm text-amber-700 dark:text-amber-300">{{ t('autoConfig.apikeyDisposition.initialDisabled') }}</p>
     <div class="grid gap-4 sm:grid-cols-2">
-      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.action') }}</span><select v-model="model.action" data-testid="apikey-disposition-action" class="input w-full"><option value="pause">{{ t('autoConfig.apikeyDisposition.pause') }}</option><option value="disable">{{ t('autoConfig.apikeyDisposition.disable') }}</option></select></label>
-      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.delay') }}</span><input v-model.number="model.delay_minutes" data-testid="apikey-disposition-delay" type="number" min="0" max="43200" step="1" required class="input w-full" /></label>
-      <label v-if="model.action === 'pause'"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.duration') }}</span><input v-model.number="model.pause_minutes" data-testid="apikey-disposition-duration" type="number" min="1" max="43200" step="1" required class="input w-full" /></label>
-      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.timezone') }}</span><select v-model="model.timezone" class="input w-full"><option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option><option value="UTC">UTC</option><option v-if="!['Asia/Shanghai', 'UTC'].includes(model.timezone)" :value="model.timezone">{{ model.timezone }}</option></select></label>
+      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.action') }}</span><FormSelect v-model="model.action" data-testid="apikey-disposition-action" class="w-full"><option value="pause">{{ t('autoConfig.apikeyDisposition.pause') }}</option><option value="disable">{{ t('autoConfig.apikeyDisposition.disable') }}</option></FormSelect></label>
+      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.delay') }}</span><FormInput v-model.number="model.delay_minutes" data-testid="apikey-disposition-delay" type="number" min="0" max="43200" step="1" required class="w-full" /></label>
+      <label v-if="model.action === 'pause'"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.duration') }}</span><FormInput v-model.number="model.pause_minutes" data-testid="apikey-disposition-duration" type="number" min="1" max="43200" step="1" required class="w-full" /></label>
+      <label><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.timezone') }}</span><FormSelect v-model="model.timezone" class="w-full"><option value="Asia/Shanghai">Asia/Shanghai (UTC+8)</option><option value="UTC">UTC</option><option v-if="!['Asia/Shanghai', 'UTC'].includes(model.timezone)" :value="model.timezone">{{ model.timezone }}</option></FormSelect></label>
     </div>
-    <label class="block"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.scope') }}</span><select v-model="model.scope" data-testid="apikey-disposition-scope" class="input w-full"><option value="accounts">{{ t('autoConfig.apikeyDisposition.manual') }}</option><option value="groups">{{ t('autoConfig.apikeyDisposition.allGroups') }}</option></select></label>
+    <label class="block"><span class="mb-2 block text-sm font-medium">{{ t('autoConfig.apikeyDisposition.scope') }}</span><FormSelect v-model="model.scope" data-testid="apikey-disposition-scope" class="w-full"><option value="accounts">{{ t('autoConfig.apikeyDisposition.manual') }}</option><option value="groups">{{ t('autoConfig.apikeyDisposition.allGroups') }}</option></FormSelect></label>
     <div v-if="model.scope === 'groups'" class="space-y-2">
       <p class="text-xs text-gray-500">{{ t('autoConfig.apikeyDisposition.groupHint') }}</p>
       <div class="max-h-52 space-y-2 overflow-auto rounded-xl border p-3 dark:border-dark-700">
-        <label v-for="g in openAIGroups" :key="g.id" class="flex items-center gap-2 text-sm"><input v-model="model.group_ids" :value="g.id" :data-testid="'disposition-group-' + g.id" type="checkbox" />{{ g.name }} #{{ g.id }}</label>
-        <label v-for="id in model.group_ids.filter(id => !openAIGroups.some(g => g.id === id))" :key="id" class="flex items-center gap-2 text-sm text-amber-700"><input v-model="model.group_ids" :value="id" type="checkbox" />#{{ id }} · {{ t('autoConfig.modelBilling.unavailableGroup') }}</label>
+        <label v-for="g in openAIGroups" :key="g.id" class="flex items-center gap-2 text-sm"><FormInput v-model="model.group_ids" :value="g.id" :data-testid="'disposition-group-' + g.id" type="checkbox" />{{ g.name }} #{{ g.id }}</label>
+        <label v-for="id in model.group_ids.filter(id => !openAIGroups.some(g => g.id === id))" :key="id" class="flex items-center gap-2 text-sm text-amber-700"><FormInput v-model="model.group_ids" :value="id" type="checkbox" />#{{ id }} · {{ t('autoConfig.modelBilling.unavailableGroup') }}</label>
       </div>
     </div>
     <template v-else>
@@ -34,7 +34,7 @@
       </fieldset>
       <div v-if="unavailableAccountIds.length && !loading && !failed" class="space-y-2 text-sm text-amber-700">
         <p>{{ t('autoConfig.apikeyDisposition.unavailableHint') }}</p>
-        <label v-for="id in unavailableAccountIds" :key="id" class="flex items-center gap-2"><input v-model="model.account_ids" :value="id" type="checkbox" />#{{ id }}</label>
+        <label v-for="id in unavailableAccountIds" :key="id" class="flex items-center gap-2"><FormInput v-model="model.account_ids" :value="id" type="checkbox" />#{{ id }}</label>
       </div>
     </template>
     <p class="rounded-xl bg-amber-50 p-3 text-sm leading-6 text-amber-800 dark:bg-amber-950/30 dark:text-amber-200">{{ t('autoConfig.apikeyDisposition.executionHint') }}</p>
@@ -42,6 +42,8 @@
 </template>
 
 <script setup lang="ts">
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { list } from '@/api/admin/accounts'

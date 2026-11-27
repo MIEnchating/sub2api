@@ -14,7 +14,7 @@ const { chromium } = await import(pathToFileURL(join(process.env.PLAYWRIGHT_ROOT
 mkdirSync(output, { recursive: true })
 const manifest = {
   base_commit: base, head_commit: head,
-  boundary: 'Separate complete base/head frontend trees; original AppSidebar, SmartOpsSidebarSettings, adminSettings store, Toggle, FeatureSearch, locales and CSS. Synthetic admin/API and component harness with explicit fixture apply (not the real SettingsView save). No backend, login, production or paid calls. Counts cover the configurable paths (14 on the historical baseline, 11 after); the unrelated AI operations link remains visible.',
+  boundary: 'Separate complete base/head frontend trees; original AppSidebar, SmartOpsSidebarSettings, adminSettings store, Toggle, locales and CSS. Synthetic admin/API and component harness with explicit fixture apply (not the real SettingsView save). No backend, login, production or paid calls. Counts cover the configurable paths (14 on the historical baseline, 11 after); the unrelated AI operations link remains visible.',
   results: [], errors: [], screenshots: [],
 }
 const browser = await chromium.launch({ headless: true })
@@ -54,6 +54,7 @@ try {
             data=structuredClone(settings);
           }
           else if(path==='/admin/payment/config')data={enabled:false};
+          else if(path==='/admin/system/check-updates')data={current_version:'fixture',latest_version:'fixture',has_update:false};
           else if(path==='/keys')data={items:[],pages:1};
           else {state.unexpected.push(path);throw Error('Unexpected fixture endpoint '+path)}
           return{data:{code:0,message:'success',data},status:200,statusText:'OK',headers:{},config:request};
@@ -112,7 +113,7 @@ try {
         manifest.screenshots.push(name)
       }
       for (const scenario of ['missing', 'empty', 'saved']) {
-        await page.goto(`${url}?scenario=${scenario}`)
+        await page.goto(`${url}?scenario=${scenario}`, { waitUntil: 'domcontentloaded' })
         await page.waitForFunction(() => window.__sidebarFixture?.ready)
         const expected = scenario === 'missing' ? 6 : scenario === 'saved' ? paths.length - 1 : paths.length
         assert.equal(await visibleCount(), expected, `${mode}/${scenario} selected entries`)
@@ -124,16 +125,25 @@ try {
         assert.equal(await page.locator('aside nav a[href="/admin/ai-ops"]').count(), 1)
         manifest.results.push({ mode, scenario, selected: expected, sidebar_paths: await sidebarPaths(), ...snapshot })
         await screenshot(`${mode}-${scenario}.png`)
-        const label = await panel().locator(`label[for="smart-ops-sidebar-${channelPath.split('/').pop()}"]`).innerText()
-        await page.locator('aside button[aria-haspopup="dialog"]').click()
-        await page.getByRole('combobox').fill(channelPath)
-        const result = page.getByRole('option').filter({ has: page.getByText(label, { exact: true }) })
-        assert.equal(await result.count(), snapshot.hidden.includes(channelPath) ? 0 : 1)
-        await page.keyboard.press('Escape')
-        await page.getByRole('combobox').waitFor({ state: 'hidden' })
+        const searchButton = page.locator('aside button[aria-haspopup="dialog"]')
+        if (mode === 'before') {
+          const label = await panel().locator(`label[for="smart-ops-sidebar-${channelPath.split('/').pop()}"]`).innerText()
+          await searchButton.click()
+          await page.getByRole('combobox').fill(channelPath)
+          const result = page.getByRole('option').filter({ has: page.getByText(label, { exact: true }) })
+          assert.equal(await result.count(), snapshot.hidden.includes(channelPath) ? 0 : 1)
+          await page.keyboard.press('Escape')
+          await page.getByRole('combobox').waitFor({ state: 'hidden' })
+        } else {
+          assert.equal(await searchButton.count(), 0)
+          for (const shortcut of ['Control+k', 'Meta+k']) {
+            await page.keyboard.press(shortcut)
+            assert.equal(await page.locator('[role="dialog"]').count(), 0, shortcut)
+          }
+        }
       }
       if (mode === 'after') {
-        await page.goto(`${url}?scenario=missing`)
+        await page.goto(`${url}?scenario=missing`, { waitUntil: 'domcontentloaded' })
         await page.waitForFunction(() => window.__sidebarFixture?.ready)
         await page.locator('#smart-ops-sidebar-overview').click()
         assert.equal(await visibleCount(), 7)
@@ -157,7 +167,7 @@ try {
         assert.equal(await panel().locator('#smart-ops-sidebar-token-guard, #smart-ops-sidebar-harvest-flow').count(), 0)
         await screenshot('after-show-all.png')
         manifest.results.push({ interaction: 'enable QQ bot -> seven; hide all -> zero; show all -> eleven', passed: true })
-        await page.goto(`${url}?scenario=missing&lang=en`)
+        await page.goto(`${url}?scenario=missing&lang=en`, { waitUntil: 'domcontentloaded' })
         await page.waitForFunction(() => window.__sidebarFixture?.ready)
         assert.equal(await visibleCount(), 6)
         await screenshot('after-en.png')
@@ -170,8 +180,15 @@ try {
     } catch (error) {
       manifest.errors.push(`${mode}: ${error.stack}`)
       if (page) {
-        writeFileSync(join(output, `${mode}-failure.txt`), await page.locator('body').innerText())
-        await page.screenshot({ path: join(output, `${mode}-failure.png`) })
+        const diagnostics = await Promise.allSettled([
+          page.locator('body').innerText({ timeout: 5000 }).then(body => {
+            writeFileSync(join(output, `${mode}-failure.txt`), body)
+          }),
+          page.screenshot({ path: join(output, `${mode}-failure.png`), timeout: 5000 })
+        ])
+        for (const diagnostic of diagnostics) {
+          if (diagnostic.status === 'rejected') manifest.errors.push(`${mode}: ${diagnostic.reason}`)
+        }
       }
       throw error
     } finally {

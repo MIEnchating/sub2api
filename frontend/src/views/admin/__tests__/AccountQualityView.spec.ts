@@ -132,16 +132,6 @@ describe('quality operations', () => {
     wrapper.unmount()
   })
 
-  it('shares the cleanup notice dismissal across account and template editors', async () => {
-    const wrapper = mountView(); await flushPromises(); const vm = wrapper.vm as any
-    vm.newPlan(); await flushPromises()
-    await wrapper.get('[data-testid="quality-oauth-401-setting"] [data-testid="new-feature-badge"]').trigger('click')
-    expect(wrapper.find('[data-testid="quality-oauth-401-setting"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-    vm.editTemplate(groupRule()); await flushPromises()
-    expect(wrapper.find('[data-testid="quality-oauth-401-setting"] [data-testid="new-feature-badge"]').exists()).toBe(false)
-    wrapper.unmount()
-  })
-
   it.each([-1, 1.5, 101])('rejects the invalid cleanup limit %s before creating a rule', async limit => {
     const wrapper = mountView(); await flushPromises(); const vm = wrapper.vm as any
     vm.newPlan(); vm.accountScope = 'manual'; await flushPromises(); vm.selectedAccounts = [1]

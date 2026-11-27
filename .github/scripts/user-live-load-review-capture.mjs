@@ -108,7 +108,7 @@ async function capture(root, sha, label) {
     await page.locator('tbody tr').first().waitFor()
     assert.equal(await page.locator('tbody tr').count(), rows.length)
     const desktop = page.locator('thead [data-testid="new-feature-badge"]')
-    assert.equal(await desktop.count(), 1)
+    if (label === 'after') assert.equal(await desktop.count(), 0)
     for (const dark of [false, true]) {
       await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark)
       await page.screenshot({ path: path.join(output, `${label}-desktop-${dark ? 'dark' : 'light'}.png`), fullPage: true })
@@ -120,24 +120,19 @@ async function capture(root, sha, label) {
     await page.setViewportSize({ width: 390, height: 1000 })
     await page.locator('[data-field="live_usage"]').first().waitFor()
     const mobile = page.locator('[data-field="live_usage"] [data-testid="new-feature-badge"]')
-    assert.equal(await mobile.count(), label === 'before' ? 0 : rows.length)
+    if (label === 'after') assert.equal(await mobile.count(), 0)
     for (const dark of [false, true]) {
       await page.evaluate(dark => document.documentElement.classList.toggle('dark', dark), dark)
       await page.screenshot({ path: path.join(output, `${label}-mobile-${dark ? 'dark' : 'light'}.png`), fullPage: true })
     }
     if (label === 'after') {
-      assert.ok(await mobile.first().isVisible())
-      await mobile.first().click()
-      assert.equal(await mobile.count(), 0, 'all mobile instances dismiss together')
       await page.setViewportSize({ width: 1440, height: 1100 })
       await page.locator('thead').waitFor()
-      assert.equal(await desktop.count(), 0, 'desktop shares the same dismissal')
+      assert.equal(await desktop.count(), 0, 'desktop omits feature badges')
       await page.reload({ waitUntil: 'networkidle' })
-      assert.equal(await desktop.count(), 0, 'dismissal survives reload')
-      // A later unrelated announcement is independent of the dismissed IDs.
-      assert.equal(await page.evaluate(() => window.userLiveReview.notices.isDismissed(41, 'user-live-review-future-fixture')), false)
-      await page.screenshot({ path: path.join(output, 'after-shared-dismissal.png'), fullPage: true })
-      evidence.checks.push('mobile-visible', 'mobile-dismiss-all', 'desktop-shared-dismissal', 'reload-persistence', 'independent-future-id', 'unknown-is-not-zero')
+      assert.equal(await desktop.count(), 0, 'feature badges remain absent after reload')
+      await page.screenshot({ path: path.join(output, 'after-reloaded.png'), fullPage: true })
+      evidence.checks.push('feature-badges-absent-desktop-and-mobile', 'feature-badges-absent-after-reload', 'unknown-is-not-zero')
     }
     assert.deepEqual(errors, [])
     evidence.sources.push({ label, sha, view: 'UsersView.vue', realDataTable: true, realCSS: true, handlerFixturesFrom: process.env.USER_LIVE_LOAD_HEAD })

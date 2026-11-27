@@ -13,11 +13,11 @@
                 size="md"
                 class="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 dark:text-gray-500"
               />
-              <input
+              <FormInput
                 v-model="searchQuery"
                 type="text"
                 :placeholder="t('admin.groups.searchGroups')"
-                class="input scroll-mt-20 pl-10"
+                class="scroll-mt-20 pl-10"
                 @focus="handleSearchFocus"
                 @input="handleSearch"
               />
@@ -50,10 +50,10 @@
           <div
             class="flex w-full flex-shrink-0 flex-wrap items-center justify-end gap-3 lg:w-auto"
           >
-            <button
+            <BaseButton
               @click="loadGroups"
               :disabled="loading"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('common.refresh')"
             >
               <Icon
@@ -61,18 +61,18 @@
                 size="md"
                 :class="loading ? 'animate-spin' : ''"
               />
-            </button>
+            </BaseButton>
             <div class="relative" ref="columnDropdownRef">
-              <button
+              <BaseButton
                 @click="showColumnDropdown = !showColumnDropdown"
-                class="btn btn-secondary"
+                class="btn-secondary"
                 :title="t('admin.groups.columnSettings')"
               >
                 <Icon name="grid" size="md" class="mr-2" />
                 <span class="hidden md:inline">{{
                   t("admin.groups.columnSettings")
                 }}</span>
-              </button>
+              </BaseButton>
               <div
                 v-if="showColumnDropdown"
                 class="absolute right-0 top-full z-50 mt-1 max-h-80 w-48 overflow-y-auto rounded-lg border border-gray-200 bg-white py-1 shadow-lg dark:border-dark-600 dark:bg-dark-800"
@@ -94,23 +94,23 @@
                 </button>
               </div>
             </div>
-            <button
+            <BaseButton
               v-if="!authStore.isSimpleMode"
               @click="openSortModal"
-              class="btn btn-secondary"
+              class="btn-secondary"
               :title="t('admin.groups.sortOrder')"
             >
               <Icon name="arrowsUpDown" size="md" class="mr-2" />
               {{ t("admin.groups.sortOrder") }}
-            </button>
-            <button
+            </BaseButton>
+            <BaseButton
               @click="openCreateModal"
-              class="btn btn-primary"
+              class="btn-primary"
               data-tour="groups-create-btn"
             >
               <Icon name="plus" size="md" class="mr-2" />
               {{ t("admin.groups.createGroup") }}
-            </button>
+            </BaseButton>
           </div>
         </div>
       </template>
@@ -129,17 +129,17 @@
             <span class="font-medium text-gray-900 dark:text-white">{{
               value
             }}</span>
-            <span
+            <StatusBadge
               v-if="row.codex_cli_only"
-              class="badge badge-warning ml-2"
+              class="badge-warning ml-2"
               data-testid="group-codex-cli-only-badge"
-              >{{ t("admin.groups.form.codexCLIOnly") }}</span
+              >{{ t("admin.groups.form.codexCLIOnly") }}</StatusBadge
             >
-            <span
+            <StatusBadge
               v-if="row.stream_only"
-              class="badge badge-warning ml-2"
+              class="badge-warning ml-2"
               data-testid="group-stream-only-badge"
-              >{{ t("admin.groups.form.streamOnlyBadge") }}</span
+              >{{ t("admin.groups.form.streamOnlyBadge") }}</StatusBadge
             >
           </template>
 
@@ -604,8 +604,7 @@
             </span>
           </div>
           <!-- 分组选择下拉 -->
-          <select
-            class="input"
+          <FormSelect
             @change="
               (e) => {
                 const val = Number((e.target as HTMLSelectElement).value);
@@ -632,7 +631,7 @@
             >
               {{ opt.label }}
             </option>
-          </select>
+          </FormSelect>
           <p class="input-hint">{{ t("admin.groups.copyAccounts.hint") }}</p>
         </div>
         <template v-if="!authStore.isSimpleMode">
@@ -640,37 +639,34 @@
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
-          <input
+          <FormInput
             v-model.number="createForm.rate_multiplier"
             type="number"
             step="0.001"
             min="0.001"
             required
-            class="input"
             data-tour="group-form-multiplier"
           />
           <p class="input-hint">{{ t("admin.groups.rateMultiplierHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
-          <input
+          <FormInput
             v-model.number="createForm.rpm_limit"
             type="number"
             min="0"
             step="1"
-            class="input"
             :placeholder="t('admin.groups.form.rpmLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
-          <input
+          <FormInput
             v-model.number="createForm.user_concurrency_limit"
             type="number"
             min="0"
             step="1"
-            class="input"
             :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
@@ -811,12 +807,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.daily_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -824,12 +819,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.weeklyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.weekly_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -837,12 +831,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.monthlyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.monthly_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -911,7 +904,7 @@
                 :key="item.id"
                 class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
               >
-                <input
+                <FormInput
                   v-model="item.selected"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -985,7 +978,7 @@
           </p>
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="createForm.allow_image_generation"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -993,7 +986,7 @@
               {{ t(imagePricingI18nKey(createForm.platform, "allowImageGeneration")) }}
             </label>
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="createForm.image_rate_independent"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1007,7 +1000,7 @@
               "
               class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
             >
-              <input
+              <FormInput
                 v-model="createForm.image_count_billing"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1022,46 +1015,42 @@
             <label class="input-label">{{
               t(imagePricingI18nKey(createForm.platform, "imageMultiplier"))
             }}</label>
-            <input
+            <FormInput
               v-model.number="createForm.image_rate_multiplier"
               type="number"
               step="0.0001"
               min="0"
-              class="input"
               placeholder="1"
             />
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="input-label">1K ($)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.image_price_1k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(createForm.platform, 'image_price_1k')"
               />
             </div>
             <div>
               <label class="input-label">2K ($)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.image_price_2k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(createForm.platform, 'image_price_2k')"
               />
             </div>
             <div>
               <label class="input-label">4K ($)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.image_price_4k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(createForm.platform, 'image_price_4k')"
               />
             </div>
@@ -1086,7 +1075,7 @@
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              <input
+              <FormInput
                 v-model="createForm.allow_batch_image_generation"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1104,12 +1093,11 @@
                 <label class="input-label">{{
                   t("admin.groups.imagePricing.batchDiscountMultiplier")
                 }}</label>
-                <input
+                <FormInput
                   v-model.number="createForm.batch_image_discount_multiplier"
                   type="number"
                   step="0.0001"
                   min="0"
-                  class="input"
                   placeholder="0.5"
                 />
               </div>
@@ -1117,12 +1105,11 @@
                 <label class="input-label">{{
                   t("admin.groups.imagePricing.batchHoldMultiplier")
                 }}</label>
-                <input
+                <FormInput
                   v-model.number="createForm.batch_image_hold_multiplier"
                   type="number"
                   step="0.0001"
                   min="0"
-                  class="input"
                   placeholder="0.6"
                 />
               </div>
@@ -1156,7 +1143,7 @@
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="createForm.video_rate_independent"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1171,46 +1158,42 @@
             <label class="input-label">{{
               t(videoPricingI18nKey("videoMultiplier"))
             }}</label>
-            <input
+            <FormInput
               v-model.number="createForm.video_rate_multiplier"
               type="number"
               step="0.0001"
               min="0"
-              class="input"
               placeholder="1"
             />
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="input-label">480p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.video_price_480p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_480p')"
               />
             </div>
             <div>
               <label class="input-label">720p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.video_price_720p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_720p')"
               />
             </div>
             <div>
               <label class="input-label">1080p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="createForm.video_price_1080p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(createForm.platform, 'video_price_1080p')"
               />
             </div>
@@ -1242,12 +1225,11 @@
                   <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
                     {{ resolution.label }} ($/s)
                   </span>
-                  <input
+                  <FormInput
                     v-model.number="createForm.video_model_prices[family.key][resolution.key]"
                     type="number"
                     step="0.001"
                     min="0"
-                    class="input"
                     :data-testid="`create-grok-video-price-${family.key}-${resolution.key}`"
                   />
                 </label>
@@ -1276,7 +1258,7 @@
         <div v-if="createForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="createForm.peak_rate_enabled"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1290,28 +1272,25 @@
           >
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
-              <input
+              <FormInput
                 v-model="createForm.peak_start"
                 type="time"
-                class="input"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakEnd") }}</label>
-              <input
+              <FormInput
                 v-model="createForm.peak_end"
                 type="time"
-                class="input"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakMultiplier") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.peak_rate_multiplier"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 placeholder="1"
                 :title="t('admin.groups.peakRate.multiplierHint')"
               />
@@ -1322,7 +1301,7 @@
         <!-- 分组利润控制（token 请求） -->
         <div v-if="isProfitControlPlatform(createForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
+            <FormInput
               v-model="createForm.profit_control_enabled"
               type="checkbox"
               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -1342,26 +1321,24 @@
           >
             <div>
               <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.profit_min_margin_percent"
                 type="number"
                 step="0.1"
                 min="0"
                 max="99.99"
-                class="input"
                 placeholder="0"
                 :title="t('admin.groups.profitControl.minMarginHint')"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.profit_safety_buffer_percent"
                 type="number"
                 step="0.1"
                 min="0"
                 max="99.99"
-                class="input"
                 placeholder="0"
                 :title="t('admin.groups.profitControl.safetyBufferHint')"
               />
@@ -1401,7 +1378,7 @@
           </div>
           <div class="space-y-2">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="createForm.supported_model_scopes.includes('claude')"
                 @change="toggleCreateScope('claude')"
@@ -1412,7 +1389,7 @@
               }}</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="
                   createForm.supported_model_scopes.includes('gemini_text')
@@ -1425,7 +1402,7 @@
               }}</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="
                   createForm.supported_model_scopes.includes('gemini_image')
@@ -1552,13 +1529,12 @@
             <label class="input-label">{{
               t("admin.groups.webSearchPricing.pricePerCall")
             }}</label>
-            <input
+            <FormInput
               v-model.number="createForm.web_search_price_per_call"
               type="number"
               step="0.001"
               min="0"
               placeholder="0.01"
-              class="input"
             />
             <p class="input-hint">
               {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
@@ -1581,12 +1557,12 @@
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
             </div>
-            <button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(createForm.model_pricing)">
+            <BaseButton type="button" class="btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(createForm.model_pricing)">
               <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
-            </button>
+            </BaseButton>
           </div>
           <label class="mt-3 flex items-start gap-2">
-            <input v-model="createForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
+            <FormInput v-model="createForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
             <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
           </label>
           <div class="mt-3 space-y-2">
@@ -1608,48 +1584,44 @@
           <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label class="input-label">{{ t("admin.groups.explicitPricing.searchPricePer1k") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.search_price_per_1k"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.explicitPricing.pricePlaceholder')"
                 data-testid="create-search-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioRealtimePerMin") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.audio_realtime_price_per_min"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="create-audio-realtime-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioTtsPerMillionChars") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.audio_tts_price_per_million_chars"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="create-audio-tts-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioSttPerHour") }}</label>
-              <input
+              <FormInput
                 v-model.number="createForm.audio_stt_price_per_hour"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="create-audio-stt-price"
               />
@@ -1792,39 +1764,36 @@
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.opusModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="createForm.opus_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.opusModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                   <div>
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.sonnetModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="createForm.sonnet_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.sonnetModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                   <div>
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.haikuModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="createForm.haiku_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.haikuModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                 </div>
@@ -1889,7 +1858,7 @@
                           <label class="input-label">{{
                             t("admin.groups.openaiMessages.claudeModel")
                           }}</label>
-                          <input
+                          <FormInput
                             v-model="row.claude_model"
                             type="text"
                             :placeholder="
@@ -1897,7 +1866,7 @@
                                 'admin.groups.openaiMessages.claudeModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
                           />
                         </div>
                         <div
@@ -1913,7 +1882,7 @@
                           <label class="input-label">{{
                             t("admin.groups.openaiMessages.targetModel")
                           }}</label>
-                          <input
+                          <FormInput
                             v-model="row.target_model"
                             type="text"
                             :placeholder="
@@ -1921,7 +1890,7 @@
                                 'admin.groups.openaiMessages.targetModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
                           />
                         </div>
                       </div>
@@ -2090,10 +2059,10 @@
                     <label class="input-label text-xs">{{
                       t("admin.groups.modelRouting.modelPattern")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="rule.pattern"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       :placeholder="
                         t('admin.groups.modelRouting.modelPatternPlaceholder')
                       "
@@ -2125,12 +2094,12 @@
                     </div>
                     <!-- 账号搜索输入框 -->
                     <div class="relative account-search-container">
-                      <input
+                      <FormInput
                         v-model="
                           accountSearchKeyword[getCreateRuleSearchKey(rule)]
                         "
                         type="text"
-                        class="input text-sm"
+                        class="text-sm"
                         :placeholder="
                           t(
                             'admin.groups.modelRouting.searchAccountPlaceholder',
@@ -2204,18 +2173,18 @@
 
       <template #footer>
         <div class="flex justify-end gap-3 pt-4">
-          <button
+          <BaseButton
             @click="closeCreateModal"
             type="button"
-            class="btn btn-secondary"
+            class="btn-secondary"
           >
             {{ t("common.cancel") }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="submit"
             form="create-group-form"
             :disabled="submitting"
-            class="btn btn-primary"
+            class="btn-primary"
             data-tour="group-form-submit"
           >
             <svg
@@ -2239,7 +2208,7 @@
               ></path>
             </svg>
             {{ submitting ? t("admin.groups.creating") : t("common.create") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -2355,8 +2324,7 @@
             </span>
           </div>
           <!-- 分组选择下拉 -->
-          <select
-            class="input"
+          <FormSelect
             @change="
               (e) => {
                 const val = Number((e.target as HTMLSelectElement).value);
@@ -2383,7 +2351,7 @@
             >
               {{ opt.label }}
             </option>
-          </select>
+          </FormSelect>
           <p class="input-hint">
             {{ t("admin.groups.copyAccounts.hintEdit") }}
           </p>
@@ -2392,36 +2360,33 @@
           <label class="input-label">{{
             t("admin.groups.form.rateMultiplier")
           }}</label>
-          <input
+          <FormInput
             v-model.number="editForm.rate_multiplier"
             type="number"
             step="0.001"
             min="0.001"
             required
-            class="input"
             data-tour="group-form-multiplier"
           />
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.rpmLimit") }}</label>
-          <input
+          <FormInput
             v-model.number="editForm.rpm_limit"
             type="number"
             min="0"
             step="1"
-            class="input"
             :placeholder="t('admin.groups.form.rpmLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.rpmLimitHint") }}</p>
         </div>
         <div>
           <label class="input-label">{{ t("admin.groups.form.userConcurrencyLimit") }}</label>
-          <input
+          <FormInput
             v-model.number="editForm.user_concurrency_limit"
             type="number"
             min="0"
             step="1"
-            class="input"
             :placeholder="t('admin.groups.form.userConcurrencyLimitPlaceholder')"
           />
           <p class="input-hint">{{ t("admin.groups.form.userConcurrencyLimitHint") }}</p>
@@ -2559,12 +2524,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.dailyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.daily_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -2572,12 +2536,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.weeklyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.weekly_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -2585,12 +2548,11 @@
               <label class="input-label">{{
                 t("admin.groups.subscription.monthlyLimit")
               }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.monthly_limit_usd"
                 type="number"
                 step="0.01"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.subscription.noLimit')"
               />
             </div>
@@ -2659,7 +2621,7 @@
                 :key="item.id"
                 class="flex items-center gap-2 rounded border border-gray-200 bg-white px-3 py-2 dark:border-dark-600 dark:bg-dark-800"
               >
-                <input
+                <FormInput
                   v-model="item.selected"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500"
@@ -2733,7 +2695,7 @@
           </p>
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="editForm.allow_image_generation"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -2741,7 +2703,7 @@
               {{ t(imagePricingI18nKey(editForm.platform, "allowImageGeneration")) }}
             </label>
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="editForm.image_rate_independent"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -2755,7 +2717,7 @@
               "
               class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300"
             >
-              <input
+              <FormInput
                 v-model="editForm.image_count_billing"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -2770,46 +2732,42 @@
             <label class="input-label">{{
               t(imagePricingI18nKey(editForm.platform, "imageMultiplier"))
             }}</label>
-            <input
+            <FormInput
               v-model.number="editForm.image_rate_multiplier"
               type="number"
               step="0.0001"
               min="0"
-              class="input"
               placeholder="1"
             />
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="input-label">1K ($)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.image_price_1k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(editForm.platform, 'image_price_1k')"
               />
             </div>
             <div>
               <label class="input-label">2K ($)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.image_price_2k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(editForm.platform, 'image_price_2k')"
               />
             </div>
             <div>
               <label class="input-label">4K ($)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.image_price_4k"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getImagePricePlaceholder(editForm.platform, 'image_price_4k')"
               />
             </div>
@@ -2834,7 +2792,7 @@
             <label
               class="flex items-center gap-2 text-sm font-medium text-gray-700 dark:text-gray-300"
             >
-              <input
+              <FormInput
                 v-model="editForm.allow_batch_image_generation"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -2852,12 +2810,11 @@
                 <label class="input-label">{{
                   t("admin.groups.imagePricing.batchDiscountMultiplier")
                 }}</label>
-                <input
+                <FormInput
                   v-model.number="editForm.batch_image_discount_multiplier"
                   type="number"
                   step="0.0001"
                   min="0"
-                  class="input"
                   placeholder="0.5"
                 />
               </div>
@@ -2865,12 +2822,11 @@
                 <label class="input-label">{{
                   t("admin.groups.imagePricing.batchHoldMultiplier")
                 }}</label>
-                <input
+                <FormInput
                   v-model.number="editForm.batch_image_hold_multiplier"
                   type="number"
                   step="0.0001"
                   min="0"
-                  class="input"
                   placeholder="0.6"
                 />
               </div>
@@ -2904,7 +2860,7 @@
           </p>
           <div class="mb-4">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="editForm.video_rate_independent"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -2919,46 +2875,42 @@
             <label class="input-label">{{
               t(videoPricingI18nKey("videoMultiplier"))
             }}</label>
-            <input
+            <FormInput
               v-model.number="editForm.video_rate_multiplier"
               type="number"
               step="0.0001"
               min="0"
-              class="input"
               placeholder="1"
             />
           </div>
           <div class="grid grid-cols-3 gap-3">
             <div>
               <label class="input-label">480p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.video_price_480p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_480p')"
               />
             </div>
             <div>
               <label class="input-label">720p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.video_price_720p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_720p')"
               />
             </div>
             <div>
               <label class="input-label">1080p ($/s)</label>
-              <input
+              <FormInput
                 v-model.number="editForm.video_price_1080p"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 :placeholder="getVideoPricePlaceholder(editForm.platform, 'video_price_1080p')"
               />
             </div>
@@ -2990,12 +2942,11 @@
                   <span class="mb-1 block text-xs text-gray-500 dark:text-gray-400">
                     {{ resolution.label }} ($/s)
                   </span>
-                  <input
+                  <FormInput
                     v-model.number="editForm.video_model_prices[family.key][resolution.key]"
                     type="number"
                     step="0.001"
                     min="0"
-                    class="input"
                     :data-testid="`edit-grok-video-price-${family.key}-${resolution.key}`"
                   />
                 </label>
@@ -3024,7 +2975,7 @@
         <div v-if="editForm.subscription_type === 'subscription'" class="border-t pt-4">
           <div class="mb-4 grid grid-cols-1 gap-3 md:grid-cols-2">
             <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-              <input
+              <FormInput
                 v-model="editForm.peak_rate_enabled"
                 type="checkbox"
                 class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -3038,28 +2989,25 @@
           >
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakStart") }}</label>
-              <input
+              <FormInput
                 v-model="editForm.peak_start"
                 type="time"
-                class="input"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakEnd") }}</label>
-              <input
+              <FormInput
                 v-model="editForm.peak_end"
                 type="time"
-                class="input"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.peakRate.peakMultiplier") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.peak_rate_multiplier"
                 type="number"
                 step="0.001"
                 min="0"
-                class="input"
                 placeholder="1"
                 :title="t('admin.groups.peakRate.multiplierHint')"
               />
@@ -3070,7 +3018,7 @@
         <!-- 分组利润控制（token 请求） -->
         <div v-if="isProfitControlPlatform(editForm.platform)" class="border-t pt-4">
           <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-            <input
+            <FormInput
               v-model="editForm.profit_control_enabled"
               type="checkbox"
               class="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
@@ -3090,26 +3038,24 @@
           >
             <div>
               <label class="input-label">{{ t("admin.groups.profitControl.minMargin") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.profit_min_margin_percent"
                 type="number"
                 step="0.1"
                 min="0"
                 max="99.99"
-                class="input"
                 placeholder="0"
                 :title="t('admin.groups.profitControl.minMarginHint')"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.profitControl.safetyBuffer") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.profit_safety_buffer_percent"
                 type="number"
                 step="0.1"
                 min="0"
                 max="99.99"
-                class="input"
                 placeholder="0"
                 :title="t('admin.groups.profitControl.safetyBufferHint')"
               />
@@ -3149,7 +3095,7 @@
           </div>
           <div class="space-y-2">
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="editForm.supported_model_scopes.includes('claude')"
                 @change="toggleEditScope('claude')"
@@ -3160,7 +3106,7 @@
               }}</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="
                   editForm.supported_model_scopes.includes('gemini_text')
@@ -3173,7 +3119,7 @@
               }}</span>
             </label>
             <label class="flex items-center gap-2 cursor-pointer">
-              <input
+              <FormInput
                 type="checkbox"
                 :checked="
                   editForm.supported_model_scopes.includes('gemini_image')
@@ -3300,13 +3246,12 @@
             <label class="input-label">{{
               t("admin.groups.webSearchPricing.pricePerCall")
             }}</label>
-            <input
+            <FormInput
               v-model.number="editForm.web_search_price_per_call"
               type="number"
               step="0.001"
               min="0"
               placeholder="0.01"
-              class="input"
             />
             <p class="input-hint">
               {{ t("admin.groups.webSearchPricing.pricePerCallHint") }}
@@ -3341,12 +3286,12 @@
               <h4 class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.title") }}</h4>
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t("admin.groups.modelPricing.description") }}</p>
             </div>
-            <button type="button" class="btn btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(editForm.model_pricing)">
+            <BaseButton type="button" class="btn-secondary shrink-0 whitespace-nowrap" @click="addGroupPricing(editForm.model_pricing)">
               <Icon name="plus" size="sm" class="mr-1" />{{ t("admin.groups.modelPricing.add") }}
-            </button>
+            </BaseButton>
           </div>
           <label class="mt-3 flex items-start gap-2">
-            <input v-model="editForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
+            <FormInput v-model="editForm.long_context_pricing_enabled" type="checkbox" class="mt-0.5" />
             <span><span class="block text-sm text-gray-700 dark:text-gray-300">{{ t("admin.groups.modelPricing.longContext") }}</span><span class="block text-xs text-gray-500">{{ t("admin.groups.modelPricing.longContextHint") }}</span></span>
           </label>
           <div class="mt-3 space-y-2">
@@ -3368,48 +3313,44 @@
           <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
             <div>
               <label class="input-label">{{ t("admin.groups.explicitPricing.searchPricePer1k") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.search_price_per_1k"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.explicitPricing.pricePlaceholder')"
                 data-testid="edit-search-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioRealtimePerMin") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.audio_realtime_price_per_min"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="edit-audio-realtime-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioTtsPerMillionChars") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.audio_tts_price_per_million_chars"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="edit-audio-tts-price"
               />
             </div>
             <div>
               <label class="input-label">{{ t("admin.groups.voicePricing.audioSttPerHour") }}</label>
-              <input
+              <FormInput
                 v-model.number="editForm.audio_stt_price_per_hour"
                 type="number"
                 step="0.000001"
                 min="0"
-                class="input"
                 :placeholder="t('admin.groups.voicePricing.pricePlaceholder')"
                 data-testid="edit-audio-stt-price"
               />
@@ -3551,39 +3492,36 @@
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.opusModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="editForm.opus_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.opusModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                   <div>
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.sonnetModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="editForm.sonnet_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.sonnetModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                   <div>
                     <label class="input-label">{{
                       t("admin.groups.openaiMessages.haikuModel")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="editForm.haiku_mapped_model"
                       type="text"
                       :placeholder="
                         t('admin.groups.openaiMessages.haikuModelPlaceholder')
                       "
-                      class="input"
                     />
                   </div>
                 </div>
@@ -3648,7 +3586,7 @@
                           <label class="input-label">{{
                             t("admin.groups.openaiMessages.claudeModel")
                           }}</label>
-                          <input
+                          <FormInput
                             v-model="row.claude_model"
                             type="text"
                             :placeholder="
@@ -3656,7 +3594,7 @@
                                 'admin.groups.openaiMessages.claudeModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
                           />
                         </div>
                         <div
@@ -3672,7 +3610,7 @@
                           <label class="input-label">{{
                             t("admin.groups.openaiMessages.targetModel")
                           }}</label>
-                          <input
+                          <FormInput
                             v-model="row.target_model"
                             type="text"
                             :placeholder="
@@ -3680,7 +3618,7 @@
                                 'admin.groups.openaiMessages.targetModelPlaceholder',
                               )
                             "
-                            class="input bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
+                            class="bg-gray-50 focus:bg-white dark:bg-dark-800 dark:focus:bg-dark-900"
                           />
                         </div>
                       </div>
@@ -3850,10 +3788,10 @@
                     <label class="input-label text-xs">{{
                       t("admin.groups.modelRouting.modelPattern")
                     }}</label>
-                    <input
+                    <FormInput
                       v-model="rule.pattern"
                       type="text"
-                      class="input text-sm"
+                      class="text-sm"
                       :placeholder="
                         t('admin.groups.modelRouting.modelPatternPlaceholder')
                       "
@@ -3885,12 +3823,12 @@
                     </div>
                     <!-- 账号搜索输入框 -->
                     <div class="relative account-search-container">
-                      <input
+                      <FormInput
                         v-model="
                           accountSearchKeyword[getEditRuleSearchKey(rule)]
                         "
                         type="text"
-                        class="input text-sm"
+                        class="text-sm"
                         :placeholder="
                           t(
                             'admin.groups.modelRouting.searchAccountPlaceholder',
@@ -3964,19 +3902,19 @@
 
       <template #footer>
         <div class="flex justify-end gap-3 pt-4">
-          <button
+          <BaseButton
             @click="closeEditModal"
             type="button"
             :disabled="submitting"
-            class="btn btn-secondary"
+            class="btn-secondary"
           >
             {{ t("common.cancel") }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             type="submit"
             form="edit-group-form"
             :disabled="submitting || editSmartWSRef?.loading"
-            class="btn btn-primary"
+            class="btn-primary"
             data-tour="group-form-submit"
           >
             <svg
@@ -4000,7 +3938,7 @@
               ></path>
             </svg>
             {{ submitting ? t("admin.groups.updating") : t("common.update") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -4092,17 +4030,17 @@
 
       <template #footer>
         <div class="flex justify-end gap-3 pt-4">
-          <button
+          <BaseButton
             @click="closeSortModal"
             type="button"
-            class="btn btn-secondary"
+            class="btn-secondary"
           >
             {{ t("common.cancel") }}
-          </button>
-          <button
+          </BaseButton>
+          <BaseButton
             @click="saveSortOrder"
             :disabled="sortSubmitting"
-            class="btn btn-primary"
+            class="btn-primary"
           >
             <svg
               v-if="sortSubmitting"
@@ -4125,7 +4063,7 @@
               ></path>
             </svg>
             {{ sortSubmitting ? t("common.saving") : t("common.save") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -4149,9 +4087,9 @@
             <h3 class="text-sm font-semibold text-gray-900 dark:text-white">
               {{ t("admin.groups.compositeRoutes.routes") }}
             </h3>
-            <button
+            <BaseButton
               type="button"
-              class="btn btn-secondary btn-sm"
+              class="btn-secondary btn-sm"
               :disabled="compositeRoutesLoading"
               @click="loadCompositeRoutes"
             >
@@ -4160,7 +4098,7 @@
                 size="sm"
                 :class="compositeRoutesLoading ? 'animate-spin' : ''"
               />
-            </button>
+            </BaseButton>
           </div>
 
           <div
@@ -4179,7 +4117,7 @@
               {{ t("admin.groups.compositeRoutes.empty") }}
             </div>
             <div v-else class="overflow-x-auto">
-              <table class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
+              <BaseTable class="min-w-full divide-y divide-gray-200 text-sm dark:divide-dark-600">
                 <thead class="bg-gray-50 text-left text-xs font-medium uppercase tracking-wide text-gray-500 dark:bg-dark-800 dark:text-gray-400">
                   <tr>
                     <th class="px-3 py-2">
@@ -4207,15 +4145,15 @@
                         {{ route.public_model }}
                       </div>
                       <div class="mt-1 flex flex-wrap items-center gap-1.5">
-                        <span class="badge badge-gray">{{
+                        <StatusBadge class="badge-gray">{{
                           compositeRouteMatchLabel(route.match_type)
-                        }}</span>
-                        <span
+                        }}</StatusBadge>
+                        <StatusBadge
                           v-if="!route.enabled"
-                          class="badge badge-danger"
+                          class="badge-danger"
                         >
                           {{ t("admin.accounts.status.inactive") }}
-                        </span>
+                        </StatusBadge>
                       </div>
                     </td>
                     <td class="px-3 py-2">
@@ -4258,7 +4196,7 @@
                     </td>
                   </tr>
                 </tbody>
-              </table>
+              </BaseTable>
             </div>
           </div>
         </section>
@@ -4287,10 +4225,9 @@
               <label class="input-label">{{
                 t("admin.groups.compositeRoutes.publicModel")
               }}</label>
-              <input
+              <FormInput
                 v-model.trim="compositeRouteForm.public_model"
                 type="text"
-                class="input"
                 required
                 placeholder="openrouter/gpt-5"
               />
@@ -4331,12 +4268,11 @@
                 <label class="input-label">{{
                   t("admin.groups.compositeRoutes.priority")
                 }}</label>
-                <input
+                <FormInput
                   v-model.number="compositeRouteForm.priority"
                   type="number"
                   min="1"
                   step="1"
-                  class="input"
                 />
               </div>
             </div>
@@ -4345,10 +4281,9 @@
               <label class="input-label">{{
                 t("admin.groups.compositeRoutes.upstreamModel")
               }}</label>
-              <input
+              <FormInput
                 v-model.trim="compositeRouteForm.upstream_model"
                 type="text"
-                class="input"
                 placeholder="gpt-5"
               />
               <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
@@ -4360,25 +4295,24 @@
               <label class="input-label">{{
                 t("admin.groups.compositeRoutes.notes")
               }}</label>
-              <textarea
+              <FormTextarea
                 v-model.trim="compositeRouteForm.notes"
                 rows="2"
-                class="input"
-              ></textarea>
+              ></FormTextarea>
             </div>
 
             <div class="flex items-center justify-between gap-3">
               <label class="flex items-center gap-2 text-sm text-gray-700 dark:text-gray-300">
-                <input
+                <FormInput
                   v-model="compositeRouteForm.enabled"
                   type="checkbox"
                   class="h-4 w-4 rounded border-gray-300 text-primary-600 focus:ring-primary-500 dark:border-dark-600 dark:bg-dark-700"
                 />
                 {{ t("admin.groups.compositeRoutes.enabled") }}
               </label>
-              <button
+              <BaseButton
                 type="submit"
-                class="btn btn-primary"
+                class="btn-primary"
                 :disabled="compositeRouteSaving"
               >
                 <Icon
@@ -4388,7 +4322,7 @@
                   class="mr-2"
                 />
                 {{ compositeRouteEditingId ? t("common.update") : t("common.create") }}
-              </button>
+              </BaseButton>
             </div>
           </form>
 
@@ -4397,10 +4331,9 @@
               {{ t("admin.groups.compositeRoutes.preview") }}
             </h3>
             <div class="space-y-3">
-              <input
+              <FormInput
                 v-model.trim="compositePreviewModel"
                 type="text"
-                class="input"
                 placeholder="openrouter/gpt-5"
                 @keyup.enter="previewCompositeRoute"
               />
@@ -4410,14 +4343,14 @@
                   :options="compositeRouteEndpointOptions"
                   class="min-w-0 flex-1"
                 />
-                <button
+                <BaseButton
                   type="button"
-                  class="btn btn-secondary"
+                  class="btn-secondary"
                   :disabled="compositePreviewLoading || !compositePreviewModel"
                   @click="previewCompositeRoute"
                 >
                   <Icon name="play" size="sm" />
-                </button>
+                </BaseButton>
               </div>
 
               <div
@@ -4439,13 +4372,13 @@
                         : t("admin.groups.compositeRoutes.notMatched")
                     }}
                   </span>
-                  <span class="badge badge-gray">
+                  <StatusBadge class="badge-gray">
                     {{
                       compositeRouteSourceLabel(
                         compositePreviewDecision.source,
                       )
                     }}
-                  </span>
+                  </StatusBadge>
                 </div>
                 <div
                   v-if="compositePreviewDecision.matched"
@@ -4478,13 +4411,13 @@
 
       <template #footer>
         <div class="flex justify-end pt-4">
-          <button
+          <BaseButton
             type="button"
-            class="btn btn-secondary"
+            class="btn-secondary"
             @click="closeCompositeRoutesModal"
           >
             {{ t("common.close") }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -4516,6 +4449,12 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import QwenPlatformNotice from '@/components/common/QwenPlatformNotice.vue'
 import { ref, reactive, computed, onMounted, onUnmounted, watch } from "vue";
 import { useI18n } from "vue-i18n";

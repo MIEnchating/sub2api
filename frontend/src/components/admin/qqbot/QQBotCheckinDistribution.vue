@@ -7,11 +7,11 @@
         <span>{{ t('qqbot.checkinBandRange') }}</span>
         <span class="flex items-center gap-2">
           <span class="whitespace-nowrap tabular-nums">{{ percentText(startBPS(index)) }}% –</span>
-          <input
+          <FormInput
             :value="percentText(band.end_bps)" :data-testid="'band-end-' + index"
             :readonly="index === distribution.bands.length - 1"
             type="number" min="0.01" max="100" step="0.01" required
-            class="input min-w-0 read-only:bg-gray-100 dark:read-only:bg-dark-700"
+            class="min-w-0 read-only:bg-gray-100 dark:read-only:bg-dark-700"
             @input="setPercent(band, 'end_bps', $event)"
           />
           <span>%</span>
@@ -19,17 +19,17 @@
       </label>
       <label class="min-w-0 space-y-1 text-sm">
         <span>{{ t('qqbot.checkinBandProbability') }}</span>
-        <input
+        <FormInput
           :value="percentText(band.probability_bps)" :data-testid="'band-probability-' + index"
-          type="number" min="0" max="100" step="0.01" required class="input"
+          type="number" min="0" max="100" step="0.01" required
           @input="setPercent(band, 'probability_bps', $event)"
         />
       </label>
       <div class="flex items-center gap-3 sm:col-span-2 lg:col-span-1 lg:self-end">
-        <button
-          type="button" class="btn btn-secondary" :data-testid="'split-band-' + index"
+        <BaseButton
+          type="button" class="btn-secondary" :data-testid="'split-band-' + index"
           :disabled="!canSplit(band, index)" @click="splitBand(index)"
-        >{{ t('qqbot.splitCheckinBand') }}</button>
+        >{{ t('qqbot.splitCheckinBand') }}</BaseButton>
         <button
           type="button" class="text-sm text-red-600 disabled:opacity-50" :data-testid="'remove-band-' + index"
           :disabled="distribution.bands.length === 1" @click="removeBand(index)"
@@ -41,6 +41,8 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { QQCheckinRewardBand, QQCheckinRewardDistribution } from '@/api/qqbot'

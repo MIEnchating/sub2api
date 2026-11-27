@@ -17,19 +17,19 @@
       </div>
       <div class="flex flex-wrap gap-2">
         <slot name="actions" />
-        <input v-model="search" class="input w-48 text-sm" :placeholder="t('accountOps.search')" :aria-label="t('accountOps.search')" />
-        <select v-if="!channelView || activeView === 'official'" v-model="type" class="input w-auto text-sm" :aria-label="t('accountOps.accountType')">
+        <FormInput v-model="search" class="w-48 text-sm" :placeholder="t('accountOps.search')" :aria-label="t('accountOps.search')" />
+        <FormSelect v-if="!channelView || activeView === 'official'" v-model="type" class="w-auto text-sm" :aria-label="t('accountOps.accountType')">
           <option value="all">{{ t('accountOps.allAccounts') }}</option>
           <option v-if="!channelView" value="apikey">API Key</option>
           <option v-if="!channelView" value="oauth">OAuth</option>
           <option value="temporary">{{ t('accountOps.oauthTemporary') }}</option>
           <option value="long_term">{{ t('accountOps.oauthLongTerm') }}</option>
           <option v-if="!channelView" value="mixed">API Key + OAuth</option>
-        </select>
-        <select v-model="state" class="input w-auto text-sm" :aria-label="t('accountOps.ruleState')">
+        </FormSelect>
+        <FormSelect v-model="state" class="w-auto text-sm" :aria-label="t('accountOps.ruleState')">
           <option value="all">{{ t('accountOps.allStates') }}</option>
           <option v-for="value in states" :key="value" :value="value">{{ t(`accountOps.ruleStates.${value}`) }}</option>
-        </select>
+        </FormSelect>
       </div>
     </div>
     <div class="flex flex-wrap items-center justify-between gap-3 border-b border-gray-100 px-5 py-3 dark:border-dark-700">
@@ -42,15 +42,15 @@
       </div>
       <div class="flex shrink-0 items-center gap-3">
         <button v-if="selectedGroups.length" type="button" class="text-sm text-gray-500 hover:underline" :disabled="busy" @click="clearSelection">{{ t('accountOps.clearSelection') }}</button>
-        <button type="button" class="btn btn-secondary text-sm" data-testid="batch-edit-rules" :disabled="selectionUnavailable || !selectedGroups.length || !selectedAccounts.length" @click="editBatch">{{ t('accountOps.batchEditRules') }}</button>
+        <BaseButton type="button" class="btn-secondary text-sm" data-testid="batch-edit-rules" :disabled="selectionUnavailable || !selectedGroups.length || !selectedAccounts.length" @click="editBatch">{{ t('accountOps.batchEditRules') }}</BaseButton>
       </div>
     </div>
     <div class="overflow-x-auto">
-      <table class="w-full min-w-[820px] text-left text-sm">
+      <BaseTable class="w-full min-w-[820px] text-left text-sm">
         <thead class="bg-gray-50 text-xs text-gray-500 dark:bg-dark-800">
           <tr>
             <th class="w-12 py-3 pl-5 pr-2">
-              <input type="checkbox" data-testid="select-visible-groups" :aria-label="t(channelView ? 'channelConfig.pageSelect' : 'accountOps.selectVisibleGroups')" :checked="allVisibleSelected" :indeterminate="someVisibleSelected && !allVisibleSelected" :disabled="selectionUnavailable || !selectableRows.length" @change="selectVisible(($event.target as HTMLInputElement).checked)" />
+              <FormInput type="checkbox" data-testid="select-visible-groups" :aria-label="t(channelView ? 'channelConfig.pageSelect' : 'accountOps.selectVisibleGroups')" :checked="allVisibleSelected" :indeterminate="someVisibleSelected && !allVisibleSelected" :disabled="selectionUnavailable || !selectableRows.length" @change="selectVisible(($event.target as HTMLInputElement).checked)" />
             </th>
             <th class="px-3 py-3">{{ t(channelView ? `channelConfig.${activeView}` : 'accountOps.accountGroup') }}</th>
             <th class="px-4 py-3">{{ t('accountOps.metric') }}</th>
@@ -62,7 +62,7 @@
         <tbody>
           <tr v-for="row in visibleRows" :key="row.group.id" class="border-t border-gray-100 dark:border-dark-700" :data-testid="`rule-row-${row.group.id}`">
             <td class="py-4 pl-5 pr-2">
-              <input type="checkbox" :data-testid="`select-group-${row.group.id}`" :aria-label="t('accountOps.selectGroup', { name: row.group.name })" :checked="selectedIds.has(row.group.id)" :disabled="selectionUnavailable || row.group.mode === 'account'" @change="selectGroup(row.group.id, ($event.target as HTMLInputElement).checked)" />
+              <FormInput type="checkbox" :data-testid="`select-group-${row.group.id}`" :aria-label="t('accountOps.selectGroup', { name: row.group.name })" :checked="selectedIds.has(row.group.id)" :disabled="selectionUnavailable || row.group.mode === 'account'" @change="selectGroup(row.group.id, ($event.target as HTMLInputElement).checked)" />
             </td>
             <td class="px-3 py-4">
               <p class="font-medium text-gray-900 dark:text-gray-100">{{ row.group.name }}</p>
@@ -109,7 +109,7 @@
             <td class="px-5 py-4">
               <div class="flex items-center justify-end gap-4">
                 <label v-if="row.balanceRule || row.quotaRule" class="flex items-center gap-1.5 text-xs text-gray-500">
-                  <input type="checkbox" :data-testid="`toggle-rule-${row.group.id}`" :checked="row.balanceRule?.enabled ?? row.quotaRule?.enabled" :disabled="busy" :aria-label="`${row.group.name} ${t('accountOps.ruleEnabled')}`" @change="emit('toggle', row.group, row.accounts, ($event.target as HTMLInputElement).checked)" />
+                  <FormInput type="checkbox" :data-testid="`toggle-rule-${row.group.id}`" :checked="row.balanceRule?.enabled ?? row.quotaRule?.enabled" :disabled="busy" :aria-label="`${row.group.name} ${t('accountOps.ruleEnabled')}`" @change="emit('toggle', row.group, row.accounts, ($event.target as HTMLInputElement).checked)" />
                   {{ t('accountOps.channelEnabled') }}
                 </label>
                 <button type="button" class="text-sm text-primary-600 hover:underline" :data-testid="`edit-rule-${row.group.id}`" :disabled="selectionUnavailable" @click="editRow(row)">{{ t(row.group.mode === 'account' ? 'accountOps.manageGroups' : 'accountOps.editRule') }}</button>
@@ -117,7 +117,7 @@
             </td>
           </tr>
         </tbody>
-      </table>
+      </BaseTable>
     </div>
     <Pagination v-if="channelView && filtered.length > pageSize" :page="page" :page-size="pageSize" :total="filtered.length"
       :show-page-size-selector="false" :show-jump="false" @update:page="page = $event" />
@@ -129,6 +129,10 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, ref, watch } from 'vue'
 import Pagination from '@/components/common/Pagination.vue'
 import { channelRuleGroups, type ChannelRuleView } from './channelRuleGroups'

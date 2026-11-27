@@ -5,12 +5,11 @@
       :aria-label="t('qqbot.growth.tab')"
       class="flex flex-wrap gap-1 border-b border-gray-200 dark:border-dark-700"
     >
-      <button
+      <TabButton
         v-for="tab in tabs"
         :id="`qqbot-growth-tab-${tab.key}`"
         :key="tab.key"
         type="button"
-        role="tab"
         :aria-selected="activeTab.key === tab.key"
         :aria-controls="`qqbot-growth-panel-${tab.key}`"
         :tabindex="activeTab.key === tab.key ? 0 : -1"
@@ -22,7 +21,7 @@
         @keydown="handleKeydown($event, tab.key)"
       >
         {{ t(tab.label) }}
-      </button>
+      </TabButton>
     </nav>
     <div
       :id="`qqbot-growth-panel-${activeTab.key}`"
@@ -37,6 +36,7 @@
 </template>
 
 <script setup lang="ts">
+import TabButton from '@/components/common/TabButton.vue'
 import { computed, nextTick } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useRoute, useRouter } from 'vue-router'

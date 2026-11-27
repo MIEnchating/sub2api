@@ -1,18 +1,18 @@
 <template>
   <section class="card space-y-4 p-5" data-testid="ai-recovery-probes">
-    <header class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-semibold">{{ t('aiOpsControl.probes.title') }}</h3><button type="button" class="btn btn-secondary" :disabled="submitting || loading" data-testid="ai-probe-refresh" @click="refresh">{{ t('aiOpsControl.probes.refresh') }}</button></header>
+    <header class="flex flex-wrap items-center justify-between gap-3"><h3 class="font-semibold">{{ t('aiOpsControl.probes.title') }}</h3><BaseButton type="button" class="btn-secondary" :disabled="submitting || loading" data-testid="ai-probe-refresh" @click="refresh">{{ t('aiOpsControl.probes.refresh') }}</BaseButton></header>
     <p class="text-sm leading-6 text-gray-500">{{ t('aiOpsControl.probes.hint') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600 dark:text-red-300">{{ error }}</p>
     <p v-if="needsRefresh && !error" role="alert" class="text-sm text-amber-700 dark:text-amber-300">{{ t('aiOpsControl.probes.refreshRequired') }}</p>
     <div class="grid gap-3 sm:grid-cols-2">
-      <label><span class="mb-1 block text-xs text-gray-500">{{ t('aiOpsControl.probes.account') }}</span><select v-model.number="accountId" class="input w-full" :disabled="submitting || disabled" data-testid="ai-probe-account"><option :value="0">{{ t('aiOpsControl.probes.choose') }}</option><option v-for="account in policy.accounts" :key="account.account_id" :value="account.account_id">#{{ account.account_id }}</option></select></label>
-      <label><span class="mb-1 block text-xs text-gray-500">{{ t('aiOpsControl.probes.model') }}</span><input v-model.trim="model" type="text" maxlength="100" class="input w-full" :disabled="submitting || disabled" data-testid="ai-probe-model" /></label>
+      <label><span class="mb-1 block text-xs text-gray-500">{{ t('aiOpsControl.probes.account') }}</span><FormSelect v-model.number="accountId" class="w-full" :disabled="submitting || disabled" data-testid="ai-probe-account"><option :value="0">{{ t('aiOpsControl.probes.choose') }}</option><option v-for="account in policy.accounts" :key="account.account_id" :value="account.account_id">#{{ account.account_id }}</option></FormSelect></label>
+      <label><span class="mb-1 block text-xs text-gray-500">{{ t('aiOpsControl.probes.model') }}</span><FormInput v-model.trim="model" type="text" maxlength="100" class="w-full" :disabled="submitting || disabled" data-testid="ai-probe-model" /></label>
     </div>
-    <label class="flex items-start gap-2 text-sm"><input v-model="consent" type="checkbox" class="mt-0.5" :disabled="submitting || disabled" data-testid="ai-probe-consent" /><span>{{ t('aiOpsControl.probes.consent') }}</span></label>
+    <label class="flex items-start gap-2 text-sm"><FormInput v-model="consent" type="checkbox" class="mt-0.5" :disabled="submitting || disabled" data-testid="ai-probe-consent" /><span>{{ t('aiOpsControl.probes.consent') }}</span></label>
     <div class="flex flex-wrap items-center gap-3">
-      <button type="button" class="btn btn-primary" :disabled="!canProbe" data-testid="ai-probe-start" @click="start">{{ t('aiOpsControl.probes.start') }}</button>
-      <button v-if="polling" type="button" class="btn btn-secondary" data-testid="ai-probe-stop-polling" @click="stopPolling(true)">{{ t('aiOpsControl.probes.stop') }}</button>
-      <button v-else-if="hasPending" type="button" class="btn btn-secondary" :disabled="loading" data-testid="ai-probe-resume-polling" @click="startPolling">{{ t('aiOpsControl.probes.resume') }}</button>
+      <BaseButton type="button" class="btn-primary" :disabled="!canProbe" data-testid="ai-probe-start" @click="start">{{ t('aiOpsControl.probes.start') }}</BaseButton>
+      <BaseButton v-if="polling" type="button" class="btn-secondary" data-testid="ai-probe-stop-polling" @click="stopPolling(true)">{{ t('aiOpsControl.probes.stop') }}</BaseButton>
+      <BaseButton v-else-if="hasPending" type="button" class="btn-secondary" :disabled="loading" data-testid="ai-probe-resume-polling" @click="startPolling">{{ t('aiOpsControl.probes.resume') }}</BaseButton>
     </div>
     <p v-if="pollMessage" class="text-sm text-amber-700 dark:text-amber-300">{{ pollMessage }}</p>
     <p v-if="!probes.length" class="text-sm text-gray-500">{{ t('aiOpsControl.probes.empty') }}</p>
@@ -28,6 +28,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, onMounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAuthStore } from '@/stores/auth'

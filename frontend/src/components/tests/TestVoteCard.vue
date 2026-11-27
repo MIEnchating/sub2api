@@ -6,7 +6,7 @@
         <p class="mt-1 break-words text-xs text-gray-500 dark:text-gray-400">{{ item.result.model_id || '-' }}<span v-if="item.result.reasoning_effort"> · {{ t('tests.reasoningEffort') }}: {{ item.result.reasoning_effort }}</span> · {{ formatDate(item.result.started_at || item.result.created_at) }}</p>
         <p v-if="item.result.model_schedulable != null" class="mt-1 text-xs font-medium" :class="item.result.model_schedulable ? 'text-emerald-600 dark:text-emerald-400' : 'text-red-600 dark:text-red-400'" data-model-scheduling-status>{{ t(item.result.model_schedulable ? 'tests.modelSchedulingActive' : 'tests.modelSchedulingPaused') }}</p>
       </div>
-      <span v-if="item.voting.account_paused" class="badge badge-warning">{{ t('tests.voting.paused') }}</span>
+      <StatusBadge v-if="item.voting.account_paused" class="badge-warning">{{ t('tests.voting.paused') }}</StatusBadge>
     </header>
     <TestResultOutput :result="item.result" compact />
     <div v-if="item.voting.reference_answer" class="mt-4 rounded-md bg-gray-50 p-3 dark:bg-dark-800">
@@ -15,8 +15,8 @@
     </div>
     <footer class="mt-4 border-t border-gray-100 pt-4 dark:border-dark-700">
       <div class="flex flex-wrap items-center gap-3">
-        <button type="button" class="btn btn-secondary" :class="item.voting.my_vote === 'pass' ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : ''" :aria-pressed="item.voting.my_vote === 'pass'" :disabled="busy || !item.voting.open" data-vote-pass @click="$emit('vote', 'pass')">{{ t('tests.voting.pass') }} <span class="tabular-nums">{{ item.voting.pass_count }}</span></button>
-        <button type="button" class="btn btn-secondary" :class="item.voting.my_vote === 'fail' ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : ''" :aria-pressed="item.voting.my_vote === 'fail'" :disabled="busy || !item.voting.open" data-vote-fail @click="$emit('vote', 'fail')">{{ t('tests.voting.fail') }} <span class="tabular-nums">{{ item.voting.fail_count }}</span></button>
+        <BaseButton type="button" class="btn-secondary" :class="item.voting.my_vote === 'pass' ? 'border-green-500 bg-green-50 text-green-700 dark:bg-green-950/30 dark:text-green-300' : ''" :aria-pressed="item.voting.my_vote === 'pass'" :disabled="busy || !item.voting.open" data-vote-pass @click="$emit('vote', 'pass')">{{ t('tests.voting.pass') }} <span class="tabular-nums">{{ item.voting.pass_count }}</span></BaseButton>
+        <BaseButton type="button" class="btn-secondary" :class="item.voting.my_vote === 'fail' ? 'border-red-500 bg-red-50 text-red-700 dark:bg-red-950/30 dark:text-red-300' : ''" :aria-pressed="item.voting.my_vote === 'fail'" :disabled="busy || !item.voting.open" data-vote-fail @click="$emit('vote', 'fail')">{{ t('tests.voting.fail') }} <span class="tabular-nums">{{ item.voting.fail_count }}</span></BaseButton>
         <span v-if="busy" class="text-xs text-gray-500" role="status">{{ t('common.loading') }}</span>
         <span v-else-if="!item.voting.open" class="text-xs text-gray-500">{{ t('tests.voting.closed') }}</span>
         <span v-else class="text-xs text-gray-500 dark:text-gray-400">{{ t(item.voting.my_vote ? 'tests.voting.canChange' : 'tests.voting.oneVote') }}</span>
@@ -28,6 +28,8 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
 import { useI18n } from 'vue-i18n'
 import type { TestVote, TestVoteResult } from '@/types'
 import TestResultOutput from './TestResultOutput.vue'

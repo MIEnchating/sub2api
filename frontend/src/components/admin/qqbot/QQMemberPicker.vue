@@ -2,14 +2,14 @@
   <div class="min-w-0 space-y-2" data-testid="qq-member-picker">
     <label :for="`${id}-search`" class="block text-sm">{{ t('qqbot.memberPicker.search') }}</label>
     <div class="flex gap-2">
-      <input :id="`${id}-search`" v-model="query" type="search" class="input min-w-0 flex-1" maxlength="100" :disabled="disabled || missingApp" :placeholder="t('qqbot.memberPicker.searchPlaceholder')" :aria-describedby="`${id}-help`" data-testid="qq-member-search" @keydown.enter.prevent="refresh" />
-      <button type="button" class="btn btn-secondary shrink-0" :disabled="disabled || missingApp || loading" @click="refresh">{{ t('common.refresh') }}</button>
+      <FormInput :id="`${id}-search`" v-model="query" type="search" class="min-w-0 flex-1" maxlength="100" :disabled="disabled || missingApp" :placeholder="t('qqbot.memberPicker.searchPlaceholder')" :aria-describedby="`${id}-help`" data-testid="qq-member-search" @keydown.enter.prevent="refresh" />
+      <BaseButton type="button" class="btn-secondary shrink-0" :disabled="disabled || missingApp || loading" @click="refresh">{{ t('common.refresh') }}</BaseButton>
     </div>
     <label :for="`${id}-select`" class="block text-sm">{{ t('qqbot.memberPicker.member') }}</label>
-    <select :id="`${id}-select`" :value="selectedKey" :required="required" :disabled="disabled || missingApp || (!required && (loading || !!error))" :aria-busy="loading" class="input w-full" data-testid="qq-member-select" :aria-describedby="`${id}-help`" @change="choose">
+    <FormSelect :id="`${id}-select`" :value="selectedKey" :required="required" :disabled="disabled || missingApp || (!required && (loading || !!error))" :aria-busy="loading" class="w-full" data-testid="qq-member-select" :aria-describedby="`${id}-help`" @change="choose">
       <option value="">{{ t(required ? 'qqbot.memberPicker.choose' : 'qqbot.memberPicker.optional') }}</option>
       <option v-for="option in options" :key="key(option)" :value="key(option)" :disabled="key(option) !== selectedKey && (loading || !!error || !identifiable(option))">{{ optionLabel(option) }}</option>
-    </select>
+    </FormSelect>
     <p v-if="loading" role="status" class="text-xs text-gray-500">{{ t('qqbot.memberPicker.loading') }}</p>
     <p v-if="error" role="alert" class="text-sm text-red-600">{{ error }}</p>
     <p v-if="missingApp" class="text-xs text-amber-700">{{ t('qqbot.groupAdmins.appRequired') }}</p>
@@ -29,15 +29,18 @@
     </div>
     <p v-if="!loading && !error && !items.length" class="text-xs text-gray-500">{{ t('qqbot.memberPicker.empty') }}</p>
     <div v-if="total > pageSize" class="flex items-center justify-between gap-2 text-xs">
-      <button type="button" class="btn btn-secondary" :disabled="disabled || loading || page <= 1" @click="loadPage(page - 1)">{{ t('pagination.previous') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="disabled || loading || page <= 1" @click="loadPage(page - 1)">{{ t('pagination.previous') }}</BaseButton>
       <span>{{ page }} / {{ Math.max(1, Math.ceil(total / pageSize)) }}</span>
-      <button type="button" class="btn btn-secondary" :disabled="disabled || loading || page * pageSize >= total" @click="loadPage(page + 1)">{{ t('pagination.next') }}</button>
+      <BaseButton type="button" class="btn-secondary" :disabled="disabled || loading || page * pageSize >= total" @click="loadPage(page + 1)">{{ t('pagination.next') }}</BaseButton>
     </div>
     <p :id="`${id}-help`" class="text-xs text-gray-500">{{ t('qqbot.memberPicker.help') }}</p>
   </div>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { computed, onBeforeUnmount, ref, useId, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { qqbotAPI, type QQMemberOption, type QQMemberPage } from '@/api/qqbot'

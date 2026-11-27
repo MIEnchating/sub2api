@@ -3,34 +3,37 @@
     <p class="text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.modelPlaza.currencyHelp') }}</p>
     <div class="grid gap-4 sm:grid-cols-2">
       <label class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.modelPlaza.customerCurrency') }}
-        <select v-model="local.customer_currency" class="input mt-1" data-testid="plaza-customer-currency" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></select>
+        <FormSelect v-model="local.customer_currency" class="mt-1" data-testid="plaza-customer-currency" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></FormSelect>
       </label>
       <label class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.modelPlaza.officialCurrency') }}
-        <select v-model="local.official_currency" class="input mt-1" data-testid="plaza-official-currency" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></select>
+        <FormSelect v-model="local.official_currency" class="mt-1" data-testid="plaza-official-currency" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></FormSelect>
       </label>
     </div>
     <div>
       <label for="plaza-wallet-value" class="text-sm text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.modelPlaza.walletValue') }}</label>
       <div class="mt-1 flex gap-2">
-        <input id="plaza-wallet-value" v-model.number="local.wallet_unit_value" type="number" min="0.000001" step="any" required class="input max-w-xs" @input="publish" />
-        <select v-model="local.wallet_currency" class="input max-w-32" :aria-label="t('admin.settings.features.modelPlaza.walletCurrency')" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></select>
+        <FormInput id="plaza-wallet-value" v-model.number="local.wallet_unit_value" type="number" min="0.000001" step="any" required class="max-w-xs" @input="publish" />
+        <FormSelect v-model="local.wallet_currency" class="max-w-32" :aria-label="t('admin.settings.features.modelPlaza.walletCurrency')" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></FormSelect>
       </div>
     </div>
     <div>
       <p class="text-sm font-medium text-gray-700 dark:text-gray-300">{{ t('admin.settings.features.modelPlaza.overrides') }}</p>
       <p class="mt-1 text-xs text-gray-500 dark:text-gray-400">{{ t('admin.settings.features.modelPlaza.overridesHelp') }}</p>
       <div v-for="(rule, index) in rules" :key="rule.id" class="mt-2 flex flex-wrap gap-2">
-        <select v-model="rule.scope" class="input max-w-32" :aria-label="t('admin.settings.features.modelPlaza.scope')" @change="publish"><option value="platform">{{ t('admin.settings.features.modelPlaza.platform') }}</option><option value="model">{{ t('admin.settings.features.modelPlaza.model') }}</option></select>
-        <input v-model="rule.target" class="input min-w-40 flex-1" required maxlength="256" :aria-label="t('admin.settings.features.modelPlaza.target')" :placeholder="rule.scope === 'platform' ? 'deepseek' : 'deepseek-v4-pro'" data-rule-target @input="publish" />
-        <select v-model="rule.currency" class="input max-w-32" :aria-label="t('admin.settings.features.modelPlaza.ruleCurrency')" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></select>
-        <button type="button" class="btn btn-secondary" @click="rules.splice(index, 1); publish()">{{ t('common.remove') }}</button>
+        <FormSelect v-model="rule.scope" class="max-w-32" :aria-label="t('admin.settings.features.modelPlaza.scope')" @change="publish"><option value="platform">{{ t('admin.settings.features.modelPlaza.platform') }}</option><option value="model">{{ t('admin.settings.features.modelPlaza.model') }}</option></FormSelect>
+        <FormInput v-model="rule.target" class="min-w-40 flex-1" required maxlength="256" :aria-label="t('admin.settings.features.modelPlaza.target')" :placeholder="rule.scope === 'platform' ? 'deepseek' : 'deepseek-v4-pro'" data-rule-target @input="publish" />
+        <FormSelect v-model="rule.currency" class="max-w-32" :aria-label="t('admin.settings.features.modelPlaza.ruleCurrency')" @change="publish"><option value="USD">USD ($)</option><option value="CNY">CNY (¥)</option></FormSelect>
+        <BaseButton type="button" class="btn-secondary" @click="rules.splice(index, 1); publish()">{{ t('common.remove') }}</BaseButton>
       </div>
       <p v-if="error" class="mt-2 text-xs text-red-600">{{ error }}</p>
-      <button type="button" class="btn btn-secondary mt-2" @click="rules.push({ id: nextId++, scope: 'platform', target: '', currency: 'USD' })">{{ t('admin.settings.features.modelPlaza.addRule') }}</button>
+      <BaseButton type="button" class="btn-secondary mt-2" @click="rules.push({ id: nextId++, scope: 'platform', target: '', currency: 'USD' })">{{ t('admin.settings.features.modelPlaza.addRule') }}</BaseButton>
     </div>
   </div>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { nextTick, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import type { PlazaCurrencySettings } from '@/api/modelPlaza'

@@ -8,32 +8,32 @@
           <h1 class="mt-1 text-2xl font-semibold tracking-tight text-gray-950 dark:text-white">{{ t('admin.safetyPromptAudit.title') }}</h1>
           <p class="mt-2 max-w-3xl text-sm text-gray-500 dark:text-dark-300">{{ t('admin.safetyPromptAudit.description') }}</p>
         </div>
-        <button type="button" class="btn btn-secondary btn-sm" :disabled="loading" @click="load">{{ t('admin.safetyPromptAudit.refresh') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm" :disabled="loading" @click="load">{{ t('admin.safetyPromptAudit.refresh') }}</BaseButton>
       </header>
 
       <p v-if="loading" role="status" class="card px-5 py-8 text-sm text-gray-500">{{ t('admin.safetyPromptAudit.loading') }}</p>
       <div v-else-if="error" role="alert" class="card px-5 py-8">
         <p class="text-sm text-red-600 dark:text-red-300">{{ t('admin.safetyPromptAudit.loadFailed') }}</p>
-        <button type="button" class="btn btn-secondary btn-sm mt-3" @click="load">{{ t('admin.safetyPromptAudit.refresh') }}</button>
+        <BaseButton type="button" class="btn-secondary btn-sm mt-3" @click="load">{{ t('admin.safetyPromptAudit.refresh') }}</BaseButton>
       </div>
       <template v-else>
         <section class="card px-5 py-4">
           <h2 class="font-semibold text-gray-900 dark:text-white">{{ t('admin.safetyPromptAudit.module') }}</h2>
           <div class="mt-4 grid gap-4 lg:grid-cols-2">
             <label class="flex items-start gap-3 text-sm">
-              <input v-model="form.enabled" type="checkbox" class="mt-1" data-testid="safety-prompt-enabled" />
+              <FormInput v-model="form.enabled" type="checkbox" class="mt-1" data-testid="safety-prompt-enabled" />
               <span><strong class="block">{{ t('admin.safetyPromptAudit.enabled') }}</strong><span class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.enabledHint') }}</span></span>
             </label>
             <label class="flex items-start gap-3 text-sm">
-              <input v-model="form.signal_enabled" type="checkbox" class="mt-1" data-testid="safety-prompt-signal" />
+              <FormInput v-model="form.signal_enabled" type="checkbox" class="mt-1" data-testid="safety-prompt-signal" />
               <span><strong class="block">{{ t('admin.safetyPromptAudit.signalEnabled') }}</strong><span class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.signalHint') }}</span></span>
             </label>
             <label class="text-sm">{{ t('admin.safetyPromptAudit.retentionDays') }}
-              <input v-model.number="form.retention_days" type="number" min="1" max="90" class="input mt-1 w-full" data-testid="safety-prompt-retention" />
+              <FormInput v-model.number="form.retention_days" type="number" min="1" max="90" class="mt-1 w-full" data-testid="safety-prompt-retention" />
               <span class="mt-1 block text-xs text-gray-500">{{ t('admin.safetyPromptAudit.retentionHint') }}</span>
             </label>
             <div class="flex items-end">
-              <button type="button" class="btn btn-primary btn-sm" :disabled="saving" @click="save">{{ saving ? t('admin.safetyPromptAudit.saving') : t('admin.safetyPromptAudit.save') }}</button>
+              <BaseButton type="button" class="btn-primary btn-sm" :disabled="saving" @click="save">{{ saving ? t('admin.safetyPromptAudit.saving') : t('admin.safetyPromptAudit.save') }}</BaseButton>
             </div>
           </div>
           <p v-if="notice" role="status" class="mt-3 text-sm text-emerald-600 dark:text-emerald-300">{{ notice }}</p>
@@ -47,18 +47,18 @@
 
         <section class="card mt-4 px-4 py-4 sm:px-6">
           <div class="grid gap-3 sm:grid-cols-3">
-            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.from') }}<input v-model="from" type="date" class="input mt-1 w-full" /></label>
-            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.to') }}<input v-model="to" type="date" class="input mt-1 w-full" /></label>
-            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.search') }}<input v-model="search" type="search" class="input mt-1 w-full" /></label>
+            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.from') }}<FormInput v-model="from" type="date" class="mt-1 w-full" /></label>
+            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.to') }}<FormInput v-model="to" type="date" class="mt-1 w-full" /></label>
+            <label class="text-xs text-gray-500">{{ t('admin.safetyPromptAudit.filters.search') }}<FormInput v-model="search" type="search" class="mt-1 w-full" /></label>
           </div>
           <div class="mt-3 flex flex-wrap items-center gap-2">
-            <button type="button" class="btn btn-secondary btn-sm" @click="setToday">{{ t('admin.safetyPromptAudit.filters.today') }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" @click="clearFilters">{{ t('admin.safetyPromptAudit.filters.all') }}</button>
+            <BaseButton type="button" class="btn-secondary btn-sm" @click="setToday">{{ t('admin.safetyPromptAudit.filters.today') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary btn-sm" @click="clearFilters">{{ t('admin.safetyPromptAudit.filters.all') }}</BaseButton>
             <span class="text-xs text-gray-500" data-testid="safety-prompt-count">{{ countText }}</span>
           </div>
           <div v-if="badRange" role="alert" class="mt-3 text-sm text-amber-700 dark:text-amber-300">{{ t('admin.safetyPromptAudit.badRange') }}</div>
           <div v-else-if="filtered.length" class="mt-4 overflow-x-auto" data-testid="safety-prompt-table">
-            <table class="w-full whitespace-nowrap text-left text-sm">
+            <BaseTable class="w-full whitespace-nowrap text-left text-sm">
               <thead><tr>
                 <th class="px-3 py-2 text-xs font-medium text-gray-500">{{ t('admin.safetyPromptAudit.table.time') }}</th>
                 <th class="px-3 py-2 text-xs font-medium text-gray-500">{{ t('admin.safetyPromptAudit.table.model') }}</th>
@@ -73,12 +73,12 @@
                   <td class="max-w-xl whitespace-pre-wrap break-words px-3 py-3 text-xs">{{ event.summary?.trim() || t('admin.safetyPromptAudit.noSummary') }}</td>
                 </tr>
               </tbody>
-            </table>
+            </BaseTable>
           </div>
           <p v-else class="mt-4 text-sm text-gray-500" data-testid="safety-prompt-empty">{{ t('admin.safetyPromptAudit.empty') }}</p>
           <div class="mt-4 flex flex-wrap gap-2">
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="!filtered.length" @click="exportJson">{{ t('admin.safetyPromptAudit.exportJson') }}</button>
-            <button type="button" class="btn btn-secondary btn-sm" :disabled="!filtered.length" @click="exportCsv">{{ t('admin.safetyPromptAudit.exportCsv') }}</button>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="!filtered.length" @click="exportJson">{{ t('admin.safetyPromptAudit.exportJson') }}</BaseButton>
+            <BaseButton type="button" class="btn-secondary btn-sm" :disabled="!filtered.length" @click="exportCsv">{{ t('admin.safetyPromptAudit.exportCsv') }}</BaseButton>
           </div>
         </section>
       </template>
@@ -87,6 +87,9 @@
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onMounted, reactive, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import AppLayout from '@/components/layout/AppLayout.vue'

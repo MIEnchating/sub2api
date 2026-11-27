@@ -78,7 +78,7 @@ func TestUsageBillingRepositoryApply_MissingKeySkipsKeyCounters(t *testing.T) {
 				mock.ExpectExec("UPDATE api_keys").WithArgs(1.25, int64(7)).
 					WillReturnResult(sqlmock.NewResult(0, 0))
 			}
-			expectNoAutoCreditConfig(mock, "90.00000000")
+
 			mock.ExpectCommit()
 			result, err := NewUsageBillingRepository(nil, db).Apply(context.Background(), cmd)
 			require.NoError(t, err)
@@ -90,9 +90,4 @@ func TestUsageBillingRepositoryApply_MissingKeySkipsKeyCounters(t *testing.T) {
 			require.NoError(t, mock.ExpectationsWereMet())
 		})
 	}
-}
-
-func expectNoAutoCreditConfig(mock sqlmock.Sqlmock, balance string) {
-	mock.ExpectQuery("SELECT balance::text,status FROM users").WithArgs(int64(42)).WillReturnRows(sqlmock.NewRows([]string{"balance", "status"}).AddRow(balance, "active"))
-	mock.ExpectQuery("UPDATE auto_credit_config SET debit_epoch").WillReturnRows(sqlmock.NewRows([]string{"debit_epoch"}))
 }

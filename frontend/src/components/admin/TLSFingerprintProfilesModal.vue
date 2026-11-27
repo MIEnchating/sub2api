@@ -11,10 +11,10 @@
         <p class="text-sm text-gray-500 dark:text-gray-400">
           {{ t('admin.tlsFingerprintProfiles.description') }}
         </p>
-        <button @click="showCreateModal = true" class="btn btn-primary btn-sm">
+        <BaseButton @click="showCreateModal = true" class="btn-primary btn-sm">
           <Icon name="plus" size="sm" class="mr-1" />
           {{ t('admin.tlsFingerprintProfiles.createProfile') }}
-        </button>
+        </BaseButton>
       </div>
 
       <!-- Profiles Table -->
@@ -35,7 +35,7 @@
       </div>
 
       <div v-else class="max-h-96 overflow-auto rounded-lg border border-gray-200 dark:border-dark-600">
-        <table class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
+        <BaseTable class="min-w-full divide-y divide-gray-200 dark:divide-dark-700">
           <thead class="sticky top-0 bg-gray-50 dark:bg-dark-700">
             <tr>
               <th class="px-3 py-2 text-left text-xs font-medium uppercase text-gray-500 dark:text-gray-400">
@@ -75,13 +75,13 @@
               </td>
               <td class="px-3 py-2">
                 <div v-if="profile.alpn_protocols?.length" class="flex flex-wrap gap-1">
-                  <span
+                  <StatusBadge
                     v-for="proto in profile.alpn_protocols.slice(0, 3)"
                     :key="proto"
-                    class="badge badge-primary text-xs"
+                    class="badge-primary text-xs"
                   >
                     {{ proto }}
-                  </span>
+                  </StatusBadge>
                   <span v-if="profile.alpn_protocols.length > 3" class="text-xs text-gray-500">
                     +{{ profile.alpn_protocols.length - 3 }}
                   </span>
@@ -108,15 +108,15 @@
               </td>
             </tr>
           </tbody>
-        </table>
+        </BaseTable>
       </div>
     </div>
 
     <template #footer>
       <div class="flex justify-end">
-        <button @click="$emit('close')" class="btn btn-secondary">
+        <BaseButton @click="$emit('close')" class="btn-secondary">
           {{ t('common.close') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
 
@@ -132,17 +132,17 @@
         <!-- Paste YAML -->
         <div>
           <label class="input-label">{{ t('admin.tlsFingerprintProfiles.form.pasteYaml') }}</label>
-          <textarea
+          <FormTextarea
             v-model="yamlInput"
             rows="4"
-            class="input font-mono text-xs"
+            class="font-mono text-xs"
             :placeholder="t('admin.tlsFingerprintProfiles.form.pasteYamlPlaceholder')"
             @paste="handleYamlPaste"
           />
           <div class="mt-1 flex items-center gap-2">
-            <button type="button" @click="parseYamlInput" class="btn btn-secondary btn-sm">
+            <BaseButton type="button" @click="parseYamlInput" class="btn-secondary btn-sm">
               {{ t('admin.tlsFingerprintProfiles.form.parseYaml') }}
-            </button>
+            </BaseButton>
             <p class="text-xs text-gray-500 dark:text-gray-400">
               {{ t('admin.tlsFingerprintProfiles.form.pasteYamlHint') }}
               <a href="https://tls.sub2api.org" target="_blank" rel="noopener noreferrer" class="text-primary-600 hover:text-primary-700 dark:text-primary-400 dark:hover:text-primary-300 underline">{{ t('admin.tlsFingerprintProfiles.form.openCollector') }}</a>
@@ -156,20 +156,18 @@
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="input-label">{{ t('admin.tlsFingerprintProfiles.form.name') }}</label>
-            <input
+            <FormInput
               v-model="form.name"
               type="text"
               required
-              class="input"
               :placeholder="t('admin.tlsFingerprintProfiles.form.namePlaceholder')"
             />
           </div>
           <div>
             <label class="input-label">{{ t('admin.tlsFingerprintProfiles.form.description') }}</label>
-            <input
+            <FormInput
               v-model="form.description"
               type="text"
-              class="input"
               :placeholder="t('admin.tlsFingerprintProfiles.form.descriptionPlaceholder')"
             />
           </div>
@@ -177,21 +175,10 @@
 
         <!-- GREASE Toggle -->
         <div class="flex items-center gap-3">
-          <button
-            type="button"
-            @click="form.enable_grease = !form.enable_grease"
-            :class="[
-              'relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-primary-500 focus:ring-offset-2',
-              form.enable_grease ? 'bg-primary-600' : 'bg-gray-200 dark:bg-dark-600'
-            ]"
-          >
-            <span
-              :class="[
-                'pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out',
-                form.enable_grease ? 'translate-x-4' : 'translate-x-0'
-              ]"
-            />
-          </button>
+          <Toggle
+            compact
+            v-model="form.enable_grease"
+          />
           <div>
             <span class="text-sm font-medium text-gray-700 dark:text-gray-300">
               {{ t('admin.tlsFingerprintProfiles.form.enableGrease') }}
@@ -206,10 +193,10 @@
         <div class="grid grid-cols-2 gap-4">
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.cipherSuites') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.cipher_suites"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'0x1301, 0x1302, 0xc02c'"
             />
             <p class="input-hint text-xs">{{ t('admin.tlsFingerprintProfiles.form.cipherSuitesHint') }}</p>
@@ -217,10 +204,10 @@
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.curves') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.curves"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'29, 23, 24'"
             />
             <p class="input-hint text-xs">{{ t('admin.tlsFingerprintProfiles.form.curvesHint') }}</p>
@@ -228,60 +215,60 @@
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.signatureAlgorithms') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.signature_algorithms"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'0x0403, 0x0804, 0x0401'"
             />
           </div>
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.supportedVersions') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.supported_versions"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'0x0304, 0x0303'"
             />
           </div>
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.keyShareGroups') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.key_share_groups"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'29, 23'"
             />
           </div>
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.extensions') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.extensions"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'0x0000, 0x0005, 0x000a'"
             />
           </div>
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.pointFormats') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.point_formats"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'0'"
             />
           </div>
 
           <div>
             <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.pskModes') }}</label>
-            <textarea
+            <FormTextarea
               v-model="fieldInputs.psk_modes"
               rows="2"
-              class="input font-mono text-xs"
+              class="font-mono text-xs"
               :placeholder="'1'"
             />
           </div>
@@ -290,10 +277,10 @@
         <!-- ALPN Protocols - full width -->
         <div>
           <label class="input-label text-xs">{{ t('admin.tlsFingerprintProfiles.form.alpnProtocols') }}</label>
-          <textarea
+          <FormTextarea
             v-model="fieldInputs.alpn_protocols"
             rows="2"
-            class="input font-mono text-xs"
+            class="font-mono text-xs"
             :placeholder="'h2, http/1.1'"
           />
         </div>
@@ -301,13 +288,13 @@
 
       <template #footer>
         <div class="flex justify-end gap-3">
-          <button @click="closeFormModal" type="button" class="btn btn-secondary">
+          <BaseButton @click="closeFormModal" type="button" class="btn-secondary">
             {{ t('common.cancel') }}
-          </button>
-          <button @click="handleSubmit" :disabled="submitting" class="btn btn-primary">
+          </BaseButton>
+          <BaseButton @click="handleSubmit" :disabled="submitting" class="btn-primary">
             <Icon v-if="submitting" name="refresh" size="sm" class="mr-1 animate-spin" />
             {{ showEditModal ? t('common.update') : t('common.create') }}
-          </button>
+          </BaseButton>
         </div>
       </template>
     </BaseDialog>
@@ -327,6 +314,12 @@
 </template>
 
 <script setup lang="ts">
+import StatusBadge from '@/components/common/StatusBadge.vue'
+import Toggle from '@/components/common/Toggle.vue'
+import BaseButton from '@/components/common/BaseButton.vue'
+import BaseTable from '@/components/common/BaseTable.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormTextarea from '@/components/common/FormTextarea.vue'
 import { ref, reactive, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { useAppStore } from '@/stores/app'

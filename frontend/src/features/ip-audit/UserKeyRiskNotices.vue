@@ -24,7 +24,7 @@
       class="max-h-[min(24vh,16rem)] overflow-y-auto overscroll-contain px-4 pb-4"
     >
       <div class="flex justify-end">
-        <button class="btn btn-secondary btn-sm" :disabled="busy" @click="load(0)">{{ t('common.refresh') }}</button>
+        <BaseButton class="btn-secondary btn-sm" :disabled="busy" @click="load(0)">{{ t('common.refresh') }}</BaseButton>
       </div>
       <p class="mt-2 text-sm text-gray-600 dark:text-gray-300">{{ t('ipAudit.keyRisk.userHint') }}</p>
       <p v-if="error" role="alert" class="mt-2 text-sm text-red-600">{{ t('ipAudit.keyRisk.error') }}</p>
@@ -39,25 +39,26 @@
           <p v-else-if="item.state !== 'pending'" class="mt-2 text-sm">{{ t(`ipAudit.keyRisk.${item.state}`) }}</p>
           <template v-else>
             <p v-if="item.attempts >= item.max_reminders" class="mt-2 text-sm">{{ t('ipAudit.keyRisk.limitReached') }}</p>
-            <button class="btn btn-secondary btn-sm mt-2" :disabled="busy" @click="confirming = item">{{ t('ipAudit.keyRisk.acknowledge') }}</button>
+            <BaseButton class="btn-secondary btn-sm mt-2" :disabled="busy" @click="confirming = item">{{ t('ipAudit.keyRisk.acknowledge') }}</BaseButton>
           </template>
           <div v-if="confirming?.event_id === item.event_id" class="mt-3 space-y-2 rounded border border-amber-300 p-3" role="group" :aria-label="t('ipAudit.keyRisk.acknowledge')">
             <p class="text-sm">{{ t('ipAudit.keyRisk.ackConfirm') }}</p>
             <div class="flex flex-wrap gap-2">
-              <button class="btn btn-primary btn-sm" :disabled="busy" data-test="confirm-risk" @click="acknowledge(item)">{{ t('ipAudit.keyRisk.ackSubmit') }}</button>
-              <button class="btn btn-secondary btn-sm" :disabled="busy" @click="confirming = null">{{ t('common.cancel') }}</button>
+              <BaseButton class="btn-primary btn-sm" :disabled="busy" data-test="confirm-risk" @click="acknowledge(item)">{{ t('ipAudit.keyRisk.ackSubmit') }}</BaseButton>
+              <BaseButton class="btn-secondary btn-sm" :disabled="busy" @click="confirming = null">{{ t('common.cancel') }}</BaseButton>
             </div>
           </div>
         </li>
       </ul>
       <div v-if="before || items.length === 50" class="mt-3 flex gap-2">
-        <button class="btn btn-secondary btn-sm" :disabled="busy || !before" @click="load(0)">{{ t('ipAudit.keyRisk.firstPage') }}</button>
-        <button class="btn btn-secondary btn-sm" :disabled="busy || items.length < 50" @click="load(items[items.length - 1]!.event_id)">{{ t('ipAudit.next') }}</button>
+        <BaseButton class="btn-secondary btn-sm" :disabled="busy || !before" @click="load(0)">{{ t('ipAudit.keyRisk.firstPage') }}</BaseButton>
+        <BaseButton class="btn-secondary btn-sm" :disabled="busy || items.length < 50" @click="load(items[items.length - 1]!.event_id)">{{ t('ipAudit.next') }}</BaseButton>
       </div>
     </div>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
 import { onMounted, ref, useId } from 'vue'
 import RiskIdentity from './RiskIdentity.vue'
 import { useI18n } from 'vue-i18n'

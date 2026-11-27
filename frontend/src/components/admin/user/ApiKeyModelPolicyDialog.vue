@@ -21,28 +21,28 @@
         <div v-for="row in rows" :key="row.id" class="grid grid-cols-1 gap-2 sm:grid-cols-[1fr_auto_1fr_auto] sm:items-end" data-test="model-mapping-row">
           <label class="block min-w-0">
             <span class="input-label">{{ t('apiKeyModelPolicy.requestedModel') }}</span>
-            <input v-model="row.source" class="input font-mono" type="text" required maxlength="200" placeholder="gpt-6.1-sol" data-test="mapping-source" />
+            <FormInput v-model="row.source" class="font-mono" type="text" required maxlength="200" placeholder="gpt-6.1-sol" data-test="mapping-source" />
           </label>
           <span aria-hidden="true" class="hidden pb-2.5 text-gray-400 sm:block">→</span>
           <label class="block min-w-0">
             <span class="input-label">{{ t('apiKeyModelPolicy.targetModel') }}</span>
-            <input v-model="row.target" class="input font-mono" type="text" required maxlength="200" placeholder="gpt-5.6-sol" data-test="mapping-target" />
+            <FormInput v-model="row.target" class="font-mono" type="text" required maxlength="200" placeholder="gpt-5.6-sol" data-test="mapping-target" />
           </label>
-          <button type="button" class="btn btn-secondary" :aria-label="t('apiKeyModelPolicy.removeMapping')" @click="removeRow(row.id)">
+          <BaseButton type="button" class="btn-secondary" :aria-label="t('apiKeyModelPolicy.removeMapping')" @click="removeRow(row.id)">
             {{ t('common.remove') }}
-          </button>
+          </BaseButton>
         </div>
-        <button type="button" class="btn btn-secondary" :disabled="rows.length >= 100" data-test="add-mapping" @click="addRow">
+        <BaseButton type="button" class="btn-secondary" :disabled="rows.length >= 100" data-test="add-mapping" @click="addRow">
           {{ t('apiKeyModelPolicy.addMapping') }}
-        </button>
+        </BaseButton>
       </fieldset>
 
       <div>
         <label for="api-key-reasoning-effort" class="input-label">{{ t('apiKeyModelPolicy.reasoningEffort') }}</label>
-        <select id="api-key-reasoning-effort" v-model="reasoningEffort" class="input" :disabled="saving" data-test="reasoning-effort">
+        <FormSelect id="api-key-reasoning-effort" v-model="reasoningEffort" :disabled="saving" data-test="reasoning-effort">
           <option value="">{{ t('apiKeyModelPolicy.followClient') }}</option>
           <option v-for="effort in efforts" :key="effort" :value="effort">{{ effort }}</option>
-        </select>
+        </FormSelect>
         <p class="mt-2 text-sm text-gray-500 dark:text-dark-300">{{ t('apiKeyModelPolicy.effortHint') }}</p>
       </div>
       <div class="rounded-xl border border-gray-200 p-4 dark:border-dark-600">
@@ -76,10 +76,10 @@
             :user-id="authStore.user?.id"
           />
         </div>
-        <input
+        <FormInput
           id="api-key-context-token-limit"
           v-model="contextTokenLimit"
-          class="input mt-2"
+          class="mt-2"
           type="number"
           min="0"
           max="2147483647"
@@ -95,16 +95,19 @@
     </form>
     <template #footer>
       <div class="flex justify-end gap-3">
-        <button type="button" class="btn btn-secondary" :disabled="saving" @click="close">{{ t('common.cancel') }}</button>
-        <button type="submit" form="api-key-model-policy-form" class="btn btn-primary" :disabled="saving || !apiKey">
+        <BaseButton type="button" class="btn-secondary" :disabled="saving" @click="close">{{ t('common.cancel') }}</BaseButton>
+        <BaseButton type="submit" form="api-key-model-policy-form" class="btn-primary" :disabled="saving || !apiKey">
           {{ saving ? t('common.saving') : t('common.save') }}
-        </button>
+        </BaseButton>
       </div>
     </template>
   </BaseDialog>
 </template>
 
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
+import FormSelect from '@/components/common/FormSelect.vue'
 import { onUnmounted, ref, watch } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { adminAPI } from '@/api/admin'

@@ -2,7 +2,7 @@
   <section class="card p-5" data-testid="harvest-proxy-settings">
     <p v-if="error" role="alert" class="mb-3 text-sm text-red-600">{{ error }}</p>
     <p v-if="loading" class="text-sm text-gray-500">{{ text('加载中…', 'Loading…') }}</p>
-    <button v-else-if="!loaded" type="button" class="btn btn-secondary" @click="load">{{ text('重试', 'Retry') }}</button>
+    <BaseButton v-else-if="!loaded" type="button" class="btn-secondary" @click="load">{{ text('重试', 'Retry') }}</BaseButton>
     <form v-else @submit.prevent="save">
       <fieldset :disabled="saving">
         <div>
@@ -19,7 +19,7 @@
                 ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                 : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
             >
-              <input
+              <FormInput
                 class="sr-only"
                 type="radio"
                 name="codex-ticket-proxy-mode"
@@ -35,7 +35,7 @@
                 ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                 : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
             >
-              <input
+              <FormInput
                 class="sr-only"
                 type="radio"
                 name="codex-ticket-proxy-mode"
@@ -51,7 +51,7 @@
                 ? 'border-primary-500 bg-primary-50 text-primary-700 dark:bg-primary-900/30 dark:text-primary-300'
                 : 'border-gray-200 text-gray-600 hover:border-primary-300 dark:border-dark-600 dark:text-gray-400'"
             >
-              <input
+              <FormInput
                 class="sr-only"
                 type="radio"
                 name="codex-ticket-proxy-mode"
@@ -79,12 +79,12 @@
           >
             {{ t("admin.settings.gatewayForwarding.codexTicketProxyIPPoolHint") }}
           </p>
-          <input
+          <FormInput
             v-else
             id="codex-ticket-harvest-proxy"
             v-model="form.openai_codex_ticket_harvest_proxy_url"
             type="text"
-            class="input mt-3 w-full font-mono text-sm"
+            class="mt-3 w-full font-mono text-sm"
             :placeholder="t('admin.settings.gatewayForwarding.codexTicketHarvestProxyPlaceholder')"
             autocomplete="off"
           />
@@ -96,11 +96,13 @@
           </p>
         </div>
       </fieldset>
-      <button type="submit" data-testid="save-harvest-proxy" class="btn btn-primary btn-sm mt-4" :disabled="saving || !canSave">{{ text('保存采票出口', 'Save harvest exit') }}</button>
+      <BaseButton type="submit" data-testid="save-harvest-proxy" class="btn-primary btn-sm mt-4" :disabled="saving || !canSave">{{ text('保存采票出口', 'Save harvest exit') }}</BaseButton>
     </form>
   </section>
 </template>
 <script setup lang="ts">
+import BaseButton from '@/components/common/BaseButton.vue'
+import FormInput from '@/components/common/FormInput.vue'
 import { computed, onBeforeUnmount, onMounted, ref } from 'vue'
 import { useI18n } from 'vue-i18n'
 import { getSettings, updateSettings } from '@/api/admin/settings'
