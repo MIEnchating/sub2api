@@ -303,9 +303,9 @@ func TestGatewaySnapshotMultiProcessFaultRecovery(t *testing.T) {
 		key := "sched:" + faultBucket + ":v" + version
 		// Inject faults into the current account payload namespace.
 		if kind == "metadata" {
-			key = "sched:meta:v2:7"
+			key = "sched:meta:v4:7"
 		} else if kind == "full-account" {
-			key = "sched:acc:v2:7"
+			key = "sched:acc:v4:7"
 		}
 		removed, err := client.Del(ctx, key).Result()
 		require.NoError(t, err)
