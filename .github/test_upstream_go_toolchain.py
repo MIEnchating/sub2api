@@ -170,6 +170,33 @@ fi
                 self.assertEqual(result.returncode, 23)
                 self.assertNotIn('checked', result.stdout)
 
+    def test_lint_reuses_analysis_cache_and_propagates_timeout_failure(self):
+        script = self.container_args('check_backend_lint')[-1]
+        tools = self.root / 'tools'
+        tool_dir = tools / 'go1.27.2/linux-amd64/golangci-lint-v2.14.0'
+        tool_dir.mkdir(parents=True)
+        go = self.bin / 'go'
+        go.write_text('''#!/bin/sh
+case "$*" in
+    'env GOVERSION') echo go1.27.2 ;;
+    'env GOOS') echo linux ;;
+    'env GOARCH') echo amd64 ;;
+    *) exit 99 ;;
+esac
+''')
+        go.chmod(0o755)
+        lint = tool_dir / 'golangci-lint'
+        lint.write_text('''#!/bin/sh
+printf '%s\\n' "$GOLANGCI_LINT_CACHE" "$@"
+exit 4
+''')
+        lint.chmod(0o755)
+        result = self.run_shell(script.replace('/tools/', f'{tools}/'))
+        self.assertEqual(result.returncode, 4, result.stderr)
+        self.assertEqual(result.stdout.splitlines(), [
+            str(tool_dir / 'cache'), 'run', '--timeout=90m', './...',
+        ])
+
 
 if __name__ == '__main__':
     unittest.main()

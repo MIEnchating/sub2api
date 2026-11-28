@@ -81,7 +81,9 @@ check_backend_lint() {
     tool_dir="/tools/$(go env GOVERSION)/$(go env GOOS)-$(go env GOARCH)/golangci-lint-v2.14.0"
     mkdir -p "$tool_dir"
     test -x "$tool_dir/golangci-lint" || GOBIN="$tool_dir" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.14.0
-    "$tool_dir/golangci-lint" run --timeout=30m ./...
+    # Reuse analysis results across disposable containers. Give cold-cache
+    # runs on the sync runner time to finish the full analysis.
+    GOLANGCI_LINT_CACHE="$tool_dir/cache" "$tool_dir/golangci-lint" run --timeout=90m ./...
   '
 }
 
