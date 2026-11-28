@@ -4,6 +4,7 @@
 import argparse
 import re
 from datetime import datetime, timezone
+from email.headerregistry import Address
 from email.message import EmailMessage
 from email.policy import SMTP
 from email.utils import format_datetime, make_msgid
@@ -211,9 +212,9 @@ def render_report(text, preview=False):
     return re.sub(r"\{\{([A-Z_]+)\}\}", lambda match: values[match[1]], TEMPLATE.read_text(encoding="utf-8"))
 
 
-def compose_message(text, html, subject, sender, recipient):
+def compose_message(text, html, subject, sender, recipient, sender_name=""):
     message = EmailMessage(policy=SMTP)
-    message["From"] = sender
+    message["From"] = Address(display_name=sender_name, addr_spec=sender) if sender_name else sender
     message["To"] = recipient
     message["Subject"] = subject
     message["Date"] = format_datetime(datetime.now(timezone.utc))
@@ -238,6 +239,7 @@ def main():
     parser.add_argument("--preview", action="store_true")
     parser.add_argument("--subject")
     parser.add_argument("--sender")
+    parser.add_argument("--sender-name", default="")
     parser.add_argument("--recipient")
     args = parser.parse_args()
     text = args.text.read_text(encoding="utf-8")
@@ -247,7 +249,7 @@ def main():
         if not all((args.subject, args.sender, args.recipient)):
             parser.error("message requires --subject, --sender and --recipient")
         html = args.html.read_text(encoding="utf-8") if args.html and args.html.is_file() else None
-        args.output.write_bytes(compose_message(text, html, args.subject, args.sender, args.recipient))
+        args.output.write_bytes(compose_message(text, html, args.subject, args.sender, args.recipient, args.sender_name))
 
 
 if __name__ == "__main__":

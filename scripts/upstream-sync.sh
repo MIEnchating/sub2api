@@ -157,7 +157,7 @@ send_email() {
   [[ "${SMTP_SSL_ENABLED:-false}" == 'true' ]] && smtp_scheme='smtps'
   if ! python3 "$SCRIPT_DIR/../.github/render-upstream-sync-email.py" message \
     --text "$body_file" --html "$HTML_REPORT_FILE" --output "$message_file" \
-    --subject "$subject" --sender "$EMAIL_FROM" --recipient "$EMAIL_TO"; then
+    --subject "$subject" --sender "$EMAIL_FROM" --sender-name="${EMAIL_FROM_NAME:-}" --recipient "$EMAIL_TO"; then
     log 'unable to compose email; local report retained'
     rm -f "$message_file"
     return 1
@@ -1428,7 +1428,7 @@ main() {
   finalize_sync
   CURRENT_STAGE='完成'
   write_report '成功' "两个上游已按规则合并，全部检查通过，代码已推送；$RELEASE_REASON"
-  send_email '【sub2api】三上游代码合并成功报告' "$REPORT_FILE" || \
+  send_email '【Sub2API】定时合并报告 · 成功' "$REPORT_FILE" || \
     log "success email delivery failed; report retained at $REPORT_FILE"
   log "upstream sync completed: $PUSHED_COMMIT"
 }
